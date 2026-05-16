@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -42,7 +42,15 @@ public class GFilterTable<ROW_OBJECT> extends JPanel {
 
 	public void dispose() {
 		filterPanel.dispose();
-		table.dispose();
+	}
+
+	/**
+	 * Sets the accessible name prefix for both the table and the filter panel
+	 * @param prefix the name prefix
+	 */
+	public void setAccessibleNamePrefix(String prefix) {
+		table.setAccessibleNamePrefix(prefix);
+		filterPanel.setAccessibleNamePrefix(prefix);
 	}
 
 	private void buildTable() {
@@ -71,13 +79,12 @@ public class GFilterTable<ROW_OBJECT> extends JPanel {
 	private void addTableSelectionListener(GTable gTable) {
 		gTable.getSelectionModel().addListSelectionListener(e -> {
 			if (!e.getValueIsAdjusting()) {
-				rowSelected();
+				rowSelectionChanged();
 			}
 		});
 	}
 
 	private void buildThreadedTable() {
-		@SuppressWarnings("unchecked")
 		GThreadedTablePanel<ROW_OBJECT> tablePanel =
 			createThreadedTablePanel((ThreadedTableModel<ROW_OBJECT, ?>) model);
 		table = tablePanel.getTable();
@@ -117,6 +124,7 @@ public class GFilterTable<ROW_OBJECT> extends JPanel {
 
 	public void clearSelection() {
 		table.clearSelection();
+		table.getSelectionManager().clearSavedSelection();
 	}
 
 	/**
@@ -142,6 +150,10 @@ public class GFilterTable<ROW_OBJECT> extends JPanel {
 		return rowObject;
 	}
 
+	public int getRow(ROW_OBJECT rowObject) {
+		return filterPanel.getViewRow(rowObject);
+	}
+
 	public ROW_OBJECT getItemAt(Point point) {
 		int viewRow = table.rowAtPoint(point);
 		if (viewRow < 0) {
@@ -164,19 +176,31 @@ public class GFilterTable<ROW_OBJECT> extends JPanel {
 		listeners.remove(l);
 	}
 
-	/**
-	 * Notifies listeners that an item was selected.
-	 */
-	protected void rowSelected() {
+	private void rowSelectionChanged() {
 		ROW_OBJECT selectedObject = null;
 		if (table.getSelectedRow() >= 0) {
 			selectedObject = getSelectedRowObject();
 		}
 
 		if (selectedObject == null) {
+			rowSelectionCleared();
 			return; // can happen for transient events
 		}
 
+		rowSelected(selectedObject);
+	}
+
+	protected void rowSelectionCleared() {
+		for (ObjectSelectedListener<ROW_OBJECT> l : listeners) {
+			l.objectSelected(null);
+		}
+	}
+
+	/**
+	 * Notifies listeners that an item was selected
+	 * @param selectedObject the selected row object
+	 */
+	protected void rowSelected(ROW_OBJECT selectedObject) {
 		for (ObjectSelectedListener<ROW_OBJECT> l : listeners) {
 			l.objectSelected(selectedObject);
 		}
@@ -188,5 +212,19 @@ public class GFilterTable<ROW_OBJECT> extends JPanel {
 
 	public void setFiterText(String text) {
 		filterPanel.setFilterText(text);
+	}
+
+	public int getRow(Point point) {
+		return table.rowAtPoint(point);
+	}
+
+	public int getColumn(Point point) {
+		return table.columnAtPoint(point);
+	}
+
+	public Object getCellValue(Point point) {
+		int row = getRow(point);
+		int col = getColumn(point);
+		return table.getValueAt(row, col);
 	}
 }

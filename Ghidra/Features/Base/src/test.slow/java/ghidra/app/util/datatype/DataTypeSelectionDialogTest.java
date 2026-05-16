@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -37,22 +37,26 @@ import org.junit.*;
 
 import docking.DialogComponentProvider;
 import docking.DockingDialog;
-import docking.options.editor.ButtonPanelFactory;
 import docking.widgets.DropDownSelectionTextField;
-import docking.widgets.DropDownTextField;
+import docking.widgets.DropDownTextFieldDataModel;
+import docking.widgets.button.BrowseButton;
 import docking.widgets.tree.GTree;
 import docking.widgets.tree.GTreeNode;
 import generic.test.AbstractGTest;
+import generic.theme.GThemeDefaults.Colors.Palette;
 import generic.util.WindowUtilities;
 import generic.util.image.ImageUtils;
 import ghidra.app.plugin.core.datamgr.DataTypeManagerPlugin;
-import ghidra.app.plugin.core.datamgr.archive.*;
+import ghidra.app.plugin.core.datamgr.archive.Archive;
+import ghidra.app.plugin.core.datamgr.archive.DataTypeManagerHandler;
 import ghidra.app.plugin.core.datamgr.tree.DataTypeArchiveGTree;
 import ghidra.app.plugin.core.datamgr.tree.DataTypeNode;
 import ghidra.app.plugin.core.datamgr.util.DataTypeChooserDialog;
 import ghidra.app.services.DataTypeManagerService;
 import ghidra.app.services.ProgramManager;
+import ghidra.framework.Application;
 import ghidra.framework.plugintool.PluginTool;
+import ghidra.framework.plugintool.ServiceProvider;
 import ghidra.program.database.ProgramBuilder;
 import ghidra.program.database.data.ProgramDataTypeManager;
 import ghidra.program.model.data.*;
@@ -62,8 +66,6 @@ import ghidra.test.TestEnv;
 import ghidra.util.Msg;
 import ghidra.util.data.DataTypeParser.AllowedDataTypes;
 import ghidra.util.task.TaskMonitorAdapter;
-import mockit.Mock;
-import mockit.MockUp;
 
 public class DataTypeSelectionDialogTest extends AbstractGhidraHeadedIntegrationTest {
 
@@ -77,18 +79,15 @@ public class DataTypeSelectionDialogTest extends AbstractGhidraHeadedIntegration
 
 	private Set<Archive> archivesToClose = new HashSet<>();
 
-	private SpyDropDownSelectionTextField<?> spyTextField;
+	private SpyDropDownSelectionTextField spyTextField;
 
 	@Before
 	public void setUp() throws Exception {
-		System.err.println("\n\nsetUp() - " + testName.getMethodName());
+		Msg.debug(this, "\n\nsetUp() - " + testName.getMethodName());
 
 		setErrorGUIEnabled(false);
 
 		UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
-
-		// trigger the mock to load
-		spyTextField = new SpyDropDownSelectionTextField<>();
 
 		env = new TestEnv();
 
@@ -109,16 +108,40 @@ public class DataTypeSelectionDialogTest extends AbstractGhidraHeadedIntegration
 
 		closeUndesiredArchives();
 
+		createDtSelectionDialog();
+		assertNotNull(dialog);
+
+		Msg.debug(this, "\tend setUp()");
+	}
+
+	private void createDtSelectionDialog() {
+
 		runSwing(() -> {
+
+			//
+			// Slightly complicated overriding done to inject our spy text field
+			//
 			dialog = new DataTypeSelectionDialog(tool, program.getDataTypeManager(), -1,
-				AllowedDataTypes.ALL);
+				AllowedDataTypes.ALL) {
+				@Override
+				protected DataTypeSelectionEditor createEditor(ServiceProvider sp,
+						AllowedDataTypes allowedDataTypes) {
+					return new DataTypeSelectionEditor(null, sp, allowedDataTypes) {
+
+						@Override
+						protected DropDownSelectionTextField<DataType> createDropDownSelectionTextField(
+								DataTypeDropDownSelectionDataModel model) {
+
+							spyTextField = new SpyDropDownSelectionTextField(model);
+							return spyTextField;
+						}
+					};
+				}
+			};
+
 			DropDownSelectionTextField<?> field = getEditorTextField(dialog);
 			removeFocusIssues(field);
 		});
-
-		assertNotNull(dialog);
-
-		System.err.println("\tend setUp()");
 	}
 
 	private void removeFocusIssues(DropDownSelectionTextField<?> field) {
@@ -173,8 +196,9 @@ public class DataTypeSelectionDialogTest extends AbstractGhidraHeadedIntegration
 		assertTrue("The dialog was not made visible when tool.showDialog() was called.",
 			dialog.isVisible());
 
-		final JButton browseButton = findButtonByIcon(dialog, ButtonPanelFactory.BROWSE_ICON);
-		pressButton(browseButton);
+		AbstractButton browseButton =
+			findAbstractButtonByName(dialog.getComponent(), BrowseButton.NAME);
+		pressButton(browseButton, false);
 
 		Window window = waitForWindow("Data Type Chooser");
 
@@ -220,7 +244,7 @@ public class DataTypeSelectionDialogTest extends AbstractGhidraHeadedIntegration
 			doubleNode.getDataType().getName(), dataType.getName());
 
 		// show the dialog again and cancel and make sure that the user selection is null
-		pressButton(browseButton);
+		pressButton(browseButton, false);
 		window = waitForWindow("Data Type Chooser");
 		assertTrue("The data type selection tree was not shown after pressing the browse button",
 			(window instanceof DockingDialog));
@@ -242,11 +266,7 @@ public class DataTypeSelectionDialogTest extends AbstractGhidraHeadedIntegration
 	}
 
 	private void waitForDialogToClose(DockingDialog dockingDialog) {
-		int count = 0;
-		while (dockingDialog.isShowing() && count < 500) {
-			sleep(50);
-		}
-		assertTrue("Dialog did not close!", !dockingDialog.isShowing());
+		waitForCondition(() -> !dockingDialog.isShowing(), "Dialog did not close!");
 		waitForSwing();
 	}
 
@@ -347,7 +367,7 @@ public class DataTypeSelectionDialogTest extends AbstractGhidraHeadedIntegration
 		// fire the first enter key and make sure the completion window closes
 		triggerActionKey(getEditorTextField(dialog), 0, KeyEvent.VK_ENTER);
 
-// UPDATE - SCR 7176 - Enter key now closes the dialog, even if the selection window was open       
+// UPDATE - SCR 7176 - Enter key now closes the dialog, even if the selection window was open
 //        assertTrue( "The completion window is visible after pressing the enter key.",
 //            !completionWindow.isVisible() );
 //        assertTrue( "The data type selection dialog was closed when only the completion window " +
@@ -424,7 +444,7 @@ public class DataTypeSelectionDialogTest extends AbstractGhidraHeadedIntegration
 		clearText(getEditorTextField(dialog));
 
 		//
-		// Check that the tree chooser dialog is not shown when there are multiple matches, but 
+		// Check that the tree chooser dialog is not shown when there are multiple matches, but
 		// each data type is equivalent.  In this case we just pick the program's DT.
 		//
 		dataType = new CustomDataType(category.getCategoryPath(), crazyName, 100);
@@ -438,7 +458,7 @@ public class DataTypeSelectionDialogTest extends AbstractGhidraHeadedIntegration
 				"from multiple equivalent data types.");
 
 		//
-		// Check that more than 2 non-equivalent data types trigger the dialog to appear. 
+		// Check that more than 2 non-equivalent data types trigger the dialog to appear.
 		//
 		Category secondCategory = rootCategory.createCategory("testCategory2");
 		dataType = new CustomDataType(secondCategory.getCategoryPath(), crazyName, 2,
@@ -466,7 +486,7 @@ public class DataTypeSelectionDialogTest extends AbstractGhidraHeadedIntegration
 		clearText(getEditorTextField(dialog));
 		secondCategory.remove(dataType, new TaskMonitorAdapter());
 
-		// 
+		//
 		// After deleting the previous type, we have more than 2 multiple matches, all equivalent.
 		// (We tested this case above already)
 		//
@@ -576,12 +596,12 @@ public class DataTypeSelectionDialogTest extends AbstractGhidraHeadedIntegration
 		// We are trying to test that the user can type the name of a type (not pick it from the
 		// list) that exists in an open archive *that is not set on the dialog*.  The intent is
 		// that if we have to parse the text provided by the user, that we don't automatically
-		// pick one when it is an an archive that we didn't specify (like the program archive).
+		// pick one when it is an archive that we didn't specify (like the program archive).
 		//
 		// To test this, start with 3 types in a file archive: foo and a typedef to foo
 		// (foo_typedef) and a pointer to the typedef.
 		// Then, pick the typedef * as the initial type of the dialog.  After that, delete the
-		// ending text to turn the typedef in to the foo type, leaving the pointer char in the 
+		// ending text to turn the typedef in to the foo type, leaving the pointer char in the
 		// text field.  Pressing OK should show you a chooser to pick the type found.
 		//
 		//
@@ -705,7 +725,7 @@ public class DataTypeSelectionDialogTest extends AbstractGhidraHeadedIntegration
 			DataTypeManagerHandler dataTypeManagerHandler = plugin.getDataTypeManagerHandler();
 			File tempArchiveFile;
 			try {
-				tempArchiveFile = File.createTempFile("TestFileArchive", ".gdt");
+				tempArchiveFile = Application.createTempFile("TestFileArchive", ".gdt");
 			}
 			catch (IOException e) {
 				e.printStackTrace();
@@ -808,7 +828,7 @@ public class DataTypeSelectionDialogTest extends AbstractGhidraHeadedIntegration
 	}
 
 	private void closeDataTypeChooserTreeDialog(final DataTypeChooserDialog d) {
-		// make sure there are no pending notifications from previous data changes 
+		// make sure there are no pending notifications from previous data changes
 		// before we close the dialog, as this could lead to a disposed worker being used
 		waitForSwing();
 		program.flushEvents();
@@ -873,7 +893,7 @@ public class DataTypeSelectionDialogTest extends AbstractGhidraHeadedIntegration
 		String currentText = getText(textField);
 		if (!currentText.isEmpty()) {
 			// the key typing didn't work; try manually updating the text (we could probably just
-			// use this call instead of typing text, but the typing will execute a slightly 
+			// use this call instead of typing text, but the typing will execute a slightly
 			// different path in the code).
 			Msg.debug(this, "Clearing the text by typing DELETE did not work--manually clearing");
 			setText(textField, "");
@@ -999,18 +1019,22 @@ public class DataTypeSelectionDialogTest extends AbstractGhidraHeadedIntegration
 
 //==================================================================================================
 // Inner Classes
-//==================================================================================================	
+//==================================================================================================
 
 	/*
 	 * A spy that allows us to track when the text field under test will trigger its window to
 	 * be hidden.  We need this due to focus issues encountered in parallel mode.  Once we removed
 	 * the focus-sensitive issues, we have to track being hidden using this mock method.
 	 */
-	private class SpyDropDownSelectionTextField<T extends DropDownTextField<T>> extends MockUp<T> {
+	private class SpyDropDownSelectionTextField extends DropDownSelectionTextField<DataType> {
 
 		private volatile int hideId;
 
-		@Mock
+		public SpyDropDownSelectionTextField(DropDownTextFieldDataModel<DataType> dataModel) {
+			super(dataModel);
+		}
+
+		@Override
 		protected void hideMatchingWindow() {
 			++hideId;
 		}
@@ -1089,6 +1113,16 @@ public class DataTypeSelectionDialogTest extends AbstractGhidraHeadedIntegration
 		@Override
 		public void sourceArchiveAdded(DataTypeManager dataTypeManager,
 				SourceArchive sourceArchive) {
+			// don't care for now
+		}
+
+		@Override
+		public void programArchitectureChanged(DataTypeManager dataTypeManager) {
+			// don't care for now
+		}
+
+		@Override
+		public void restored(DataTypeManager dataTypeManager) {
 			// don't care for now
 		}
 	}
@@ -1171,12 +1205,11 @@ public class DataTypeSelectionDialogTest extends AbstractGhidraHeadedIntegration
 		final JTextField panelUpdateField = new JTextField("Hey Mom");
 		Highlighter highlighter = panelUpdateField.getHighlighter();
 		highlighter.addHighlight(0, 2,
-			new DefaultHighlighter.DefaultHighlightPainter(Color.YELLOW));
+			new DefaultHighlighter.DefaultHighlightPainter(Palette.YELLOW));
 
 		JPanel editorPanel = new JPanel(new BorderLayout());
 		DataTypeSelectionEditor editor =
-			new DataTypeSelectionEditor(tool, -1, AllowedDataTypes.ALL);
-		editor.setPreferredDataTypeManager(program.getDataTypeManager());
+			new DataTypeSelectionEditor(program.getDataTypeManager(), tool, AllowedDataTypes.ALL);
 
 		editorPanel.add(panelUpdateField, BorderLayout.SOUTH);
 		editorPanel.add(editor.getEditorComponent(), BorderLayout.NORTH);

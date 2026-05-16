@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,6 +17,10 @@ package ghidra.program.model.data;
 
 import java.util.*;
 
+import db.Transaction;
+import ghidra.program.database.map.AddressMap;
+import ghidra.program.model.lang.ProgramArchitecture;
+import ghidra.program.model.lang.PrototypeModel;
 import ghidra.util.*;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
@@ -36,6 +40,26 @@ public class TestDoubleDataTypeManager implements DataTypeManager {
 	@Override
 	public UniversalID getUniversalID() {
 		return id;
+	}
+
+	@Override
+	public AddressMap getAddressMap() {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public ProgramArchitecture getProgramArchitecture() {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public String getProgramArchitectureSummary() {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public DataOrganization getDataOrganization() {
+		throw new UnsupportedOperationException();
 	}
 
 	@Override
@@ -81,6 +105,11 @@ public class TestDoubleDataTypeManager implements DataTypeManager {
 
 	@Override
 	public Iterator<Composite> getAllComposites() {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public Iterator<FunctionDefinition> getAllFunctionDefinitions() {
 		throw new UnsupportedOperationException();
 	}
 
@@ -142,11 +171,6 @@ public class TestDoubleDataTypeManager implements DataTypeManager {
 	}
 
 	@Override
-	public void dataTypeChanged(DataType dataType) {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
 	public void addDataTypeManagerListener(DataTypeManagerChangeListener l) {
 		throw new UnsupportedOperationException();
 	}
@@ -167,7 +191,12 @@ public class TestDoubleDataTypeManager implements DataTypeManager {
 	}
 
 	@Override
-	public boolean remove(DataType dataType, TaskMonitor monitor) {
+	public boolean remove(DataType dataType) {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public void remove(List<DataType> dataTypes, TaskMonitor monitor) throws CancelledException {
 		throw new UnsupportedOperationException();
 	}
 
@@ -197,6 +226,11 @@ public class TestDoubleDataTypeManager implements DataTypeManager {
 	}
 
 	@Override
+	public Transaction openTransaction(String description) throws IllegalStateException {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
 	public int startTransaction(String description) {
 		throw new UnsupportedOperationException();
 	}
@@ -207,7 +241,7 @@ public class TestDoubleDataTypeManager implements DataTypeManager {
 	}
 
 	@Override
-	public void endTransaction(int transactionID, boolean commit) {
+	public boolean endTransaction(int transactionID, boolean commit) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -322,11 +356,6 @@ public class TestDoubleDataTypeManager implements DataTypeManager {
 	}
 
 	@Override
-	public DataOrganization getDataOrganization() {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
 	public List<SourceArchive> getSourceArchives() {
 		throw new UnsupportedOperationException();
 	}
@@ -343,6 +372,36 @@ public class TestDoubleDataTypeManager implements DataTypeManager {
 
 	@Override
 	public Set<DataType> getDataTypesContaining(DataType dataType) {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public boolean allowsDefaultBuiltInSettings() {
+		return false;
+	}
+
+	@Override
+	public boolean allowsDefaultComponentSettings() {
+		return false;
+	}
+
+	@Override
+	public Collection<String> getKnownCallingConventionNames() {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public Collection<String> getDefinedCallingConventionNames() {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public PrototypeModel getDefaultCallingConvention() {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public PrototypeModel getCallingConvention(String name) {
 		throw new UnsupportedOperationException();
 	}
 }

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -35,6 +35,11 @@ public class DialogComponentProviderPopupActionManager {
 		this.provider = provider;
 	}
 
+	void dispose() {
+		provider = null;
+		popupActions.clear();
+	}
+
 	void addAction(DockingActionIf action) {
 		MenuData popupMenuData = action.getPopupMenuData();
 		if (popupMenuData == null) {
@@ -44,17 +49,20 @@ public class DialogComponentProviderPopupActionManager {
 		popupActions.add(action);
 	}
 
+	void removeAction(DockingActionIf action) {
+		popupActions.remove(action);
+	}
+
 	void popupMenu(ActionContext actionContext, MouseEvent e) {
 		if (e.isConsumed()) {
 			return;
 		}
 
 		if (actionContext == null) {
-			actionContext = new ActionContext();
+			actionContext = new DefaultActionContext();
 		}
 
-		// If the source is null, must set it or we won't have 
-		// any popups shown.
+		// If the source is null, must set it or we won't have any popups shown.
 		if (actionContext.getSourceObject() == null) {
 			actionContext.setSourceObject(e.getSource());
 		}
@@ -80,6 +88,7 @@ public class DialogComponentProviderPopupActionManager {
 
 		// Popup menu if items are available
 		JPopupMenu popupMenu = menuMgr.getPopupMenu();
+		popupMenu.getAccessibleContext().setAccessibleName("Popup");
 		Component c = (Component) e.getSource();
 		popupMenu.addPopupMenuListener(popupMenuHandler);
 		popupMenu.show(c, e.getX(), e.getY());

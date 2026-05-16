@@ -15,8 +15,7 @@
  */
 package ghidra.app.plugin.core.label;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
 import javax.swing.JComponent;
 import javax.swing.JTable;
@@ -24,8 +23,7 @@ import javax.swing.table.TableModel;
 
 import org.junit.*;
 
-import docking.ActionContext;
-import docking.DialogComponentProvider;
+import docking.*;
 import docking.action.DockingActionIf;
 import generic.test.TestUtils;
 import ghidra.app.LocationCallback;
@@ -44,7 +42,8 @@ import ghidra.program.model.symbol.*;
 import ghidra.program.util.*;
 import ghidra.test.*;
 
-public class LabelActionTest extends AbstractGhidraHeadedIntegrationTest implements LocationCallback {
+public class LabelActionTest extends AbstractGhidraHeadedIntegrationTest
+		implements LocationCallback {
 	private static final String ADD_LABEL = "Add Label";
 	private static final String EDIT_LABEL = "Edit Label";
 	private static final String EDIT_EXTERNAL_LOC = "Edit External Location";
@@ -80,6 +79,8 @@ public class LabelActionTest extends AbstractGhidraHeadedIntegrationTest impleme
 		editExternalLocation = getAction(labelMgrPlugin, EDIT_EXTERNAL_LOC);
 		removeLabel = getAction(labelMgrPlugin, REMOVE_LABEL);
 		setLabel = getAction(labelMgrPlugin, SET_LABEL);
+
+		env.showTool();
 	}
 
 	@After
@@ -128,30 +129,31 @@ public class LabelActionTest extends AbstractGhidraHeadedIntegrationTest impleme
 
 		Object author = model.getValueAt(0, 2);
 		assertTrue(author.toString().startsWith(System.getProperty("user.name")));
+		close(provider);
 	}
 
 	@Test
 	public void testNotepadLocations() {
-		ActionContext context = new ActionContext();
-		assertEquals(false, addLabel.isEnabledForContext(context));
+		ActionContext context = new DefaultActionContext();
+		assertFalse(addLabel.isEnabledForContext(context));
 
-		assertEquals(false, editLabel.isEnabledForContext(context));
+		assertFalse(editLabel.isEnabledForContext(context));
 
-		assertEquals(false, removeLabel.isEnabledForContext(context));
+		assertFalse(removeLabel.isEnabledForContext(context));
 
-		assertEquals(false, setLabel.isEnabledForContext(context));
+		assertFalse(setLabel.isEnabledForContext(context));
 
 		env.open(program);
 		cb.updateNow();
 
 		context = cb.getProvider().getActionContext(null);
-		assertEquals(true, addLabel.isEnabledForContext(context));
+		assertTrue(addLabel.isEnabledForContext(context));
 
-		assertEquals(false, editLabel.isEnabledForContext(context));
+		assertFalse(editLabel.isEnabledForContext(context));
 
-		assertEquals(false, removeLabel.isEnabledForContext(context));
+		assertFalse(removeLabel.isEnabledForContext(context));
 
-		assertEquals(false, setLabel.isEnabledForContext(context));
+		assertFalse(setLabel.isEnabledForContext(context));
 
 		SampleLocationGenerator locGen = new SampleLocationGenerator(program);
 		locGen.toggleOpenComposites(cb);
@@ -159,9 +161,6 @@ public class LabelActionTest extends AbstractGhidraHeadedIntegrationTest impleme
 
 	}
 
-	/**
-	 * @see ghidra.app.LocationCallback#locationGenerated(ghidra.program.singleuser.util.ProgramLocation)
-	 */
 	@Override
 	public void locationGenerated(ProgramLocation loc) {
 
@@ -181,11 +180,11 @@ public class LabelActionTest extends AbstractGhidraHeadedIntegrationTest impleme
 
 		if (loc instanceof LabelFieldLocation) {
 			Symbol s = labelMgrPlugin.getSymbol((ListingActionContext) context);
-			assertEquals(caseName, false, addLabel.isEnabledForContext(context));
-			assertEquals(caseName, true, editLabel.isEnabledForContext(context));
-			assertEquals(caseName, false, editExternalLocation.isEnabledForContext(context));
+			assertFalse(caseName, addLabel.isEnabledForContext(context));
+			assertTrue(caseName, editLabel.isEnabledForContext(context));
+			assertFalse(caseName, editExternalLocation.isEnabledForContext(context));
 			assertEquals(caseName, !s.isDynamic(), removeLabel.isEnabledForContext(context));
-			assertEquals(caseName, false, setLabel.isEnabledForContext(context));
+			assertFalse(caseName, setLabel.isEnabledForContext(context));
 
 			assertEquals(EditLabelAction.EDIT_LABEL,
 				editLabel.getPopupMenuData().getMenuItemName());
@@ -246,8 +245,8 @@ public class LabelActionTest extends AbstractGhidraHeadedIntegrationTest impleme
 
 			assertEquals(caseName, !hasComponentPath, addLabel.isEnabledForContext(context));
 			assertEquals(caseName, component != null, editLabel.isEnabledForContext(context));
-			assertEquals(caseName, false, removeLabel.isEnabledForContext(context));
-			assertEquals(caseName, false, setLabel.isEnabledForContext(context));
+			assertFalse(caseName, removeLabel.isEnabledForContext(context));
+			assertFalse(caseName, setLabel.isEnabledForContext(context));
 
 			if (component != null) {
 				assertEquals(EditLabelAction.EDIT_FIELDNAME,
@@ -255,16 +254,16 @@ public class LabelActionTest extends AbstractGhidraHeadedIntegrationTest impleme
 			}
 		}
 		else if (!(loc instanceof FunctionLocation)) {
-			assertEquals(caseName, true, addLabel.isEnabledForContext(context));
-			assertEquals(caseName, false, editLabel.isEnabledForContext(context));
-			assertEquals(caseName, false, removeLabel.isEnabledForContext(context));
-			assertEquals(caseName, false, setLabel.isEnabledForContext(context));
+			assertTrue(caseName, addLabel.isEnabledForContext(context));
+			assertFalse(caseName, editLabel.isEnabledForContext(context));
+			assertFalse(caseName, removeLabel.isEnabledForContext(context));
+			assertFalse(caseName, setLabel.isEnabledForContext(context));
 		}
 		else {
-			assertEquals(caseName, false, addLabel.isEnabledForContext(context));
-			assertEquals(caseName, false, editLabel.isEnabledForContext(context));
-			assertEquals(caseName, false, removeLabel.isEnabledForContext(context));
-			assertEquals(caseName, false, setLabel.isEnabledForContext(context));
+			assertFalse(caseName, addLabel.isEnabledForContext(context));
+			assertFalse(caseName, editLabel.isEnabledForContext(context));
+			assertFalse(caseName, removeLabel.isEnabledForContext(context));
+			assertFalse(caseName, setLabel.isEnabledForContext(context));
 		}
 	}
 }

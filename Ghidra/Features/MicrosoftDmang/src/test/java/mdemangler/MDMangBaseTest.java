@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,6 +16,7 @@
 package mdemangler;
 
 import java.io.*;
+import java.util.Date;
 
 import org.junit.*;
 import org.junit.experimental.categories.Category;
@@ -64,7 +65,7 @@ import ghidra.util.Msg;
  *  was able to make a change to this code base and run against the core set of tests below
  *  and found that I broke no tests, but when I ran against the Windows 10 symbols, I failed
  *  more than 1300 of these tests when the norm was to fail 73.  Note too, that I immediately
- *  throw away symbols from these sets that I can immediately say that Microsoft has gotten 
+ *  throw away symbols from these sets that I can immediately say that Microsoft has gotten
  *  wrong (e.g., has "??" in the demangled string), but this approach gives general direction
  *  and it often (as in my example case) leads me to grab another symbol or two to put into
  *  the core set of tests to provide constraints around this living design.
@@ -104,6 +105,8 @@ public class MDMangBaseTest extends AbstractGenericTest {
 
 	protected boolean quiet = false;
 
+	private static long startTime = 0;
+
 	protected boolean beQuiet() {
 		return quiet || BATCH_MODE;
 		//return quiet;
@@ -139,6 +142,11 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		}
 	}
 
+	@BeforeClass
+	public static void startUp() {
+		startTime = (new Date()).getTime();
+	}
+
 	@AfterClass
 	public static void tearDown() throws Throwable {
 		if (testWriter == null) {
@@ -147,6 +155,9 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		testWriter.close();
 		Msg.info(MDMangBaseTest.class,
 			"Short test demangled results: " + testFile.getAbsolutePath());
+		long endTime = (new Date()).getTime();
+		Msg.info(MDMangBaseTest.class,
+			"MDMangBaseTest time: " + (endTime - startTime) / 1000.0 + " sec.");
 	}
 
 	@Rule
@@ -179,7 +190,21 @@ public class MDMangBaseTest extends AbstractGenericTest {
 	};
 
 	private void demangleAndTest() throws Exception {
-		testConfiguration.demangleAndTest(mangled, mdTruth, msTruth, ghTruth, ms2013Truth);
+		testConfiguration.demangleAndTest(testName, mangled, mdTruth, msTruth, ghTruth,
+			ms2013Truth);
+	}
+
+	private void demangleAndTestFunction32Bit() throws Exception {
+		testConfiguration.setIsFunction(true);
+		testConfiguration.setArchitectureSize(32);
+		testConfiguration.demangleAndTest(testName, mangled, mdTruth, msTruth, ghTruth,
+			ms2013Truth);
+	}
+
+	private void demangleAndTest16Bit() throws Exception {
+		testConfiguration.setArchitectureSize(16);
+		testConfiguration.demangleAndTest(testName, mangled, mdTruth, msTruth, ghTruth,
+			ms2013Truth);
 	}
 
 	@Test
@@ -188,7 +213,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		msTruth = "void __clrcall `dynamic initializer for 'const name1::name0::`vftable'''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'const name1::name0::`vftable'''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -199,7 +223,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 			"void __clrcall zz::z::`dynamic initializer for 'const name1::name0::`vftable'{for `xx::x's `yy::y'}''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall zz::z::`dynamic initializer for 'const name1::name0::`vftable'{for `xx::x's `yy::y'}''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -210,7 +233,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 			"void __clrcall z::`dynamic initializer for 'const name1::name0::`vftable'''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall z::`dynamic initializer for 'const name1::name0::`vftable'''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -276,7 +298,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		msTruth = "void __clrcall name1::`dynamic initializer for 'name0''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall name1::`dynamic initializer for 'name0''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -295,7 +316,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 			"void __clrcall `dynamic initializer for 'public: static bool <name2>::name1::name0''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'public: static bool <name2>::name1::name0''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -329,7 +349,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		msTruth = "void __clrcall `dynamic initializer for 'const name0::`vftable'''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'const name0::`vftable'''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -339,7 +358,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		msTruth = "void __clrcall name1::`dynamic initializer for 'const name0::`vftable'''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall name1::`dynamic initializer for 'const name0::`vftable'''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -349,7 +367,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		msTruth = "void __clrcall `dynamic initializer for 'int name1::name0''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'int name1::name0''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -359,7 +376,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		msTruth = "void __clrcall name1::`dynamic initializer for 'name0''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall name1::`dynamic initializer for 'name0''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -370,7 +386,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 			"void __clrcall `dynamic initializer for 'public: static bool <name2>::name1::name0''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'public: static bool <name2>::name1::name0''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -382,7 +397,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 			"void __clrcall `dynamic initializer for 'private: static class name2::name3<class name5::name4 ^ __ptr64> name2::name1::name0''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'private: static class name2::name3<class name5::name4 ^ __ptr64> name2::name1::name0''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -393,7 +407,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 			"void __clrcall `dynamic initializer for 'public: static enum name2::name4::name3 name2::name1::name0''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'public: static enum name2::name4::name3 name2::name1::name0''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -404,7 +417,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 			"void __clrcall `dynamic initializer for 'public: static int name2::name1::name0''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'public: static int name2::name1::name0''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -415,7 +427,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 			"void __clrcall `dynamic initializer for 'public: static enum name2::name4::name3 name2::name1::name0''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'public: static enum name2::name4::name3 name2::name1::name0''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -426,7 +437,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 			"void __clrcall `dynamic initializer for 'public: static enum name2::name4::name3 name2::name1::name0''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'public: static enum name2::name4::name3 name2::name1::name0''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -436,7 +446,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		msTruth = "void __clrcall `dynamic initializer for 'const name0::`vftable'''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'const name0::`vftable'''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -472,6 +481,15 @@ public class MDMangBaseTest extends AbstractGenericTest {
 	public void testFunctionPointer() throws Exception {
 		mangled = "?fn@@3P6AHH@ZA";
 		msTruth = "int (__cdecl* fn)(int)";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	@Test
+	public void testFunctionPointer_NamedFunctionPointerWithAnonymousFunctionPointerParameter()
+			throws Exception {
+		mangled = "?fun@@3P6KXP6KXH@Z@ZA";
+		msTruth = "void (* fun)(void (*)(int))";
 		mdTruth = msTruth;
 		demangleAndTest();
 	}
@@ -626,7 +644,10 @@ public class MDMangBaseTest extends AbstractGenericTest {
 	public void testPointerToQuestionToData() throws Exception {
 		mangled = "?var@@3PD?BHC";
 		msTruth = "";
-		mdTruth = msTruth;
+		// This is a non-sensical result, but the end result we get from our current processing
+		//  model.  I believe this was probably a symbol I created to see if a pointer to a '?'
+		//  modifier to data could happen (from undname perspective vs. a real world perspective).
+		mdTruth = "BHC const volatile * var";
 		demangleAndTest();
 	}
 
@@ -650,7 +671,10 @@ public class MDMangBaseTest extends AbstractGenericTest {
 	public void testReferenceToQuestionToData() throws Exception {
 		mangled = "?var@@3AD?BHC";
 		msTruth = "";
-		mdTruth = msTruth;
+		// This is a non-sensical result, but the end result we get from our current processing
+		//  model.  I believe this was probably a symbol I created to see if a reference to a '?'
+		//  modifier to data could happen (from undname perspective vs. a real world perspective).
+		mdTruth = "BHC const volatile & var";
 		demangleAndTest();
 	}
 
@@ -673,8 +697,11 @@ public class MDMangBaseTest extends AbstractGenericTest {
 	@Test
 	public void testQuestionToQuestionToData() throws Exception {
 		mangled = "?var@@3?D?BHC";
-		msTruth = "";
-		mdTruth = msTruth;
+		msTruth = ""; //fails
+		// This is a non-sensical result, but the end result we get from our current processing
+		//  model.  I believe this was probably a symbol I created to see if '?' modifiers could
+		//  be nested (from undname perspective vs. a real world perspective).
+		mdTruth = "BHC const volatile var";
 		demangleAndTest();
 	}
 
@@ -1152,6 +1179,22 @@ public class MDMangBaseTest extends AbstractGenericTest {
 	}
 
 	@Test
+	public void testStdNullBackref() throws Exception {
+		mangled = "?fn@@QAAHH$$T0@Z";
+		mdTruth = "public: int __cdecl fn(int,std::nullptr_t,std::nullptr_t)";
+		msTruth = mdTruth;
+		demangleAndTest();
+	}
+
+	@Test
+	public void test_OBackref() throws Exception {
+		mangled = "?fn@@QAAHH_OBY01H0@Z";
+		mdTruth = "public: int __cdecl fn(int,int[][2],int[][2])";
+		msTruth = mdTruth;
+		demangleAndTest();
+	}
+
+	@Test
 	public void testSpecial__F() throws Exception {
 		mangled =
 			"??__Fname0@?1??name1@name2@name3@name4@@CAXPEAUname5@@P84@EAAJPEAPEAG@ZW4name6@@PEAUname7@@@Z@YAXXZ";
@@ -1297,7 +1340,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 			"void __clrcall `dynamic initializer for 'public: static bool <name2>::name1::name0''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'public: static bool <name2>::name1::name0''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -1307,7 +1349,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		msTruth = "void __clrcall `dynamic initializer for 'const name0::`vftable'''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'const name0::`vftable'''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -1358,7 +1399,21 @@ public class MDMangBaseTest extends AbstractGenericTest {
 	@Test
 	public void testStdNullptrArgVar() throws Exception {
 		mangled = "?Name@@3$$TA";
-		msTruth = "std::nullptr_t";
+		msTruth = "std::nullptr_t Name";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	// $$T was found to be the reference type of a right-reference, and we needed to change
+	//  special extended types to be reached from basic data types instead of from primary data
+	//  types.  Primary data types used to send out to extended and basic handling.  Now extended
+	//  is sent out by basic.  See MDDataTypeParser.
+	// MDStdNullPtrType "$$T" referenced by RRef (any reference type)
+	// Manufactured
+	@Test
+	public void testStdNullPtrReferencedByRRef() throws Exception {
+		mangled = "?fn@@3P6AH$$QA$$T@ZA";
+		msTruth = "int (__cdecl* fn)(std::nullptr_t &&)";
 		mdTruth = msTruth;
 		demangleAndTest();
 	}
@@ -2561,10 +2616,10 @@ public class MDMangBaseTest extends AbstractGenericTest {
 	}
 
 	//This test seems to dictate that a function pointer should be elaborated internal to CVMod, where the based5 will eliminate all of the function context.
-	//  It also seems to indicate that the "int" portion would be the referred-to type and the rest of the function spec would be part of the the function info.
+	//  It also seems to indicate that the "int" portion would be the referred-to type and the rest of the function spec would be part of the function info.
 	//  Other information at one time, led me to believe that the return type of a function is special... need to rekinkdle those thoughts, but think related to nested
 	//  functions, such as function returning a function pointer..
-	@Category(MDMangFailingTests.class)
+	@Category(MDMangFailingTestCategory.class)
 	@Test
 	public void testCVModifiersBased5_Variation_aj() throws Exception {
 		mangled = "?Var@@3P_CClass@@D5AHD@ZEP0";
@@ -2722,7 +2777,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		demangleAndTest();
 	}
 
-	@Category(MDMangFailingTests.class)
+	@Category(MDMangFailingTestCategory.class)
 	@Test
 	public void testCVModifiersBased5_Variation_be() throws Exception {
 		mangled = "?Var@@3P_CClass@@D5AHD@ZEP0";
@@ -3476,7 +3531,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		demangleAndTest();
 	}
 
-	//Manufactured; Keep. 
+	//Manufactured; Keep.
 	@Test
 	public void testTemplateParameter_BQRS_DirectArgModifiers() throws Exception {
 		//BQRS modifiers are only valid on direct arguments of functions and templates.
@@ -3678,11 +3733,127 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		demangleAndTest();
 	}
 
-	//Q: __vectorcall block
+	//Q,R: __vectorcall block
 	@Test
 	public void testFunctionCallingConventions_Q__vectorcall() throws Exception {
 		mangled = "?fnii@@YQHH@Z";
 		msTruth = "int __vectorcall fnii(int)";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	// Manufactured
+	@Test
+	public void testFunctionCallingConventions_R__vectorcall() throws Exception {
+		mangled = "?fnii@@YRHH@Z";
+		String llTruth = "int fnii(int)";
+		msTruth = "int __vectorcall fnii(int)";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	//S,T: __swift_1 block
+	// MSFT is as shown
+	// LLVM is "__attribute__((__swiftcall__))" for code S and blank for T
+	// Manufactured
+	@Test
+	public void testFunctionCallingConventions_S__swift_1() throws Exception {
+		mangled = "?fnii@@YSHH@Z";
+		String llTruth = "int __attribute__((__swiftcall__)) fnii(int)\n";
+		msTruth = "int __swift_1 fnii(int)";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	// MSFT is as shown
+	// LLVM is "__attribute__((__swiftcall__))" for code S and blank for T
+	// Manufactured
+	@Test
+	public void testFunctionCallingConventions_T__swift_1() throws Exception {
+		mangled = "?fnii@@YTHH@Z";
+		String llTruth = "int fnii(int)";
+		msTruth = "int __swift_1 fnii(int)";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	//U,V: __swift_2 block
+	// MSFT is as shown for U, but blank for V
+	// LLVM is blank for both
+	// Manufactured
+	@Test
+	public void testFunctionCallingConventions_U__swift_2() throws Exception {
+		mangled = "?fnii@@YUHH@Z";
+		String llTruth = "int fnii(int)";
+		msTruth = "int __swift_2 fnii(int)";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	// MSFT is as shown for U, but blank for V
+	// LLVM is blank for both
+	// Manufactured
+	@Test
+	public void testFunctionCallingConventions_V__blank() throws Exception {
+		mangled = "?fnii@@YVHH@Z";
+		String llTruth = "int fnii(int)";
+		msTruth = "int fnii(int)";
+		mdTruth = "int __swift_2 fnii(int)";
+		demangleAndTest();
+	}
+
+	//W,X: __swiftasynccall block
+	// MSFT is blank
+	// LLVM is "__attribute__((__swiftasynccall__))" for code W and blank for X
+	// Manufactured
+	@Test
+	public void testFunctionCallingConventions_W__swiftasynccall() throws Exception {
+		mangled = "?fnii@@YWHH@Z";
+		String llTruth = "int __attribute__((__swiftasynccall__)) fnii(int)";
+		msTruth = "int fnii(int)";
+		mdTruth = "int __swiftasynccall fnii(int)";
+		demangleAndTest();
+	}
+
+	// MSFT is blank
+	// LLVM is "__attribute__((__swiftasynccall__))" for code W and blank for X
+	// Manufactured
+	@Test
+	public void testFunctionCallingConventions_X__blank() throws Exception {
+		mangled = "?fnii@@YXHH@Z";
+		String llTruth = "int fnii(int)";
+		msTruth = "int fnii(int)";
+		mdTruth = "int __swiftasynccall fnii(int)";
+		demangleAndTest();
+	}
+
+	//Y,Z:  blank block
+	// I suspect this is blank only unless/until the standard accepts a new convention for it
+	// Manufactured
+	@Test
+	public void testFunctionCallingConventions_Y__blank() throws Exception {
+		mangled = "?fnii@@YYHH@Z";
+		String llTruth = "int fnii(int)";
+		msTruth = "int fnii(int)";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	// I suspect this is blank only unless/until the standard accepts a new convention for it
+	// Manufactured
+	@Test
+	public void testFunctionCallingConventions_Z__blank() throws Exception {
+		mangled = "?fnii@@YZHH@Z";
+		String llTruth = "int fnii(int)";
+		msTruth = "int fnii(int)";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	@Test
+	public void testFunctionNoExcept() throws Exception {
+		mangled = "?fnii@@YAHH@_E";
+		msTruth = "int __cdecl fnii(int) noexcept";
 		mdTruth = msTruth;
 		demangleAndTest();
 	}
@@ -4491,6 +4662,34 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		demangleAndTest();
 	}
 
+	// Backref used in parentage
+	@Test
+	public void testUnderscore7f() throws Exception {
+		mangled = "??_7a@b@@6B01@@";
+		msTruth = "const b::a::`vftable'{for `b::a'}";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	// vbtable with anonymous namespace
+	@Test
+	public void testUnderscore7AnonNs() throws Exception {
+		mangled = "??_7a@?A0xfedcba98@b@@6B@";
+		msTruth = "const b::`anonymous namespace'::a::`vftable'";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	// vbtable with anonymous namespace
+	@Test
+	public void testUnderscore7AnonNsAndBackref() throws Exception {
+		mangled = "??_7a@?A0xfedcba98@b@@6B012@01@@";
+		msTruth =
+			"const b::`anonymous namespace'::a::`vftable'{for `b::A0xfedcba98::a's `A0xfedcba98::a'}";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
 	@Test
 	public void testSpecialNames_R() throws Exception {
 		mangled = "??_R0X@8";
@@ -4713,7 +4912,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		//_P is prefix for another special name, such that:
 		//  "?_PE" that looks like (prefix) and "?E" or
 		//  "?_P_E" that looks like (prefix) and "?_E"
-		//  Prefix is "`udt returning'" 
+		//  Prefix is "`udt returning'"
 		mangled = "??_PENameSpace@@$$FQAEPAXI@Z";
 		msTruth = "public: void * __thiscall NameSpace::`udt returning'operator++(unsigned int)";
 		mdTruth = msTruth;
@@ -4726,7 +4925,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		//_P is prefix for another special name, such that:
 		//  "?_PE" that looks like (prefix) and "?E" or
 		//  "?_P_E" that looks like (prefix) and "?_E"
-		//  Prefix is "`udt returning'" 
+		//  Prefix is "`udt returning'"
 		mangled = "??_P_P_PENameSpace@@$$FQAEPAXI@Z";
 		msTruth =
 			"public: void * __thiscall NameSpace::`udt returning'`udt returning'`udt returning'operator++(unsigned int)";
@@ -4739,7 +4938,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 	@Test
 	public void testSpecialNames_Q() throws Exception {
 		//name = "`EH'"; //must have more embedding as we haven't gotten undname to return yet.
-		//manufactured and not sure if good example or not... needs to output "`EH'" ??? 
+		//manufactured and not sure if good example or not... needs to output "`EH'" ???
 		//TODO: need to look closer... as this must be a function, I think (but so do all of those other operators above).
 		mangled = "??_QNamespace1@Namespace2@@$$FQAEPAXI@Z";
 		msTruth = "public: void * __thiscall Namespace2::Namespace1::(unsigned int)";
@@ -7331,7 +7530,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 	//Following is OK to move to LOW--test is already on LOW in WineDemanglerTest.
 //	//TODO: Research this.  Not sure about this symbol and result.  Came from WineDemanglerTest.
 //	//MSFT 2015 undname yields: "S358<`template-parameter-2',CHelper_AD::tARootDir,AVCString * const volatile,void,unsigned char, ?? &>"
-//	//  This is wrong for multiple reasons: "??" and "GetADRoot" -> "tARoot..." 
+//	//  This is wrong for multiple reasons: "??" and "GetADRoot" -> "tARoot..."
 //	@Test
 //	public void testOrigTest_bq() throws Exception {
 //		mangled = "?$S358@?1??GetADRootDir@CHelper_AD@@SA?AVCString@@XZ@4EA";
@@ -7386,7 +7585,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 	@Test
 	public void testDollarDollar_4() throws Exception {
 		mangled = "?Name@@3$$TA"; //manufactured--interestingly, this is probably not valid: see mstruth. //This is a DataType $$T Modifier
-		msTruth = "std::nullptr_t";
+		msTruth = "std::nullptr_t Name";
 		mdTruth = msTruth;
 		demangleAndTest();
 	}
@@ -7455,7 +7654,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 			"void __clrcall `dynamic initializer for 'public: static bool name2::name1::name0''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'public: static bool name2::name1::name0''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -7466,7 +7664,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 			"void __clrcall `dynamic initializer for 'public: static bool <name2>::name1::name0''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'public: static bool <name2>::name1::name0''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -7856,7 +8053,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		demangleAndTest();
 	}
 
-	@Category(MDMangFailingTests.class)
+	@Category(MDMangFailingTestCategory.class)
 	@Test
 	public void testManagedProperties_And_DollarDollar_Debug_In_Progress_av() throws Exception {
 		//hand-made $$A ($$A works for functions: 6, 7, 8, 9; but nothing yet for non-function modifiers)
@@ -8072,7 +8269,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 			"void __clrcall `dynamic initializer for 'public: static bool name2::name1::name0''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'public: static bool name2::name1::name0''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -8491,7 +8687,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		demangleAndTest();
 	}
 
-	@Category(MDMangFailingTests.class)
+	@Category(MDMangFailingTestCategory.class)
 	@Test
 	public void testManagedProperties_CliArray_QuestionModifier() throws Exception {
 		mangled = "?var@@3?E$2AAHA";
@@ -8875,13 +9071,13 @@ public class MDMangBaseTest extends AbstractGenericTest {
 
 	// Added Y01 (array) to exercise Override code in MDDataReferenceType.  This
 	//  symbol is supposed to fail.
-	// Original symbol was: "?var@@3$$CBHA" 
+	// Original symbol was: "?var@@3$$CBHA"
 	// TODO:
 	// Ultimately $$C (MDDataReferenceType) needs to extend MDModifiedType (not MDModifierType), but MDModifiedType
 	//  is still under construction.  The MDArrayReferenceType (Y (Y01)) is only to be found in the MDmodifierType.
 	//  Note that the EFGHI and ABCD... MDCVMod processing both can be found for $$C (e.g., we could have
 	//  "?var@@3$$CEBHA" as a valid symbol). I just added the test for this above (should pass with the current code).
-	@Category(MDMangFailingTests.class)
+	@Category(MDMangFailingTestCategory.class)
 	@Test
 	public void testDataReferenceType_withArrayFail() throws Exception {
 		mangled = "?var@@3$$CBY01HA";
@@ -9075,7 +9271,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		mangled = "?var@@3$$TA";
 		//mstruth = "?var@@3$$TA";
 		//mdtruth = "";
-		msTruth = "std::nullptr_t";
+		msTruth = "std::nullptr_t var";
 		mdTruth = msTruth;
 		demangleAndTest();
 	}
@@ -9083,7 +9279,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 	@Test
 	public void testManagedProperties_DollarDollarT() throws Exception {
 		mangled = "?var@@3$$T";
-		msTruth = "std::nullptr_t";
+		msTruth = "std::nullptr_t var";
 		mdTruth = msTruth;
 		demangleAndTest();
 	}
@@ -9622,7 +9818,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		demangleAndTest();
 	}
 
-	@Category(MDMangFailingTests.class)
+	@Category(MDMangFailingTestCategory.class)
 	@Test
 	public void testManagedProperties_And_DollarDollar_Debug_In_Progress_moremoremore2_variation030()
 			throws Exception {
@@ -9642,7 +9838,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 	}
 
 	//TODO: CREATE mstruth output (dispatcher)
-	@Category(MDMangFailingTests.class)
+	@Category(MDMangFailingTestCategory.class)
 	@Test
 	public void testManagedProperties_And_DollarDollar_Debug_In_Progress_moremoremore2_variation032()
 			throws Exception {
@@ -9655,7 +9851,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 	}
 
 	//TODO: CREATE mstruth output (dispatcher)
-	@Category(MDMangFailingTests.class)
+	@Category(MDMangFailingTestCategory.class)
 	@Test
 	public void testManagedProperties_And_DollarDollar_Debug_In_Progress_moremoremore2_variation033()
 			throws Exception {
@@ -9748,7 +9944,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		demangleAndTest();
 	}
 
-	@Category(MDMangFailingTests.class)
+	@Category(MDMangFailingTestCategory.class)
 	@Test
 	public void testManagedProperties_And_DollarDollar_Debug_In_Progress_moremoremore2_variation042()
 			throws Exception {
@@ -9857,7 +10053,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 	// Manufactured --KEEP, Need to add tests for isC and referredToType
 	@Test
 	public void testManagedProperties_ai() throws Exception {
-		//NEW HAND-MADE 
+		//NEW HAND-MADE
 		mangled = "?FN@@QEAM@BE$AAVCL@@@Z";
 		msTruth = "public: __clrcall FN(class CL % __ptr64 volatile) __ptr64";
 		mdTruth = msTruth;
@@ -10513,7 +10709,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 			"void __clrcall `dynamic initializer for 'public: static enum name2::name4::name3 name2::name1::name0''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'public: static enum name2::name4::name3 name2::name1::name0''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -10524,7 +10719,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 			"void __clrcall `dynamic initializer for 'public: static int name2::name1::name0''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'public: static int name2::name1::name0''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -10535,7 +10729,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 			"void __clrcall `dynamic initializer for 'public: static enum name2::name4::name3 name2::name1::name0''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'public: static enum name2::name4::name3 name2::name1::name0''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -10546,7 +10739,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 			"void __clrcall `dynamic initializer for 'public: static enum name2::name4::name3 name2::name1::name0''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'public: static enum name2::name4::name3 name2::name1::name0''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -10576,7 +10768,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 			"void __clrcall `dynamic initializer for 'private: static class name2::name3<class name5::name4 ^ __ptr64> name2::name1::name0''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'private: static class name2::name3<class name5::name4 ^ __ptr64> name2::name1::name0''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -10587,7 +10778,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 			"void __clrcall `dynamic initializer for 'public: static int name2::name1::name0''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'public: static int name2::name1::name0''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -10599,7 +10789,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 			"void __clrcall `dynamic atexit destructor for 'private: static class name2::name3<class name5::name4 ^ __ptr64> name2::name1::name0''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic atexit destructor for 'private: static class name2::name3<class name5::name4 ^ __ptr64> name2::name1::name0''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -10610,7 +10799,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 			"void __clrcall `dynamic initializer for 'public: static enum name2::name4::name3 name2::name1::name0''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'public: static enum name2::name4::name3 name2::name1::name0''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -10621,7 +10809,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 			"void __clrcall `dynamic initializer for 'public: static bool name2::name1::name0''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'public: static bool name2::name1::name0''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -11162,7 +11349,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		demangleAndTest();
 	}
 
-	@Category(MDMangFailingTests.class)
+	@Category(MDMangFailingTestCategory.class)
 	@Test
 	public void test_e304() throws Exception {
 		mangled =
@@ -11282,7 +11469,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 	}
 
 	// chars 0-37
-	@Category(MDMangFailingTests.class)
+	@Category(MDMangFailingTestCategory.class)
 	@Test
 	public void testGDTSD304_a_breakdown_analysis_011() throws Exception {
 		mangled = "?__abi_name0?$name1@P$AAVname2@name3@@";
@@ -11414,7 +11601,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		demangleAndTest();
 	}
 
-	@Category(MDMangFailingTests.class)
+	@Category(MDMangFailingTestCategory.class)
 	@Test
 	public void testGDTSD304_SysSet_h_mod4() throws Exception {
 		mangled = "?name0@?Qname1@name2@@?Qname3@name4@@name5@@3HA";
@@ -11425,7 +11612,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 	}
 
 	//TODO: CREATE mstruth output (dispatcher)
-	@Category(MDMangFailingTests.class)
+	@Category(MDMangFailingTestCategory.class)
 	@Test
 	public void testGDTSD304_SysSet_h_mod5() throws Exception {
 		mangled = "?name0@?Qname1@?Qname2@name3@@@name4@@3HA"; //Nested "?Q"
@@ -11445,7 +11632,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		demangleAndTest();
 	}
 
-	@Category(MDMangFailingTests.class)
+	@Category(MDMangFailingTestCategory.class)
 	@Test
 	public void testWin10_1015829() throws Exception { //was: testWin10_001
 		mangled =
@@ -11511,7 +11698,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 	//NOTE: This test is failing (we fail to fail) because we allow $template to be parsed as fragment and don't error when the symbol
 	//  is truncated (no typeinfo).
 	//Test showing that we cannot have MDTemplateNameAndArgumentsList after CodeView
-	@Category(MDMangFailingTests.class)
+	@Category(MDMangFailingTestCategory.class)
 	@Test
 	public void testCodeView_Simple_01test() throws Exception {
 		mangled = "?@?$template@H";
@@ -11520,7 +11707,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		demangleAndTest();
 	}
 
-	//Test showing that we can have a full typeinfo after (note '$' becomes part of name--not template) 
+	//Test showing that we can have a full typeinfo after (note '$' becomes part of name--not template)
 	@Test
 	public void testCodeView_Simple_01test_with_typeinfo() throws Exception {
 		mangled = "?@?$name@H@@3HA";
@@ -11590,7 +11777,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		mangled = "?@???__Eabc@@3HA";
 		msTruth = "CV: int `dynamic initializer for 'abc''";
 		mdTruth = msTruth;
-		ghTruth = "int `dynamic initializer for 'abc''"; //makes typeinfo avail at high level too
 		demangleAndTest();
 	}
 
@@ -11617,7 +11803,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 	//Seems like a pattern where they truncate the symbol and append a 32-character (128-bit) hash code on the end instead.  Not sure what/how we
 	// should deal with this (and potentially others--this came from Windows 7): give partial results?  By running with parse info output, we can
 	// see that it is a series of nested templates to start, which cuts off during a deep nesting.
-	@Category(MDMangFailingTests.class)
+	@Category(MDMangFailingTestCategory.class)
 	@Test
 	public void testUnknown3() throws Exception {
 		mangled =
@@ -11641,7 +11827,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		msTruth = "void __clrcall `dynamic initializer for '__mpnhHeap''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for '__mpnhHeap''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -11698,7 +11883,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 			"void __clrcall `dynamic initializer for 'const std::bad_alloc::`vftable'''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'const std::bad_alloc::`vftable'''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -11717,7 +11901,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		msTruth = "void __clrcall `dynamic initializer for '_AtlModule''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for '_AtlModule''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -13766,14 +13949,14 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		demangleAndTest();
 	}
 
-	//TODO: Need to do dispatcher for VS2017? vs. VS2015?  We do not have VS2017 yet to see what it does.  
+	//TODO: Need to do dispatcher for VS2017? vs. VS2015?  We do not have VS2017 yet to see what it does.
 	//TODO (20170331): Need to do some testing/fuzzing with something more up-to-date than VS2015.
 	//Problem is at location 29-31 where we have a '?' followed by a 'C', which is trying to determine the encoded number, but the 'C'
 	// is followed by an invalid character 'i' for an encoded number.  This sequence is repeated later.
 	//20170522 BEST GUESS (see MDQualification): Get some sort of result if we replace "?CimDisableDedupVolume" with "CimDisableDedupVolume@" in two places.
 	// Perhaps "?C" means literal string, up to, but not including the next invalid char in the sequence (so a missing '@' can be tolerated)
 	// --so would also need to strip the 'C' in the results.
-	@Category(MDMangFailingTests.class)
+	@Category(MDMangFailingTestCategory.class)
 	@Test
 	public void testWin10_0358058() throws Exception {
 		mangled =
@@ -13903,7 +14086,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 	}
 
 	//MSFT problem
-	@Category(MDMangFailingTests.class)
+	@Category(MDMangFailingTestCategory.class)
 	@Test
 	public void testWin10_0356843() throws Exception {
 		mangled =
@@ -13922,7 +14105,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 			"void __clrcall `dynamic initializer for 'const std::bad_alloc::`vftable'''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'const std::bad_alloc::`vftable'''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -13976,7 +14158,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		msTruth = "void __clrcall `dynamic initializer for 'const bad_cast::`vftable'''(void)";
 		mdTruth =
 			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'const bad_cast::`vftable'''(void)(void)";
-		ghTruth = msTruth;
 		demangleAndTest();
 	}
 
@@ -13984,7 +14165,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 	//Note, however, that the test is still not processed correctly for mdtruth, which
 	// is only a guess.  A fix to process it (an MDMANG SPECIALIZATION used in MDQual)
 	// causes a different test to fail: testWin10_0022127(). TODO: figure this out.
-	@Category(MDMangFailingTests.class)
+	@Category(MDMangFailingTestCategory.class)
 	@Test
 	public void testWin10_6798753() throws Exception {
 		mangled =
@@ -14032,7 +14213,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 	}
 
 	//I haven't determined what the true output should be yet.
-	@Category(MDMangFailingTests.class)
+	@Category(MDMangFailingTestCategory.class)
 	@Test
 	public void testWin10_6798753_breakdown5() throws Exception {
 		mangled = "?$vector@UVolumeWarning@?BL@?CimStartDedupJob@@";
@@ -14434,7 +14615,6 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		mdTruth =
 			"[MEP] void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'PBBBMbr''(void)(void)";
 		msTruth = dbTruth;
-		ghTruth = dbTruth;
 		demangleAndTest();
 	}
 
@@ -14514,24 +14694,96 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		demangleAndTest();
 	}
 
-	//TODO: considering for Issue 1162
-	@Ignore
+	// real symbol (Issue #1162)
+	// Following the model of MSFT Guard output strings even though the mangled form does not
+	//  follow MSFT's scheme.  Change is that we are not outputting the extraneous tick as is seen
+	//  in the middle of `local static guard'{2}', and we are not increasing the string value
+	//  that is in braces by one from the coded "GuardNum" value.  Thus, we are outputting
+	//  `thread safe static guard{0}' for "?$TSS0@".  We can reconsider this later.
+	@Test
 	public void testThreadSafeStaticGuard_1() throws Exception {
 		mangled =
 			"?$TSS0@?1??GetCategoryMap@CDynamicRegistrationInfoSource@XPerfAddIn@@SAPEBU_ATL_CATMAP_ENTRY@ATL@@XZ@4HA";
-//		mangled =
-//			"?xTSS0@?1??GetCategoryMap@CDynamicRegistrationInfoSource@XPerfAddIn@@SAPEBU_ATL_CATMAP_ENTRY@ATL@@XZ@4HA";
-		//TODO: investigate and consider what we should have as outputs.
-		msTruth = "";
+		String llTruth =
+			"int `public: static struct ATL::_ATL_CATMAP_ENTRY const * __cdecl XPerfAddIn::CDynamicRegistrationInfoSource::GetCategoryMap(void)'::`2'::$TSS0";
+		//TODO: Create MDMangVS2015 Specialization for this problem and then remove "mstruth = mdtruth"
+		msTruth =
+			"int `public: static struct ATL::_ATL_CATMAP_ENTRY const * __ptr64 __cdecl XPerfAddIn::CDynamicRegistrationInfoSource::GetCategoryMap(void)'::`2'::$TSS0";
 		mdTruth =
-			"int `public: static struct ATL::_ATL_CATMAP_ENTRY const * __ptr64 __cdecl XPerfAddIn::CDynamicRegistrationInfoSource::GetCategoryMap(void)'::`2'::`thread safe local static guard'";
+			"int `public: static struct ATL::_ATL_CATMAP_ENTRY const * __ptr64 __cdecl XPerfAddIn::CDynamicRegistrationInfoSource::GetCategoryMap(void)'::`2'::`thread safe static guard{0}'";
+		demangleAndTest();
+	}
+
+	@Test
+	public void testSimpleMainTemplateAsCounterpointToThreadSafeStaticGuard() throws Exception {
+		mangled = "?$TSS0@HH"; // Begins with same pattern as ThreadSafeStaticGuard
+		msTruth = "TSS0<int,int>";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	// Manufactured by modifying "??_B?1??name0@name1@name2@@KAHPEBGAEAG@Z@51" which is a
+	//  `local static guard'{2}'.  We eliminated the closing 51 that makes it an MDGuard typeinfo
+	//  with value of 2 (1+1).  We are also eliminating the extraneous middle closing tick (single
+	//  quote) that MSFT has in their output.  We are not incrementing the value of ManglingNumber
+	//  that we are putting in braces (unlike other MSFT guard numbers). Thus, we will output
+	//  `nonvisible static guard{1}' for "?$S1@".  We can reconsider this later.  We also tacked
+	//  on the "4HA" as is done for the `thread safe static guard' so that it is an "int".
+	// TODO: Watch for real symbol of this type "?$S1@".
+	@Test
+	public void testNonvisibleStaticGuard() throws Exception {
+		mangled = "?$S1@?1??name0@name1@name2@@KAHPEBGAEAG@Z@4HA";
+		String llTruth =
+			"int `protected: static int __cdecl name2::name1::name0(unsigned short const *, unsigned short &)'::`2'::$S1";
+		//TODO: Create MDMangVS2015 Specialization
+		msTruth =
+			"int `protected: static int __cdecl name2::name1::name0(unsigned short const * __ptr64,unsigned short & __ptr64)'::`2'::$S1";
+		mdTruth =
+			"int `protected: static int __cdecl name2::name1::name0(unsigned short const * __ptr64,unsigned short & __ptr64)'::`2'::`nonvisible static guard{1}'";
+		demangleAndTest();
+	}
+
+	@Test
+	public void testSimpleMainTemplateAsCounterpointToNonvisibleStaticGuard() throws Exception {
+		mangled = "?$S1@HH"; // Begins with same pattern as ThreadSafeStaticGuard
+		msTruth = "S1<int,int>";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	// Manufactured by modifying "??_B?1??name0@name1@name2@@KAHPEBGAEAG@Z@51" which is a
+	//  `local static guard'{2}'.  We eliminated the closing 51 that makes it an MDGuard typeinfo
+	//  with value of 2 (1+1).  We are also eliminating the extraneous middle closing tick (single
+	//  quote) that MSFT has in their output.  We are not incrementing the value of "number"
+	//  that we are putting in braces (unlike other MSFT guard numbers). Thus, we will output
+	//  `reference temporary{1}'" for the "?$RT1@".  We can reconsider this later.  We also tacked
+	//  on the "4HA" as is done for the `thread safe static guard' so that it is an "int".
+	// TODO: Watch for real symbol of this type "?$RTnum@".
+	@Test
+	public void testReferenceTemporary() throws Exception {
+		mangled = "?$RT1@?1??name0@name1@name2@@KAHPEBGAEAG@Z@4HA";
+		String llTruth =
+			"int `protected: static int __cdecl name2::name1::name0(unsigned short const *, unsigned short &)'::`2'::$RT1";
+		//TODO: Create MDMangVS2015 Specialization
+		msTruth =
+			"int `protected: static int __cdecl name2::name1::name0(unsigned short const * __ptr64,unsigned short & __ptr64)'::`2'::$RT1";
+		mdTruth =
+			"int `protected: static int __cdecl name2::name1::name0(unsigned short const * __ptr64,unsigned short & __ptr64)'::`2'::`reference temporary{1}'";
+		demangleAndTest();
+	}
+
+	@Test
+	public void testSimpleMainTemplateAsCounterpointToReferenceTemporary() throws Exception {
+		mangled = "?$RT1@HH"; // Begins with same pattern as ThreadSafeStaticGuard
+		msTruth = "RT1<int,int>";
+		mdTruth = msTruth;
 		demangleAndTest();
 	}
 
 	//Issue 1344: Long symbols get MD5-hashed.
 	// We have made up the output format.  Nothing is sacrosanct about this output.
 	@Test
-	public void testHashedSymbolComponentsLongerThan5096_1() throws Exception {
+	public void testHashedSymbolComponentsLongerThan4096_1() throws Exception {
 		mangled = "??@f4873c94f485cd6716c2319fc51ac714@";
 		msTruth = "";
 		mdTruth = "`f4873c94f485cd6716c2319fc51ac714'";
@@ -14541,7 +14793,7 @@ public class MDMangBaseTest extends AbstractGenericTest {
 	//Issue 1344: Long symbols get MD5-hashed.
 	// We have made up the output format.  Nothing is sacrosanct about this output.
 	@Test
-	public void testHashedSymbolComponentsLongerThan5096_2() throws Exception {
+	public void testHashedSymbolComponentsLongerThan4096_2() throws Exception {
 		mangled = "?catch$0@?0???@f4873c94f485cd6716c2319fc51ac714@@4HA";
 		msTruth = "";
 		mdTruth = "int ``f4873c94f485cd6716c2319fc51ac714''::`1'::catch$0";
@@ -14562,6 +14814,862 @@ public class MDMangBaseTest extends AbstractGenericTest {
 		mdTruth = msTruth;
 		demangleAndTest();
 	}
+
+	// Contrived example.
+	@Test
+	public void testCastOperatorToFunctionPointer() throws Exception {
+		mangled = "??BClassName@@YAP6KXP6KXH@Z@ZXZ";
+		msTruth = "__cdecl ClassName::operator void (*)(void (*)(int))(void)";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	// Contrived example.
+	@Test
+	public void testReferenceToConstMemberPointerOfTypeFloatAsFunctionParameter() throws Exception {
+		mangled = "?FnName@FnSpace@@YKXABPUClassName@@M@Z";
+		msTruth = "void FnSpace::FnName(float ClassName::* const &)";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	@Test
+	public void testFunctionIndirectWithBlankCallingConvention() throws Exception {
+		mangled = "?FN@@QAAH$$A6KH@Z@Z";
+		msTruth = "public: int __cdecl FN(int ())";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	@Test
+	public void testCPPManagedILMain_1() throws Exception {
+		mangled = "?main@@$$HYAHXZ";
+		msTruth = "int __cdecl main(void)";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	@Test
+	// Not happy with this next thing.... might be CPPManagedILDLLImporData, but not yet sure.
+	public void testCPPManagedILDLLImportData_1() throws Exception {
+		mangled =
+			"???__E?Initialized@CurrentDomain@<CrtImplementationDetails>@@$$Q2HA@@YMXXZ@?A0x1ed4f156@@$$FYMXXZ";
+		msTruth =
+			"void __clrcall `dynamic initializer for 'public: static int <CrtImplementationDetails>::CurrentDomain::Initialized''(void)";
+		mdTruth =
+			"void __clrcall `anonymous namespace'::void __clrcall `dynamic initializer for 'public: static int <CrtImplementationDetails>::CurrentDomain::Initialized''(void)(void)";
+		demangleAndTest();
+	}
+
+	@Category(MDMangFailingTestCategory.class)
+	@Test
+	public void testCPPManagedILFunction_1() throws Exception {
+		mangled =
+			"?A0x1ed4f156.??__E?Initialized@CurrentDomain@<CrtImplementationDetails>@@$$Q2HA@@YMXXZ";
+		msTruth = "unknown";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	// Temporary counterpoint in trying to figure out the above.
+	@Test
+	public void testXXXCounterpoint2() throws Exception {
+		mangled = ".?AV?$name1@Vname2@@Uname3@name4@@@name4@@";
+		mdTruth = "class name4::name1<class name2,struct name4::name3>";
+		msTruth = mdTruth;
+		demangleAndTest();
+	}
+
+	// Temporary test for trying to fuzz solutions for the above.
+	@Test
+	public void testXXXFuzz() throws Exception {
+		mangled = "??__E?Initialized@CurrentDomain@<CrtImplementationDetails>@@$$Q2HA@@YMXXZ";
+		msTruth =
+			"void __clrcall `dynamic initializer for 'public: static int <CrtImplementationDetails>::CurrentDomain::Initialized''(void)";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	@Test
+	public void testLRefToFunction() throws Exception {
+		mangled = "?var@@3A6AHH@ZA";
+		msTruth = "int (__cdecl& var)(int)";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	@Test
+	public void testRRefToFunction() throws Exception {
+		mangled = "?var@@3$$R6AHH@ZA";
+		msTruth = "int (__cdecl&& var)(int)";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	@Test
+	public void testModifierToLRefToFunction() throws Exception {
+		mangled = "?var@@3?DA6AHH@ZA";
+		msTruth = "int (__cdecl&const volatile var)(int)";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	@Test
+	public void testModifierToRRefToFunction() throws Exception {
+		mangled = "?var@@3?D$$R6AHH@ZA";
+		msTruth = "int (__cdecl&&const volatile var)(int)";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	@Test
+	public void testNestedModifiersWithArrayProperties() throws Exception {
+		mangled = "?var@@3PAY01$$RAY01HA";
+		msTruth = "int (&& (* var)[2])[2]";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	//=====================
+
+	@Test
+	public void testUnionType() throws Exception {
+		mangled = ".?ATmyUnion@@";
+		msTruth = "union myUnion";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	@Test
+	public void testStructType() throws Exception {
+		mangled = ".?AUmyStruct@@";
+		msTruth = "struct myStruct";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	@Test
+	public void testClassType() throws Exception {
+		mangled = ".?AVmyClass@@";
+		msTruth = "class myClass";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	@Test
+	public void testEnumType() throws Exception {
+		mangled = ".?AW4myEnum@@";
+		msTruth = "enum myEnum";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	//=====================
+	// The following are tests to support working on dot-separated symbol names.  They are
+	//  ignored for now, as we have nothing to support the processing at this time
+
+	// MSFT CLI symbol from loader.  Has anonymous namespace (mangled), a dot delimiter to
+	//  represent namespace delimiter, and then a "normal" name (which in this case is a
+	//  demangled name with spaces).
+	@Ignore
+	public void testDotSeparatedSymbolCliOrig() throws Exception {
+		mangled = "?A0xfedcba98.name0<struct _name1,struct _name2 const >";
+		msTruth = "";
+		mdTruth = "";
+		demangleAndTest();
+	}
+
+	//Same MSFT CLI symbol from loader, but where SymbolUtilities was used to replace spaces
+	//  with underscores.  We need to determine that we can process either way... then need to
+	//  make decision on whether symbols from load should get processed by demangler before
+	//  SymbolUtilities gets a hold of them... this is generally contrary to what we would want,
+	//  but if we cannot lay down symbols with spaces, then we need to make sure we can still
+	//  operate either way
+	@Ignore
+	public void testDotSeparatedSymbolCliWithUnderscores() throws Exception {
+		mangled = "?A0xfedcba98.name0<struct__name1,struct__name2_const_>";
+		msTruth = "";
+		mdTruth = "";
+		demangleAndTest();
+	}
+
+	// Complete LLVM type symbol with weak prefix and associated suffix
+	@Ignore
+	public void testLLVMWeakPrefixDefaultXmmSuffix() throws Exception {
+		mangled = ".weak.??_7name0@@6B@.default.__xmm@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+		//llTruth = ""; // fail
+		msTruth = "";
+		mdTruth = "const name0::`vftable'";
+		demangleAndTest();
+	}
+
+	// Not expected to be a true symbol, but want to understand partial processing with
+	//  complete suffix
+	@Ignore
+	public void testVftableLLVMWeakPartial1() throws Exception {
+		mangled = "??_7name0@@6B@.default.__xmm@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+		//llTruth = "const name0::`vftable'";
+		msTruth = "";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	// Not expected to be a true symbol, but want to understand partial processing with
+	//  partial suffix
+	@Ignore
+	public void testVftableLLVMWeakPartial2() throws Exception {
+		mangled = "??_7name0@@6B@.default";
+		//llTruth = "const name0::`vftable'";
+		msTruth = "";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	@Ignore
+	public void testVftable() throws Exception {
+		mangled = "??_7name0@@6B@";
+		msTruth = "const name0::`vftable'";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	// Note the suffix seems like an already or partially demangled name.  Note that name0
+	// seems like a plain tag (no closing '@'), there is a regular namespace delimiter "::",
+	// the suffix "3@" is almost like a backreference tag with the '@' closing the full
+	// qualified name... except... we've seen numbers that are beyond the backref range as
+	// here, but also have seen numbers like 18.
+	@Ignore
+	public void testMangledTypeWithNamespaceSuffix() throws Exception {
+		mangled = ".?AT<unnamed-tag>@name0::3@";
+		msTruth = "";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	//=====================
+
+	@Test
+	public void testLLVM177639() throws Exception {
+		mangled =
+			".?AVname0@?3??name1@name2@?Aname3@@QEAA_KQEBXQEAX_KQ6A_K2PEAX3P6A_KPEAD23@_E@Z@Z@`fedcba98";
+		//llTruth = ""; // fails
+		msTruth = "";
+		mdTruth =
+			"class `public: unsigned __int64 __cdecl `anonymous namespace'::name2::name1(void const * __ptr64 const,void * __ptr64 const,unsigned __int64,unsigned __int64 (__cdecl*const)(unsigned __int64,void * __ptr64,void * __ptr64,unsigned __int64 (__cdecl*)(char * __ptr64,unsigned __int64,void * __ptr64) noexcept)) __ptr64'::`4'::name0";
+		demangleAndTest();
+	}
+
+	//=====================
+
+	@Test
+	public void testLlvmQuestionModifierType1WithSuffix() throws Exception {
+		mangled =
+			".?AVname0@?1??name1@name2@name3@name4@@AEAA?AU?$name5@V?$name6@V?$name7@U?$name8@Uname9@name2@name3@name4@@@name4@@@name4@@@name4@@E@4@_K0@Z@`fedcba98";
+		//llTruth = ""; // fails
+		msTruth = "";
+		// We don't do anything with the suffix at this time... TODO: consider options as
+		//  things are figured out
+		mdTruth =
+			"class `private: struct name4::name5<class name4::name6<class name4::name7<struct name4::name8<struct name4::name3::name2::name9> > >,unsigned char> __cdecl name4::name3::name2::name1(unsigned __int64,unsigned __int64) __ptr64'::`2'::name0";
+		demangleAndTest();
+	}
+
+	@Test
+	public void testLlvmQuestionModifierType1CounterPointMinusSuffix() throws Exception {
+		mangled =
+			".?AVname0@?1??name1@name2@name3@name4@@AEAA?AU?$name5@V?$name6@V?$name7@U?$name8@Uname9@name2@name3@name4@@@name4@@@name4@@@name4@@E@4@_K0@Z@";
+		//llTruth = "";
+		msTruth = "";
+		mdTruth =
+			"class `private: struct name4::name5<class name4::name6<class name4::name7<struct name4::name8<struct name4::name3::name2::name9> > >,unsigned char> __cdecl name4::name3::name2::name1(unsigned __int64,unsigned __int64) __ptr64'::`2'::name0";
+		demangleAndTest();
+	}
+
+	//=====================
+
+	@Test
+	public void testLlvmQuestionModifierType2WithSuffix() throws Exception {
+		mangled =
+			".?AVname0@?1???$name1@Vname0@?3??name2@name3@?Aname4@@QEAA_KQEBXQEAX_KQ6A_K2PEAX3P6A_KPEAD23@_E@Z@Z@@?Aname4@@YA_KQ6A_K_KPEAX1P6A_KPEAD01@_E@Z_KQEAXV0?3??name2@name3@1@QEAA_KQEBX604@Z@@Z@`fedcba98";
+		msTruth = "";
+		// We don't do anything with the suffix at this time... TODO: consider options as
+		//  things are figured out
+		mdTruth =
+			"class `unsigned __int64 __cdecl `anonymous namespace'::name1<class `public: unsigned __int64 __cdecl `anonymous namespace'::name3::name2(void const * __ptr64 const,void * __ptr64 const,unsigned __int64,unsigned __int64 (__cdecl*const)(unsigned __int64,void * __ptr64,void * __ptr64,unsigned __int64 (__cdecl*)(char * __ptr64,unsigned __int64,void * __ptr64) noexcept)) __ptr64'::`4'::name0>(unsigned __int64 (__cdecl*const)(unsigned __int64,void * __ptr64,void * __ptr64,unsigned __int64 (__cdecl*)(char * __ptr64,unsigned __int64,void * __ptr64) noexcept),unsigned __int64,void * __ptr64 const,class `public: unsigned __int64 __cdecl Aname4::name3::name2(void const * __ptr64 const,void * __ptr64 const,unsigned __int64,unsigned __int64 (__cdecl*const)(unsigned __int64,void * __ptr64,void * __ptr64,unsigned __int64 (__cdecl*)(char * __ptr64,unsigned __int64,void * __ptr64) noexcept)) __ptr64'::`4'::name0)'::`2'::name0";
+		demangleAndTest();
+	}
+
+	@Test
+	public void testLlvmQuestionModifierType2CounterPointMinusSuffix() throws Exception {
+		mangled =
+			".?AVname0@?1???$name1@Vname0@?3??name2@name3@?Aname4@@QEAA_KQEBXQEAX_KQ6A_K2PEAX3P6A_KPEAD23@_E@Z@Z@@?Aname4@@YA_KQ6A_K_KPEAX1P6A_KPEAD01@_E@Z_KQEAXV0?3??name2@name3@1@QEAA_KQEBX604@Z@@Z@";
+		msTruth = "";
+		mdTruth =
+			"class `unsigned __int64 __cdecl `anonymous namespace'::name1<class `public: unsigned __int64 __cdecl `anonymous namespace'::name3::name2(void const * __ptr64 const,void * __ptr64 const,unsigned __int64,unsigned __int64 (__cdecl*const)(unsigned __int64,void * __ptr64,void * __ptr64,unsigned __int64 (__cdecl*)(char * __ptr64,unsigned __int64,void * __ptr64) noexcept)) __ptr64'::`4'::name0>(unsigned __int64 (__cdecl*const)(unsigned __int64,void * __ptr64,void * __ptr64,unsigned __int64 (__cdecl*)(char * __ptr64,unsigned __int64,void * __ptr64) noexcept),unsigned __int64,void * __ptr64 const,class `public: unsigned __int64 __cdecl Aname4::name3::name2(void const * __ptr64 const,void * __ptr64 const,unsigned __int64,unsigned __int64 (__cdecl*const)(unsigned __int64,void * __ptr64,void * __ptr64,unsigned __int64 (__cdecl*)(char * __ptr64,unsigned __int64,void * __ptr64) noexcept)) __ptr64'::`4'::name0)'::`2'::name0";
+		demangleAndTest();
+	}
+
+	//=====================
+
+	// This one had been getting "SpecialName not expected in qualification list" because of there
+	// only being one '?' for the embedded object.... this is one of the situations where LLVM
+	// appears to fail to adhere to the MSFT mangling scheme.  So we had to put in special
+	// processing after catching the exception on the MSFT processing pass
+	@Test
+	public void testLlvmBadObjectNesting() throws Exception {
+		mangled = ".?AW4name0@?name1@name2@@YAX_N@Z@";
+		//llTruth = ""; // fails
+		msTruth = ""; // fails
+		mdTruth = msTruth = "enum `void __cdecl name2::name1(bool)'::name0";
+		demangleAndTest();
+	}
+
+	// Since MSFT undname does not process mangled "type" names, we create a mangled "symbol"
+	// name to test against.  This one is a symbol "x" that is a pointer to the type in question
+	// above.  We also inject the second '?' to show MSFT being able to process the mangled
+	// symbol name when it follows the MSFT mangling scheme
+	@Test
+	public void testLlvmBadObjectNestingCounterPoint1() throws Exception {
+		mangled = "?x@@3PAW4name0@??name1@name2@@YAX_N@Z@A";
+		//llTruth = ""; // fails whether it has ?, ??, or ??? at the embedding point
+		msTruth = "enum `void __cdecl name2::name1(bool)'::name0 * x";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	// Second counterpoint to the above where we properly follow the MSFT embedding scheme,
+	//  but where this is only a type name, which MSFT cannot process
+	@Test
+	public void testLlvmBadObjectNestingCounterPoint2() throws Exception {
+		mangled = ".?AW4name0@??name1@name2@@YAX_N@Z@";
+		//llTruth = ""; // fails whether it has ?, ??, or ??? at the embedding point
+		msTruth = ""; //fails
+		mdTruth = "enum `void __cdecl name2::name1(bool)'::name0";
+		demangleAndTest();
+	}
+
+	//=====================
+
+	// This one had been getting "CV code not expected: @" because of the second '@' was not
+	// getting pulled when there was an empty MDQualification... we changed to MDQualifiedName
+	// to fix this.
+	@Test
+	public void testCVModMemberPointerEmptyQualifiedName() throws Exception {
+		mangled = "?name0@@3P8@@AAXH@ZA";
+		String llTruth = ""; // fails
+		msTruth = "void (__cdecl* name0)(int)";
+		mdTruth = msTruth;
+	}
+
+	// CounterPoint1 is same mangled name, but with a qualified name for the member pointer.
+	@Test
+	public void testCVModMemberPointerEmptyQualifiedNameCounterPoint1() throws Exception {
+		mangled = "?name0@@3P8name1@name2@@AAXH@ZA";
+		String llTruth = ""; // fails
+		msTruth = "void (__cdecl name2::name1::* name0)(int)";
+		mdTruth = msTruth;
+	}
+
+	// CounterPoint2 is same as CounterPoint1, but being a pointer to the member pointer...
+	// this allows LLVM to present a reasonable result.
+	@Test
+	public void testCVModMemberPointerEmptyQualifiedNameCounterPoint2() throws Exception {
+		mangled = "?name0@@3PAP8name1@name2@@AAXH@ZA";
+		String llTruth = "void (__cdecl name2::name1::**name0)(int)";
+		msTruth = "void (__cdecl name2::name1::** name0)(int)";
+		mdTruth = msTruth;
+	}
+
+	// CounterPoint3 is same as CounterPoint2, but again with an empty qualified name...
+	// this allows LLVM to present a result, but sketchy that it doesn't provdide the calling
+	// convention.
+	@Test
+	public void testCVModMemberPointerEmptyQualifiedNameCounterPoint3() throws Exception {
+		mangled = "?name0@@3PAP8@@AAXH@ZA";
+		String llTruth = "void & ( **name0)(int)"; // Seems bad that llvm loses "__cdecl"
+		msTruth = "void (__cdecl** name0)(int)";
+		mdTruth = msTruth;
+	}
+
+	//=====================
+
+	// MDCustomDataType "?"
+	// Manufactured
+	@Test
+	public void testCustomDataType() throws Exception {
+		mangled = "?fn@@3P6AHVaaa@@?bbb@@Vccc@@@ZA";
+		msTruth = "int (__cdecl* fn)(class aaa,bbb,class ccc)";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	// MDCustomDataType "?"
+	// Manufactured to see if backref can ref the CustomDataType
+	// Question is whether the backref references the CustomDataType or the one after
+	@Test
+	public void testCustomDataTypeBackRef0() throws Exception {
+		mangled = "?fn@@3P6AHVaaa@@?bbb@@Vccc@@0@ZA";
+		msTruth = "int (__cdecl* fn)(class aaa,bbb,class ccc,class aaa)";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	// MDCustomDataType "?"
+	// Manufactured to see if backref can ref the CustomDataType
+	// Question is whether the backref references the CustomDataType or the one after
+	@Test
+	public void testCustomDataTypeBackRef1() throws Exception {
+		mangled = "?fn@@3P6AHVaaa@@?bbb@@Vccc@@1@ZA";
+		msTruth = "int (__cdecl* fn)(class aaa,bbb,class ccc,bbb)";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	// MDCustomDataType "?"
+	// Manufactured to see if backref can ref the CustomDataType
+	// Question is whether the backref references the CustomDataType or the one after
+	@Test
+	public void testCustomDataTypeBackRef2() throws Exception {
+		mangled = "?fn@@3P6AHVaaa@@?bbb@@Vccc@@2@ZA";
+		msTruth = "int (__cdecl* fn)(class aaa,bbb,class ccc,class ccc)";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	//=====================
+
+	// MDNamedUnspecifiedType "$$Y" (not sure how should differ from "?" code, except maybe for
+	//  template param vs. regular)
+	// Manufactured
+	@Test
+	public void testNamedUnspecifiedType() throws Exception {
+		mangled = "?Ti@@3V?$Tc@Vaaa@@$$Ybbb@@Vccc@@@@A";
+		msTruth = "class Tc<class aaa,bbb,class ccc> Ti";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	// MDNamedUnspecifiedType "$$Y" (not sure how should differ from "?" code, except maybe for
+	//  template param vs. regular)
+	// Manufactured to see if backref can ref the MDNamedUnspecifiedType
+	// Question is whether the backref references the MDNamedUnspecifiedType or the one after
+	@Test
+	public void testNamedUnspecifiedTypeBackRef0() throws Exception {
+		mangled = "?Ti@@3V?$Tc@Vaaa@@$$Ybbb@@Vccc@@0@@A";
+		msTruth = "class Tc<class aaa,bbb,class ccc,class aaa> Ti";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	// MDNamedUnspecifiedType "$$Y" (not sure how should differ from "?" code, except maybe for
+	//  template param vs. regular)
+	// Manufactured to see if backref can ref the MDNamedUnspecifiedType
+	// Question is whether the backref references the MDNamedUnspecifiedType or the one after
+	@Test
+	public void testNamedUnspecifiedTypeBackRef1() throws Exception {
+		mangled = "?Ti@@3V?$Tc@Vaaa@@$$Ybbb@@Vccc@@1@@A";
+		msTruth = "class Tc<class aaa,bbb,class ccc,bbb> Ti";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	// MDNamedUnspecifiedType "$$Y" (not sure how should differ from "?" code, except maybe for
+	//  template param vs. regular)
+	// Manufactured to see if backref can ref the MDNamedUnspecifiedType
+	// Question is whether the backref references the MDNamedUnspecifiedType or the one after
+	@Test
+	public void testNamedUnspecifiedTypeBackRef2() throws Exception {
+		mangled = "?Ti@@3V?$Tc@Vaaa@@$$Ybbb@@Vccc@@2@@A";
+		msTruth = "class Tc<class aaa,bbb,class ccc,class ccc> Ti";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	//=====================
+
+	// Empty Param Pack "$$V"
+	// Manufactured
+	@Test
+	public void testTemplateEmptyParamType() throws Exception {
+		mangled = "?Ti@@3V?$Tc@Vaaa@@$$VVbbb@@@@";
+		msTruth = "class Tc<class aaa,class bbb> Ti";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	// Empty Param Pack "$$V"
+	// Manufactured to see if backref can ref the $$V... counterpoint to the next test
+	// This one should have expected results
+	@Test
+	public void testTemplateEmptyParamTypeBackRef0() throws Exception {
+		mangled = "?Ti@@3V?$Tc@Vaaa@@$$VVbbb@@0@@";
+		msTruth = "class Tc<class aaa,class bbb,class aaa> Ti";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	// Empty Param Pack "$$V"
+	// Manufactured to see if backref can ref the $$V
+	// Question is whether the backref references the $$V or the one after
+	@Test
+	public void testTemplateEmptyParamTypeBackRef1() throws Exception {
+		mangled = "?Ti@@3V?$Tc@Vaaa@@$$VVbbb@@1@@";
+		msTruth = "class Tc<class aaa,class bbb,class bbb> Ti";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	//=====================
+
+	// End Template Param Pack "$$Z"
+	// Manufactured
+	@Test
+	public void testTemplateEndParamType() throws Exception {
+		mangled = "?Ti@@3V?$Tc@Vaaa@@$$ZVbbb@@@@";
+		msTruth = "class Tc<class aaa,class bbb> Ti";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	// End Template Param Pack "$$Z"
+	// Manufactured to see if backref can ref the $$Z... counterpoint to the next test
+	// This one should have expected results
+	@Test
+	public void testTemplateEndParamTypeBackRef0() throws Exception {
+		mangled = "?Ti@@3V?$Tc@Vaaa@@$$ZVbbb@@0@@";
+		msTruth = "class Tc<class aaa,class bbb,class aaa> Ti";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	// End Template Param Pack "$$Z"
+	// Manufactured to see if backref can ref the $$Z
+	// Question is whether the backref references the $$Z or the one after
+	@Test
+	public void testTemplateEndParamTypeBackRef1() throws Exception {
+		mangled = "?Ti@@3V?$Tc@Vaaa@@$$ZVbbb@@1@@";
+		msTruth = "class Tc<class aaa,class bbb,class bbb> Ti";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	//=====================
+	/*
+	 * Follow are C-style mangling scheme under 32-bit model; __vectorcall also valid for 64-bit
+	 *      __cdecl: '_' prefix; no suffix; example "_name"
+	 *    __stdcall: '_' prefix; "@<decimal_digits>" suffix; example "_name@12"
+	 *   __fastcall: '@' prefix; "@<decimal_digits>" suffix; example "@name@12"
+	 * __vectorcall: no prefix; "@@<decimal_digits>" suffix; example "name@@12"
+	 *
+	 * We've come up with the string output formats for the C-style mangling scheme.
+	 */
+
+	@Test
+	public void testCStyleCdeclFunction() throws Exception {
+		mangled = "_name";
+		mdTruth = "name";
+		msTruth = "";
+		demangleAndTestFunction32Bit();
+	}
+
+	@Test
+	public void testCStyleCdeclNoFunction() throws Exception {
+		mangled = "_name";
+		mdTruth = "_name";
+		msTruth = "";
+		demangleAndTest();
+	}
+
+	@Test
+	public void testCStyleStdcallFunction() throws Exception {
+		mangled = "_name@12";
+		mdTruth = "__stdcall name,12";
+		msTruth = "";
+		demangleAndTestFunction32Bit();
+	}
+
+	@Test
+	public void testCStyleStdcallNoFunction() throws Exception {
+		mangled = "_name@12";
+		mdTruth = "";
+		msTruth = "";
+		demangleAndTest();
+	}
+
+	@Test
+	public void testCStyleFastcallFunction() throws Exception {
+		mangled = "@name@12";
+		mdTruth = "__fastcall name,12";
+		msTruth = "";
+		demangleAndTestFunction32Bit();
+	}
+
+	@Test
+	public void testCStyleFastcallNoFunction() throws Exception {
+		mangled = "@name@12";
+		mdTruth = "";
+		msTruth = "";
+		demangleAndTest();
+	}
+
+	@Test
+	public void testCStyleVectorcallFunction() throws Exception {
+		mangled = "name@@12";
+		mdTruth = "__vectorcall name,12";
+		msTruth = "";
+		demangleAndTestFunction32Bit();
+	}
+
+	@Test
+	public void testCStyleVectorcallNoFunction() throws Exception {
+		mangled = "name@@12";
+		mdTruth = "";
+		msTruth = "";
+		demangleAndTest();
+	}
+
+	//=====================
+	/*
+	 * Following are tests involving functions and function pointers for functions that take and
+	 *  return function pointers
+	 */
+
+	@Test
+	public void testFunctionWithFunctionPointers1() throws Exception {
+		mangled = "?fxa@@3PAP6AP6AHH@ZP6ADD@Z@ZA";
+		msTruth = "int (__cdecl*(__cdecl** fxa)(char (__cdecl*)(char)))(int)";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	@Test
+	public void testFunctionWithFunctionPointers2() throws Exception {
+		mangled = "?f2@@YAP6AP6AHH@ZP6ADD@Z@ZAAP6AP6AHH@Z0@Z@Z";
+		msTruth =
+			"int (__cdecl*(__cdecl*__cdecl f2(int (__cdecl*(__cdecl*&)(char (__cdecl*)(char)))(int)))(char (__cdecl*)(char)))(int)";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	//=====================
+	/*
+	 * Follow are hand-crafted vcall modifiers with 16-bit architecture.
+	 * These use the architectures size for parsing both the vcall modifier as well as the
+	 * __based() attributes for those that use a based attribute
+	 */
+
+	// hand-crafted... this test is a 32-bit counterpoint test for the 16-bit test after it
+	@Test
+	public void testVCallA32() throws Exception {
+		mangled = "??_9name0@@$BBII@AA";
+		msTruth = "[thunk]: __cdecl name0::`vcall'{392,{flat}}' }'";
+		mdTruth = msTruth;
+		demangleAndTest();
+	}
+
+	// hand-crafted
+	@Test
+	public void testVCallA16() throws Exception {
+		mangled = "??_9name0@@$BBII@AA";
+		mdTruth =
+			"[thunk]: __cdecl name0::`vcall'{392,{__near this, __near call, __near vfptr}}' }'";
+		msTruth = mdTruth; // TODO: Need a 16-bit machine to determine actual mdTruth
+		demangleAndTest16Bit();
+	}
+
+	@Test
+	public void testVCallB16() throws Exception {
+		mangled = "??_9name0@@$BBII@BA";
+		mdTruth =
+			"[thunk]: __cdecl name0::`vcall'{392,{__near this, __far call, __near vfptr}}' }'";
+		msTruth = mdTruth; // TODO: Need a 16-bit machine to determine actual mdTruth
+		demangleAndTest16Bit();
+	}
+
+	// hand-crafted
+	@Test
+	public void testVCallC16() throws Exception {
+		mangled = "??_9name0@@$BBII@CA";
+		mdTruth =
+			"[thunk]: __cdecl name0::`vcall'{392,{__far this, __near call, __near vfptr}}' }'";
+		msTruth = mdTruth; // TODO: Need a 16-bit machine to determine actual mdTruth
+		demangleAndTest16Bit();
+	}
+
+	// hand-crafted
+	@Test
+	public void testVCallD16() throws Exception {
+		mangled = "??_9name0@@$BBII@DA";
+		mdTruth =
+			"[thunk]: __cdecl name0::`vcall'{392,{__far this, __far call, __near vfptr}}' }'";
+		msTruth = mdTruth; // TODO: Need a 16-bit machine to determine actual mdTruth
+		demangleAndTest16Bit();
+	}
+
+	// hand-crafted
+	@Test
+	public void testVCallE16() throws Exception {
+		mangled = "??_9name0@@$BBII@EA";
+		mdTruth =
+			"[thunk]: __cdecl name0::`vcall'{392,{__near this, __near call, __far vfptr}}' }'";
+		msTruth = mdTruth; // TODO: Need a 16-bit machine to determine actual mdTruth
+		demangleAndTest16Bit();
+	}
+
+	// hand-crafted
+	@Test
+	public void testVCallF16() throws Exception {
+		mangled = "??_9name0@@$BBII@FA";
+		mdTruth =
+			"[thunk]: __cdecl name0::`vcall'{392,{__near this, __far call, __far vfptr}}' }'";
+		msTruth = mdTruth; // TODO: Need a 16-bit machine to determine actual mdTruth
+		demangleAndTest16Bit();
+	}
+
+	// hand-crafted
+	@Test
+	public void testVCallG16() throws Exception {
+		mangled = "??_9name0@@$BBII@GA";
+		mdTruth =
+			"[thunk]: __cdecl name0::`vcall'{392,{__far this, __near call, __far vfptr}}' }'";
+		msTruth = mdTruth; // TODO: Need a 16-bit machine to determine actual mdTruth
+		demangleAndTest16Bit();
+	}
+
+	// hand-crafted
+	@Test
+	public void testVCallH16() throws Exception {
+		mangled = "??_9name0@@$BBII@HA";
+		mdTruth =
+			"[thunk]: __cdecl name0::`vcall'{392,{__far this, __far call, __far vfptr}}' }'";
+		msTruth = mdTruth; // TODO: Need a 16-bit machine to determine actual mdTruth
+		demangleAndTest16Bit();
+	}
+
+	// hand-crafted
+	@Test
+	public void testVCallI016() throws Exception {
+		mangled = "??_9name0@@$BBII@I0A";
+		mdTruth =
+			"[thunk]: __cdecl name0::`vcall'{392,{__near this, __near call, __based(void) vfptr}}' }'";
+		msTruth = mdTruth; // TODO: Need a 16-bit machine to determine actual mdTruth
+		demangleAndTest16Bit();
+	}
+
+	// hand-crafted
+	@Test
+	public void testVCallJ016() throws Exception {
+		mangled = "??_9name0@@$BBII@J0A";
+		mdTruth =
+			"[thunk]: __cdecl name0::`vcall'{392,{__near this, __far call, __based(void) vfptr}}' }'";
+		msTruth = mdTruth; // TODO: Need a 16-bit machine to determine actual mdTruth
+		demangleAndTest16Bit();
+	}
+
+	// hand-crafted
+	@Test
+	public void testVCallK016() throws Exception {
+		mangled = "??_9name0@@$BBII@K0A";
+		mdTruth =
+			"[thunk]: __cdecl name0::`vcall'{392,{__far this, __near call, __based(void) vfptr}}' }'";
+		msTruth = mdTruth; // TODO: Need a 16-bit machine to determine actual mdTruth
+		demangleAndTest16Bit();
+	}
+
+	// hand-crafted
+	@Test
+	public void testVCallL016() throws Exception {
+		mangled = "??_9name0@@$BBII@L0A";
+		mdTruth =
+			"[thunk]: __cdecl name0::`vcall'{392,{__far this, __far call, __based(void) vfptr}}' }'";
+		msTruth = mdTruth; // TODO: Need a 16-bit machine to determine actual mdTruth
+		demangleAndTest16Bit();
+	}
+
+	// hand-crafted
+	@Test
+	public void testVCallL116() throws Exception {
+		mangled = "??_9name0@@$BBII@L1A";
+		mdTruth =
+			"[thunk]: __cdecl name0::`vcall'{392,{__far this, __far call, __based(__self) vfptr}}' }'";
+		msTruth = mdTruth; // TODO: Need a 16-bit machine to determine actual mdTruth
+		demangleAndTest16Bit();
+	}
+
+	// hand-crafted
+	@Test
+	public void testVCallL216() throws Exception {
+		mangled = "??_9name0@@$BBII@L2A";
+		mdTruth =
+			"[thunk]: __cdecl name0::`vcall'{392,{__far this, __far call, __based(NYI:__near*) vfptr}}' }'";
+		msTruth = mdTruth; // TODO: Need a 16-bit machine to determine actual mdTruth
+		demangleAndTest16Bit();
+	}
+
+	// hand-crafted
+	@Test
+	public void testVCallL316() throws Exception {
+		mangled = "??_9name0@@$BBII@L3A";
+		mdTruth =
+			"[thunk]: __cdecl name0::`vcall'{392,{__far this, __far call, __based(NYI:__far*) vfptr}}' }'";
+		msTruth = mdTruth; // TODO: Need a 16-bit machine to determine actual mdTruth
+		demangleAndTest16Bit();
+	}
+
+	// hand-crafted
+	@Test
+	public void testVCallL416() throws Exception {
+		mangled = "??_9name0@@$BBII@L4A";
+		mdTruth =
+			"[thunk]: __cdecl name0::`vcall'{392,{__far this, __far call, __based(NYI:__huge*) vfptr}}' }'";
+		msTruth = mdTruth; // TODO: Need a 16-bit machine to determine actual mdTruth
+		demangleAndTest16Bit();
+	}
+
+	// hand-crafted
+	@Test
+	public void testVCallL516() throws Exception {
+		mangled = "??_9name0@@$BBII@L5A";
+		// This expected result is even more questionable... need real output for based 5 code with
+		// 16-bit model
+		mdTruth =
+			"[thunk]: __cdecl name0::`vcall'{392,{__far this, __far call, vfptr}}' }'";
+		msTruth = mdTruth; // TODO: Need a 16-bit machine to determine actual mdTruth
+		demangleAndTest16Bit();
+	}
+
+	// hand-crafted
+	@Test
+	public void testVCallL616() throws Exception {
+		mangled = "??_9name0@@$BBII@L6A";
+		mdTruth =
+			"[thunk]: __cdecl name0::`vcall'{392,{__far this, __far call, __based(NYI:__segment) vfptr}}' }'";
+		msTruth = mdTruth; // TODO: Need a 16-bit machine to determine actual mdTruth
+		demangleAndTest16Bit();
+	}
+
+	// hand-crafted
+	@Test
+	public void testVCallL716() throws Exception {
+		mangled = "??_9name0@@$BBII@L7name1@A";
+		// Need special attention to mangled and demangled for this hand-crafted test
+		mdTruth =
+			"[thunk]: __cdecl name0::`vcall'{392,{__far this, __far call, __based(__segmname(\"name1\")) vfptr}}' }'";
+		msTruth = mdTruth; // TODO: Need a 16-bit machine to determine actual mdTruth
+		demangleAndTest16Bit();
+	}
+
+	// hand-crafted
+	@Test
+	public void testVCallL816() throws Exception {
+		mangled = "??_9name0@@$BBII@L8A";
+		mdTruth =
+			"[thunk]: __cdecl name0::`vcall'{392,{__far this, __far call, __based(NYI:<segment-address-of-variable>) vfptr}}' }'";
+		msTruth = mdTruth; // TODO: Need a 16-bit machine to determine actual mdTruth
+		demangleAndTest16Bit();
+	}
+
+	//=====================
 
 	//TODO: ignore for now.
 	@Ignore

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,8 +22,8 @@ import java.util.*;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jdom.*;
-import org.jdom.input.SAXBuilder;
+import org.jdom2.*;
+import org.jdom2.input.SAXBuilder;
 import org.xml.sax.SAXException;
 import org.xml.sax.SAXNotRecognizedException;
 
@@ -160,7 +160,7 @@ class SimpleLanguageTranslator extends LanguageTranslatorAdapter {
 			return super.getNewRegisterValue(oldRegisterValue);
 		}
 		Register newContextReg = getNewLanguage().getContextBaseRegister();
-		if (newContextReg == null || (clearAllContext && contextSettings == null)) {
+		if (newContextReg == Register.NO_CONTEXT || (clearAllContext && contextSettings == null)) {
 			return null;
 		}
 		RegisterValue newValue = null;
@@ -220,8 +220,8 @@ class SimpleLanguageTranslator extends LanguageTranslatorAdapter {
 				LanguagePostUpgradeInstructionHandler.class.getName());
 		}
 		Constructor<?> constructor = handlerClass.getConstructor(new Class<?>[] { Program.class });
-		return (LanguagePostUpgradeInstructionHandler) constructor.newInstance(
-			new Object[] { program });
+		return (LanguagePostUpgradeInstructionHandler) constructor
+				.newInstance(new Object[] { program });
 	}
 
 	@Override
@@ -469,11 +469,6 @@ class SimpleLanguageTranslator extends LanguageTranslatorAdapter {
 				"invalid set_context attribute value: " + name + "=\"" + valStr + "\"");
 		}
 		contextSettings.put(name, val);
-	}
-
-	public CompilerSpec getCompilerSpec() {
-		// TODO Auto-generated method stub
-		return null;
 	}
 
 }

@@ -4,22 +4,24 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#ifndef __BLOCK_ACTION__
-#define __BLOCK_ACTION__
+#ifndef __BLOCKACTION_HH__
+#define __BLOCKACTION_HH__
 
 /// \file blockaction.hh
 /// \brief Actions and classes associated with transforming and structuring the control-flow graph
 
 #include "action.hh"
+
+namespace ghidra {
 
 /// \brief Class for holding an edge while the underlying graph is being manipulated
 ///
@@ -53,7 +55,7 @@ class LoopBody {
 public:
   LoopBody(FlowBlock *h) { head=h; immed_container = (LoopBody *)0; depth=0; }	///< Construct with a loop head
   FlowBlock *getHead(void) const { return head; }			///< Return the head FlowBlock of the loop
-  FlowBlock *getCurrentBounds(FlowBlock **top,FlowBlock *graph);	///< Return current loop bounds (\b head and \b bottom).
+  FlowBlock *update(FlowBlock *graph);					///< Update loop body to current view
   void addTail(FlowBlock *bl) { tails.push_back(bl); }			///< Add a \e tail to the loop
   FlowBlock *getExitBlock(void) const { return exitblock; }		///< Get the exit FlowBlock or NULL
   void findBase(vector<FlowBlock *> &body);				///< Mark the body FlowBlocks of \b this loop
@@ -161,7 +163,7 @@ class TraceDAG {
   FlowBlock *finishblock;		///< Designated exit block for the DAG (or null)
   void removeTrace(BlockTrace *trace);	///< Remove the indicated BlockTrace
   void processExitConflict(list<BadEdgeScore>::iterator start,list<BadEdgeScore>::iterator end);
-  BlockTrace *selectBadEdge(void);	///< Select the the most likely unstructured edge from active BlockTraces
+  BlockTrace *selectBadEdge(void);	///< Select the most likely unstructured edge from active BlockTraces
   void insertActive(BlockTrace *trace);	///< Move a BlockTrace into the \e active category
   void removeActive(BlockTrace *trace);	///< Remove a BlockTrace from the \e active category
   bool checkOpen(BlockTrace *trace);	///< Check if we can push the given BlockTrace into its next node
@@ -262,6 +264,19 @@ public:
   void clear(void);				///< Clear for a new test
 };
 
+/// \brief Give each control-flow structure an opportunity to make a final transform
+///
+/// This is currently used to set up \e for loops via BlockWhileDo
+class ActionStructureTransform : public Action {
+public:
+  ActionStructureTransform(const string &g) : Action(0,"structuretransform",g) {}	///< Constructor
+  virtual Action *clone(const ActionGroupList &grouplist) const {
+    if (!grouplist.contains(getGroup())) return (Action *)0;
+    return new ActionStructureTransform(getGroup());
+  }
+  virtual int4 apply(Funcdata &data);
+};
+
 /// \brief Flip conditional control-flow so that \e preferred comparison operators are used
 ///
 /// This is used as an alternative to the standard algorithm that structures control-flow, when
@@ -342,4 +357,5 @@ public:
   virtual int4 apply(Funcdata &data);
 };
 
+} // End namespace ghidra
 #endif

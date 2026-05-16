@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,7 +18,6 @@
  */
 package ghidra.app.plugin.core.datapreview;
 
-import ghidra.docking.settings.SettingsImpl;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.*;
 import ghidra.program.model.mem.*;
@@ -52,7 +51,8 @@ class DataTypeComponentPreview implements Preview {
         this.parentPreview = parent;
     }
 
-    public String getName() {
+    @Override
+	public String getName() {
         String fieldName = dtc.getFieldName();
         if (fieldName == null) {
             fieldName = dtc.getDefaultFieldName();
@@ -63,7 +63,8 @@ class DataTypeComponentPreview implements Preview {
         return parentPreview.getName()+"."+fieldName;
     }
 
-    public String getPreview(Memory memory, Address addr) {
+    @Override
+	public String getPreview(Memory memory, Address addr) {
 	    try {
 	        if (parentPreview != null) {
 	            addr = addr.add(parentPreview.dtc.getOffset());
@@ -71,13 +72,14 @@ class DataTypeComponentPreview implements Preview {
 	        addr = addr.add(dtc.getOffset());
 		    MemBuffer mb = new DumbMemBufferImpl(memory, addr);
 		    DataType dt = dtc.getDataType();
-		    return dt.getRepresentation(mb, new SettingsImpl(), dtc.getLength());
+			return dt.getRepresentation(mb, dtc.getDefaultSettings(), dtc.getLength());
 	    }
 	    catch (Exception e) {
 	        return "ERROR: unable to create preview";
 	    }
     }
 
+	@Override
 	public DataType getDataType() {
 	    if (parentPreview != null) {
 	        return parentPreview.getDataType();
@@ -90,7 +92,8 @@ class DataTypeComponentPreview implements Preview {
 	    return getName();
 	}
 
-    public int compareTo(Preview p) {
+    @Override
+	public int compareTo(Preview p) {
         if (p instanceof DataTypeComponentPreview) {
             DataTypeComponentPreview that = (DataTypeComponentPreview)p;
 

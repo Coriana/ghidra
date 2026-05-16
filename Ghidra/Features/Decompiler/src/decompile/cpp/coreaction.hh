@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,12 +21,14 @@
 /// (if they do they must check the covers themselves)
 
 
-#ifndef __CORE_ACTION__
-#define __CORE_ACTION__
+#ifndef __COREACTION_HH__
+#define __COREACTION_HH__
 
 #include "ruleaction.hh"
 #include "blockaction.hh"
 #include "funcdata.hh"
+
+namespace ghidra {
 
 /// \brief Gather raw p-code for a function.
 class ActionStart : public Action {
@@ -65,9 +67,14 @@ public:
 };
 
 /// \brief Allow type recovery to start happening
+///
+/// The presence of \b this Action causes the function to be marked that data-type analysis
+/// will be performed.  Then when \b this action is applied during analysis, the function is marked
+/// that data-type analysis has started.
 class ActionStartTypes : public Action {
 public:
   ActionStartTypes(const string &g) : Action(0,"starttypes",g) {}	///< Constructor
+  virtual void reset(Funcdata &data) { data.setTypeRecovery(true); }
   virtual Action *clone(const ActionGroupList &grouplist) const {
     if (!grouplist.contains(getGroup())) return (Action *)0;
     return new ActionStartTypes(getGroup());
@@ -180,8 +187,9 @@ public:
 /// \brief Check for constants, with pointer type, that correspond to global symbols
 class ActionConstantPtr : public Action {
   int4 localcount;		///< Number of passes made for this function
-  static AddrSpace *searchForLoadStore(Varnode *vn,PcodeOp *op);
+  static AddrSpace *searchForSpaceAttribute(Varnode *vn,PcodeOp *op);
   static AddrSpace *selectInferSpace(Varnode *vn,PcodeOp *op,const vector<AddrSpace *> &spaceList);
+  static bool checkCopy(PcodeOp *op,Funcdata &data);
   static SymbolEntry *isPointer(AddrSpace *spc,Varnode *vn,PcodeOp *op,int4 slot,
 				Address &rampoint,uintb &fullEncoding,Funcdata &data);
 public:
@@ -310,8 +318,15 @@ public:
 /// input. In this case, it casts to the necessary pointer type
 /// immediately.
 class ActionSetCasts : public Action {
+  static void checkPointerIssues(PcodeOp *op,Varnode *vn,Funcdata &data);
+  static bool testStructOffset0(Datatype *reqtype,Datatype *curtype,CastStrategy *castStrategy);
+  static bool tryResolutionAdjustment(Datatype *dt,PcodeOp *op,int4 slot,Funcdata &data);
+  static bool tryResolutionCopy(PcodeOp *op,Funcdata &data);
+  static bool isOpIdentical(Datatype *ct1,Datatype *ct2);
+  static int4 resolveUnion(PcodeOp *op,int4 slot,Funcdata &data,CastStrategy *castStrategy);
   static int4 castOutput(PcodeOp *op,Funcdata &data,CastStrategy *castStrategy);
   static int4 castInput(PcodeOp *op,int4 slot,Funcdata &data,CastStrategy *castStrategy);
+  static PcodeOp *insertPtrsubZero(PcodeOp *op,int4 slot,Datatype *ct,Funcdata &data);
 public:
   ActionSetCasts(const string &g) : Action(rule_onceperfunc,"setcasts",g) {}	///< Constructor
   virtual Action *clone(const ActionGroupList &grouplist) const {
@@ -353,7 +368,7 @@ public:
     return new ActionMergeRequired(getGroup());
   }
   virtual int4 apply(Funcdata &data) { 
-    data.getMerge().mergeAddrTied(); data.getMerge().mergeMarker(); return 0; }
+    data.getMerge().mergeAddrTied(); data.getMerge().groupPartials(); data.getMerge().mergeMarker(); return 0; }
 };
 
 /// \brief Try to merge an op's input Varnode to its output, if they are at the same storage location.
@@ -541,7 +556,6 @@ class ActionDeadCode : public Action {
   static bool neverConsumed(Varnode *vn,Funcdata &data);
   static void markConsumedParameters(FuncCallSpecs *fc,vector<Varnode *> &worklist);
   static uintb gatherConsumedReturn(Funcdata &data);
-  static bool isEventualConstant(Varnode *vn,int4 addCount,int4 loadCount);
   static bool lastChanceLoad(Funcdata &data,vector<Varnode *> &worklist);
 public:
   ActionDeadCode(const string &g) : Action(0,"deadcode",g) {}	///< Constructor
@@ -554,6 +568,30 @@ public:
 
 /// \brief Propagate conditional constants
 class ActionConditionalConst : public Action {
+  /// \brief Description of a point in control-flow where a Varnode can propagate as a constant down a conditional branch
+  struct ConstPoint {
+    Varnode *vn;		///< Varnode that is constant for some reads
+    Varnode *constVn;		///< Representative of the constant (may be null)
+    uintb value;		///< The constant value
+    FlowBlock *constBlock;	///< Block that dominates all reads where vn is constant
+    int4 inSlot;		///< Input edge from condition block
+    bool blockIsDom;		///< Is \b true if block is dominated by constant path
+    ConstPoint(Varnode *v,Varnode *c,FlowBlock *bl,int4 slot,bool isDom) {
+      vn = v; constVn = c; value = c->getOffset(); constBlock = bl; inSlot = slot; blockIsDom = isDom; }	///< Construct from constant Varnode
+    ConstPoint(Varnode *v,uintb val,FlowBlock *bl,int4 slot,bool isDom) {
+      vn = v; constVn = (Varnode *)0; value = val; constBlock = bl; inSlot = slot; blockIsDom = isDom; }	///< Construct from constant value
+  };
+  static void clearMarks(const vector<PcodeOp *> &opList);
+  static void collectReachable(Varnode *vn,vector<PcodeOpNode> &phiNodeEdges,vector<PcodeOp *> &reachable);
+  static bool flowToAlternatePath(PcodeOp *op);
+  static bool flowTogether(const vector<PcodeOpNode> &edges,int4 i,vector<int4> &result);
+  static Varnode *placeCopy(PcodeOp *op,BlockBasic *bl,Varnode *constVn,Funcdata &data);
+  static void findConstCompare(list<ConstPoint> &points,Varnode *boolVn,FlowBlock *bl,bool *blockDom,bool flipEdge);
+  static void pushConstant(list<ConstPoint> &points,PcodeOp *op);
+  static void placeMultipleConstants(vector<PcodeOpNode> &phiNodeEdges,vector<int4> &marks,Varnode *constVn,Funcdata &data);
+  void handlePhiNodes(Varnode *varVn,Varnode *constVn,vector<PcodeOpNode> &phiNodeEdges,Funcdata &data);
+  bool testAlternatePath(Varnode *vn,PcodeOp *op,int4 slot,int4 depth);
+  void propagateConstant(list<ConstPoint> &points,bool useMultiequal,Funcdata &data);
 public:
   ActionConditionalConst(const string &g) : Action(0,"condconst",g) {}	///< Constructor
   virtual Action *clone(const ActionGroupList &grouplist) const {
@@ -561,7 +599,6 @@ public:
     return new ActionConditionalConst(getGroup());
   }
   virtual int4 apply(Funcdata &data);
-  void propagateConstant(Varnode *varVn,Varnode *constVn,FlowBlock *constBlock,Funcdata &data);
 };
 
 /// \brief Normalize jump-table construction.
@@ -811,6 +848,10 @@ public:
 /// This produces on intermediate view of symbols on the stack.
 class ActionRestructureVarnode : public Action {
   int4 numpass;			///< Number of passes performed for this function
+  static bool isCopyConstant(Varnode *vn);		///< Is the given Varnode a constant or a COPY of a constant
+  static bool isDelayedConstant(Varnode *vn);		///< Determine if given Varnode is or will be a constant
+  static void protectSwitchPathIndirects(PcodeOp *op);	///< Protect path to the given switch from INDIRECT collapse
+  static void protectSwitchPaths(Funcdata &data);	///< Look for switches and protect path of switch variable
 public:
   ActionRestructureVarnode(const string &g) : Action(0,"restructure_varnode",g) {}	///< Constructor
   virtual void reset(Funcdata &data) { numpass = 0; }
@@ -821,15 +862,15 @@ public:
   virtual int4 apply(Funcdata &data);
 };
 
-/// \brief Create symbols that map out the local stack-frame for the function.
+/// \brief Do final synchronization of symbols in the local scope with Varnodes
 ///
-/// This produces the final set of symbols on the stack.
-class ActionRestructureHigh : public Action {
+/// Push data-types from the last local scope restructuring onto Varnodes
+class ActionMappedLocalSync : public Action {
 public:
-  ActionRestructureHigh(const string &g) : Action(0,"restructure_high",g) {}	///< Constructor
+  ActionMappedLocalSync(const string &g) : Action(0,"mapped_local_sync",g) {}	///< Constructor
   virtual Action *clone(const ActionGroupList &grouplist) const {
     if (!grouplist.contains(getGroup())) return (Action *)0;
-    return new ActionRestructureHigh(getGroup());
+    return new ActionMappedLocalSync(getGroup());
   }
   virtual int4 apply(Funcdata &data);
 };
@@ -924,9 +965,6 @@ class ActionInferTypes : public Action {
   int4 localcount;					///< Number of passes performed for this function
   static void buildLocaltypes(Funcdata &data);		///< Assign initial data-type based on local info
   static bool writeBack(Funcdata &data);		///< Commit the final propagated data-types to Varnodes
-  static int4 propagateAddPointer(PcodeOp *op,int4 slot);	///< Test if edge is pointer plus a constant
-  static Datatype *propagateAddIn2Out(TypeFactory *typegrp,PcodeOp *op,int4 inslot);
-  static bool propagateGoodEdge(PcodeOp *op,int4 inslot,int4 outslot,Varnode *invn);
   static bool propagateTypeEdge(TypeFactory *typegrp,PcodeOp *op,int4 inslot,int4 outslot);
   static void propagateOneType(TypeFactory *typegrp,Varnode *vn);
   static void propagateRef(Funcdata &data,Varnode *vn,const Address &addr);
@@ -1015,6 +1053,19 @@ public:
   virtual int4 apply(Funcdata &data);
 };
 
+/// \brief Check for constants getting written to the stack from \e internal \e storage registers
+///
+/// The constant is internal to the compiler and its storage location on the stack should not be addressable.
+class ActionInternalStorage : public Action {
+public:
+  ActionInternalStorage(const string &g) : Action(rule_onceperfunc,"internalstorage",g) {}	///< Constructor
+  virtual Action *clone(const ActionGroupList &grouplist) const {
+    if (!grouplist.contains(getGroup())) return (Action *)0;
+    return new ActionInternalStorage(getGroup());
+  }
+  virtual int4 apply(Funcdata &data);
+};
+
 /// \brief A class that holds a data-type traversal state during type propagation
 ///
 /// For a given Varnode, this class iterates all the possible edges its
@@ -1031,46 +1082,5 @@ public:
   bool valid(void) const { return (op != (PcodeOp *)0); }	///< Return \b true if there are edges left to iterate
 };
 
-/// Class representing a \e term in an additive expression
-class PcodeOpEdge {
-  PcodeOp *op;			///< Lone descendant reading the term
-  int4 slot;			///< The input slot of the term
-  Varnode *vn;			///< The term Varnode
-  PcodeOp *mult;		///< The (optional) multiplier being applied to the term
-public:
-  PcodeOpEdge(PcodeOp *o,int4 s,PcodeOp *m) { op = o; slot = s; vn = op->getIn(slot); mult=m; }	///< Constructor
-  PcodeOp *getMultiplier(void) const { return mult; }	///< Get the multiplier PcodeOp
-  PcodeOp *getOp(void) const { return op; }		///< Get the component PcodeOp adding in the term
-  int4 getSlot(void) const { return slot; }		///< Get the slot reading the term
-  Varnode *getVarnode(void) const { return vn; }	///< Get the Varnode term
-};
-
-/// \brief A class for ordering Varnode terms in an additive expression.
-///
-/// Given the final PcodeOp in a data-flow expression that sums 2 or more
-/// Varnode \e terms, this class collects all the terms then allows
-/// sorting of the terms to facilitate constant collapse and factoring simplifications.
-class TermOrder {
-  PcodeOp *root;			///< The final PcodeOp in the expression
-  vector<PcodeOpEdge> terms;		///< Collected terms
-  vector<PcodeOpEdge *> sorter;		///< An array of references to terms for quick sorting
-  static bool additiveCompare(const PcodeOpEdge *op1,const PcodeOpEdge *op2);
-public:
-  TermOrder(PcodeOp *rt) { root = rt; }	///< Construct given root PcodeOp
-  int4 getSize(void) const { return terms.size(); }	///< Get the number of terms in the expression
-  void collect(void);			///< Collect all the terms in the expression
-  void sortTerms(void);			///< Sort the terms using additiveCompare()
-  const vector<PcodeOpEdge *> &getSort(void) { return sorter; }	///< Get the sorted list of references
-};
-
-/// \brief A comparison operator for ordering terms in a sum
-///
-/// This is based on Varnode::termOrder which groups constants terms and
-/// ignores multiplicative coefficients.
-/// \param op1 is the first term to compare
-/// \param op2 is the second term
-/// \return \b true if the first term is less than the second
-inline bool TermOrder::additiveCompare(const PcodeOpEdge *op1,const PcodeOpEdge *op2) {
-    return (-1 == op1->getVarnode()->termOrder(op2->getVarnode())); }
-
+} // End namespace ghidra
 #endif

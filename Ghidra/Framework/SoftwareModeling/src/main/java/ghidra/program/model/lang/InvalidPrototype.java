@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,17 +15,16 @@
  */
 package ghidra.program.model.lang;
 
+import java.io.IOException;
+import java.util.ArrayList;
+
 import ghidra.program.model.address.Address;
-import ghidra.program.model.address.UniqueAddressFactory;
 import ghidra.program.model.mem.MemBuffer;
 import ghidra.program.model.mem.MemoryAccessException;
-import ghidra.program.model.pcode.PcodeOp;
-import ghidra.program.model.pcode.PcodeOverride;
+import ghidra.program.model.pcode.*;
 import ghidra.program.model.scalar.Scalar;
 import ghidra.program.model.symbol.FlowType;
 import ghidra.program.model.symbol.RefType;
-
-import java.util.ArrayList;
 
 /**
  * Class to represent an invalid instruction prototype.
@@ -39,6 +37,8 @@ public class InvalidPrototype implements InstructionPrototype, ParserContext {
 
 	/**
 	 * Construct a new invalid instruction prototype.
+	 * 
+	 * @param lang is the Language for which the invalid instruction is discovered
 	 */
 	public InvalidPrototype(Language lang) {
 		super();
@@ -52,6 +52,11 @@ public class InvalidPrototype implements InstructionPrototype, ParserContext {
 
 	@Override
 	public boolean hasCrossBuildDependency() {
+		return false;
+	}
+
+	@Override
+	public boolean hasNext2Dependency() {
 		return false;
 	}
 
@@ -151,15 +156,14 @@ public class InvalidPrototype implements InstructionPrototype, ParserContext {
 	}
 
 	@Override
-	public PcodeOp[] getPcode(InstructionContext context, PcodeOverride override,
-			UniqueAddressFactory uniqueFactory) {
+	public PcodeOp[] getPcode(InstructionContext context, PcodeOverride override) {
 		return new PcodeOp[] { new PcodeOp(context.getAddress(), 0, PcodeOp.UNIMPLEMENTED) };
 	}
 
 	@Override
-	public PackedBytes getPcodePacked(InstructionContext context, PcodeOverride override,
-			UniqueAddressFactory uniqueFactory) {
-		return null;
+	public void getPcodePacked(PatchEncoder encoder, InstructionContext context,
+			PcodeOverride override) throws IOException {
+		// Does not emit anything
 	}
 
 	@Override
@@ -178,13 +182,13 @@ public class InvalidPrototype implements InstructionPrototype, ParserContext {
 	}
 
 	@Override
-	public String getSeparator(int opIndex, InstructionContext context) {
+	public String getSeparator(int opIndex) {
 		return null;
 	}
 
 	@Override
 	public RefType getOperandRefType(int opIndex, InstructionContext context,
-			PcodeOverride override, UniqueAddressFactory uniqueFactory) {
+			PcodeOverride override) {
 		return null;
 	}
 

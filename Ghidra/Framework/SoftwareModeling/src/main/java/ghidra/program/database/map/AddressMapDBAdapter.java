@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,16 +15,15 @@
  */
 package ghidra.program.database.map;
 
+import java.io.IOException;
+import java.util.List;
+
+import db.DBHandle;
+import ghidra.framework.data.OpenMode;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressFactory;
 import ghidra.util.exception.VersionException;
 import ghidra.util.task.TaskMonitor;
-
-import java.io.IOException;
-import java.util.List;
-
-import db.DBConstants;
-import db.DBHandle;
 
 /**
  * Database adapter for address map
@@ -37,21 +35,21 @@ abstract class AddressMapDBAdapter {
 
 	AddressMap oldAddrMap;
 
-	static AddressMapDBAdapter getAdapter(DBHandle handle, int openMode, AddressFactory factory,
-			TaskMonitor monitor) throws VersionException, IOException {
+	static AddressMapDBAdapter getAdapter(DBHandle handle, OpenMode openMode,
+			AddressFactory factory, TaskMonitor monitor) throws VersionException, IOException {
 
-		if (openMode == DBConstants.CREATE) {
+		if (openMode == OpenMode.CREATE) {
 			return new AddressMapDBAdapterV1(handle, factory, true);
 		}
 		try {
 			return new AddressMapDBAdapterV1(handle, factory, false);
 		}
 		catch (VersionException e) {
-			if (!e.isUpgradable() || openMode == DBConstants.UPDATE) {
+			if (!e.isUpgradable() || openMode == OpenMode.UPDATE) {
 				throw e;
 			}
 			AddressMapDBAdapter adapter = findReadOnlyAdapter(handle, factory);
-			if (openMode == DBConstants.UPGRADE) {
+			if (openMode == OpenMode.UPGRADE) {
 				adapter = upgrade(handle, adapter, factory, monitor);
 			}
 			return adapter;

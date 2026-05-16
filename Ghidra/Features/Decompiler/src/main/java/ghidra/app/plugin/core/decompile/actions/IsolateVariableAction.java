@@ -18,15 +18,18 @@ package ghidra.app.plugin.core.decompile.actions;
 import docking.action.MenuData;
 import ghidra.app.decompiler.ClangToken;
 import ghidra.app.plugin.core.decompile.DecompilerActionContext;
+import ghidra.app.util.HelpTopics;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.pcode.*;
 import ghidra.program.model.symbol.SourceType;
+import ghidra.util.HelpLocation;
 import ghidra.util.UndefinedFunction;
 
 public class IsolateVariableAction extends AbstractDecompilerAction {
 
 	public IsolateVariableAction() {
 		super("Split Out As New Variable");
+		setHelpLocation(new HelpLocation(HelpTopics.DECOMPILER, "ActionIsolate"));
 		setPopupMenuData(new MenuData(new String[] { "Split Out As New Variable" }, "Decompile"));
 	}
 
@@ -77,7 +80,7 @@ public class IsolateVariableAction extends AbstractDecompilerAction {
 		HighSymbol highSymbol = tokenAtCursor.getHighVariable().getSymbol();
 		IsolateVariableTask newVariableTask =
 			new IsolateVariableTask(context.getTool(), context.getProgram(),
-				context.getDecompilerPanel(), tokenAtCursor, highSymbol, SourceType.USER_DEFINED);
+				context.getComponentProvider(), tokenAtCursor, highSymbol, SourceType.USER_DEFINED);
 
 		newVariableTask.runTask(false);
 	}

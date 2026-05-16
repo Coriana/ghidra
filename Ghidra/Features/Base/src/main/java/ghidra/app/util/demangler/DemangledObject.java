@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,8 +22,7 @@ import java.util.regex.Pattern;
 import ghidra.app.cmd.label.SetLabelPrimaryCmd;
 import ghidra.app.util.NamespaceUtils;
 import ghidra.program.model.address.Address;
-import ghidra.program.model.listing.CodeUnit;
-import ghidra.program.model.listing.Program;
+import ghidra.program.model.listing.*;
 import ghidra.program.model.symbol.*;
 import ghidra.util.Msg;
 import ghidra.util.exception.DuplicateNameException;
@@ -41,13 +40,58 @@ public abstract class DemangledObject implements Demangled {
 	protected static final String NAMESPACE_SEPARATOR = Namespace.DELIMITER;
 	protected static final String EMPTY_STRING = "";
 
+	/*
+	 	The following names probably need to be refactored.   Until then, this is how the following
+	 	fields are used.
+	
+			mangled -
+	 			Source: The original mangled string as seen in the program
+	 		    Usage: Can be used to see if a program symbol has already been demangled
+	
+			rawDemangled -
+	 			Source: The raw demangled string returned from the demangler
+	 		    Usage: for debugging
+	
+			originalDemangled -
+	 			Source: The starting demangled string.  This will usually be the same as the raw
+	 			        demangled string.  This may have simplifications applied.
+	 		    Usage: for display
+	
+			demangledName -
+	 			Source: The name as created by the parser which may transform or even replace the
+	 			        string returned from the demangler
+	 		    Usage: for display
+	
+			name -
+	 			Source: This is derived from the 'demangledName' This is updated to be suitable
+	 		            for use as a symbol name.  This may be null while building, but is
+	 		            expected to be non-null when applyTo() is called
+	 		    Usage: The name that will be applied when applyTo() is called.
+	
+	
+	
+	 	Future: These variables should be refactored and renamed to be clearer and more cohesive,
+	 	        something like:
+	
+	 	        mangled
+	 	        rawDemangled
+	 	        simplifiedDemangled --|   These two could be combined into 'transformedDemangled'
+	 	        escapedDemangled    --|
+	 	        symbolName
+	
+	 */
+	protected MangledContext mangledContext; // the mangled context, which includes mangled string
 	protected final String mangled; // original mangled string
-	protected final String originalDemangled;
+	protected String rawDemangled; // demangled string from the demangler without any simplifications
+	protected String originalDemangled; // starting demangled string that may have been simplified
+	private String demangledName; // updated demangled string, possibly with changes made while building
+	private String name; // version of demangled name suitable for symbols
+
 	protected String specialPrefix;
 	protected Demangled namespace;
 	protected String visibility;//public, protected, etc.
 
-	//TODO: storageClass refers to things such as "static" but const and volatile are 
+	//TODO: storageClass refers to things such as "static" but const and volatile are
 	// typeQualifiers.  Should change this everywhere(?).
 	protected String storageClass; //const, volatile, etc
 
@@ -56,8 +100,7 @@ public abstract class DemangledObject implements Demangled {
 
 	//TODO: determine what type of keyword this is (not type qualifier or storage class).
 	protected boolean isVirtual;
-	private String demangledName;
-	private String name;
+
 	private boolean isConst;
 	private boolean isVolatile;
 	private boolean isPointer64;
@@ -68,11 +111,35 @@ public abstract class DemangledObject implements Demangled {
 	protected String basedName;
 	protected String memberScope;
 
-	private String signature;
+	private String plateComment;
 
+	// Status of mangled String converted successfully to demangled String
+	private boolean demangledNameSucceeded = false;
+	private String errorMessage = null;
+
+	/**
+	 * Constructor.  This is the older constructor that does not take a mangled context
+	 * @param mangled the mangled string
+	 * @param originalDemangled the raw demangled string; usually what comes from the upstream
+	 * demangler process, if there is one
+	 */
 	DemangledObject(String mangled, String originalDemangled) {
 		this.mangled = mangled;
 		this.originalDemangled = originalDemangled;
+		this.rawDemangled = originalDemangled;
+	}
+
+	/**
+	 * Constructor.
+	 * @param mangledContext the context, which includes the mangled string
+	 * @param originalDemangled the raw demangled string; usually what comes from the upstream
+	 * demangler process, if there is one
+	 */
+	DemangledObject(MangledContext mangledContext, String originalDemangled) {
+		this.mangledContext = mangledContext;
+		this.mangled = mangledContext.getMangled();
+		this.originalDemangled = originalDemangled;
+		this.rawDemangled = originalDemangled;
 	}
 
 	@Override
@@ -179,6 +246,25 @@ public abstract class DemangledObject implements Demangled {
 			this.name =
 				DemanglerUtil.stripSuperfluousSignatureSpaces(name).trim().replace(' ', '_');
 		}
+		demangledNameSucceeded = !mangled.equals(name);
+	}
+
+	/**
+	 * Returns the success state of converting a mangled String into a demangled String
+	 * @return true succeeded creating demangled String
+	 */
+	public boolean demangledNameSuccessfully() {
+		return demangledNameSucceeded;
+	}
+
+	@Override
+	public void setMangledContext(MangledContext mangledContextArg) {
+		mangledContext = mangledContextArg;
+	}
+
+	@Override
+	public MangledContext getMangledContext() {
+		return mangledContext;
 	}
 
 	@Override
@@ -189,6 +275,35 @@ public abstract class DemangledObject implements Demangled {
 	@Override
 	public String getOriginalDemangled() {
 		return originalDemangled;
+	}
+
+	/**
+	 * Sets the original demangled string.  This is useful for clients that reuse constructed
+	 * demangled objects for special case constructs.
+	 * <p>
+	 * Note: this method is not on the interface
+	 * @param originalDemangled the new original demangled string
+	 */
+	public void setOriginalDemangled(String originalDemangled) {
+		this.originalDemangled = originalDemangled;
+	}
+
+	/**
+	 * Returns the raw demangled string.  This is the value returned from the demangler before any 
+	 * simplifications or transformations have been made.
+	 * @return the string
+	 */
+	public String getRawDemangled() {
+		return rawDemangled;
+	}
+
+	/**
+	 * Sets the raw demangled string.  This is the value returned from the demangler before any 
+	 * simplifications or transformations have been made.
+	 * @param s the string
+	 */
+	public void setRawDemangledString(String s) {
+		this.rawDemangled = s;
 	}
 
 	@Override
@@ -248,15 +363,6 @@ public abstract class DemangledObject implements Demangled {
 		return getName();
 	}
 
-	/**
-	 * Sets the signature. Calling this method will
-	 * override the auto-generated signature.
-	 * @param signature the signature
-	 */
-	public void setSignature(String signature) {
-		this.signature = signature;
-	}
-
 	@Override
 	public String toString() {
 		return getSignature(false);
@@ -304,12 +410,77 @@ public abstract class DemangledObject implements Demangled {
 		return false;
 	}
 
+	/**
+	 * Returns the error message that can be set when an error is encountered, but which is made
+	 * available to the calling method to get details of the error beyond boolean value that is
+	 * returned by {@link #applyTo(Program, Address, DemanglerOptions,TaskMonitor)}.
+	 * @return a message pertaining to issues encountered in the apply methods.  Can be null
+	 */
+	public String getErrorMessage() {
+		return errorMessage;
+	}
+
+	/**
+	 * Set the message that {@link #applyTo(Program, Address, DemanglerOptions,TaskMonitor)} caller
+	 * can read
+	 * @param message the message
+	 */
+	protected void setErrorMessage(String message) {
+		this.errorMessage = message;
+	}
+
+	/**
+	 * Apply this demangled object detail to the specified program.
+	 * <br>
+	 * NOTE: An open Program transaction must be established prior to invoking this method.
+	 *
+	 * @param program program to which demangled data should be applied.
+	 * @param address address which corresponds to this demangled object
+	 * @param options options which control how demangled data is applied
+	 * @param monitor task monitor
+	 * @return true if successfully applied, else false
+	 * @throws Exception if an error occurs during the apply operation
+	 */
 	public boolean applyTo(Program program, Address address, DemanglerOptions options,
 			TaskMonitor monitor) throws Exception {
-		if (mangled.equals(name)) {
-			return false;
+		return applyPlateCommentOnly(program, address);
+	}
+
+	/**
+	 * Apply this demangled object detail to the specified program.  This method only works
+	 * if the {@link MangledContext} was set with the appropriate constructor or with the
+	 * {@link #setMangledContext(MangledContext)} method
+	 * <br>
+	 * NOTE: An open Program transaction must be established prior to invoking this method.
+	 *
+	 * @param monitor task monitor
+	 * @return true if successfully applied, else false
+	 * @throws Exception if an error occurs during the apply operation or if the context is null
+	 */
+	public boolean applyUsingContext(TaskMonitor monitor) throws Exception {
+		if (mangledContext == null) {
+			throw new DemangledException("Null context found for: " + mangled);
 		}
-		String comment = program.getListing().getComment(CodeUnit.PLATE_COMMENT, address);
+		return applyTo(mangledContext.getProgram(), mangledContext.getAddress(),
+			mangledContext.getOptions(), monitor);
+	}
+
+	/**
+	 * @param program The program for which to apply the comment
+	 * @param address The address for the comment
+	 * @return {@code true} if a comment was applied
+	 * @throws Exception if the symbol could not be demangled or if the address is invalid
+	 */
+	public boolean applyPlateCommentOnly(Program program, Address address) throws Exception {
+		if (!demangledNameSuccessfully()) {
+			throw new DemangledException("Symbol did not demangle at address: " + address);
+		}
+		if (!address.isMemoryAddress() || !program.getMemory().contains(address)) {
+			return true; // skip this symbol
+		}
+
+		Listing listing = program.getListing();
+		String comment = listing.getComment(CommentType.PLATE, address);
 		String newComment = generatePlateComment();
 		if (comment == null || comment.indexOf(newComment) < 0) {
 			if (comment == null) {
@@ -318,24 +489,34 @@ public abstract class DemangledObject implements Demangled {
 			else {
 				comment = comment + '\n' + newComment;
 			}
-			program.getListing().setComment(address, CodeUnit.PLATE_COMMENT, comment);
+			listing.setComment(address, CommentType.PLATE, comment);
 		}
 		return true;
 	}
 
+	/**
+	 * Sets the plate comment to be used if the {@link #getOriginalDemangled()} string is not
+	 * available
+	 *
+	 * @param plateComment the plate comment text
+	 */
+	public void setBackupPlateComment(String plateComment) {
+		this.plateComment = plateComment;
+	}
+
+	/**
+	 * Creates descriptive text that is intended to be used as documentation.  The text defaults
+	 * to the original demangled text.  If that is not available, then any text set by
+	 * {@link #setBackupPlateComment(String)} will be used.  The last choice for this text is
+	 * the signature generated by {@link #getSignature(boolean)}.
+	 *
+	 * @return the text
+	 */
 	protected String generatePlateComment() {
 		if (originalDemangled != null) {
 			return originalDemangled;
 		}
-		return (signature == null) ? getSignature(true) : signature;
-	}
-
-	protected String pad(int len) {
-		StringBuffer buffer = new StringBuffer();
-		for (int i = 0; i < len; i++) {
-			buffer.append(' ');
-		}
-		return buffer.toString();
+		return (plateComment == null) ? getSignature(true) : plateComment;
 	}
 
 	protected Symbol applyDemangledName(Address addr, boolean setPrimary,
@@ -414,10 +595,10 @@ public abstract class DemangledObject implements Demangled {
 	}
 
 	/**
-	 * Get or create the specified typeNamespace.  The returned namespace may only be a partial 
+	 * Get or create the specified typeNamespace.  The returned namespace may only be a partial
 	 * namespace if errors occurred.  The caller should check the returned namespace and adjust
-	 * any symbol creation accordingly.  
-	 * 
+	 * any symbol creation accordingly.
+	 *
 	 * @param program the program
 	 * @param typeNamespace demangled namespace
 	 * @param parentNamespace root namespace to be used (e.g., library, global, etc.)
@@ -432,6 +613,7 @@ public abstract class DemangledObject implements Demangled {
 			namespace = program.getGlobalNamespace();
 		}
 
+		SymbolTable symbolTable = program.getSymbolTable();
 		for (String namespaceName : getNamespaceList(typeNamespace)) {
 
 			// TODO - This is compensating for too long templates.  We should probably genericize
@@ -439,39 +621,31 @@ public abstract class DemangledObject implements Demangled {
 			//        same name is the same class--would that reflect reality?
 			namespaceName = ensureNameLength(namespaceName);
 
-			SymbolTable symbolTable = program.getSymbolTable();
-
-			List<Symbol> symbols = symbolTable.getSymbols(namespaceName, namespace);
-			Symbol namespaceSymbol =
-				symbols.stream()
-						.filter(s -> (s.getSymbolType() == SymbolType.NAMESPACE ||
-							s.getSymbolType() == SymbolType.CLASS))
-						.findFirst()
-						.orElse(null);
-			if (namespaceSymbol == null) {
-				try {
-					namespace =
-						symbolTable.createNameSpace(namespace, namespaceName, SourceType.IMPORTED);
-				}
-				catch (DuplicateNameException e) {
-					Msg.error(DemangledObject.class,
-						"Failed to create namespace due to name conflict: " +
-							NamespaceUtils.getNamespaceQualifiedName(namespace, namespaceName,
-								false));
-					break;
-				}
-				catch (InvalidInputException e) {
-					Msg.error(DemangledObject.class,
-						"Failed to create namespace: " + e.getMessage());
-					break;
-				}
+			try {
+				namespace =
+					symbolTable.getOrCreateNameSpace(namespace, namespaceName, SourceType.IMPORTED);
 			}
-			else if (isPermittedNamespaceSymbol(namespaceSymbol, functionPermitted)) {
-				namespace = (Namespace) namespaceSymbol.getObject();
-			}
-			else {
+			catch (DuplicateNameException e) {
 				Msg.error(DemangledObject.class,
 					"Failed to create namespace due to name conflict: " +
+						NamespaceUtils.getNamespaceQualifiedName(namespace, namespaceName, false));
+				break;
+			}
+			catch (InvalidInputException e) {
+				Msg.error(DemangledObject.class, "Failed to create namespace: " + e.getMessage());
+				break;
+			}
+
+			Symbol nsSymbol = namespace.getSymbol();
+			if (!isPermittedNamespaceType(nsSymbol.getSymbolType(), functionPermitted)) {
+
+				String allowedTypes = "SymbolType.CLASS, SymbolType.NAMESPACE";
+				if (functionPermitted) {
+					allowedTypes += ", SymbolType.FUNCTION";
+				}
+
+				Msg.error(DemangledObject.class,
+					"Bad namespace type - must be one of: " + allowedTypes +
 						NamespaceUtils.getNamespaceQualifiedName(namespace, namespaceName, false));
 				break;
 			}
@@ -479,18 +653,18 @@ public abstract class DemangledObject implements Demangled {
 		return namespace;
 	}
 
-	private static boolean isPermittedNamespaceSymbol(Symbol symbol, boolean functionPermitted) {
-		SymbolType symbolType = symbol.getSymbolType();
+	private static boolean isPermittedNamespaceType(SymbolType symbolType,
+			boolean functionPermitted) {
 		if (symbolType == SymbolType.CLASS || symbolType == SymbolType.NAMESPACE) {
 			return true;
 		}
 		return functionPermitted && symbolType == SymbolType.FUNCTION;
 	}
 
-	/** 
+	/**
 	 * Ensure name does not pass the limit defined by Ghidra
-	 * 
-	 * @param name the name whose length to restrict 
+	 *
+	 * @param name the name whose length to restrict
 	 * @return the name, updated as needed
 	 */
 	protected static String ensureNameLength(String name) {

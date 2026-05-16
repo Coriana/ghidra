@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,20 +22,20 @@ import java.util.List;
 import javax.swing.Icon;
 
 import docking.widgets.tree.GTreeNode;
+import generic.theme.GIcon;
 import ghidra.app.plugin.core.symboltree.SymbolCategory;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolType;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
-import resources.ResourceManager;
 
 public class LabelCategoryNode extends SymbolCategoryNode {
 
 	public static final Icon OPEN_FOLDER_LABELS_ICON =
-		ResourceManager.loadImage("images/openFolderLabels.png");
+		new GIcon("icon.plugin.symboltree.node.category.label.open");
 	public static final Icon CLOSED_FOLDER_LABELS_ICON =
-		ResourceManager.loadImage("images/closedFolderLabels.png");
+		new GIcon("icon.plugin.symboltree.node.category.label.closed");
 
 	public LabelCategoryNode(Program program) {
 		super(SymbolCategory.LABEL_CATEGORY, program);
@@ -62,6 +62,15 @@ public class LabelCategoryNode extends SymbolCategoryNode {
 	}
 
 	@Override
+	protected boolean supportsSymbol(Symbol symbol) {
+		if (!symbol.isGlobal() || symbol.isExternal()) {
+			return false;
+		}
+		SymbolType symbolType = symbol.getSymbolType();
+		return symbolType == symbolCategory.getSymbolType();
+	}
+
+	@Override
 	protected List<GTreeNode> getSymbols(SymbolType type, TaskMonitor monitor)
 			throws CancelledException {
 		return getSymbols(type, true, monitor);
@@ -85,7 +94,7 @@ public class LabelCategoryNode extends SymbolCategoryNode {
 	}
 
 	@Override
-	public SymbolNode symbolAdded(Symbol symbol) {
+	public SymbolNode symbolAdded(Symbol symbol, TaskMonitor monitor) {
 		if (!isLoaded()) {
 			return null;
 		}

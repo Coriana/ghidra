@@ -17,17 +17,21 @@ package ghidra.app.plugin.core.navigation;
 
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
 
 import javax.swing.Icon;
-import javax.swing.ImageIcon;
+import javax.swing.KeyStroke;
 
 import docking.ActionContext;
 import docking.action.*;
+import docking.menu.HorizontalRuleAction;
 import docking.menu.MultiActionDockingAction;
 import docking.tool.ToolConstants;
+import generic.theme.GIcon;
 import ghidra.app.CorePluginPackage;
-import ghidra.app.context.*;
+import ghidra.app.context.NavigatableActionContext;
+import ghidra.app.context.ProgramActionContext;
 import ghidra.app.nav.LocationMemento;
 import ghidra.app.nav.Navigatable;
 import ghidra.app.plugin.PluginCategoryNames;
@@ -35,8 +39,8 @@ import ghidra.app.services.GoToService;
 import ghidra.app.services.NavigationHistoryService;
 import ghidra.app.util.HelpTopics;
 import ghidra.app.util.viewer.field.BrowserCodeUnitFormat;
-import ghidra.base.actions.HorizontalRuleAction;
 import ghidra.framework.model.DomainFile;
+import ghidra.framework.options.ActionTrigger;
 import ghidra.framework.plugintool.*;
 import ghidra.framework.plugintool.util.PluginStatus;
 import ghidra.program.model.address.Address;
@@ -44,7 +48,7 @@ import ghidra.program.model.listing.*;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolTable;
 import ghidra.util.HelpLocation;
-import resources.ResourceManager;
+import gui.event.MouseBinding;
 
 /**
  * <CODE>NextPrevAddressPlugin</CODE> allows the user to go back and forth in
@@ -63,13 +67,12 @@ import resources.ResourceManager;
 public class NextPrevAddressPlugin extends Plugin {
 
 	private static final String HISTORY_MENU_GROUP = "1_Menu_History_Group";
-	private static ImageIcon previousIcon = ResourceManager.loadImage("images/left.png");
-	private static ImageIcon nextIcon = ResourceManager.loadImage("images/right.png");
+	private static Icon PREVIOUS_ICON = new GIcon("icon.plugin.navigation.location.previous");
+	private static Icon NEXT_ICON = new GIcon("icon.plugin.navigation.location.next");
 
 	private static final String PREVIOUS_ACTION_NAME = "Previous Location in History";
 	private static final String NEXT_ACTION_NAME = "Next Location in History";
-	private static final String PREVIOUS_FUNCTION_ACTION_NAME =
-		"Previous Function in History";
+	private static final String PREVIOUS_FUNCTION_ACTION_NAME = "Previous Function in History";
 	private static final String NEXT_FUNCTION_ACTION_NAME = "Next Function in History";
 	private static final String[] CLEAR_MENUPATH = { "Navigation", "Clear History" };
 
@@ -83,7 +86,7 @@ public class NextPrevAddressPlugin extends Plugin {
 
 	/**
 	 * Creates a new instance of the plugin
-	 * 
+	 *
 	 * @param tool the tool
 	 */
 	public NextPrevAddressPlugin(PluginTool tool) {
@@ -113,9 +116,13 @@ public class NextPrevAddressPlugin extends Plugin {
 		return nextFunctionAction;
 	}
 
+	DockingAction getClearHistoryAction() {
+		return clearAction;
+	}
+
 //==================================================================================================
 // Private Methods
-//==================================================================================================	
+//==================================================================================================
 
 	private List<DockingActionIf> getPreviousActions(Navigatable navigatable) {
 		Program lastProgram = null;
@@ -183,16 +190,6 @@ public class NextPrevAddressPlugin extends Plugin {
 			}
 
 			@Override
-			public boolean shouldAddToWindow(boolean isMainWindow, Set<Class<?>> contextTypes) {
-				for (Class<?> class1 : contextTypes) {
-					if (NavigationActionContext.class.isAssignableFrom(class1)) {
-						return true;
-					}
-				}
-				return false;
-			}
-
-			@Override
 			public boolean isEnabledForContext(ActionContext context) {
 				if (!(context instanceof ProgramActionContext)) {
 					return false;
@@ -204,6 +201,7 @@ public class NextPrevAddressPlugin extends Plugin {
 				return hasNext || hasPrevious;
 			}
 		};
+		clearAction.addToWindowWhen(NavigatableActionContext.class);
 		clearAction.setHelpLocation(new HelpLocation(HelpTopics.NAVIGATION, clearAction.getName()));
 		MenuData menuData = new MenuData(CLEAR_MENUPATH, HISTORY_MENU_GROUP);
 		menuData.setMenuSubGroup("1"); // first in menu!
@@ -302,18 +300,29 @@ public class NextPrevAddressPlugin extends Plugin {
 
 	private class NextPreviousAction extends MultiActionDockingAction {
 
+		private static final int MOUSE_BUTTON_4 = 4;
+		private static final int MOUSE_BUTTON_5 = 5;
+
 		private final boolean isNext;
 
 		NextPreviousAction(String name, String owner, boolean isNext) {
 			super(name, owner);
 			this.isNext = isNext;
 
-			setToolBarData(new ToolBarData(isNext ? nextIcon : previousIcon,
+			setToolBarData(new ToolBarData(isNext ? NEXT_ICON : PREVIOUS_ICON,
 				ToolConstants.TOOLBAR_GROUP_TWO));
 			setHelpLocation(new HelpLocation(HelpTopics.NAVIGATION, name));
-			int keycode = isNext ? KeyEvent.VK_RIGHT : KeyEvent.VK_LEFT;
-			setKeyBindingData(new KeyBindingData(keycode, InputEvent.ALT_DOWN_MASK));
+
+			int keyCode = isNext ? KeyEvent.VK_RIGHT : KeyEvent.VK_LEFT;
+			KeyStroke keyStroke = KeyStroke.getKeyStroke(keyCode, InputEvent.ALT_DOWN_MASK);
+
+			int mouseButton = isNext ? MOUSE_BUTTON_5 : MOUSE_BUTTON_4;
+			MouseBinding mouseBinding = new MouseBinding(mouseButton);
+
+			setKeyBindingData(new KeyBindingData(new ActionTrigger(keyStroke, mouseBinding)));
+
 			setDescription(isNext ? "Go to next location" : "Go to previous location");
+			addToWindowWhen(NavigatableActionContext.class);
 		}
 
 		@Override
@@ -337,16 +346,6 @@ public class NextPrevAddressPlugin extends Plugin {
 			else {
 				historyService.previous(navigatable);
 			}
-		}
-
-		@Override
-		public boolean shouldAddToWindow(boolean isMainWindow, Set<Class<?>> contextTypes) {
-			for (Class<?> class1 : contextTypes) {
-				if (NavigationActionContext.class.isAssignableFrom(class1)) {
-					return true;
-				}
-			}
-			return false;
 		}
 
 		@Override
@@ -414,6 +413,7 @@ public class NextPrevAddressPlugin extends Plugin {
 				new MenuData(new String[] { "Navigation", menuItemName }, HISTORY_MENU_GROUP);
 			menuData.setMenuSubGroup("2"); // after clear
 			setMenuBarData(menuData);
+			addToWindowWhen(NavigatableActionContext.class);
 		}
 
 		@Override
@@ -437,16 +437,6 @@ public class NextPrevAddressPlugin extends Plugin {
 			else {
 				historyService.previousFunction(navigatable);
 			}
-		}
-
-		@Override
-		public boolean shouldAddToWindow(boolean isMainWindow, Set<Class<?>> contextTypes) {
-			for (Class<?> class1 : contextTypes) {
-				if (NavigationActionContext.class.isAssignableFrom(class1)) {
-					return true;
-				}
-			}
-			return false;
 		}
 	}
 

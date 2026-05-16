@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,43 +15,45 @@
  */
 package ghidra.file.formats.ext4;
 
+import java.io.IOException;
+
 import ghidra.app.util.bin.BinaryReader;
 import ghidra.app.util.bin.ByteProvider;
 import ghidra.formats.gfilesystem.*;
-import ghidra.formats.gfilesystem.factory.GFileSystemFactoryFull;
-import ghidra.formats.gfilesystem.factory.GFileSystemProbeFull;
+import ghidra.formats.gfilesystem.factory.GFileSystemFactoryByteProvider;
+import ghidra.formats.gfilesystem.factory.GFileSystemProbeByteProvider;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
 
-import java.io.File;
-import java.io.IOException;
-
 public class Ext4FileSystemFactory
-		implements GFileSystemProbeFull, GFileSystemFactoryFull<Ext4FileSystem> {
+		implements GFileSystemProbeByteProvider, GFileSystemFactoryByteProvider<Ext4FileSystem> {
 
 	@Override
-	public Ext4FileSystem create(FSRL containerFSRL, FSRLRoot targetFSRL, ByteProvider byteProvider,
-			File containerFile, FileSystemService fsService, TaskMonitor monitor)
-					throws IOException, CancelledException {
+	public Ext4FileSystem create(FSRLRoot targetFSRL, ByteProvider byteProvider,
+			FileSystemService fsService, TaskMonitor monitor)
+			throws IOException, CancelledException {
 
-		Ext4FileSystem fs = new Ext4FileSystem(targetFSRL, byteProvider);
-		fs.mountFS(monitor);
+		try {
+			Ext4FileSystem fs = new Ext4FileSystem(targetFSRL, byteProvider);
+			fs.mountFS(monitor);
 
-		return fs;
+			return fs;
+		}
+		catch (IOException e) {
+			FSUtilities.uncheckedClose(byteProvider, null);
+			throw e;
+		}
 	}
 
 	@Override
-	public boolean probe(FSRL containerFSRL, ByteProvider byteProvider, File containerFile,
-			FileSystemService fsService, TaskMonitor taskMonitor)
-					throws IOException, CancelledException {
+	public boolean probe(ByteProvider byteProvider, FileSystemService fsService,
+			TaskMonitor taskMonitor) throws IOException, CancelledException {
 		try {
 			BinaryReader reader = new BinaryReader(byteProvider, true);
 			//ext4 has a 1024 byte padding at the beginning
-			reader.setPointerIndex(0x400);
+			reader.setPointerIndex(Ext4Constants.SUPER_BLOCK_START);
 			Ext4SuperBlock superBlock = new Ext4SuperBlock(reader);
-			if ((superBlock.getS_magic() & 0xffff) == Ext4Constants.SUPER_BLOCK_MAGIC) {
-				return true;
-			}
+			return superBlock.isValid();
 		}
 		catch (IOException e) {
 			// ignore

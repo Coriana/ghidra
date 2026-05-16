@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,13 +21,13 @@
  */
 package ghidra.app.util.viewer.proxy;
 
+import java.util.ConcurrentModificationException;
+
 import ghidra.app.util.viewer.listingpanel.ListingModel;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.Pointer;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.symbol.Reference;
-
-import java.util.ConcurrentModificationException;
 
 /**
  * Stores information about a function in a program such that the function can 
@@ -36,10 +35,10 @@ import java.util.ConcurrentModificationException;
  * function object has been inferred via a reference at the locationAddr.
  */
 public class FunctionProxy extends ProxyObj<Function> {
-	Program program;
-	Function function;
-	Address functionAddr;
-	Address locationAddr;
+	private Program program;
+	private Function function;
+	private Address functionAddr;
+	private Address locationAddr;
 
 	/**
 	 * Construct a proxy for a function
@@ -65,9 +64,6 @@ public class FunctionProxy extends ProxyObj<Function> {
 		return functionAddr;
 	}
 
-	/**
-	 * @see ghidra.app.util.viewer.proxy.ProxyObj#getObject()
-	 */
 	@Override
 	public Function getObject() {
 		if (function != null) {
@@ -105,4 +101,16 @@ public class FunctionProxy extends ProxyObj<Function> {
 		return function;
 	}
 
+	@Override
+	public boolean contains(Address a) {
+		Function f = getObject();
+		if (f == null) {
+			return false;
+		}
+		return f.getBody().contains(a);
+	}
+
+	public Program getProgram() {
+		return program;
+	}
 }

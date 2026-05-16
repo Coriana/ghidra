@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,14 +16,12 @@
 package ghidra.app.util.parser;
 
 import java.util.*;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
-import javax.help.UnsupportedOperationException;
 
 import org.apache.commons.lang3.StringUtils;
 
 import ghidra.app.services.DataTypeQueryService;
+import ghidra.app.util.SymbolPath;
 import ghidra.app.util.cparser.C.ParseException;
 import ghidra.program.database.data.DataTypeUtilities;
 import ghidra.program.model.data.*;
@@ -31,6 +29,7 @@ import ghidra.program.model.listing.FunctionSignature;
 import ghidra.util.data.DataTypeParser;
 import ghidra.util.data.DataTypeParser.AllowedDataTypes;
 import ghidra.util.exception.CancelledException;
+import ghidra.util.task.TaskMonitor;
 
 /**
  * Class for parsing function signatures. This class attempts to be much more
@@ -58,7 +57,8 @@ public class FunctionSignatureParser {
 	private DataTypeParser dataTypeParser;
 	private Map<String, DataType> dtMap = new HashMap<>();
 
-	private Map<String, String> nameMap = new HashMap<>();
+	/** Stores parameter names that required name fixup for parsing to work correctly */
+	private Map<String, String> replacedNameMap = new HashMap<>();
 	private DataTypeManager destDataTypeManager;
 	private ParserDataTypeManagerService dtmService;
 
@@ -99,8 +99,15 @@ public class FunctionSignatureParser {
 	public FunctionDefinitionDataType parse(FunctionSignature originalSignature,
 			String signatureText) throws ParseException, CancelledException {
 
+		FsParseResult result = parseWithNamespace(originalSignature, signatureText);
+		return result.functionDefinition();
+	}
+
+	public FsParseResult parseWithNamespace(FunctionSignature originalSignature,
+			String signatureText) throws ParseException, CancelledException {
+
 		dtMap.clear();
-		nameMap.clear();
+		replacedNameMap.clear();
 		if (dtmService != null) {
 			dtmService.clearCache(); // clear datatype selection cache
 		}
@@ -111,14 +118,18 @@ public class FunctionSignatureParser {
 		}
 
 		String functionName = extractFunctionName(signatureText);
+		SymbolPath path = new SymbolPath(functionName);
+		SymbolPath nsPath = path.getParent();
+		String name = path.getName();
+
 		FunctionDefinitionDataType function =
-			new FunctionDefinitionDataType(functionName, destDataTypeManager);
+			new FunctionDefinitionDataType(name, destDataTypeManager);
 
 		function.setReturnType(extractReturnType(signatureText));
 		function.setArguments(extractArguments(signatureText));
 		function.setVarArgs(hasVarArgs(signatureText));
 
-		return function;
+		return new FsParseResult(nsPath, function);
 	}
 
 	private void initDataTypeMap(FunctionSignature signature) {
@@ -206,7 +217,7 @@ public class FunctionSignatureParser {
 		// attempt to separate trailing parameter name from datatype and reparse
 		int spaceIndex = arg.lastIndexOf(' ');
 		if (spaceIndex < 0) {
-			throw new ParseException("Can't resolve datatype: " + dt);
+			throw new ParseException("Can't resolve datatype: " + arg);
 		}
 		int starIndex = arg.lastIndexOf('*');
 		int nameIndex = Math.max(spaceIndex, starIndex) + 1;
@@ -236,21 +247,21 @@ public class FunctionSignatureParser {
 	}
 
 	private String replaceDataTypeIfNeeded(String text, DataType dataType, String replacementName) {
-		String displayName = dataType.getDisplayName();
-		if (canParse(displayName)) {
+		String datatypeName = dataType.getName();
+		if (canParseType(datatypeName)) {
 			return text;
 		}
 
 		dtMap.put(replacementName, dataType);
 
-		return substitute(text, displayName, replacementName);
+		return substitute(text, datatypeName, replacementName);
 	}
 
 	private String replaceNameIfNeeded(String text, String name, String replacementName) {
-		if (canParse(name)) {
+		if (canParseName(name)) {
 			return text;
 		}
-		nameMap.put(replacementName, name);
+		replacedNameMap.put(replacementName, name);
 		return substitute(text, name, replacementName);
 	}
 
@@ -272,34 +283,9 @@ public class FunctionSignatureParser {
 		return dt;
 	}
 
-	// The following regex pattern attempts to isolate the parameter name from
-	// the beginning of a parameter specification. Since the name is optional,
-	// additional steps must be taken in code to ensure that the trailing word of
-	// a multi-word type-specified is not treated as a name (e.g., unsigned long).
-	//
-	// The regex pattern attempts to isolate the following fields:
-	//
-	// <type-specifier> [<array-specifier>|<pointer-specifier>]* [param-name]
-	//     group-1                     group-3                     group-4
-	//
-	// Note: group-2 is an inner group to group-3 is not useful
-	//
-	private static final Pattern parameterNameCapturePattern =
-		Pattern.compile("(.+?)((\\[\\d*\\]|\\*\\d*)\\s*)*([^\\s\\[\\*]+)");
-
 	private DataType resolveDataType(String dataTypeName) throws CancelledException {
 		if (dtMap.containsKey(dataTypeName)) {
 			return dtMap.get(dataTypeName);
-		}
-
-		Matcher m = parameterNameCapturePattern.matcher(dataTypeName);
-		if (m.matches()) {
-			boolean hasPointerOrArraySpec = m.group(3) != null;
-			boolean hasName = (m.group(4) != null) && (m.group(4).length() != 0);
-			if (hasPointerOrArraySpec && hasName) {
-				// name after array/pointer spec - dataTypeName is not a valid datatype
-				return null;
-			}
 		}
 
 		DataType dataType = null;
@@ -327,10 +313,10 @@ public class FunctionSignatureParser {
 	}
 
 	private String resolveName(String name) throws ParseException {
-		if (nameMap.containsKey(name)) {
-			return nameMap.get(name);
+		if (replacedNameMap.containsKey(name)) {
+			return replacedNameMap.get(name);
 		}
-		if (!canParse(name)) {
+		if (!canParseName(name)) {
 			throw new ParseException("Can't parse name: " + name);
 		}
 		return name;
@@ -340,9 +326,21 @@ public class FunctionSignatureParser {
 		return text.replaceFirst(Pattern.quote(searchString), replacementString);
 	}
 
-	private boolean canParse(String text) {
+	private boolean canParseName(String text) {
 		return !StringUtils.containsAny(text, "()*[], ");
 	}
+
+	private boolean canParseType(String text) {
+		return !StringUtils.containsAny(text, "()<>,");
+	}
+
+	/**
+	 * A simple object to hold data for the results of parsing the function signature text
+	 * @param namespace the namespace; may be null
+	 * @param functionDefinition the function definition; will not be null
+	 */
+	public record FsParseResult(SymbolPath namespace,
+			FunctionDefinitionDataType functionDefinition) {}
 
 	/**
 	 * Provides a simple caching datatype manager service wrapper.<br>
@@ -372,20 +370,25 @@ public class FunctionSignatureParser {
 		}
 
 		@Override
-		public DataTypeManager[] getDataTypeManagers() {
-			throw new UnsupportedOperationException();
-		}
-
-		@Override
 		public List<DataType> getSortedDataTypeList() {
 			return service.getSortedDataTypeList();
 		}
 
 		@Override
+		public List<CategoryPath> getSortedCategoryPathList() {
+			return service.getSortedCategoryPathList();
+		}
+
+		@Override
 		public DataType getDataType(String filterText) {
+			return promptForDataType(filterText);
+		}
+
+		@Override
+		public DataType promptForDataType(String filterText) {
 			DataType dt = dtCache.get(filterText);
 			if (dt == null) {
-				dt = service.getDataType(filterText);
+				dt = service.promptForDataType(filterText);
 				if (dt != null) {
 					dtCache.put(filterText, dt);
 				}
@@ -393,5 +396,19 @@ public class FunctionSignatureParser {
 			return dt;
 		}
 
+		@Override
+		public List<DataType> getDataTypesByPath(DataTypePath path) {
+			return service.getDataTypesByPath(path);
+		}
+
+		@Override
+		public DataType getProgramDataTypeByPath(DataTypePath path) {
+			return service.getProgramDataTypeByPath(path);
+		}
+
+		@Override
+		public List<DataType> findDataTypes(String name, TaskMonitor monitor) {
+			return service.findDataTypes(name, monitor);
+		}
 	}
 }

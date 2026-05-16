@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -25,18 +25,19 @@ import ghidra.app.services.ProgramManager;
 import ghidra.app.util.Option;
 import ghidra.app.util.bin.ByteProvider;
 import ghidra.app.util.importer.MessageLog;
-import ghidra.app.util.opinion.LoadSpec;
+import ghidra.app.util.opinion.*;
+import ghidra.app.util.opinion.Loader.ImporterSettings;
 import ghidra.formats.gfilesystem.*;
+import ghidra.framework.main.AppInfo;
 import ghidra.framework.model.*;
 import ghidra.framework.store.local.LocalFileSystem;
-import ghidra.plugin.importer.ImporterUtilities;
-import ghidra.plugin.importer.ProgramMappingService;
 import ghidra.plugins.importer.batch.*;
 import ghidra.plugins.importer.batch.BatchGroup.BatchLoadConfig;
 import ghidra.program.model.listing.Program;
 import ghidra.util.InvalidNameException;
 import ghidra.util.Msg;
-import ghidra.util.exception.*;
+import ghidra.util.exception.CancelledException;
+import ghidra.util.exception.VersionException;
 import ghidra.util.task.Task;
 import ghidra.util.task.TaskMonitor;
 
@@ -54,6 +55,7 @@ public class ImportBatchTask extends Task {
 	private DomainFolder destFolder;
 	private boolean stripLeadingPath = true;
 	private boolean stripAllContainerPath = false;
+	private boolean mirrorFs = false;
 	private ProgramManager programManager;
 	private int totalObjsImported;
 	private int totalAppsImported;
@@ -62,7 +64,7 @@ public class ImportBatchTask extends Task {
 	/**
 	 * Start a Batch Import session with an already populated {@link BatchInfo}
 	 * instance.
-	 * <p>
+	 * 
 	 * @param batchInfo {@link BatchInfo} state object
 	 * @param destFolder {@link DomainFolder} where to place imported files
 	 * @param programManager {@link ProgramManager} to use when opening newly imported files, null ok
@@ -71,9 +73,11 @@ public class ImportBatchTask extends Task {
 	 * @param stripAllContainerPath boolean true if each imported file's parent container
 	 * source path should be completely omitted when creating the destination project folder path.
 	 * (the imported file's path within its container is still used)
+	 * @param mirrorFs boolean true if the filesystem should be mirrored during import
 	 */
 	public ImportBatchTask(BatchInfo batchInfo, DomainFolder destFolder,
-			ProgramManager programManager, boolean stripLeading, boolean stripAllContainerPath) {
+			ProgramManager programManager, boolean stripLeading, boolean stripAllContainerPath,
+			boolean mirrorFs) {
 		super("Batch Import Task", true, true, false, false);
 
 		this.batchInfo = batchInfo;
@@ -82,6 +86,7 @@ public class ImportBatchTask extends Task {
 		this.programManager = programManager;
 		this.stripLeadingPath = stripLeading;
 		this.stripAllContainerPath = stripAllContainerPath;
+		this.mirrorFs = mirrorFs;
 	}
 
 	@Override
@@ -98,7 +103,8 @@ public class ImportBatchTask extends Task {
 		}
 		finally {
 			Msg.showInfo(this, null, "Batch Import Summary",
-				"Batch Import finished.\nImported " + totalObjsImported + " files.");
+				"Batch Import finished.\nImported " + totalObjsImported + " file" +
+					(totalObjsImported == 1 ? "." : "s."));
 		}
 	}
 
@@ -131,49 +137,48 @@ public class ImportBatchTask extends Task {
 	private void doImportApp(BatchLoadConfig batchLoadConfig,
 			BatchGroupLoadSpec selectedBatchGroupLoadSpec, TaskMonitor monitor)
 			throws CancelledException, IOException {
-		try (ByteProvider byteProvider =
-			FileSystemService.getInstance().getByteProvider(batchLoadConfig.getFSRL(), monitor)) {
+		Msg.info(this, "Importing " + batchLoadConfig.getFSRL());
+		try (ByteProvider byteProvider = FileSystemService.getInstance()
+				.getByteProvider(batchLoadConfig.getFSRL(), true, monitor)) {
 			LoadSpec loadSpec = batchLoadConfig.getLoadSpec(selectedBatchGroupLoadSpec);
 			if (loadSpec == null) {
 				Msg.error(this,
-					"Failed to get load spec from application that matches choosen batch load spec " +
+					"Failed to get load spec from application that matches chosen batch load spec " +
 						selectedBatchGroupLoadSpec);
 				return;
 			}
 			Pair<DomainFolder, String> destInfo = getDestinationInfo(batchLoadConfig, destFolder);
 
-			Object consumer = new Object();
 			try {
 				MessageLog messageLog = new MessageLog();
-				List<DomainObject> importedObjects = loadSpec.getLoader()
-						.load(byteProvider,
-							fixupProjectFilename(destInfo.second), destInfo.first, loadSpec,
-							getOptionsFor(batchLoadConfig, loadSpec, byteProvider), messageLog,
-							consumer,
-							monitor);
+				Project project = AppInfo.getActiveProject();
+				ImporterSettings settings = new ImporterSettings(byteProvider,
+					fixupProjectFilename(destInfo.second), project, destInfo.first.getPathname(),
+					mirrorFs, loadSpec, getOptionsFor(batchLoadConfig, loadSpec, byteProvider),
+					this, messageLog, monitor);
+				try (LoadResults<? extends DomainObject> loadResults =
+					loadSpec.getLoader().load(settings)) {
 
-				// TODO: accumulate batch results
-				if (importedObjects != null) {
-					try {
-						processImportResults(importedObjects, batchLoadConfig, monitor);
-					}
-					finally {
-						releaseAll(importedObjects, consumer);
+					// TODO: accumulate batch results
+					if (loadResults != null) {
+						loadResults.save(monitor);
+						processImportResults(loadResults, batchLoadConfig, monitor);
 					}
 				}
+
 				totalAppsImported++;
 
 				Msg.info(this, "Imported " + destInfo.first + "/ " + destInfo.second + ", " +
 					totalAppsImported + " of " + totalEnabledApps);
-				if (messageLog.hasMessages()) {
+				if (!Loader.loggingDisabled && messageLog.hasMessages()) {
 					Msg.info(this, "Additional info:\n" + messageLog.toString());
 				}
 			}
 			catch (CancelledException e) {
 				Msg.debug(this, "Batch Import cancelled");
 			}
-			catch (DuplicateNameException | InvalidNameException | VersionException
-					| IOException e) {
+			catch (IOException | VersionException | IllegalArgumentException
+					| InvalidNameException e) {
 				Msg.error(this, "Import failed for " + batchLoadConfig.getPreferredFileName(), e);
 			}
 		}
@@ -189,35 +194,27 @@ public class ImportBatchTask extends Task {
 		return sb.toString();
 	}
 
-	private void releaseAll(List<DomainObject> importedObjects, Object consumer) {
-		for (DomainObject obj : importedObjects) {
-			if (obj.isUsedBy(consumer)) {
-				obj.release(consumer);
-			}
-		}
-	}
-
 	/*
-	 * sets the imported program's source properties, creates fsrl associations,
-	 * updates task statistics,  opens the imported program (if allowed), and
-	 * calls the ImportManagerServiceListener callback.
+	 * creates fsrl associations, updates task statistics, opens the imported program (if allowed)
 	 */
-	private void processImportResults(List<DomainObject> importedObjects, BatchLoadConfig appInfo,
-			TaskMonitor monitor) throws CancelledException, IOException {
+	private void processImportResults(LoadResults<? extends DomainObject> loadResults,
+			BatchLoadConfig appInfo, TaskMonitor monitor) {
 
-		for (DomainObject obj : importedObjects) {
-			if (obj instanceof Program) {
-				Program program = (Program) obj;
-				ImporterUtilities.setProgramProperties(program, appInfo.getFSRL(), monitor);
-
-				if (programManager != null && totalObjsImported < MAX_PROGRAMS_TO_OPEN) {
-					programManager.openProgram(program,
-						totalObjsImported == 0 ? ProgramManager.OPEN_CURRENT
-								: ProgramManager.OPEN_VISIBLE);
+		for (Loaded<? extends DomainObject> loaded : loadResults) {
+			DomainObject obj = loaded.getDomainObject(this);
+			try {
+				if (obj instanceof Program program) {
+					if (programManager != null && totalObjsImported < MAX_PROGRAMS_TO_OPEN) {
+						programManager.openProgram(program,
+							totalObjsImported == 0 ? ProgramManager.OPEN_CURRENT
+									: ProgramManager.OPEN_VISIBLE);
+					}
 				}
-
-				ProgramMappingService.createAssociation(appInfo.getFSRL(), program);
 			}
+			finally {
+				obj.release(this);
+			}
+
 			totalObjsImported++;
 		}
 	}
@@ -245,13 +242,12 @@ public class ImportBatchTask extends Task {
 		String userSrcPath = userSrc.toPrettyFullpathString().replace('|', '/');
 		int filename = fullPath.lastIndexOf('/') + 1;
 		int uas = userSrcPath.length();
-		int container = uas + 1;
 
 		int leadStart = (stripLeadingPath == false) ? 0 : userSrcPath.lastIndexOf('/') + 1;
 		int leadEnd = Math.min(filename, userSrcPath.length());
 		String leading = (leadStart < filename) ? fullPath.substring(leadStart, leadEnd) : "";
-		String containerPath = container < filename && !stripInteriorContainerPath
-				? fullPath.substring(container, filename)
+		String containerPath = uas < filename && !stripInteriorContainerPath
+				? fullPath.substring(uas, filename)
 				: "";
 		String filenameStr = fullPath.substring(filename);
 		String result = FSUtilities.appendPath(leading, containerPath, filenameStr);
@@ -261,6 +257,23 @@ public class ImportBatchTask extends Task {
 	private Pair<DomainFolder, String> getDestinationInfo(BatchLoadConfig batchLoadConfig,
 			DomainFolder rootDestinationFolder) {
 		FSRL fsrl = batchLoadConfig.getFSRL();
+		
+		if (mirrorFs) {
+			FSRL containerFSRL = fsrl.getFS().getContainer();
+			String path = containerFSRL != null ? containerFSRL.toPrettyFullpathString() : "/";
+			path = path.replace('|', '/');
+			try {
+				DomainFolder batchDestFolder = ProjectDataUtils.createDomainFolderPath(
+					rootDestinationFolder, stripLeadingPath ? "" : path);
+				return new Pair<>(batchDestFolder, fsrl.getName());
+			}
+			catch (IOException | InvalidNameException e) {
+				Msg.error(this, "Problem creating project folder root: " +
+					rootDestinationFolder.getPathname() + ", subpath: " + path, e);
+			}
+			return new Pair<>(rootDestinationFolder, fsrl.getName());
+		}
+		
 		String pathStr = fsrlToPath(fsrl, batchLoadConfig.getUasi().getFSRL(), stripLeadingPath,
 			stripAllContainerPath);
 		String preferredName = batchLoadConfig.getPreferredFileName();
@@ -291,8 +304,8 @@ public class ImportBatchTask extends Task {
 
 	private List<Option> getOptionsFor(BatchLoadConfig batchLoadConfig, LoadSpec loadSpec,
 			ByteProvider byteProvider) {
-		List<Option> options =
-			batchLoadConfig.getLoader().getDefaultOptions(byteProvider, loadSpec, null, false);
+		List<Option> options = batchLoadConfig.getLoader()
+				.getDefaultOptions(byteProvider, loadSpec, null, false, false);
 		return options;
 	}
 }

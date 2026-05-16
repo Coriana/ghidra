@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,6 +16,7 @@
 package docking.widgets.table.threaded;
 
 import java.util.*;
+import java.util.function.BiFunction;
 
 import docking.widgets.table.TableFilter;
 import docking.widgets.table.TableSortingContext;
@@ -70,7 +71,7 @@ public class TableData<ROW_OBJECT> implements Iterable<ROW_OBJECT> {
 		// no source; no data; no sort
 	}
 
-	private TableData(List<ROW_OBJECT> data, TableSortingContext<ROW_OBJECT> sortContext) {
+	TableData(List<ROW_OBJECT> data, TableSortingContext<ROW_OBJECT> sortContext) {
 		this.data = data;
 		this.sortContext = sortContext;
 	}
@@ -137,8 +138,8 @@ public class TableData<ROW_OBJECT> implements Iterable<ROW_OBJECT> {
 	 * @param t the item
 	 * @return the index
 	 */
-	int indexOf(ROW_OBJECT t) {
-		if (!sortContext.isUnsorted()) {
+	public int indexOf(ROW_OBJECT t) {
+		if (isSorted()) {
 			Comparator<ROW_OBJECT> comparator = sortContext.getComparator();
 			return Collections.binarySearch(data, t, comparator);
 		}
@@ -153,20 +154,58 @@ public class TableData<ROW_OBJECT> implements Iterable<ROW_OBJECT> {
 		return -1;
 	}
 
-	boolean remove(ROW_OBJECT o) {
+	public boolean remove(ROW_OBJECT t) {
 		if (source != null) {
-			source.remove(o);
+			source.remove(t);
 		}
 
-		return data.remove(o);
+		if (!isSorted()) {
+			return data.remove(t); // no sort; cannot binary search
+		}
+
+		Comparator<ROW_OBJECT> comparator = sortContext.getComparator();
+		int index = Collections.binarySearch(data, t, comparator);
+		if (index >= 0) {
+			data.remove(index);
+			return true;
+		}
+
+		// We used to have code that passed proxy objects to this class to remove items.  That code
+		// has been updated to no longer pass proxy objects.  Leaving this code here for a while
+		// just in case we find another client doing the same thing.
+		// return data.remove(t);
+		return false;
 	}
 
 	/**
-	 * Adds the new <tt>value</tt> to the data at the appropriate location based on the sort
+	 * A generic method that allows clients to process the contents of this table data.  This
+	 * method is not synchronized and should only be called from a {@link TableUpdateJob} or
+	 * one of its callbacks.
+	 * 
+	 * <P>Note: this method will do nothing if the data is not sorted.
+	 * 
+	 * @param function the consumer of the data and the current sort context
+	 */
+	public void process(
+			BiFunction<List<ROW_OBJECT>, TableSortingContext<ROW_OBJECT>, List<ROW_OBJECT>> function) {
+
+		if (!isSorted()) {
+			return;
+		}
+
+		if (source != null) {
+			source.process(function);
+		}
+
+		data = function.apply(data, sortContext);
+	}
+
+	/**
+	 * Adds the new {@code value} to the data at the appropriate location based on the sort
 	 * 
 	 * @param value the row Object to insert
 	 */
-	void insert(ROW_OBJECT value) {
+	public void insert(ROW_OBJECT value) {
 
 		if (source != null) {
 			// always update the master data

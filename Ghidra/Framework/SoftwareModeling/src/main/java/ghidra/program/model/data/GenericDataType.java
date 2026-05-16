@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,14 +17,11 @@ package ghidra.program.model.data;
 
 import ghidra.util.InvalidNameException;
 import ghidra.util.UniversalID;
-import ghidra.util.exception.DuplicateNameException;
 
 /**
  * Base implementation for a generic data type.
  */
 public abstract class GenericDataType extends DataTypeImpl {
-
-	protected boolean packed = false;
 
 	protected GenericDataType(CategoryPath path, String name, DataTypeManager dataMgr) {
 		super(path, name, dataMgr);
@@ -44,9 +41,7 @@ public abstract class GenericDataType extends DataTypeImpl {
 	}
 
 	@Override
-	public void setNameAndCategory(CategoryPath path, String name)
-			throws InvalidNameException, DuplicateNameException {
-
+	public void setNameAndCategory(CategoryPath path, String name) throws InvalidNameException {
 		doSetName(name);
 		doSetCategoryPath(path);
 	}
@@ -72,9 +67,9 @@ public abstract class GenericDataType extends DataTypeImpl {
 	}
 
 	private void doSetCategoryPath(CategoryPath path) {
-		if (path == null)
+		if (path == null) {
 			path = CategoryPath.ROOT;
+		}
 		categoryPath = path;
 	}
-
 }

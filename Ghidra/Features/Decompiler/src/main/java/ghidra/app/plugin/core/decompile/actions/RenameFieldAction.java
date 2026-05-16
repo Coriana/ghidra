@@ -22,11 +22,12 @@ import docking.action.MenuData;
 import ghidra.app.decompiler.ClangFieldToken;
 import ghidra.app.decompiler.ClangToken;
 import ghidra.app.plugin.core.decompile.DecompilerActionContext;
+import ghidra.app.util.HelpTopics;
 import ghidra.framework.plugintool.PluginTool;
+import ghidra.program.model.data.Composite;
 import ghidra.program.model.data.Structure;
 import ghidra.program.model.listing.Function;
-import ghidra.util.Msg;
-import ghidra.util.UndefinedFunction;
+import ghidra.util.*;
 
 /**
  * Action triggered from a specific token in the decompiler window to rename a field within
@@ -39,6 +40,7 @@ public class RenameFieldAction extends AbstractDecompilerAction {
 
 	public RenameFieldAction() {
 		super("Rename Field");
+		setHelpLocation(new HelpLocation(HelpTopics.DECOMPILER, "ActionRenameField"));
 		setPopupMenuData(new MenuData(new String[] { "Rename Field" }, "Decompile"));
 		setKeyBindingData(new KeyBindingData(KeyEvent.VK_L, 0));
 	}
@@ -57,23 +59,30 @@ public class RenameFieldAction extends AbstractDecompilerAction {
 	@Override
 	protected void decompilerActionPerformed(DecompilerActionContext context) {
 		PluginTool tool = context.getTool();
-		final ClangToken tokenAtCursor = context.getTokenAtCursor();
-
-		Structure dt = getStructDataType(tokenAtCursor);
+		ClangToken tokenAtCursor = context.getTokenAtCursor();
+		Composite dt = getCompositeDataType(tokenAtCursor);
 		if (dt == null) {
 			Msg.showError(this, tool.getToolFrame(), "Rename Failed",
 				"Could not find structure datatype");
 			return;
 		}
+
 		int offset = ((ClangFieldToken) tokenAtCursor).getOffset();
 		if (offset < 0 || offset >= dt.getLength()) {
 			Msg.showError(this, tool.getToolFrame(), "Rename Failed",
 				"Could not resolve field within structure");
 			return;
 		}
-		RenameStructureFieldTask nameTask =
-			new RenameStructureFieldTask(tool, context.getProgram(), context.getDecompilerPanel(),
-				tokenAtCursor, dt, offset);
+
+		RenameTask nameTask;
+		if (dt instanceof Structure) {
+			nameTask = new RenameStructFieldTask(tool, context.getProgram(),
+				context.getComponentProvider(), tokenAtCursor, (Structure) dt, offset);
+		}
+		else {
+			nameTask = new RenameUnionFieldTask(tool, context.getProgram(),
+				context.getComponentProvider(), tokenAtCursor, dt, offset);
+		}
 		nameTask.runTask(true);
 	}
 }

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,18 +15,18 @@
  */
 package help.validator;
 
+import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.*;
+import java.util.Map.Entry;
+
 import help.OverlayHelpTree;
 import help.TOCItemProvider;
 import help.validator.links.InvalidHREFLink;
 import help.validator.links.InvalidLink;
 import help.validator.location.HelpModuleCollection;
 import help.validator.model.*;
-
-import java.io.IOException;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.*;
-import java.util.Map.Entry;
 
 public class LinkDatabase {
 
@@ -108,7 +108,7 @@ public class LinkDatabase {
 	}
 
 	private void collectTOCItemDefinitions(TOCItemProvider tocProvider) {
-		Map<String, TOCItemDefinition> map = tocProvider.getTOCItemDefinitionsByIDMapping();
+		Map<String, TOCItemDefinition> map = tocProvider.getTocDefinitionsByID();
 		Set<Entry<String, TOCItemDefinition>> entrySet = map.entrySet();
 		for (Entry<String, TOCItemDefinition> entry : entrySet) {
 			String key = entry.getKey();
@@ -124,7 +124,7 @@ public class LinkDatabase {
 	}
 
 	private void collectTOCItemExternals(TOCItemProvider tocProvider) {
-		Map<String, TOCItemExternal> map = tocProvider.getTOCItemExternalsByDisplayMapping();
+		Map<String, TOCItemExternal> map = tocProvider.getExternalTocItemsById();
 		for (TOCItemExternal tocItem : map.values()) {
 			mapOfIDsToTOCExternals.put(tocItem.getIDAttribute(), tocItem);
 		}
@@ -178,6 +178,11 @@ public class LinkDatabase {
 	}
 
 	public String getIDForLink(String target) {
+
+		if (target.startsWith(JavaHelpValidator.EXTERNAL_PREFIX)) {
+			return null; // the validator handles this later
+		}
+
 		Path path = Paths.get(target);
 		Path file = Paths.get(target.split("#")[0]);
 
@@ -198,5 +203,9 @@ public class LinkDatabase {
 
 	public void generateTOCOutputFile(Path outputFile, GhidraTOCFile file) throws IOException {
 		printableTree.printTreeForID(outputFile, file.getFile().toUri().toString());
+	}
+
+	public void validateAllTOCs() {
+		printableTree.validateAllTOCs();
 	}
 }

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -31,6 +31,7 @@ import ghidra.program.model.listing.*;
 import ghidra.program.model.symbol.Reference;
 import ghidra.program.util.*;
 import ghidra.util.datastruct.Accumulator;
+import ghidra.util.datastruct.SetAccumulatorWrapper;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
 
@@ -108,49 +109,52 @@ public abstract class LocationDescriptor {
 
 		for (int i = 0; i < changeEvent.numRecords(); i++) {
 			DomainObjectChangeRecord domainObjectRecord = changeEvent.getChangeRecord(i);
-			int eventType = domainObjectRecord.getEventType();
-
-			switch (eventType) {
-				case ChangeManager.DOCR_MEMORY_BLOCK_MOVED:
-				case ChangeManager.DOCR_MEMORY_BLOCK_REMOVED:
-					if (program.getMemory().contains(getHomeAddress())) {
+			EventType eventType = domainObjectRecord.getEventType();
+			if (eventType == DomainObjectEvent.RESTORED) {
+				checkForAddressChange(domainObjectRecord);
+				return true;
+			}
+			if (eventType instanceof ProgramEvent type) {
+				switch (type) {
+					case MEMORY_BLOCK_MOVED:
+					case MEMORY_BLOCK_REMOVED:
+						if (program.getMemory().contains(getHomeAddress())) {
+							checkForAddressChange(domainObjectRecord);
+							return true;
+						}
+						break;
+					case SYMBOL_ADDED:
+					case SYMBOL_RENAMED:
+					case SYMBOL_REMOVED:
 						checkForAddressChange(domainObjectRecord);
 						return true;
-					}
-					break;
-				case ChangeManager.DOCR_SYMBOL_ADDED:
-				case ChangeManager.DOCR_SYMBOL_RENAMED:
-				case ChangeManager.DOCR_SYMBOL_REMOVED:
-					checkForAddressChange(domainObjectRecord);
-					return true;
-				case ChangeManager.DOCR_MEM_REFERENCE_ADDED:
-					ProgramChangeRecord changeRecord = (ProgramChangeRecord) domainObjectRecord;
-					Reference ref = (Reference) changeRecord.getNewValue();
-					if (refersToAddress(ref, getHomeAddress())) {
-						checkForAddressChange(domainObjectRecord);
-						return true;
-					}
-					break;
-				case ChangeManager.DOCR_MEM_REFERENCE_REMOVED:
-					changeRecord = (ProgramChangeRecord) domainObjectRecord;
-					ref = (Reference) changeRecord.getOldValue();
-					if (refersToAddress(ref, getHomeAddress())) {
-						checkForAddressChange(domainObjectRecord);
-						return true;
-					}
-					break;
-				case ChangeManager.DOCR_SYMBOL_ASSOCIATION_ADDED:
-				case ChangeManager.DOCR_SYMBOL_ASSOCIATION_REMOVED:
-					changeRecord = (ProgramChangeRecord) domainObjectRecord;
-					ref = (Reference) changeRecord.getObject();
-					if (refersToAddress(ref, getHomeAddress())) {
-						checkForAddressChange(domainObjectRecord);
-						return true;
-					}
-					break;
-				case DomainObject.DO_OBJECT_RESTORED:
-					checkForAddressChange(domainObjectRecord);
-					return true;
+					case REFERENCE_ADDED:
+						ProgramChangeRecord changeRecord = (ProgramChangeRecord) domainObjectRecord;
+						Reference ref = (Reference) changeRecord.getNewValue();
+						if (refersToAddress(ref, getHomeAddress())) {
+							checkForAddressChange(domainObjectRecord);
+							return true;
+						}
+						break;
+					case REFERENCE_REMOVED:
+						changeRecord = (ProgramChangeRecord) domainObjectRecord;
+						ref = (Reference) changeRecord.getOldValue();
+						if (refersToAddress(ref, getHomeAddress())) {
+							checkForAddressChange(domainObjectRecord);
+							return true;
+						}
+						break;
+					case SYMBOL_ASSOCIATION_ADDED:
+					case SYMBOL_ASSOCIATION_REMOVED:
+						changeRecord = (ProgramChangeRecord) domainObjectRecord;
+						ref = (Reference) changeRecord.getObject();
+						if (refersToAddress(ref, getHomeAddress())) {
+							checkForAddressChange(domainObjectRecord);
+							return true;
+						}
+						break;
+					default:
+				}
 			}
 		}
 
@@ -173,8 +177,7 @@ public abstract class LocationDescriptor {
 			return removed;
 		}
 
-		int eventType = changeRecord.getEventType();
-		if (eventType == DomainObject.DO_OBJECT_RESTORED) {
+		if (changeRecord.getEventType() == DomainObjectEvent.RESTORED) {
 			// we cannot tell which addresses were effected, so the data *may* be stale
 			if (modelFreshnessListener != null) {
 				modelFreshnessListener.stateChanged(new ChangeEvent(this));
@@ -260,10 +263,10 @@ public abstract class LocationDescriptor {
 	}
 
 	/**
-	 * Returns a generic {@link ProgramLocation} based upon the <tt>program</tt> and  
-	 * <tt>homeAddress</tt> of this <tt>LocationDescriptor</tt>.  Subclasses should override this 
+	 * Returns a generic {@link ProgramLocation} based upon the {@code program} and
+	 * {@code homeAddress} of this {@code LocationDescriptor}.  Subclasses should override this
 	 * method to return more specific addresses.
-	 * 
+	 *
 	 * @return a generic ProgramLocation.
 	 */
 	ProgramLocation getHomeLocation() {
@@ -312,7 +315,7 @@ public abstract class LocationDescriptor {
 	 * @param obj The object associated with the text being rendered (e.g., CodeUnit).
 	 * @param fieldFactoryClass The class that created the field being rendered.
 	 * @param highlightColor The color to use for highlighting.
-	 * @return An array of highlights to render for the given <tt>text</tt>
+	 * @return An array of highlights to render for the given {@code text}
 	 */
 	abstract Highlight[] getHighlights(String text, Object obj,
 			Class<? extends FieldFactory> fieldFactoryClass, Color highlightColor);
@@ -329,9 +332,9 @@ public abstract class LocationDescriptor {
 			TaskMonitor monitor) throws CancelledException;
 
 	/**
-	 * Returns a descriptive category name for this location descriptor.  This is used for 
-	 * display in a popup menu. 
-	 * 
+	 * Returns a descriptive category name for this location descriptor.  This is used for
+	 * display in a popup menu.
+	 *
 	 * @return a descriptive category name for this location descriptor
 	 */
 	public String getTypeName() {
@@ -341,22 +344,28 @@ public abstract class LocationDescriptor {
 	private void getReferenceAddressSet(Accumulator<LocationReference> accumulator,
 			TaskMonitor monitor, boolean reload) throws CancelledException {
 
-		if (referenceAddressList == null || reload) {
-			doGetReferences(accumulator, monitor);
-
-			// put into list so that we can later perform fast lookups of Addresses
-			referenceAddressList = new ArrayList<>(accumulator.get());
-			Collections.sort(referenceAddressList);
+		if (referenceAddressList != null && !reload) {
+			accumulator.addAll(referenceAddressList);
 			return;
 		}
 
-		accumulator.addAll(referenceAddressList);
+		// We do not want duplicates.  Use a known set accumulator here, which also allows us to get
+		// the results when the loading is finished.
+		SetAccumulatorWrapper<LocationReference> setAccumulator =
+			new SetAccumulatorWrapper<>(accumulator);
+
+		doGetReferences(setAccumulator, monitor);
+
+		// Save results so we can later perform fast lookups of Addresses using a binary search
+		referenceAddressList = new ArrayList<>(setAccumulator.asSet());
+		Collections.sort(referenceAddressList);
+
 	}
 
 	/**
 	 * Gets all location references for the given descriptor, loading them if not already loaded.
-	 * 
-	 * @param accumulator the datastructure into which will be placed a collection of 
+	 *
+	 * @param accumulator the datastructure into which will be placed a collection of
 	 * 		  location references that reference the location this descriptor is representing.
 	 * @param monitor A monitor to report progress or cancel the gathering of addresses.
 	 * @param reload True signals to perform a new search for reference addresses; false will
@@ -370,10 +379,10 @@ public abstract class LocationDescriptor {
 	}
 
 	/**
-	 * When true, the search algorithm will use dynamic searching when possible, which is to 
-	 * not only find references that are already created, but to also use external tools to 
-	 * locate potential references. 
-	 * 
+	 * When true, the search algorithm will use dynamic searching when possible, which is to
+	 * not only find references that are already created, but to also use external tools to
+	 * locate potential references.
+	 *
 	 * @param useDynamicSearching true to perform dynamic searching
 	 */
 	void setUseDynamicSearching(boolean useDynamicSearching) {
@@ -384,7 +393,7 @@ public abstract class LocationDescriptor {
 	 * Sets a listener on this descriptor that will be notified when the references contained
 	 * in this descriptor may no longer be accurate.  For example, the listener will be called
 	 * when an undo or redo is performed in Ghidra.
-	 * @param modelChangeListener The listener to add.
+	 * @param modelFreshnessListener The listener to add.
 	 */
 	void setModelFreshnessListener(ChangeListener modelFreshnessListener) {
 		this.modelFreshnessListener = modelFreshnessListener;

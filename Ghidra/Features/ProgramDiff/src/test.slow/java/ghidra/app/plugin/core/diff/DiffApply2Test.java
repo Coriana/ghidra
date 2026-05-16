@@ -32,9 +32,9 @@ public class DiffApply2Test extends DiffApplyTestAdapter {
 	@Test
 	public void testApplyDiffsNextActionFirst() throws Exception {
 		openDiff(diffTestP1, diffTestP2);
-		JDialog dialog = waitForJDialog(tool.getToolFrame(), "Memory Differs", 2000);
+		JDialog dialog = waitForJDialog("Memory Differs");
 		pressButtonByText(dialog, "OK");
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		showApplySettings();
 
 		byte[] bytes = diffTestP1.getListing().getCodeUnitAt(addr("100")).getBytes();
@@ -55,9 +55,9 @@ public class DiffApply2Test extends DiffApplyTestAdapter {
 	@Test
 	public void testApplyDiffsNextActionMiddle() throws Exception {
 		openDiff(diffTestP1, diffTestP2);
-		JDialog dialog = waitForJDialog(tool.getToolFrame(), "Memory Differs", 2000);
+		JDialog dialog = waitForJDialog("Memory Differs");
 		pressButtonByText(dialog, "OK");
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		showApplySettings();
 
 		List<Equate> eqs = diffTestP1.getEquateTable().getEquates(addr("1002261"), 0);
@@ -79,9 +79,9 @@ public class DiffApply2Test extends DiffApplyTestAdapter {
 	@Test
 	public void testApplyDiffsNextActionLast() throws Exception {
 		openDiff(diffTestP1, diffTestP2);
-		JDialog dialog = waitForJDialog(tool.getToolFrame(), "Memory Differs", 2000);
+		JDialog dialog = waitForJDialog("Memory Differs");
 		pressButtonByText(dialog, "OK");
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		showApplySettings();
 
 		AddressSet addrSet = new AddressSet(addr("1005e4f"), addr("1005e53"));
@@ -93,9 +93,9 @@ public class DiffApply2Test extends DiffApplyTestAdapter {
 	@Test
 	public void testIgnoreEntireBlock() throws Exception {
 		openDiff(diffTestP1, diffTestP2);
-		JDialog dialog = waitForJDialog(tool.getToolFrame(), "Memory Differs", 2000);
+		JDialog dialog = waitForJDialog("Memory Differs");
 		pressButtonByText(dialog, "OK");
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		showApplySettings();
 
 		// Cursor in selection
@@ -106,7 +106,7 @@ public class DiffApply2Test extends DiffApplyTestAdapter {
 		assertNotNull(ignoreDiffs);
 		assertTrue(ignoreDiffs.isEnabled());
 		invokeLater(ignoreDiffs);
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		AddressSet expectedDiffs = origDiffs.subtract(addrSet);
 		ProgramSelection newSet = diffPlugin.getDiffHighlightSelection();
 		assertTrue(newSet.intersect(addrSet).isEmpty());
@@ -123,7 +123,7 @@ public class DiffApply2Test extends DiffApplyTestAdapter {
 		assertNotNull(ignoreDiffs);
 		assertTrue(ignoreDiffs.isEnabled());
 		invokeLater(ignoreDiffs);
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		expectedDiffs = origDiffs.subtract(addrSet);
 		newSet = diffPlugin.getDiffHighlightSelection();
 		assertTrue(newSet.intersect(addrSet).isEmpty());
@@ -136,9 +136,9 @@ public class DiffApply2Test extends DiffApplyTestAdapter {
 	@Test
 	public void testIgnorePartialBlock() throws Exception {
 		openDiff(diffTestP1, diffTestP2);
-		JDialog dialog = waitForJDialog(tool.getToolFrame(), "Memory Differs", 2000);
+		JDialog dialog = waitForJDialog("Memory Differs");
 		pressButtonByText(dialog, "OK");
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		showApplySettings();
 
 		// Cursor in selection
@@ -150,7 +150,7 @@ public class DiffApply2Test extends DiffApplyTestAdapter {
 		assertNotNull(ignoreDiffs);
 		assertTrue(ignoreDiffs.isEnabled());
 		invokeLater(ignoreDiffs);
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		AddressSet expectedDiffs = origDiffs.subtract(addrSet);
 		ProgramSelection newSet = diffPlugin.getDiffHighlightSelection();
 		assertTrue(newSet.intersect(addrSet).isEmpty());
@@ -163,9 +163,9 @@ public class DiffApply2Test extends DiffApplyTestAdapter {
 	@Test
 	public void testUndoRedo() throws Exception {
 		openDiff(diffTestP1, diffTestP2);
-		JDialog dialog = waitForJDialog(tool.getToolFrame(), "Memory Differs", 2000);
+		JDialog dialog = waitForJDialog("Memory Differs");
 		pressButtonByText(dialog, "OK");
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		showApplySettings();
 
 		List<Equate> eqs = program.getEquateTable().getEquates(addr("1002261"), 0);

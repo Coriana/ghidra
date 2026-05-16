@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,7 +21,6 @@ import ghidra.app.util.NamespaceUtils;
 import ghidra.app.util.viewer.field.CommentUtils;
 import ghidra.program.model.address.*;
 import ghidra.program.model.data.*;
-import ghidra.program.model.lang.InstructionPrototype;
 import ghidra.program.model.lang.Register;
 import ghidra.program.model.listing.CodeUnitFormatOptions.ShowBlockName;
 import ghidra.program.model.listing.CodeUnitFormatOptions.ShowNamespace;
@@ -46,12 +45,12 @@ public class CodeUnitFormat {
 	/**
 	 * Supported memory address shift cases (bits)
 	 */
-	private static final int[] SHIFT_CASES = new int[] { 1, 2, 8, 16, 32 };
+	private static final int[] SHIFT_CASES = new int[] { 1, 2, 8, 16 };
 
 	/**
 	 * Supported memory address mask cases (mask value)
 	 */
-	private static final long[] MASK_CASES = new long[] { 0x0ff, 0x0ffff, 0x0ffffffff };
+	private static final long[] MASK_CASES = new long[] { 0x0ffff, 0x0ffffffff };
 
 	/**
 	 * Default code unit format
@@ -112,7 +111,7 @@ public class CodeUnitFormat {
 	 */
 	public String getRepresentationString(CodeUnit cu, boolean includeEOLcomment) {
 
-		StringBuffer stringBuffer = new StringBuffer(getMnemonicRepresentation(cu));
+		StringBuilder stringBuffer = new StringBuilder(getMnemonicRepresentation(cu));
 		if (cu instanceof Instruction) {
 			Instruction instr = (Instruction) cu;
 			int n = instr.getNumOperands();
@@ -129,12 +128,14 @@ public class CodeUnitFormat {
 				stringBuffer.append(getOperandRepresentationString(cu, i));
 			}
 		}
-		else { // data always has one operand
-			stringBuffer.append(" ");
-			stringBuffer.append(getOperandRepresentationString(cu, 0));
+		else {
+			String dataRepString = getOperandRepresentationString(cu, 0);
+			if (!dataRepString.isBlank()) {
+				stringBuffer.append(" ").append(dataRepString);
+			}
 		}
 		if (includeEOLcomment) {
-			String eolComment = cu.getComment(CodeUnit.EOL_COMMENT);
+			String eolComment = cu.getComment(CommentType.EOL);
 			if (eolComment != null) {
 				// fixup annotations
 				eolComment = CommentUtils.getDisplayString(eolComment, cu.getProgram());
@@ -212,7 +213,6 @@ public class CodeUnitFormat {
 
 		Program program = cu.getProgram();
 		Instruction instr = (Instruction) cu;
-		InstructionPrototype proto = instr.getPrototype();
 
 		if (!program.getLanguage().supportsPcode()) {
 			// Formatted mark-up only supported for languages which support PCode
@@ -220,8 +220,7 @@ public class CodeUnitFormat {
 		}
 
 		// Get raw representation list and map of registers contained within it
-		ArrayList<Object> representationList =
-			proto.getOpRepresentationList(opIndex, instr.getInstructionContext());
+		List<Object> representationList = instr.getDefaultOperandRepresentationList(opIndex);
 		if (representationList == null) {
 			return new OperandRepresentationList("<BAD-Instruction>");
 		}
@@ -325,17 +324,19 @@ public class CodeUnitFormat {
 			}
 			else if (options.includeInferredVariableMarkup) {
 				boolean isRead = isRead(reg, instr);
-				Variable regVar = program.getFunctionManager().getReferencedVariable(
-					instr.getMinAddress(), reg.getAddress(), reg.getMinimumByteSize(), isRead);
+				boolean operandIsOnlyReg = instr.getRegister(opIndex) != null;
+				Variable regVar = program.getFunctionManager()
+						.getReferencedVariable(instr.getMinAddress(), reg.getAddress(),
+							reg.getMinimumByteSize(), isRead);
 				if (regVar != null) {
 					// TODO: If register appears more than once, how can we distinguish read vs. write occurrence in operands
 					if (isRead && isWritten(reg, instr) && !hasRegisterWriteReference(instr, reg) &&
-						instr.getRegister(opIndex) != null) {
+						operandIsOnlyReg) {
 						// If register both read and written and there are no write references for this instruction
 						// see if there is only one reference to choose from - if not we can't determine how to markup
-						Variable regWriteVar = program.getFunctionManager().getReferencedVariable(
-							instr.getMinAddress(), reg.getAddress(), reg.getMinimumByteSize(),
-							false);
+						Variable regWriteVar = program.getFunctionManager()
+								.getReferencedVariable(instr.getMinAddress(), reg.getAddress(),
+									reg.getMinimumByteSize(), false);
 						if (regWriteVar != regVar) {
 							continue; // TODO: tough case - not which operand is read vs. write!
 						}
@@ -343,8 +344,13 @@ public class CodeUnitFormat {
 
 					// if can't get just a register out of it, assume indirection for the VariableOffset
 					long offset = 0;
-					varOff = new VariableOffset(regVar, offset, instr.getRegister(opIndex) == null,
-						true);
+					if (operandIsOnlyReg) {
+						offset = regVar.getVariableStorage().getRegisterOffset(reg);
+						if (offset < 0) {
+							offset = 0; // failed?
+						}
+					}
+					varOff = new VariableOffset(regVar, offset, !operandIsOnlyReg, true);
 				}
 			}
 			if (varOff != null) {
@@ -493,7 +499,8 @@ public class CodeUnitFormat {
 		InstructionScalarInfo info = new InstructionScalarInfo(representations, primaryRef);
 		if (info.hasSingleAddressWithNoScalars()) {
 			int addressIndex = info.getAddressIndex();
-			return markupAddressAsScalar(inst, primaryRef, representations, addressIndex);
+			return markupAddressAsRegister(inst, primaryRef, representations, addressIndex) ||
+				markupAddressAsScalar(inst, primaryRef, representations, addressIndex);
 		}
 
 		if (info.hasNoScalars()) {
@@ -564,6 +571,21 @@ public class CodeUnitFormat {
 		return primaryRef == null;
 	}
 
+	private boolean markupAddressAsRegister(Instruction instr, Reference primaryRef,
+			List<Object> representationList, int addressIndex) {
+		if (primaryRef != null) {
+			return false;
+		}
+		// NOTE: although preferrable, access type/size is not considered
+		Address addr = (Address) representationList.get(addressIndex);
+		Register reg = instr.getProgram().getRegister(addr);
+		if (reg != null) {
+			representationList.set(addressIndex, reg.getName());
+			return true;
+		}
+		return false;
+	}
+
 	private boolean markupAddressAsScalar(Instruction instr, Reference primaryRef,
 			List<Object> representationList, int addressIndex) {
 		Address addr = (Address) representationList.get(addressIndex);
@@ -616,9 +638,10 @@ public class CodeUnitFormat {
 			return false;
 		}
 
-		Variable regVar =
-			instr.getProgram().getFunctionManager().getReferencedVariable(instr.getMinAddress(),
-				associatedRegister.getAddress(), associatedRegister.getMinimumByteSize(), true);
+		Variable regVar = instr.getProgram()
+				.getFunctionManager()
+				.getReferencedVariable(instr.getMinAddress(), associatedRegister.getAddress(),
+					associatedRegister.getMinimumByteSize(), true);
 		if (regVar == null) {
 			return false;
 		}
@@ -989,9 +1012,7 @@ public class CodeUnitFormat {
 	 * @return equate which matches scalar value or null if not found.
 	 */
 	private Equate findEquate(Scalar scalar, List<Equate> equates) {
-		Iterator<Equate> equateItr = equates.iterator();
-		while (equateItr.hasNext()) {
-			Equate equate = equateItr.next();
+		for (Equate equate : equates) {
 			if (equate.getValue() == scalar.getSignedValue() ||
 				equate.getValue() == scalar.getValue()) {
 				return equate;
@@ -1016,7 +1037,7 @@ public class CodeUnitFormat {
 		DataType dataType = data.getDataType();
 		int length = data.getLength();
 
-		if (length < dataType.getLength()) {
+		if ((length != 0 || !dataType.isZeroLength()) && dataType.getLength() > length) {
 			representationList.add("Data type \"" + dataType.getDisplayName() +
 				"\" is too big for available space. Size = " + dataType.getLength() +
 				" bytes, available = " + length + " bytes");
@@ -1061,12 +1082,27 @@ public class CodeUnitFormat {
 				representationList.setHasError(true);
 			}
 		}
-		representationList.add(dataType.getRepresentation(data, data, length));
+
 		representationList.setPrimaryReferenceHidden(ref != null);
+
 		if (data.isDefined() && dataValue == null) {
+			DataType baseDt = dataType;
+			if (baseDt instanceof TypeDef) {
+				baseDt = ((TypeDef) dataType).getBaseDataType();
+			}
+			if (baseDt instanceof Pointer) {
+				// Render pointer error
+				PointerDataType.getAddressValue(data, baseDt.getLength(), data,
+					m -> representationList.add(m));
+			}
 			representationList.setHasError(true);
 		}
-		else if ((dataValue instanceof Address) && ref == null &&
+
+		if (representationList.isEmpty()) {
+			representationList.add(dataType.getRepresentation(data, data, length));
+		}
+
+		if ((dataValue instanceof Address) && ref == null &&
 			data.getProgram().getMemory().getBlock((Address) dataValue) == null) {
 			representationList.setHasError(true);
 		}
@@ -1123,8 +1159,9 @@ public class CodeUnitFormat {
 	public String getReferenceRepresentationString(CodeUnit fromCodeUnit, Reference ref) {
 		// NOTE: The isRead param is false since it really only pertains to register references which should
 		// generally only correspond to writes
-		Variable refVar = fromCodeUnit.getProgram().getFunctionManager().getReferencedVariable(
-			fromCodeUnit.getMinAddress(), ref.getToAddress(), 0, false);
+		Variable refVar = fromCodeUnit.getProgram()
+				.getFunctionManager()
+				.getReferencedVariable(fromCodeUnit.getMinAddress(), ref.getToAddress(), 0, false);
 		Object repObj = getReferenceRepresentation(fromCodeUnit, ref, refVar);
 		return repObj != null ? repObj.toString() : null;
 	}
@@ -1153,11 +1190,34 @@ public class CodeUnitFormat {
 			}
 		}
 
+		if (ref.isMemoryReference() && (ref instanceof OffsetReference)) {
+			return getOffsetReferenceRepresentation(cu, (OffsetReference) ref);
+		}
+
 		if (ref.isMemoryReference() || ref.isExternalReference()) {
 			return getMemoryReferenceLabel(cu, ref);
 		}
+
 		return null;
 
+	}
+
+	private Object getOffsetReferenceRepresentation(CodeUnit cu, OffsetReference offsetRef) {
+		Reference baseRef = new MemReferenceImpl(offsetRef.getFromAddress(),
+			offsetRef.getBaseAddress(), RefType.DATA, offsetRef.getSource(),
+			offsetRef.getOperandIndex(), offsetRef.isPrimary());
+		Object baseRefObj = getMemoryReferenceLabel(cu, baseRef);
+		long offset = offsetRef.getOffset();
+		String sign = "+";
+		if (offset < 0) {
+			sign = ""; // sign provided by Scalar.toString()
+		}
+		Scalar offsetScalar = new Scalar(64, offset, true);
+		OperandRepresentationList list = new OperandRepresentationList();
+		list.add(baseRefObj);
+		list.add(sign);
+		list.add(offsetScalar);
+		return list;
 	}
 
 	/**
@@ -1199,8 +1259,8 @@ public class CodeUnitFormat {
 		}
 
 		result = addBlockName(program, toAddress, result, refBlock, withBlockName);
-		LabelType labelType = (toSymbol != null && toSymbol.isExternal()) ? LabelString.EXTERNAL
-				: LabelString.CODE_LABEL;
+		LabelType labelType = (toSymbol != null && toSymbol.isExternal()) ? LabelType.EXTERNAL
+				: LabelType.CODE_LABEL;
 		LabelString label = new LabelString(result, labelType);
 
 		// Apply extended pointer markup if needed
@@ -1239,8 +1299,8 @@ public class CodeUnitFormat {
 		Symbol symbol = program.getSymbolTable().getSymbol(referencesFrom[0]);
 		if (symbol != null && !symbol.isDynamic()) {
 			String result = getSymbolLabelString(program, symbol, ref.getFromAddress());
-			return new LabelString(result,
-				symbol.isExternal() ? LabelString.EXTERNAL : LabelString.CODE_LABEL);
+			return new LabelString(result, symbol,
+				symbol.isExternal() ? LabelType.EXTERNAL : LabelType.CODE_LABEL);
 		}
 		return null;
 	}
@@ -1307,14 +1367,20 @@ public class CodeUnitFormat {
 		if (symbolAddress.isMemoryAddress()) {
 			CodeUnit cu = program.getListing().getCodeUnitContaining(symbolAddress);
 			if (isOffcut(symbolAddress, cu)) {
-				return getOffcutLabelString(symbolAddress, cu);
+				return getOffcutLabelString(symbolAddress, cu, markupAddress, symbol);
 			}
 			else if (isStringData(cu)) {
 				return getLabelStringForStringData((Data) cu, symbol);
 			}
 		}
 		String name = symbol.getName();
-		return addNamespace(program, symbol.getParentNamespace(), name, markupAddress);
+		String displayName =
+			addNamespace(program, symbol.getParentNamespace(), name, markupAddress);
+		return simplifyTemplate(displayName);
+	}
+
+	private String simplifyTemplate(String name) {
+		return options.simplifyTemplate(name);
 	}
 
 	private boolean isStringData(CodeUnit cu) {
@@ -1326,7 +1392,7 @@ public class CodeUnitFormat {
 
 	private String getLabelStringForStringData(Data data, Symbol symbol) {
 		if (!symbol.isDynamic()) {
-			return symbol.getName();
+			return options.simplifyTemplate(symbol.getName());
 		}
 		DataType dataType = data.getBaseDataType();
 
@@ -1342,9 +1408,11 @@ public class CodeUnitFormat {
 		return prefix + UNDERSCORE + SymbolUtilities.getAddressString(symbol.getAddress());
 	}
 
-	public String getOffcutLabelString(Address offcutAddress, CodeUnit cu) {
+	public String getOffcutLabelString(Address offcutAddress, CodeUnit cu, Address markupAddress,
+			Symbol symbol) {
 		if (cu instanceof Instruction) {
-			return getOffcutLabelStringForInstruction(offcutAddress, (Instruction) cu);
+			return getOffcutLabelStringForInstruction(offcutAddress, (Instruction) cu,
+				markupAddress, symbol);
 		}
 		return getOffcutDataString(offcutAddress, (Data) cu);
 	}
@@ -1361,35 +1429,65 @@ public class CodeUnitFormat {
 		Symbol offcutSymbol = program.getSymbolTable().getPrimarySymbol(offcutAddress);
 		Address dataAddress = data.getMinAddress();
 		int diff = (int) offcutAddress.subtract(dataAddress);
-		if (!offcutSymbol.isDynamic()) {
-			return getDefaultOffcutString(offcutSymbol, data, diff, false);
-		}
 
-		DataType dt = data.getBaseDataType();
-		String prefix = getPrefixForStringData(data, dataAddress, diff, dt);
-		if (prefix != null) {
+		boolean isDynamicStringOffsetLabel = offcutSymbol.isDynamic() && data.hasStringValue();
+		if (isDynamicStringOffsetLabel && !options.showOffcutInfo) {
+			return trimOffset(offcutSymbol.getName());
+		}
+		if (isDynamicStringOffsetLabel && options.displayOptions.useAbbreviatedForm()) {
 			String addressString = SymbolUtilities.getAddressString(dataAddress);
+			String prefix = getPrefixForStringData(data, dataAddress, diff, data.getBaseDataType());
 			return addOffcutInformation(prefix, addressString, diff, options.showOffcutInfo);
 		}
-
-		return getDefaultOffcutString(offcutSymbol, data, diff, false);
+		boolean simplify = !isDynamicStringOffsetLabel;
+		boolean decorate = false;		// never decorate in operand field
+		return getDefaultOffcutString(offcutSymbol, data, diff, decorate, simplify);
 	}
 
+	private String trimOffset(String name) {
+		int lastIndex = name.lastIndexOf("_");
+		if (lastIndex > 0) {
+			return name.substring(0, lastIndex);
+		}
+		return name;
+	}
+
+	/**
+	 * Generate label string.  This may serve two use cases:
+	 * <ul>
+	 * <li>Generating operand label at markupAddress for referenced instruction and offcutAddress</li>
+	 * <li>Generating offcut label for an offcutAddress with instruction (markupAddress=null)</li>
+	 * </ul>
+	 * @param offcutAddress address for which generated label represents
+	 * @param instruction instruction containing offcut address
+	 * @param markupAddress address where a label will be referenced from (may be null)
+	 * @param symbol an optional symbol that is used to generate the symbol name
+	 * @return generated offcut label
+	 */
 	protected String getOffcutLabelStringForInstruction(Address offcutAddress,
-			Instruction instruction) {
+			Instruction instruction, Address markupAddress, Symbol symbol) {
 		Program program = instruction.getProgram();
-		Symbol offsym = program.getSymbolTable().getPrimarySymbol(offcutAddress);
-		Address instructionAddress = instruction.getMinAddress();
-		long diff = offcutAddress.subtract(instructionAddress);
-		if (!offsym.isDynamic()) {
-			return getDefaultOffcutString(offsym, instruction, diff, false);
+
+		if (symbol == null) {
+			symbol = program.getSymbolTable().getPrimarySymbol(offcutAddress);
 		}
 
-		Symbol containingSymbol = program.getSymbolTable().getPrimarySymbol(instructionAddress);
-		if (containingSymbol != null) {
-			return containingSymbol.getName() + PLUS + diff;
+		Address instructionAddress = instruction.getMinAddress();
+		long diff = offcutAddress.subtract(instructionAddress);
+		boolean decorate = false;		// we never decorate in the operand field
+		boolean simplify = true;		// we always simplify names of instruction labels
+		if (symbol.isDynamic()) {
+			Symbol containingSymbol = program.getSymbolTable().getPrimarySymbol(instructionAddress);
+			if (containingSymbol != null) {
+				String displayName = containingSymbol.getName();
+				if (markupAddress != null) {
+					displayName = addNamespace(program, containingSymbol.getParentNamespace(),
+						displayName, markupAddress);
+				}
+				return simplifyTemplate(displayName) + PLUS + SymbolUtilities.getDiffString(diff);
+			}
 		}
-		return getDefaultOffcutString(offsym, instruction, diff, false);
+		return getDefaultOffcutString(symbol, instruction, diff, decorate, simplify);
 	}
 
 	protected String addOffcutInformation(String prefix, String addressString, int diff,
@@ -1397,8 +1495,7 @@ public class CodeUnitFormat {
 		if (!decorate) {
 			return prefix;
 		}
-
-		return prefix + UNDERSCORE + addressString + PLUS + diff;
+		return prefix + UNDERSCORE + addressString + PLUS + SymbolUtilities.getDiffString(diff);
 	}
 
 	protected String getPrefixForStringData(Data data, Address dataAddress, int diff, DataType dt) {
@@ -1410,15 +1507,24 @@ public class CodeUnitFormat {
 	}
 
 	protected String getDefaultOffcutString(Symbol symbol, CodeUnit cu, long diff,
-			boolean decorate) {
-		if (decorate) {
-			return symbol.getName() + ' ' + '(' + cu.getMinAddress() + PLUS + diff + ')';
+			boolean decorate, boolean simplify) {
+		String name = symbol.getName();
+		if (simplify) {
+			name = options.simplifyTemplate(name);
 		}
-		return symbol.getName();
+		if (decorate) {
+			String cuLocation = cu.getMinAddress().toString();
+			Symbol primarySymbol = cu.getPrimarySymbol();
+			if (primarySymbol != null && !primarySymbol.isDynamic()) {
+				cuLocation = primarySymbol.getName();
+			}
+			return name + ' ' + '(' + cuLocation + PLUS + SymbolUtilities.getDiffString(diff) + ')';
+		}
+		return name;
 	}
 
 	/**
-	 * Returns ShowBlockName setting
+	 * {@return ShowBlockName setting}
 	 */
 	public ShowBlockName getShowBlockName() {
 		return options.showBlockName;

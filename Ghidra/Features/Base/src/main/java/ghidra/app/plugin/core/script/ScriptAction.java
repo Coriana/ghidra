@@ -85,10 +85,13 @@ class ScriptAction extends DockingAction {
 	}
 
 	private KeyBindingData checkForFallbackKeybindingCondition(KeyBindingData keyBindingData) {
-		KeyStroke newKeyStroke = keyBindingData.getKeyBinding();
-		if (newKeyStroke != null) {
-			// we have a valid value; the current keybinding data is what we want
-			return keyBindingData;
+
+		if (keyBindingData != null) {
+			KeyStroke newKeyStroke = keyBindingData.getKeyBinding();
+			if (newKeyStroke != null) {
+				// we have a valid value; the current keybinding data is what we want
+				return keyBindingData;
+			}
 		}
 
 		// check to see if we have a fallback value         
@@ -106,7 +109,10 @@ class ScriptAction extends DockingAction {
 	private void updateUserDefinedKeybindingStatus(KeyBindingData keyBindingData) {
 		// we have a user defined keybinding if the keystroke for the action differs from 
 		// that which is defined in the metadata of the script
-		KeyStroke actionKeyStroke = keyBindingData.getKeyBinding();
+		KeyStroke actionKeyStroke = null;
+		if (keyBindingData != null) {
+			actionKeyStroke = keyBindingData.getKeyBinding();
+		}
 		ScriptInfo info = infoManager.getExistingScriptInfo(script);
 		KeyStroke metadataKeyBinding = info.getKeyBinding();
 		isUserDefinedKeyBinding = !SystemUtilities.isEqual(actionKeyStroke, metadataKeyBinding);
@@ -121,11 +127,16 @@ class ScriptAction extends DockingAction {
 	}
 
 	void refresh() {
-		ScriptInfo info = infoManager.getExistingScriptInfo(script);
+		/* this is called during script manager initial config
+		 * before any other access to script info, so we expect to
+		 * create a new ScriptInfo with the next call.
+		 */
+		ScriptInfo info = infoManager.getScriptInfo(script);
 		KeyStroke stroke = info.getKeyBinding();
 		if (!isUserDefinedKeyBinding) {
-			setKeyBindingData(new KeyBindingData(stroke));
+			setKeyBindingData(stroke == null ? null : new KeyBindingData(stroke));
 		}
+
 		Icon icon = info.getToolBarImage(false);
 		if (icon != null) {
 			ToolBarData data = getToolBarData();

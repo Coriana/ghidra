@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,8 +18,9 @@ package ghidra.app.plugin.core.label;
 import static org.junit.Assert.*;
 
 import java.awt.Component;
+import java.awt.Window;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicReference;
 
 import javax.swing.*;
 
@@ -85,16 +86,12 @@ public class AddEditDialoglTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	private AddEditDialog getAddEditDialog() {
-		AtomicReference<AddEditDialog> ref = new AtomicReference<>();
-		runSwing(() -> {
-			ref.set(plugin.getAddEditDialog());
-		});
-		return ref.get();
+		return runSwing(() -> plugin.getAddEditDialog());
 	}
 
 	@After
 	public void tearDown() throws Exception {
-		dialog.close();
+		close(dialog);
 		env.dispose();
 	}
 
@@ -105,7 +102,7 @@ public class AddEditDialoglTest extends AbstractGhidraHeadedIntegrationTest {
 		assertEquals("", getText());
 		assertTrue(!entryCheckBox.isSelected());
 
-		Namespace scope = getScope();
+		Namespace scope = getSelectedNamespace();
 		assertEquals(globalScope, scope);
 		assertTrue(primaryCheckBox.isSelected());
 		assertTrue(!primaryCheckBox.isEnabled());
@@ -194,42 +191,19 @@ public class AddEditDialoglTest extends AbstractGhidraHeadedIntegrationTest {
 
 		Address address = addr(0x10065a6);
 		Symbol symbol = st.createLabel(address, "sybmol1", scope4, SourceType.USER_DEFINED);
-		editLabel(symbol);
-
-		JComboBox<?> namespaceChoices = (JComboBox<?>) getInstanceField("namespaceChoices", dialog);
-
-		// get a list of all namespaces in order to compare with the values
-		// from the combo box
-		// the first item should always be the global namespace...
-		assertEquals("The first item in the list of namespaces is not the global namespace",
-			program.getGlobalNamespace(), getScope(0));
-
-		assertEquals("The symbol's namespace was not put into the proper place in the list.",
-			getScope(2), symbol.getParentNamespace());
-
-		// ...then, each namespace should be a child of the following
-		// namespace
-		int itemCount = namespaceChoices.getItemCount();
-		for (int i = 1; i < itemCount - 1; i++) {
-			Namespace currentNamespace = getScope(i);
-			Namespace nextNamespace = getScope(i + 1);
-			Namespace actualParent = currentNamespace.getParentNamespace();
-
-			assertTrue("The namespaces are not in order in the " +
-				"namespaceChoices combo box.  Each item should be a child of " + "following item.",
-				nextNamespace.equals(actualParent));
-		}
-
-		// finally, the last item should be parented on the global namespace
-		Namespace currentNamespace = getScope(itemCount - 1);
-		Namespace actualParent = currentNamespace.getParentNamespace();
-
-		assertTrue(
-			"The namespaces are not in order in the " +
-				"namespaceChoices combo box.  Each item should be a child of " + "following item.",
-			actualParent.equals(program.getGlobalNamespace()));
-
 		program.endTransaction(transactionID, true);
+
+		editLabel(symbol);
+		List<Namespace> comboNamespaces = getComboNamespaces();
+		assertEquals(3, comboNamespaces.size());
+
+		// currently, combo is populated with: global, current symbol namespace, containing function
+		// namespace if in a function body, and then recently used (there are no recently used in
+		// this test)
+		assertEquals(program.getGlobalNamespace(), comboNamespaces.get(0));
+		assertEquals(scope4, comboNamespaces.get(1));
+		assertEquals(f, comboNamespaces.get(2));
+
 	}
 
 	@Test
@@ -362,6 +336,34 @@ public class AddEditDialoglTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	@Test
+	public void testRenameFunction_Trim() throws Exception {
+
+		Symbol s = getUniqueSymbol(program, "entry", null);
+		Function function = program.getFunctionManager().getFunctionAt(s.getAddress());
+		if (function == null) {
+			tool.execute(new CreateFunctionCmd(s.getAddress()), program);
+			program.flushEvents();
+			waitForSwing();
+			function = program.getFunctionManager().getFunctionAt(s.getAddress());
+			s = getUniqueSymbol(program, "entry", null);
+		}
+		// add another label at this address
+		AddLabelCmd cmd = new AddLabelCmd(addr(0x01006420), "fred", SourceType.USER_DEFINED);
+		tool.execute(cmd, program);
+
+		// now attempt to rename the entry label
+		editLabel(s);
+		assertEquals("entry", getText());
+		String newText = "  bob  ";
+		setText(newText);
+		pressOk();
+		program.flushEvents();
+		waitForSwing();
+		assertEquals("bob", function.getName());
+		assertTrue(function.getSymbol().isPrimary());
+	}
+
+	@Test
 	public void testSetPrimaryOnOtherLabel() throws Exception {
 		Symbol s = getUniqueSymbol(program, "entry", null);
 		Function function = program.getFunctionManager().getFunctionAt(s.getAddress());
@@ -477,7 +479,6 @@ public class AddEditDialoglTest extends AbstractGhidraHeadedIntegrationTest {
 		assertNotNull(getUniqueSymbol(program, "zzzz", null));
 		assertNotNull(getUniqueSymbol(program, "cccc", null));
 		assertNull(getUniqueSymbol(program, "bbbb", null));
-
 	}
 
 	@Test
@@ -502,7 +503,44 @@ public class AddEditDialoglTest extends AbstractGhidraHeadedIntegrationTest {
 		s = getUniqueSymbol(program, "foo", st.getNamespace(a));
 		assertNotNull(s);
 		assertEquals("entry", s.getParentNamespace().getName());
+	}
 
+	@Test
+	public void testEdit_CannotRemoveDefaultLabel() {
+
+		Address refAddr = addr(0x10064b1);
+		Symbol s = st.getPrimarySymbol(refAddr);
+		editLabel(s);
+		assertEquals("LAB_010064b1", getText());
+
+		setText("");
+
+		pressOk();
+
+		assertStatusText("Name cannot be blank");
+	}
+
+	@Test
+	public void testEdit_RemoveNonDefaultLabel() {
+
+		Address a = addr(0x100642a);
+		addLabel(a);
+		String labelName = "aaaa";
+		setText(labelName);
+		pressOk();
+
+		Symbol s = st.getPrimarySymbol(a);
+		editLabel(s);
+		assertEquals(labelName, getText());
+
+		setText("");
+		pressOk();
+
+		Window w = waitForWindow("Remove Label?");
+		pressButtonByText(w, "Yes");
+		assertEditDialogVisible(false);
+
+		assertNull(getUniqueSymbol(program, labelName, null));
 	}
 
 	@Test
@@ -583,7 +621,7 @@ public class AddEditDialoglTest extends AbstractGhidraHeadedIntegrationTest {
 		setText("label_1");
 		pressOk();
 
-		assertTrue("Encountered a problem adding a label to the Global " + "namespace",
+		assertTrue("Encountered a problem adding a label to the Global namespace",
 			!dialog.isVisible());
 
 		// move the label to a new namespace
@@ -594,7 +632,7 @@ public class AddEditDialoglTest extends AbstractGhidraHeadedIntegrationTest {
 
 		// make sure there were no problems
 		assertTrue(
-			"Encountered a problem changing a symbol's namespace " + "while editing the symbol",
+			"Encountered a problem changing a symbol's namespace while editing the symbol",
 			!dialog.isVisible());
 
 		// now move that label to the Global namespace
@@ -695,7 +733,7 @@ public class AddEditDialoglTest extends AbstractGhidraHeadedIntegrationTest {
 	@Test
 	public void testSetNamespace_NonExistentNamespace_SameNameAsFunction() throws Exception {
 
-		// 
+		//
 		// Test that we can create a new namespace using the dialog when:
 		// 1) that namespace does not exist
 		// 2) the namespace matches the existing function name
@@ -717,9 +755,46 @@ public class AddEditDialoglTest extends AbstractGhidraHeadedIntegrationTest {
 		assertEquals(nsName, parentNs.getName());
 	}
 
+	@Test
+	public void testSetNamespace_NamespaceWithoutFunctionName() throws Exception {
+
+		//
+		// Test that we can cannot create a new namespace and clear a symbol name using this form:
+		// "Namespace::"
+		//
+		// A blank name is a signal to reset to a default name, but we do not currently support
+		// changing a namespace and resetting the name in the same operation.
+		//
+
+		String functionName = "FUN_010065f0";
+		Symbol functionSymbol = getSymbol(functionName);
+		Namespace originalNamespace = functionSymbol.getParentNamespace();
+		editLabel(functionSymbol);
+		String nsName = "NewNamespace";
+		setText(nsName + Namespace.DELIMITER);
+		pressOk();
+		assertTrue("Rename unsuccesful", dialog.isShowing());
+		assertStatusText("Name cannot be blank while changing namespace");
+
+		Symbol newFunction = functionSymbol;
+		Namespace parentNs = newFunction.getParentNamespace();
+		assertSame(originalNamespace, parentNs);
+	}
+
 //==================================================================================================
 // Private Methods
 //==================================================================================================
+
+	private void assertStatusText(String expected) {
+		assertEquals("Dialog status text not as expected", expected,
+			runSwing(dialog::getStatusText));
+	}
+
+	private void assertEditDialogVisible(boolean visible) {
+		assertEquals("Dialog " + (visible ? "not showing" : "showing") +
+			"when it should be " + (visible ? "showing" : "not showing"), visible,
+			runSwing(dialog::isShowing));
+	}
 
 	private Symbol createOtherEntry(Address otherAddress) {
 		Symbol dupEntry = st.getPrimarySymbol(otherAddress);
@@ -790,33 +865,23 @@ public class AddEditDialoglTest extends AbstractGhidraHeadedIntegrationTest {
 		runSwing(() -> checkbox.setSelected(value));
 	}
 
-	private Namespace getScope() {
-		final AtomicReference<Namespace> ref = new AtomicReference<>();
-		runSwing(() -> {
+	private Namespace getSelectedNamespace() {
+		return runSwing(() -> {
 			Object selectedItem = namespacesComboBox.getSelectedItem();
-			Namespace ns = ((AddEditDialog.NamespaceWrapper) selectedItem).getNamespace();
-			ref.set(ns);
+			return ((AddEditDialog.NamespaceWrapper) selectedItem).getNamespace();
 		});
-		return ref.get();
 	}
 
-	private Namespace getScope(final int index) {
-		final AtomicReference<Namespace> ref = new AtomicReference<>();
-		runSwing(() -> {
+	private List<Namespace> getComboNamespaces() {
+		return runSwing(() -> {
+			List<Namespace> namespaces = new ArrayList<>();
 			int count = namespacesComboBox.getItemCount();
-			if (count <= index) {
-				System.err.println("Available namespaces: ");
-				for (int i = 0; i < count; i++) {
-					System.err.println("\t" + namespacesComboBox.getItemAt(i));
-				}
-				throw new IllegalArgumentException("No namespace at index: " + index);
+			for (int i = 0; i < count; i++) {
+				Object itemAt = namespacesComboBox.getItemAt(i);
+				namespaces.add(((AddEditDialog.NamespaceWrapper) itemAt).getNamespace());
 			}
-
-			Object selectedItem = namespacesComboBox.getItemAt(index);
-			Namespace ns = ((AddEditDialog.NamespaceWrapper) selectedItem).getNamespace();
-			ref.set(ns);
+			return namespaces;
 		});
-		return ref.get();
 	}
 
 	private void setScope(final Namespace scope) {

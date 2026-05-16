@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -23,7 +23,6 @@ import docking.widgets.fieldpanel.field.Field;
 import docking.widgets.fieldpanel.support.FieldLocation;
 import ghidra.GhidraOptions;
 import ghidra.app.plugin.core.hover.AbstractConfigurableHover;
-import ghidra.framework.options.Options;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.database.mem.AddressSourceInfo;
 import ghidra.program.model.address.*;
@@ -40,7 +39,7 @@ import ghidra.util.StringUtilities;
  * The tool tip text shows relationships to key topological elements of the program relative to
  * the address -- offset from image base, offset from current memory block; if the address is
  * within the bounds of a function, the offset from function entry point; if the address is within
- * the bounds of defined data, the offset from the start of the data. 
+ * the bounds of defined data, the offset from the start of the data.
  */
 public class ProgramAddressRelationshipListingHover extends AbstractConfigurableHover
 		implements ListingHoverService {
@@ -59,18 +58,18 @@ public class ProgramAddressRelationshipListingHover extends AbstractConfigurable
 	}
 
 	@Override
-	public void initializeOptions() {
-		options = tool.getOptions(GhidraOptions.CATEGORY_BROWSER_POPUPS);
-		options.registerOption(NAME, true, null, DESCRIPTION);
-		setOptions(options, NAME);
-		options.addOptionsChangeListener(this);
+	protected String getName() {
+		return NAME;
 	}
 
 	@Override
-	public void setOptions(Options options, String optionName) {
-		if (optionName.equals(NAME)) {
-			enabled = options.getBoolean(NAME, true);
-		}
+	protected String getDescription() {
+		return DESCRIPTION;
+	}
+
+	@Override
+	protected String getOptionsCategory() {
+		return GhidraOptions.CATEGORY_BROWSER_POPUPS;
 	}
 
 	@Override
@@ -85,7 +84,7 @@ public class ProgramAddressRelationshipListingHover extends AbstractConfigurable
 			return null;
 		}
 
-		StringBuilder sb = new StringBuilder("<HTML><table>");
+		StringBuilder sb = new StringBuilder("<html><table>");
 
 		Address loc = programLocation.getAddress();
 		if (isInDefaultSpace(program, loc)) {
@@ -124,9 +123,9 @@ public class ProgramAddressRelationshipListingHover extends AbstractConfigurable
 			return;
 		}
 
-		String dataDescr = "Data Offset";
+		String description = "Data Offset";
 		if (data.getDataType() instanceof Structure) {
-			dataDescr = "Structure Offset";
+			description = "Structure Offset";
 		}
 
 		String name = data.getLabel(); // prefer the label
@@ -134,12 +133,14 @@ public class ProgramAddressRelationshipListingHover extends AbstractConfigurable
 			name = data.getDataType().getName();
 		}
 
+		name = StringUtilities.trimMiddle(name, 60);
+
 		if (name == null) {
 			// don't think we can get here
 			name = italic("Unnamed");
 		}
 
-		appendTableRow(sb, dataDescr, name, dataOffset);
+		appendTableRow(sb, description, name, dataOffset);
 	}
 
 	private void addByteSourceInfo(Program program, Address loc, StringBuilder sb) {
@@ -151,7 +152,8 @@ public class ProgramAddressRelationshipListingHover extends AbstractConfigurable
 		if (addressSourceInfo.getFileName() == null) {
 			return;
 		}
-		String filename = StringUtilities.trim(addressSourceInfo.getFileName(), MAX_FILENAME_SIZE);
+		String filename =
+			StringUtilities.trimMiddle(addressSourceInfo.getFileName(), MAX_FILENAME_SIZE);
 		long fileOffset = addressSourceInfo.getFileOffset();
 		String dataDescr = "Byte Source Offset";
 		appendTableRow(sb, dataDescr, "File: " + filename, fileOffset);
@@ -161,7 +163,10 @@ public class ProgramAddressRelationshipListingHover extends AbstractConfigurable
 		Function function = program.getFunctionManager().getFunctionContaining(loc);
 		if (function != null) {
 			long functionOffset = loc.subtract(function.getEntryPoint());
-			appendTableRow(sb, "Function Offset", HTMLUtilities.escapeHTML(function.getName()),
+
+			String functionName = function.getName();
+			functionName = StringUtilities.trimMiddle(functionName, 60);
+			appendTableRow(sb, "Function Offset", HTMLUtilities.escapeHTML(functionName),
 				functionOffset);
 		}
 	}
@@ -173,12 +178,19 @@ public class ProgramAddressRelationshipListingHover extends AbstractConfigurable
 		if (reference != null) {
 			sb.append(italic(reference)).append("&nbsp;");
 		}
-		sb.append(formatOffset(offset));
+		sb.append(formatHexOffset(offset));
+		sb.append("</td>");
+		sb.append("<td style=\"text-align: right;\">");
+		sb.append(formatDecimalOffset(offset));
 		sb.append("</td></tr>");
 	}
 
-	private static String formatOffset(long offset) {
+	private static String formatHexOffset(long offset) {
 		return String.format("+%xh", offset);
+	}
+
+	private static String formatDecimalOffset(long offset) {
+		return String.format("(+%d)", offset);
 	}
 
 }

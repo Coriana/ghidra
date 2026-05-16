@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,7 +19,8 @@ import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.Transferable;
 import java.awt.event.*;
-import java.util.*;
+import java.util.Date;
+import java.util.Map;
 
 import javax.swing.*;
 import javax.swing.text.JTextComponent;
@@ -30,6 +31,8 @@ import docking.dnd.GClipboard;
 import docking.dnd.StringTransferable;
 import docking.widgets.OptionDialog;
 import docking.widgets.label.GIconLabel;
+import generic.theme.GThemeDefaults.Colors;
+import generic.theme.Gui;
 import ghidra.framework.model.DomainFile;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.util.HelpLocation;
@@ -37,6 +40,7 @@ import ghidra.util.Msg;
 import ghidra.util.layout.PairLayout;
 
 public class AboutDomainObjectUtils {
+	private static final String FONT_ID = "font.help.about";
 
 	private static final MouseListener COPY_MOUSE_LISTENER = new PopupMouseListener();
 
@@ -87,7 +91,6 @@ public class AboutDomainObjectUtils {
 
 	private static JComponent getAboutPanel(DomainFile domainFile, Map<String, String> metadata,
 			String additionalInfo) {
-		Font font = new Font("Monospaced", Font.PLAIN, 12);
 
 		JPanel aboutPanel = new JPanel(new PairLayout());
 		JScrollPane propertyScroll = new JScrollPane(aboutPanel);
@@ -100,23 +103,24 @@ public class AboutDomainObjectUtils {
 			addInfo(aboutPanel, "Last Modified:", (new Date(lastModified)).toString());
 		}
 		addInfo(aboutPanel, "Readonly:", Boolean.toString(domainFile.isReadOnly()));
+		if (metadata.isEmpty() && domainFile.isLink()) {
+			addInfo(aboutPanel, "Link path/url:", domainFile.getLinkInfo().getLinkPath());
+		}
 
-		Iterator<String> it = metadata.keySet().iterator();
-		while (it.hasNext()) {
-			String key = it.next();
+		for (String key : metadata.keySet()) {
 			String value = metadata.get(key);
 			addInfo(aboutPanel, key + ":", value);
 		}
 
 		if (additionalInfo != null && additionalInfo.length() > 0) {
 			JTextArea auxArea = new JTextArea(additionalInfo);
-			auxArea.setFont(font);
+			Gui.registerFont(auxArea, FONT_ID);
 			DockingUtils.setTransparent(auxArea);
 			auxArea.setEditable(false);
 			auxArea.setCaretPosition(0); // move cursor to BOF...
 			JScrollPane sp = new JScrollPane(auxArea);
 			sp.setBorder(BorderFactory.createTitledBorder(
-				BorderFactory.createLineBorder(Color.black), "Additional Information"));
+				BorderFactory.createLineBorder(Colors.BORDER), "Additional Information"));
 			sp.setPreferredSize(new Dimension(1, 175)); //width is ignored by border layout...
 
 			JScrollBar sb = sp.getVerticalScrollBar();
@@ -135,7 +139,7 @@ public class AboutDomainObjectUtils {
 
 		Component[] comps = aboutPanel.getComponents();
 		for (Component comp : comps) {
-			comp.setFont(font);
+			Gui.registerFont(comp, FONT_ID);
 		}
 		aboutPanel.invalidate();
 

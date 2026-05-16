@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -25,6 +25,8 @@ import javax.swing.SwingConstants;
 import ghidra.app.util.bin.ByteProvider;
 import ghidra.app.util.opinion.*;
 import ghidra.formats.gfilesystem.*;
+import ghidra.formats.gfilesystem.crypto.CryptoSession;
+import ghidra.formats.gfilesystem.fileinfo.FileType;
 import ghidra.plugins.importer.batch.BatchGroup.BatchLoadConfig;
 import ghidra.util.Msg;
 import ghidra.util.exception.CancelledException;
@@ -41,6 +43,8 @@ import ghidra.util.task.*;
 public class BatchInfo {
 	public static final int MAXDEPTH_UNLIMITED = -1;
 	public static final int MAXDEPTH_DEFAULT = 2;
+
+	private FileSystemService fsService = FileSystemService.getInstance();
 
 	/*
 	 * These structures need to be synchronized to ensure thread visibility, since they are 
@@ -156,8 +160,8 @@ public class BatchInfo {
 			}
 		}
 
-		for (Iterator<UserAddedSourceInfo> iterator =
-			userAddedSources.iterator(); iterator.hasNext();) {
+		for (Iterator<UserAddedSourceInfo> iterator = userAddedSources.iterator(); iterator
+				.hasNext();) {
 			UserAddedSourceInfo uasi = iterator.next();
 			if (uasi.getFSRL().equals(fsrl)) {
 				iterator.remove();
@@ -171,17 +175,17 @@ public class BatchInfo {
 	 * <p>
 	 * If the file is a container for other files, this method will iterate through those
 	 * child files and recursively try to add them using this method.
-	 * <p>
+	 * 
 	 * @param fsrl {@link FSRL} of the file to add.
 	 * @param taskMonitor {@link TaskMonitor} to watch and update with progress.
-	 * @return boolean true if something in the the file produced something to import.
+	 * @return boolean true if something in the file produced something to import.
 	 * @throws IOException if io error when reading files.
 	 * @throws CancelledException if user cancels.
 	 */
 	public boolean addFile(FSRL fsrl, TaskMonitor taskMonitor)
 			throws IOException, CancelledException {
 
-		fsrl = FileSystemService.getInstance().getFullyQualifiedFSRL(fsrl, taskMonitor);
+		fsrl = fsService.getFullyQualifiedFSRL(fsrl, taskMonitor);
 		if (userAddedFSRLs.contains(fsrl)) {
 			throw new IOException("Batch already contains file " + fsrl);
 		}
@@ -204,10 +208,10 @@ public class BatchInfo {
 	 * <p>
 	 * The file is probed for high-priority filesystems first, then if no matches,
 	 * Ghidra loaders, and then if no matches, all filesystems.
-	 * <p>
+	 * 
 	 * @param fsrl {@link FSRL} of the file to probe and process
 	 * @param taskMonitor {@link TaskMonitor} to watch and update.
-	 * @return boolean true if something in the the file produced something to import.
+	 * @return boolean true if something in the file produced something to import.
 	 * @throws IOException if io error when reading files.
 	 * @throws CancelledException if user cancels.
 	 */
@@ -216,7 +220,7 @@ public class BatchInfo {
 
 		// use the fsrl param instead of file.getFSRL() as param may have more info (ie. md5)
 
-		try (RefdFile refdFile = FileSystemService.getInstance().getRefdFile(fsrl, taskMonitor)) {
+		try (RefdFile refdFile = fsService.getRefdFile(fsrl, taskMonitor)) {
 			GFile file = refdFile.file;
 			if (file.isDirectory()) {
 				processFS(file.getFilesystem(), file, taskMonitor);
@@ -230,6 +234,9 @@ public class BatchInfo {
 			if (processWithLoader(fsrl, taskMonitor)) {
 				return true;
 			}
+
+			// the file was not of interest, let it be removed from the cache
+			fsService.releaseFileCache(fsrl);
 
 			return false;
 		}
@@ -291,11 +298,10 @@ public class BatchInfo {
 		return sb.toString();
 	}
 
-	private boolean processAsFS(FSRL fsrl, TaskMonitor taskMonitor)
-			throws CancelledException {
+	private boolean processAsFS(FSRL fsrl, TaskMonitor taskMonitor) throws CancelledException {
 
-		try (FileSystemRef fsRef = FileSystemService.getInstance().probeFileForFilesystem(fsrl,
-			taskMonitor, FileSystemProbeConflictResolver.CHOOSEFIRST)) {
+		try (FileSystemRef fsRef = fsService.probeFileForFilesystem(fsrl, taskMonitor,
+			FileSystemProbeConflictResolver.CHOOSEFIRST)) {
 			if (fsRef == null) {
 				return false;
 			}
@@ -330,12 +336,20 @@ public class BatchInfo {
 	private void processFS(GFileSystem fs, GFile startDir, TaskMonitor taskMonitor)
 			throws CancelledException, IOException {
 
-		// TODO: drop FSUtils.listFileSystem and do recursion here.
-		for (GFile file : FSUtilities.listFileSystem(fs, startDir, null, taskMonitor)) {
-			taskMonitor.checkCanceled();
-			doAddFile(
-				FileSystemService.getInstance().getFullyQualifiedFSRL(file.getFSRL(), taskMonitor),
-				taskMonitor);
+		for (GFile file : fs.files(startDir)) {
+			taskMonitor.checkCancelled();
+			if (fs.getFileType(file, taskMonitor) != FileType.FILE) {
+				continue;
+			}
+			FSRL fqFSRL;
+			try {
+				fqFSRL = fsService.getFullyQualifiedFSRL(file.getFSRL(), taskMonitor);
+			}
+			catch (IOException e) {
+				Msg.warn(this, "Error getting info for " + file.getFSRL());
+				continue;
+			}
+			doAddFile(fqFSRL, taskMonitor);
 			currentUASI.incRawFileCount();
 		}
 	}
@@ -355,8 +369,7 @@ public class BatchInfo {
 	private boolean processWithLoader(FSRL fsrl, TaskMonitor monitor)
 			throws IOException, CancelledException {
 
-		try (ByteProvider provider =
-			FileSystemService.getInstance().getByteProvider(fsrl, monitor)) {
+		try (ByteProvider provider = fsService.getByteProvider(fsrl, false, monitor)) {
 			LoaderMap loaderMap = pollLoadersForLoadSpecs(provider, fsrl, monitor);
 			for (Loader loader : loaderMap.keySet()) {
 				Collection<LoadSpec> loadSpecs = loaderMap.get(loader);
@@ -379,7 +392,8 @@ public class BatchInfo {
 		}
 	}
 
-	private LoaderMap pollLoadersForLoadSpecs(ByteProvider provider, FSRL fsrl, TaskMonitor monitor) {
+	private LoaderMap pollLoadersForLoadSpecs(ByteProvider provider, FSRL fsrl,
+			TaskMonitor monitor) {
 		monitor.setMessage(fsrl.getName());
 		return LoaderService.getSupportedLoadSpecs(provider,
 			loader -> !(loader instanceof BinaryLoader));
@@ -410,7 +424,7 @@ public class BatchInfo {
 	 * <p>
 	 * Doing this requires rescanning all original user-added source files and stopping
 	 * at the new max depth.
-	 * <p>
+	 * 
 	 * @param newMaxDepth new value for the max depth
 	 */
 	public void setMaxDepth(int newMaxDepth) {
@@ -454,8 +468,6 @@ public class BatchInfo {
 		// just remove existing files that are deeper.  Recalculating user added source info 
 		// number is hard so I'm skipping it now.
 
-		Msg.trace(this, "Switching maxDepth from " + maxDepth + " to " + newMaxDepth);
-
 		//@formatter:off
 		List<FSRL> files = userAddedSources
 			.stream()
@@ -478,36 +490,38 @@ public class BatchInfo {
 
 		BatchTaskMonitor batchMonitor = new BatchTaskMonitor(monitor);
 
-		List<FSRL> badFiles = new ArrayList<>();
-		int size = filesToAdd.size();
-		for (int i = 0; i < size; i++) {
+		// start a new CryptoSession to group all password prompting by multiple container
+		// files into a single session, enabling "Cancel All" to really cancel all password
+		// prompts
+		try (CryptoSession cryptoSession = fsService.newCryptoSession()) {
+			List<FSRL> badFiles = new ArrayList<>();
+			for (FSRL fsrl : filesToAdd) {
+				batchMonitor.setPrefix("Processing " + fsrl.getName() + ": ");
 
-			FSRL fsrl = filesToAdd.get(i);
-			Msg.trace(this, "Adding " + fsrl);
-			batchMonitor.setPrefix("Processing " + fsrl.getName() + ": ");
+				try {
+					monitor.checkCancelled();
+					addFile(fsrl, batchMonitor);
+				}
+				catch (CryptoException ce) {
+					FSUtilities.displayException(this, null, "Error Adding File To Batch Import",
+						"Error while adding " + fsrl.getName() + " to batch import", ce);
+				}
+				catch (IOException ioe) {
+					Msg.error(this, "Error while adding " + fsrl.getName() + " to batch import",
+						ioe);
+					badFiles.add(fsrl);
+				}
+				catch (CancelledException e) {
+					Msg.debug(this, "Cancelling Add File task while adding " + fsrl.getName());
+					// Note: the workflow for this felt odd: press cancel; confirm cancel; press Ok 
+					//       on dialog showing files not processed.
+					// It seems like the user should not have to see the second dialog
+					// badFiles.addAll(filesToAdd.subList(i, filesToAdd.size()));
+				}
+			}
 
-			try {
-				monitor.checkCanceled();
-				addFile(fsrl, batchMonitor);
-			}
-			catch (CryptoException ce) {
-				FSUtilities.displayException(this, null, "Error Adding File To Batch Import",
-					"Error while adding " + fsrl.getName() + " to batch import", ce);
-			}
-			catch (IOException ioe) {
-				Msg.error(this, "Error while adding " + fsrl.getName() + " to batch import", ioe);
-				badFiles.add(fsrl);
-			}
-			catch (CancelledException e) {
-				Msg.debug(this, "Cancelling Add File task while adding " + fsrl.getName());
-				// Note: the workflow for this felt odd: press cancel; confirm cancel; press Ok 
-				//       on dialog showing files not processed.
-				// It seems like the user should not have to see the second dialog
-				// badFiles.addAll(filesToAdd.subList(i, filesToAdd.size()));
-			}
+			return badFiles;
 		}
-
-		return badFiles;
 	}
 
 //==================================================================================================

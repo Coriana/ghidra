@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,6 +16,7 @@
 package mdemangler.naming;
 
 import mdemangler.*;
+import mdemangler.datatype.MDDataType;
 import mdemangler.datatype.MDDataTypeParser;
 import mdemangler.object.MDObjectCPP;
 
@@ -53,6 +54,8 @@ public class MDSpecialName extends MDParsableItem {
 	private int rttiNumber = -1;
 	private MDString mstring;
 	private String castTypeString;
+	private MDQualifier xtorQual;
+	private MDDataType castType;
 
 	public MDSpecialName(MDMang dmang, int startIndexOffset) {
 		super(dmang, startIndexOffset);
@@ -66,8 +69,16 @@ public class MDSpecialName extends MDParsableItem {
 		return name;
 	}
 
+	public void setXtorQual(MDQualifier xtorQual) {
+		this.xtorQual = xtorQual;
+	}
+
 	public void setCastTypeString(String castTypeString) {
 		this.castTypeString = castTypeString;
+	}
+
+	public void setCastType(MDDataType castType) {
+		this.castType = castType;
 	}
 
 	public boolean isConstructor() {
@@ -108,10 +119,36 @@ public class MDSpecialName extends MDParsableItem {
 
 	@Override
 	public void insert(StringBuilder builder) {
-		dmang.insertString(builder, name);
-		if (isTypeCast && castTypeString != null) {
-			dmang.appendString(builder, " ");
-			dmang.appendString(builder, castTypeString);
+		if (isConstructor) {
+			if (xtorQual != null) {
+				xtorQual.insert(builder);
+			}
+			else {
+				dmang.insertString(builder, "ctor");
+			}
+		}
+		else if (isDestructor) {
+			if (xtorQual != null) {
+				xtorQual.insert(builder);
+			}
+			else {
+				dmang.insertString(builder, "dtor");
+			}
+			dmang.insertString(builder, "~");
+		}
+		else {
+			dmang.insertString(builder, name);
+		}
+		if (isTypeCast) {
+			if (castType != null) {
+				dmang.appendString(builder, " ");
+				castType.insert(builder);
+
+			}
+			else if (castTypeString != null) {
+				dmang.appendString(builder, " ");
+				dmang.appendString(builder, castTypeString);
+			}
 		}
 	}
 
@@ -650,7 +687,7 @@ public class MDSpecialName extends MDParsableItem {
 								dmang.parseInfoPop();
 								break;
 							case 'J':
-								dmang.parseInfoPush(3, "thread guard");
+								dmang.parseInfoPush(3, "local static thread guard");
 								name = "`local static thread guard'";
 								dmang.parseInfoPop();
 								break;
@@ -688,6 +725,30 @@ public class MDSpecialName extends MDParsableItem {
 				break;
 		}
 	}
+
+	/**
+	 * Get Number (it is output as Number << '@' where Number is an unsigned int, so we are
+	 *  capturing it as a string of digits, terminated with an '@' character.
+	 *  Built for what seems to be LLVM-specific mangling.  Does not follow MSFT model.
+	 * @return a the Number represented by a String (decimal).
+	 * @throws MDException Upon invalid character sequence or out of characters.
+	 */
+	private String getNumberString() throws MDException {
+		char ch;
+		StringBuilder builder = new StringBuilder();
+		dmang.parseInfoPush(0, "Number");
+		while ((ch = dmang.peek()) != '@') {
+			if (!Character.isDigit(ch)) { // includes end of string (MDMang.DONE)
+				throw new MDException("Illegal character in Number: " + ch);
+			}
+			builder.append(ch);
+			dmang.next();
+		}
+		dmang.next(); // '@'
+		dmang.parseInfoPop();
+		return builder.toString();
+	}
+
 }
 
 /******************************************************************************/

@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -37,6 +36,7 @@ class ProtoDBAdapterV1 implements ProtoDBAdapter {
 	/**
 	 * @see ghidra.program.database.code.ProtoDBAdapter#getVersion()
 	 */
+	@Override
 	public int getVersion() {
 		return 1;
 	}
@@ -44,6 +44,7 @@ class ProtoDBAdapterV1 implements ProtoDBAdapter {
 	/**
 	 * @see ghidra.program.database.code.ProtoDBAdapter#getNumRecords()
 	 */
+	@Override
 	public int getNumRecords() throws IOException {
 		return table.getRecordCount();
 	}
@@ -63,10 +64,11 @@ class ProtoDBAdapterV1 implements ProtoDBAdapter {
 	/**
 	 * @see ghidra.program.database.code.ProtoDBAdapter#createRecord(int, byte[])
 	 */
+	@Override
 	public void createRecord(int protoID, long addr, byte[] b, boolean inDelaySlot)
 			throws IOException {
 
-		Record record = PrototypeManager.PROTO_SCHEMA.createRecord(protoID);
+		DBRecord record = PrototypeManager.PROTO_SCHEMA.createRecord(protoID);
 		record.setBinaryData(PrototypeManager.BYTES_COL, b);
 		record.setLongValue(PrototypeManager.ADDR_COL, addr);
 		record.setBooleanValue(2, inDelaySlot);
@@ -76,6 +78,7 @@ class ProtoDBAdapterV1 implements ProtoDBAdapter {
 	/**
 	 * @see ghidra.program.database.code.ProtoDBAdapter#getKey()
 	 */
+	@Override
 	public long getKey() throws IOException {
 		return table.getKey();
 	}
@@ -83,13 +86,15 @@ class ProtoDBAdapterV1 implements ProtoDBAdapter {
 	/**
 	 * @see ghidra.program.database.code.ProtoDBAdapter#getRecord(int)
 	 */
-	public Record getRecord(int protoId) throws IOException {
+	@Override
+	public DBRecord getRecord(int protoId) throws IOException {
 		return table.getRecord(protoId);
 	}
 
 	/**
 	 * @see ghidra.program.database.code.ProtoDBAdapter#getRecords()
 	 */
+	@Override
 	public RecordIterator getRecords() throws IOException {
 		return table.iterator();
 	}
@@ -97,6 +102,7 @@ class ProtoDBAdapterV1 implements ProtoDBAdapter {
 	/**s
 	 * @see ghidra.program.database.code.ProtoDBAdapter#deleteAll()
 	 */
+	@Override
 	public void deleteAll() throws IOException {
 		table.deleteAll();
 	}

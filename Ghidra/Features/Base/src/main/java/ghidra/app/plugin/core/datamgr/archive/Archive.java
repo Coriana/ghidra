@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,13 +15,13 @@
  */
 package ghidra.app.plugin.core.datamgr.archive;
 
-import ghidra.app.merge.DataTypeManagerOwner;
-import ghidra.util.exception.DuplicateFileException;
-
 import java.awt.Component;
 import java.io.IOException;
 
-import javax.swing.ImageIcon;
+import javax.swing.Icon;
+
+import ghidra.app.merge.DataTypeManagerOwner;
+import ghidra.util.exception.DuplicateFileException;
 
 /**
  * This is an interface for data type archives.
@@ -32,7 +31,7 @@ public interface Archive extends DataTypeManagerOwner, Comparable<Archive> {
 	/**
 	 * Gets the name for this data type archive.
 	 * This is the name to be presented to the user for this archive.
-	 * @return the name
+	 * @return the name or null if closed
 	 */
 	public String getName();
 
@@ -63,13 +62,15 @@ public interface Archive extends DataTypeManagerOwner, Comparable<Archive> {
 
 	/**
 	 * Saves this archive. Some archives cannot be saved.
+	 * @throws DuplicateFileException if there is an exception saving
+	 * @throws IOException if there is an exception saving
 	 */
 	public void save() throws DuplicateFileException, IOException;
 
 	/**
 	 * Saves this archive to a newly named file.
-	 * @param component
-	 * @throws IOException
+	 * @param component the parent component the any dialogs shown
+	 * @throws IOException if there is an exception saving
 	 */
 	public void saveAs(Component component) throws IOException;
 
@@ -79,5 +80,5 @@ public interface Archive extends DataTypeManagerOwner, Comparable<Archive> {
 	 * false indicates the node is closed.
 	 * @return the archive's icon.
 	 */
-	public ImageIcon getIcon(boolean expanded);
+	public Icon getIcon(boolean expanded);
 }

@@ -79,7 +79,7 @@ public class CallFixupAnalyzer extends AbstractAnalyzer {
 		Iterator<Function> functionIter = program.getFunctionManager().getFunctions(set, true);
 
 		while (functionIter.hasNext()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 
 			Function function = functionIter.next();
 
@@ -101,8 +101,8 @@ public class CallFixupAnalyzer extends AbstractAnalyzer {
 			if (mustFix) {
 				PcodeInjectLibrary snippetLibrary =
 					program.getCompilerSpec().getPcodeInjectLibrary();
-				InjectPayload callFixup = snippetLibrary.getPayload(InjectPayload.CALLFIXUP_TYPE,
-					callFixupApplied, program, null);
+				InjectPayload callFixup =
+					snippetLibrary.getPayload(InjectPayload.CALLFIXUP_TYPE, callFixupApplied);
 				boolean isfallthru = true;
 				if (callFixup != null) {
 					isfallthru = callFixup.isFallThru();
@@ -142,7 +142,7 @@ public class CallFixupAnalyzer extends AbstractAnalyzer {
 		// for the places that were fixed, add in the functions they are found in
 		AddressIterator addresses = codeChangeSet.getAddresses(true);
 		for (Address address : addresses) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 
 			Function func = program.getFunctionManager().getFunctionContaining(address);
 			if (func != null) {
@@ -360,7 +360,7 @@ public class CallFixupAnalyzer extends AbstractAnalyzer {
 		AddressIterator addrIter = repairedCallLocations.getAddresses(true);
 
 		while (addrIter.hasNext()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			monitor.setMaximum(numRefs);
 			monitor.setProgress(refCnt++);
 			Address fromAddr = addrIter.next();
@@ -405,8 +405,8 @@ public class CallFixupAnalyzer extends AbstractAnalyzer {
 			}
 		}
 
-		program.getBookmarkManager().removeBookmarks(repairedCallLocations, BookmarkType.ERROR,
-			monitor);
+		program.getBookmarkManager()
+				.removeBookmarks(repairedCallLocations, BookmarkType.ERROR, monitor);
 
 		if (!clearInstSet.isEmpty()) {
 			// entries including data flow referenced from instructions will be repaired
@@ -449,7 +449,7 @@ public class CallFixupAnalyzer extends AbstractAnalyzer {
 		String[] callFixupNames = snippetLibrary.getCallFixupNames();
 		for (String fixupName : callFixupNames) {
 			InjectPayload payload =
-				snippetLibrary.getPayload(InjectPayload.CALLFIXUP_TYPE, fixupName, program, null);
+				snippetLibrary.getPayload(InjectPayload.CALLFIXUP_TYPE, fixupName);
 			List<String> callFixupTargets = ((InjectPayloadCallfixup) payload).getTargets();
 			for (String name : callFixupTargets) {
 				cachedTargetFixupMap.put(name, fixupName);
@@ -476,9 +476,9 @@ public class CallFixupAnalyzer extends AbstractAnalyzer {
 		}
 
 		@Override
-		public void checkCanceled() throws CancelledException {
+		public void checkCancelled() throws CancelledException {
 			// TODO Auto-generated method stub
-			parentMonitor.checkCanceled();
+			parentMonitor.checkCancelled();
 		}
 
 		@Override

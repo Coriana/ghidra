@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,82 +21,145 @@
  */
 package ghidra.program.database.data;
 
-import ghidra.util.exception.VersionException;
-import ghidra.util.task.TaskMonitor;
-
 import java.io.IOException;
 
 import db.*;
+import ghidra.framework.data.OpenMode;
+import ghidra.util.exception.CancelledException;
+import ghidra.util.exception.VersionException;
+import ghidra.util.task.TaskMonitor;
 
 /**
  * Adapter to access the Enumeration data type values tables.
  */
-abstract class EnumValueDBAdapter {
+abstract class EnumValueDBAdapter implements RecordTranslator {
 
 	static final String ENUM_VALUE_TABLE_NAME = "Enumeration Values";
-	static final Schema ENUM_VALUE_SCHEMA = EnumValueDBAdapterV0.V0_ENUM_VALUE_SCHEMA;
+	static final Schema ENUM_VALUE_SCHEMA = EnumValueDBAdapterV1.SCHEMA;
+
 	// Enum Value Columns
-	static final int ENUMVAL_NAME_COL = EnumValueDBAdapterV0.V0_ENUMVAL_NAME_COL;
-	static final int ENUMVAL_VALUE_COL = EnumValueDBAdapterV0.V0_ENUMVAL_VALUE_COL;
-	static final int ENUMVAL_ID_COL = EnumValueDBAdapterV0.V0_ENUMVAL_ID_COL;
+	static final int ENUMVAL_NAME_COL = 0;
+	static final int ENUMVAL_VALUE_COL = 1;
+	static final int ENUMVAL_ID_COL = 2;
+	static final int ENUMVAL_COMMENT_COL = 3;
 
 	/**
-	 * Gets an adapter for working with the enumeration data type values database table. The adapter is based 
+	 * Gets an adapter for working with the enumeration data type values database table. The adapter is based
 	 * on the version of the database associated with the specified database handle and the openMode.
 	 * @param handle handle to the database to be accessed.
 	 * @param openMode the mode this adapter is to be opened for (CREATE, UPDATE, READ_ONLY, UPGRADE).
+	 * @param tablePrefix prefix to be used with default table name
 	 * @param monitor the monitor to use for displaying status or for canceling.
 	 * @return the adapter for accessing the table of enumeration data type values.
 	 * @throws VersionException if the database handle's version doesn't match the expected version.
 	 * @throws IOException if there is trouble accessing the database.
+	 * @throws CancelledException if task is cancelled
 	 */
-	static EnumValueDBAdapter getAdapter(DBHandle handle, int openMode, TaskMonitor monitor)
-			throws VersionException, IOException {
-		if (openMode == DBConstants.CREATE) {
-			return new EnumValueDBAdapterV0(handle, true);
+	static EnumValueDBAdapter getAdapter(DBHandle handle, OpenMode openMode, String tablePrefix,
+			TaskMonitor monitor) throws VersionException, IOException, CancelledException {
+		if (openMode == OpenMode.CREATE) {
+			return new EnumValueDBAdapterV1(handle, tablePrefix, true);
 		}
 		try {
-			return new EnumValueDBAdapterV0(handle, false);
+			return new EnumValueDBAdapterV1(handle, tablePrefix, false);
 		}
 		catch (VersionException e) {
-			if (!e.isUpgradable() || openMode == DBConstants.UPDATE) {
+			if (!e.isUpgradable() || openMode == OpenMode.UPDATE) {
 				throw e;
 			}
 			EnumValueDBAdapter adapter = findReadOnlyAdapter(handle);
-			if (openMode == DBConstants.UPGRADE) {
-				adapter = upgrade(handle, adapter);
+			if (openMode == OpenMode.UPGRADE) {
+				adapter = upgrade(handle, adapter, tablePrefix, monitor);
 			}
 			return adapter;
 		}
 	}
 
-	/**
-	 * Tries to get a read only adapter for the database whose handle is passed to this method.
-	 * @param handle handle to prior version of the database.
-	 * @return the read only Enumeration Data Type Values table adapter
-	 * @throws VersionException if a read only adapter can't be obtained for the database handle's version.
-	 */
-	static EnumValueDBAdapter findReadOnlyAdapter(DBHandle handle) {
-		return new EnumValueDBAdapterNoTable(handle);
+	private static EnumValueDBAdapter findReadOnlyAdapter(DBHandle handle) {
+		try {
+			return new EnumValueDBAdapterV0(handle);
+		}
+		catch (VersionException e) {
+			return new EnumValueDBAdapterNoTable(handle);
+		}
 	}
 
 	/**
-	 * Upgrades the Enumeration Data Type Values table from the oldAdapter's version to the current version.
+	 * Upgrades the Enumeration Data Type Values table from the oldAdapter's version to the current
+	 * version.
 	 * @param handle handle to the database whose table is to be upgraded to a newer version.
 	 * @param oldAdapter the adapter for the existing table to be upgraded.
+	 * @param tablePrefix prefix to be used with default table name
+	 * @param monitor task monitor
 	 * @return the adapter for the new upgraded version of the table.
-	 * @throws VersionException if the the table's version does not match the expected version
+	 * @throws VersionException if the table's version does not match the expected version
 	 * for this adapter.
 	 * @throws IOException if the database can't be read or written.
+	 * @throws CancelledException if task is cancelled
 	 */
-	static EnumValueDBAdapter upgrade(DBHandle handle, EnumValueDBAdapter oldAdapter)
-			throws VersionException, IOException {
-		return new EnumValueDBAdapterV0(handle, true);
+	private static EnumValueDBAdapter upgrade(DBHandle handle, EnumValueDBAdapter oldAdapter,
+			String tablePrefix, TaskMonitor monitor)
+			throws VersionException, IOException, CancelledException {
+
+		DBHandle tmpHandle = new DBHandle();
+		long id = tmpHandle.startTransaction();
+		EnumValueDBAdapter tmpAdapter = null;
+		try {
+			tmpAdapter = new EnumValueDBAdapterV1(tmpHandle, tablePrefix, true);
+			RecordIterator it = oldAdapter.getRecords();
+			while (it.hasNext()) {
+				monitor.checkCancelled();
+				DBRecord rec = it.next();
+				tmpAdapter.updateRecord(rec);
+			}
+			oldAdapter.deleteTable(handle);
+			EnumValueDBAdapter newAdapter = new EnumValueDBAdapterV1(handle, tablePrefix, true);
+			it = tmpAdapter.getRecords();
+			while (it.hasNext()) {
+				monitor.checkCancelled();
+				DBRecord rec = it.next();
+				newAdapter.updateRecord(rec);
+			}
+			return newAdapter;
+		}
+		finally {
+			tmpHandle.endTransaction(id, true);
+			tmpHandle.close();
+		}
 	}
 
-	abstract void createRecord(long enumID, String name, long value) throws IOException;
+	/**
+	 * Create new enum value record corresponding to specified enum datatype ID
+	 * @param enumID enum datatype ID
+	 * @param name value name
+	 * @param value numeric value
+	 * @param comment the field comment
+	 * @throws IOException if there was a problem accessing the database
+	 */
+	abstract void createRecord(long enumID, String name, long value, String comment)
+			throws IOException;
 
-	abstract Record getRecord(long valueID) throws IOException;
+	/**
+	 * Get enum value record which corresponds to specified value record ID
+	 * @param valueID value record ID
+	 * @return value record or null
+	 * @throws IOException if there was a problem accessing the database
+	 */
+	abstract DBRecord getRecord(long valueID) throws IOException;
+
+	/**
+	 * Returns an iterator over the value records inside of this Enum
+	 * @return the iterator
+	 * @throws IOException if there was a problem accessing the database
+	 */
+	abstract RecordIterator getRecords() throws IOException;
+
+	/**
+	 * Deletes the table; used when upgrading
+	 * @param handle the handle used to delete the table
+	 * @throws IOException if there was a problem accessing the database
+	 */
+	abstract void deleteTable(DBHandle handle) throws IOException;
 
 	/**
 	 * Remove the record for the given enum Value ID.
@@ -109,10 +171,15 @@ abstract class EnumValueDBAdapter {
 	/**
 	 * Updates the enum data type values table with the provided record.
 	 * @param record the new record
-	 * @throws IOException if the database can't be accessed.
+	 * @throws IOException if there was a problem accessing the database
 	 */
-	abstract void updateRecord(Record record) throws IOException;
+	abstract void updateRecord(DBRecord record) throws IOException;
 
-	abstract long[] getValueIdsInEnum(long enumID) throws IOException;
-
+	/**
+	 * Get enum value record IDs which correspond to specified enum datatype ID
+	 * @param enumID enum datatype ID
+	 * @return enum value record IDs as LongField values within Field array
+	 * @throws IOException if there was a problem accessing the database
+	 */
+	abstract Field[] getValueIdsInEnum(long enumID) throws IOException;
 }

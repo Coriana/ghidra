@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -30,7 +30,7 @@ import ghidra.app.merge.MergeConstants;
 import ghidra.app.merge.util.ConflictCountPanel;
 import ghidra.framework.data.DomainObjectMergeManager;
 import ghidra.program.model.data.SourceArchive;
-import resources.ResourceManager;
+import resources.Icons;
 
 /**
  * Panel to select a source archive in order to resolve a conflict.
@@ -85,9 +85,6 @@ class SourceArchiveMergePanel extends JPanel {
 		buttonGroup.add(originalRB);
 	}
 
-	/**
-	 * 
-	 */
 	int getSelectedOption() {
 		if (latestRB.isSelected()) {
 			return DataTypeMergeManager.OPTION_LATEST;
@@ -104,13 +101,10 @@ class SourceArchiveMergePanel extends JPanel {
 	private void create() {
 
 		buttonGroup = new ButtonGroup();
-		ItemListener listener = new ItemListener() {
-			@Override
-			public void itemStateChanged(ItemEvent e) {
-				if (e.getStateChange() == ItemEvent.SELECTED) {
-					mergeManager.clearStatusText();
-					mergeManager.setApplyEnabled(true);
-				}
+		ItemListener listener = e -> {
+			if (e.getStateChange() == ItemEvent.SELECTED) {
+				mergeManager.clearStatusText();
+				mergeManager.setApplyEnabled(true);
 			}
 		};
 
@@ -175,7 +169,7 @@ class SourceArchiveMergePanel extends JPanel {
 
 	private JPanel createInfoPanel() {
 
-		Icon icon = ResourceManager.loadImage("images/information.png");
+		Icon icon = Icons.INFO_ICON;
 		JLabel imageLabel = new GIconLabel(icon);
 
 		MultiLineLabel label = new MultiLineLabel(

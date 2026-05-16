@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,7 +18,7 @@
 // the script will optionally list any existing checkouts prior to starting
 // the batch upgrade.
 //
-//@category Upgrade
+//@category Program
 import java.io.IOException;
 
 import ghidra.app.script.GhidraScript;
@@ -102,21 +102,23 @@ public class RepositoryFileUpgradeScript extends GhidraScript {
 	}
 
 	private int listCheckouts(DomainFolder folder) throws IOException, CancelledException {
+		// Avoid following folder-links so we don't count the same file more than once.
+		// Link-files will never be in a checked-out state.
 		int count = 0;
 		for (DomainFile df : folder.getFiles()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			count += listCheckouts(df);
 		}
 		for (DomainFolder subfolder : folder.getFolders()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			count += listCheckouts(subfolder);
 		}
 		return count;
 	}
 
 	private int listCheckouts(DomainFile df) throws IOException {
-		if (!df.isVersioned()) {
-			return 0;
+		if (!df.isVersioned() || df.isLink()) {
+			return 0; // ignore non-versioned files and link-files
 		}
 		int count = 0;
 		for (ItemCheckoutStatus checkout : df.getCheckouts()) {
@@ -130,19 +132,21 @@ public class RepositoryFileUpgradeScript extends GhidraScript {
 	private int performProgramUpgrades(DomainFolder folder) throws IOException, CancelledException {
 		int count = 0;
 		for (DomainFile df : folder.getFiles()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			if (performProgramUpgrade(df)) {
 				++count;
 			}
 		}
 		for (DomainFolder subfolder : folder.getFolders()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			count += performProgramUpgrades(subfolder);
 		}
 		return count;
 	}
 
 	private boolean performProgramUpgrade(DomainFile df) throws IOException, CancelledException {
+		// Do not follow folder-links or consider program links.  Using content type
+		// to filter is best way to control this.
 		if (!ProgramContentHandler.PROGRAM_CONTENT_TYPE.equals(df.getContentType())) {
 			return false;
 		}
@@ -206,7 +210,7 @@ public class RepositoryFileUpgradeScript extends GhidraScript {
 				dobj.release(this);
 				dobj = null;
 				if (df.isVersioned()) {
-					df.checkin(checkinHandler, false, monitor);
+					df.checkin(checkinHandler, monitor);
 					println("Repository file upgraded: " + df.getPathname());
 				}
 				else {

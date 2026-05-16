@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +16,8 @@
 package ghidra.feature.vt.api.db;
 
 import static ghidra.feature.vt.api.db.VTMatchTagDBAdapter.ColumnDescription.TAG_NAME_COL;
+
+import ghidra.framework.data.OpenMode;
 import ghidra.util.exception.VersionException;
 import ghidra.util.task.TaskMonitor;
 
@@ -48,7 +49,7 @@ public class VTMatchTagDBAdapterV0 extends VTMatchTagDBAdapter {
 	}
 
 	@Override
-	public Record insertRecord(String tagName) throws IOException {
+	public DBRecord insertRecord(String tagName) throws IOException {
 
 		if (tagName == null) {
 			throw new IllegalArgumentException(
@@ -59,7 +60,7 @@ public class VTMatchTagDBAdapterV0 extends VTMatchTagDBAdapter {
 			throw new IllegalArgumentException("Cannot create an empty string tag");
 		}
 
-		Record record = TABLE_SCHEMA.createRecord(table.getKey());
+		DBRecord record = TABLE_SCHEMA.createRecord(table.getKey());
 		record.setString(TAG_NAME_COL.column(), tagName);
 
 		table.putRecord(record);
@@ -67,7 +68,7 @@ public class VTMatchTagDBAdapterV0 extends VTMatchTagDBAdapter {
 	}
 
 	@Override
-	Record getRecord(long tagRecordKey) throws IOException {
+	DBRecord getRecord(long tagRecordKey) throws IOException {
 		return table.getRecord(tagRecordKey);
 	}
 
@@ -82,7 +83,7 @@ public class VTMatchTagDBAdapterV0 extends VTMatchTagDBAdapter {
 	}
 
 	@Override
-	void updateRecord(Record record) throws IOException {
+	void updateRecord(DBRecord record) throws IOException {
 		table.putRecord(record);
 	}
 

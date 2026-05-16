@@ -15,7 +15,6 @@
  */
 package ghidra.app.plugin.core.diff;
 
-import java.awt.Component;
 import java.net.URL;
 
 import ghidra.app.services.ProgramManager;
@@ -24,8 +23,8 @@ import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Program;
 
 /**
- * A stubbed {@link ProgramManager} that used the 'second program' at the current program.  This
- * is used to secondary views in order to install the right program.
+ * A stubbed {@link ProgramManager} that used the 'second program' at the current program. This is
+ * used to secondary views in order to install the right program.
  */
 public class DiffProgramManager implements ProgramManager {
 	ProgramDiffPlugin programDiffPlugin;
@@ -80,17 +79,22 @@ public class DiffProgramManager implements ProgramManager {
 	}
 
 	@Override
+	public Program openCachedProgram(URL ghidraURL, Object consumer) {
+		return null;
+	}
+
+	@Override
 	public Program openProgram(DomainFile domainFile) {
 		return null;
 	}
 
 	@Override
-	public Program openProgram(DomainFile df, int version) {
+	public Program openCachedProgram(DomainFile domainFile, Object consumer) {
 		return null;
 	}
 
 	@Override
-	public Program openProgram(DomainFile domainFile, Component dialogParent) {
+	public Program openProgram(DomainFile df, int version) {
 		return null;
 	}
 
@@ -105,17 +109,32 @@ public class DiffProgramManager implements ProgramManager {
 	}
 
 	@Override
-	public void openProgram(Program program, boolean current) {
-		// stub
-	}
-
-	@Override
 	public void openProgram(Program program, int state) {
 		// stub
 	}
 
 	@Override
 	public void releaseProgram(Program program, Object persistentOwner) {
+		// stub
+	}
+
+	@Override
+	public void saveProgram() {
+		// stub
+	}
+
+	@Override
+	public void saveProgram(Program program) {
+		// stub
+	}
+
+	@Override
+	public void saveProgramAs() {
+		// stub
+	}
+
+	@Override
+	public void saveProgramAs(Program program) {
 		// stub
 	}
 
@@ -127,15 +146,5 @@ public class DiffProgramManager implements ProgramManager {
 	@Override
 	public boolean setPersistentOwner(Program program, Object owner) {
 		return false;
-	}
-
-	@Override
-	public boolean isLocked() {
-		return false;
-	}
-
-	@Override
-	public void lockDown(boolean state) {
-		// Not doing anything
 	}
 }

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,9 +15,7 @@
  */
 package ghidra.app.plugin.core.functiongraph;
 
-import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
-import java.lang.reflect.Constructor;
 import java.util.*;
 
 import javax.swing.*;
@@ -30,6 +28,7 @@ import docking.menu.MultiStateDockingAction;
 import docking.widgets.EventTrigger;
 import docking.widgets.OptionDialog;
 import edu.uci.ics.jung.graph.Graph;
+import generic.theme.GIcon;
 import ghidra.app.events.ProgramSelectionPluginEvent;
 import ghidra.app.plugin.core.functiongraph.action.*;
 import ghidra.app.plugin.core.functiongraph.graph.FGEdge;
@@ -37,56 +36,70 @@ import ghidra.app.plugin.core.functiongraph.graph.FunctionGraph;
 import ghidra.app.plugin.core.functiongraph.graph.layout.FGLayoutProvider;
 import ghidra.app.plugin.core.functiongraph.graph.vertex.FGVertex;
 import ghidra.app.plugin.core.functiongraph.graph.vertex.GroupedFunctionGraphVertex;
-import ghidra.app.plugin.core.functiongraph.mvc.FGController;
-import ghidra.app.plugin.core.functiongraph.mvc.FGData;
+import ghidra.app.plugin.core.functiongraph.mvc.*;
 import ghidra.framework.options.SaveState;
 import ghidra.framework.plugintool.PluginTool;
-import ghidra.framework.plugintool.util.OptionsService;
 import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.address.AddressSetView;
 import ghidra.program.model.listing.Function;
+import ghidra.program.model.listing.Program;
 import ghidra.program.util.ProgramLocation;
 import ghidra.program.util.ProgramSelection;
-import ghidra.util.*;
-import resources.Icons;
-import resources.ResourceManager;
+import ghidra.util.HelpLocation;
 
-class FGActionManager {
+public class FGActionManager {
 	private static final String EDGE_HOVER_HIGHLIGHT = "EDGE_HOVER_HIGHLIGHT";
 	private static final String EDGE_SELECTION_HIGHLIGHT = "EDGE_SELECTION_HIGHLIGHT";
-	private static final String LAYOUT_NAME = "LAYOUT_NAME";
 
-	private static final ImageIcon EDIT_ICON = ResourceManager.loadImage("images/id.png");
-	private static final ImageIcon FULL_SCREEN_ICON =
-		ResourceManager.loadImage("images/fullscreen_view.png");
-	private static final Icon XREFS_ICON = ResourceManager.loadImage("images/brick_link.png");
+	// save state key names
+	private static final String LAYOUT_NAME = "LAYOUT_NAME";
+	private static final String COMPLEX_LAYOUT_NAME = "COMPLEX_LAYOUT_NAME";
+	private static final String LAYOUT_CLASS_NAME = "LAYOUT_CLASS_NAME";
+
+	//@formatter:off
+	private static final Icon GROUP_ICON = new GIcon("icon.plugin.functiongraph.action.vertex.group");
+	private static final Icon GROUP_ADD_ICON = new GIcon("icon.plugin.functiongraph.action.vertex.group.add");
+	private static final Icon UNGROUP_ICON = new GIcon("icon.plugin.functiongraph.action.vertex.ungroup");
+
+	private static final Icon EDIT_ICON = new GIcon("icon.plugin.functiongraph.action.vertex.edit.label");
+	private static final Icon FULL_SCREEN_ICON = new GIcon("icon.plugin.functiongraph.action.vertex.full.screen");
+	private static final Icon XREFS_ICON = new GIcon("icon.plugin.functiongraph.action.vertex.full.screen");
+	//@formatter:off
 
 	private PluginTool tool;
-	private FunctionGraphPlugin plugin;
+	private String owner;
 	private FGController controller;
-	private FGProvider provider;
 
 	private ToggleDockingAction togglePopups;
 
 	private MultiStateDockingAction<EdgeDisplayType> vertexHoverModeAction;
 	private MultiStateDockingAction<EdgeDisplayType> vertexFocusModeAction;
 
-	private MultiStateDockingAction<Class<? extends FGLayoutProvider>> layoutAction;
+	private MultiStateDockingAction<FGLayoutProvider> layoutAction;
 
-	FGActionManager(FunctionGraphPlugin plugin, FGController controller, FGProvider provider) {
-		this.plugin = plugin;
-		this.tool = plugin.getTool();
+	public FGActionManager(FGController controller, String owner) {
 		this.controller = controller;
-		this.provider = provider;
+		this.owner = owner;
+		FgEnv env = controller.getEnv();
+		this.tool = env.getTool();
+		
 		createActions();
 	}
 
+	private JComponent getCenterOverComponent() {
+		return controller.getViewComponent();
+	}
+	
+	private void addLocalAction(DockingAction action) {
+		FgEnv env = controller.getEnv();
+		env.addLocalAction(action);
+	}
+	
 	private void createActions() {
 
 		String toolBarGroup1 = "groupA";
 		String layoutGroup = "groupB";
-		String toolbarEdgeGroup = "groupC";
-		String toolbarEndGroup = "zzzend";
+		String toolbarEdgeGroup = "groupC";		
 
 		// this is a dependent, hard-coded value pulled from the plugin that creates highlight actions
 		String popupSelectionGroup = "Highlight";
@@ -97,14 +110,13 @@ class FGActionManager {
 		String popupMutateGroup1 = "zamutate.1";
 		String popupMutateGroup2 = "zamutate.2";
 		String popupDisplayGroup = "zdisplay";
-		String popuEndPopupGroup = "zzzoom";
-		String popupVeryLastGroup = "zzzzzz";
+		String popuEndPopupGroup = "zzzoom";		
 
 		int vertexGroupingSubgroupOffset = 1;
 		int groupingSubgroupOffset = 1; // sub-sort of the grouping menu
 
-		DockingAction chooseFormatsAction =
-			new DockingAction("Edit Code Block Fields", plugin.getName()) {
+		DockingAction chooseFormatsAction = 
+			new DockingAction("Edit Code Block Fields", owner) {
 				@Override
 				public void actionPerformed(ActionContext context) {
 					showFormatChooser();
@@ -118,12 +130,12 @@ class FGActionManager {
 
 		// subgroup 3, after the refresh and layout actions
 		chooseFormatsAction.setToolBarData(new ToolBarData(
-			ResourceManager.loadImage("images/field.header.png"), layoutGroup, "3"));
+			new GIcon("icon.plugin.functiongraph.action.vertex.edit.format"), layoutGroup, "3"));
 		chooseFormatsAction.setHelpLocation(
 			new HelpLocation("FunctionGraphPlugin", "Function_Graph_Action_Format"));
 
 		DockingAction homeAction =
-			new DockingAction("Go To Function Entry Point", plugin.getName()) {
+			new DockingAction("Go To Function Entry Point", owner) {
 				@Override
 				public void actionPerformed(ActionContext context) {
 					goHome();
@@ -135,14 +147,14 @@ class FGActionManager {
 				}
 			};
 		homeAction.setToolBarData(
-			new ToolBarData(ResourceManager.loadImage("images/house.png"), toolBarGroup1));
+			new ToolBarData(new GIcon("icon.plugin.functiongraph.action.viewer.home"), toolBarGroup1));
 		homeAction.setHelpLocation(
 			new HelpLocation("FunctionGraphPlugin", "Function_Graph_Action_Home"));
 
-		DockingAction resetGraphAction = new DockingAction("Reset Graph", plugin.getName()) {
+		DockingAction resetGraphAction = new DockingAction("Reset Graph", owner) {
 			@Override
 			public void actionPerformed(ActionContext context) {
-				int choice = OptionDialog.showYesNoDialog(provider.getComponent(), "Reset Graph?",
+				int choice = OptionDialog.showYesNoDialog(getCenterOverComponent(), "Reset Graph?",
 					"<html>Erase all vertex position and grouping information?");
 				if (choice != OptionDialog.YES_OPTION) {
 					return;
@@ -156,13 +168,14 @@ class FGActionManager {
 				return controller.hasResults();
 			}
 		};
-		resetGraphAction.setToolBarData(new ToolBarData(Icons.REFRESH_ICON, layoutGroup, "1"));
+		resetGraphAction.setToolBarData(
+			new ToolBarData(new GIcon("icon.plugin.functiongraph.action.viewer.reset"), layoutGroup, "1"));
 		resetGraphAction.setDescription("<html>Reloads the graph--All positioning and grouping " +
 			"information is <b>lost</b>");
 		resetGraphAction.setHelpLocation(
 			new HelpLocation("FunctionGraphPlugin", "Function_Graph_Reload_Graph"));
 
-		provider.addLocalAction(resetGraphAction);
+		addLocalAction(resetGraphAction);
 
 		addLayoutAction(layoutGroup);
 		addVertexHoverModeAction(toolbarEdgeGroup);
@@ -171,7 +184,7 @@ class FGActionManager {
 		//
 		// Display transforming actions
 		//
-		DockingAction zoomOutAction = new DockingAction("Zoom Out", plugin.getName()) {
+		DockingAction zoomOutAction = new DockingAction("Zoom Out", owner) {
 			@Override
 			public void actionPerformed(ActionContext context) {
 				controller.zoomOutGraph();
@@ -185,13 +198,13 @@ class FGActionManager {
 				return !(context instanceof FunctionGraphVertexLocationInFullViewModeActionContext);
 			}
 		};
-		zoomOutAction.setPopupMenuData(
-			new MenuData(new String[] { "Zoom Out" }, popuEndPopupGroup));
+		zoomOutAction
+				.setPopupMenuData(new MenuData(new String[] { "Zoom Out" }, popuEndPopupGroup));
 		zoomOutAction.setKeyBindingData(new KeyBindingData(
 			KeyStroke.getKeyStroke(KeyEvent.VK_MINUS, DockingUtils.CONTROL_KEY_MODIFIER_MASK)));
 		zoomOutAction.setHelpLocation(new HelpLocation("FunctionGraphPlugin", "Zoom"));
 
-		DockingAction zoomInAction = new DockingAction("Zoom In", plugin.getName()) {
+		DockingAction zoomInAction = new DockingAction("Zoom In", owner) {
 			@Override
 			public void actionPerformed(ActionContext context) {
 				controller.zoomInGraph();
@@ -210,7 +223,7 @@ class FGActionManager {
 			KeyStroke.getKeyStroke(KeyEvent.VK_EQUALS, DockingUtils.CONTROL_KEY_MODIFIER_MASK)));
 		zoomInAction.setHelpLocation(new HelpLocation("FunctionGraphPlugin", "Zoom"));
 
-		DockingAction zoomToWindowAction = new DockingAction("Zoom to Window", plugin.getName()) {
+		DockingAction zoomToWindowAction = new DockingAction("Zoom to Window", owner) {
 			@Override
 			public void actionPerformed(ActionContext context) {
 				controller.zoomToWindow();
@@ -228,7 +241,7 @@ class FGActionManager {
 			new MenuData(new String[] { "Zoom to Window" }, popuEndPopupGroup));
 		zoomToWindowAction.setHelpLocation(new HelpLocation("FunctionGraphPlugin", "Zoom"));
 
-		DockingAction zoomToVertexAction = new DockingAction("Zoom to Vertex", plugin.getName()) {
+		DockingAction zoomToVertexAction = new DockingAction("Zoom to Vertex", owner) {
 			@Override
 			public void actionPerformed(ActionContext context) {
 				FunctionGraphVertexLocationContextIf vertexContext =
@@ -254,7 +267,7 @@ class FGActionManager {
 			new MenuData(new String[] { "Zoom to Vertex" }, popuEndPopupGroup));
 		zoomToVertexAction.setHelpLocation(new HelpLocation("FunctionGraphPlugin", "Zoom"));
 
-		togglePopups = new ToggleDockingAction("Display Popup Windows", plugin.getName()) {
+		togglePopups = new ToggleDockingAction("Display Popup Windows", owner) {
 			@Override
 			public void actionPerformed(ActionContext context) {
 				controller.setPopupsVisible(isSelected());
@@ -280,7 +293,7 @@ class FGActionManager {
 		//
 		// Vertex Actions
 		//
-		DockingAction editLabelAction = new DockingAction("Edit Vertex Label", plugin.getName()) {
+		DockingAction editLabelAction = new DockingAction("Edit Vertex Label", owner) {
 			@Override
 			public void actionPerformed(ActionContext context) {
 				FunctionGraphValidGraphActionContextIf graphContext =
@@ -288,7 +301,7 @@ class FGActionManager {
 
 				// size guaranteed to be 1
 				FGVertex vertex = graphContext.getSelectedVertices().iterator().next();
-				vertex.editLabel(provider.getComponent());
+				vertex.editLabel(getCenterOverComponent());
 			}
 
 			@Override
@@ -321,10 +334,10 @@ class FGActionManager {
 		menuData.setMenuSubGroup(Integer.toString(vertexGroupingSubgroupOffset++));
 		editLabelAction.setDescription("Change the label for the code block");
 		editLabelAction.setPopupMenuData(menuData);
-		editLabelAction.setHelpLocation(
-			new HelpLocation("FunctionGraphPlugin", "Vertex_Action_Label"));
+		editLabelAction
+				.setHelpLocation(new HelpLocation("FunctionGraphPlugin", "Vertex_Action_Label"));
 
-		DockingAction fullViewAction = new DockingAction("Vertex View Mode", plugin.getName()) {
+		DockingAction fullViewAction = new DockingAction("Vertex View Mode", owner) {
 			@Override
 			public void actionPerformed(ActionContext context) {
 				FunctionGraphValidGraphActionContextIf graphContext =
@@ -374,7 +387,7 @@ class FGActionManager {
 		fullViewAction.setHelpLocation(
 			new HelpLocation("FunctionGraphPlugin", "Vertex_Action_Full_View"));
 
-		DockingAction xrefsAction = new DockingAction("Jump to a XRef", plugin.getName()) {
+		DockingAction xrefsAction = new DockingAction("Jump to XRef", owner) {
 			@Override
 			public void actionPerformed(ActionContext context) {
 				controller.showXRefsDialog();
@@ -396,7 +409,7 @@ class FGActionManager {
 				return true;
 			}
 		};
-		menuData = new MenuData(new String[] { "Jump to a XRef" }, popupMutateGroup1);
+		menuData = new MenuData(new String[] { "Jump to XRef" }, popupMutateGroup1);
 		menuData.setIcon(XREFS_ICON);
 		menuData.setMenuSubGroup(Integer.toString(vertexGroupingSubgroupOffset++));
 		xrefsAction.setPopupMenuData(menuData);
@@ -406,7 +419,7 @@ class FGActionManager {
 		// Group Actions
 		//
 		DockingAction groupSelectedVertices =
-			new DockingAction("Group Selected Vertices", plugin.getName()) {
+			new DockingAction("Group Selected Vertices", owner) {
 				@Override
 				public void actionPerformed(ActionContext context) {
 					controller.groupSelectedVertices();
@@ -438,14 +451,14 @@ class FGActionManager {
 				}
 			};
 		menuData = new MenuData(new String[] { "Group Selected Vertices" }, popupMutateGroup2);
-		menuData.setIcon(FunctionGraphPlugin.GROUP_ICON);
+		menuData.setIcon(GROUP_ICON);
 		menuData.setMenuSubGroup(Integer.toString(groupingSubgroupOffset++));
 		groupSelectedVertices.setPopupMenuData(menuData);
 		groupSelectedVertices.setHelpLocation(
 			new HelpLocation("FunctionGraphPlugin", "Vertex_Grouping_Group_Selected_Popup"));
 
 		DockingAction addSelectedVerticesToGroup =
-			new DockingAction("Group Selected Vertices", plugin.getName()) {
+			new DockingAction("Group Selected Vertices", owner) {
 				@Override
 				public void actionPerformed(ActionContext context) {
 					addToGroup(context);
@@ -497,14 +510,14 @@ class FGActionManager {
 		menuData = new MenuData(new String[] { "Group Selected Vertices - Add to Group" },
 			popupMutateGroup2);
 
-		menuData.setIcon(FunctionGraphPlugin.GROUP_ADD_ICON);
+		menuData.setIcon(GROUP_ADD_ICON);
 		menuData.setMenuSubGroup(Integer.toString(groupingSubgroupOffset++));
 		addSelectedVerticesToGroup.setPopupMenuData(menuData);
 		addSelectedVerticesToGroup.setHelpLocation(new HelpLocation("FunctionGraphPlugin",
 			"Vertex_Grouping_Add_Selected_Vertices_To_Group"));
 
 		DockingAction ungroupSelectedVertices =
-			new DockingAction("Ungroup Selected Vertices", plugin.getName()) {
+			new DockingAction("Ungroup Selected Vertices", owner) {
 				@Override
 				public void actionPerformed(ActionContext context) {
 					FunctionGraphValidGraphActionContextIf graphContext =
@@ -540,13 +553,13 @@ class FGActionManager {
 			};
 		menuData = new MenuData(new String[] { "Ungroup Selected Vertices" }, popupMutateGroup2);
 
-		menuData.setIcon(FunctionGraphPlugin.UNGROUP_ICON);
+		menuData.setIcon(UNGROUP_ICON);
 		menuData.setMenuSubGroup(Integer.toString(groupingSubgroupOffset++));
 		ungroupSelectedVertices.setPopupMenuData(menuData);
 		ungroupSelectedVertices.setHelpLocation(
 			new HelpLocation("FunctionGraphPlugin", "Vertex_Grouping_Ungroup_Selected_Popup"));
 
-		DockingAction removeFromGroup = new DockingAction("Remove From Group", plugin.getName()) {
+		DockingAction removeFromGroup = new DockingAction("Remove From Group", owner) {
 			@Override
 			public void actionPerformed(ActionContext context) {
 				FunctionGraphValidGraphActionContextIf graphContext =
@@ -593,11 +606,11 @@ class FGActionManager {
 			new HelpLocation("FunctionGraphPlugin", "Vertex_Grouping_Remove_From_Group"));
 
 		DockingAction ungroupAllVertices =
-			new DockingAction("Ungroup All Vertices", plugin.getName()) {
+			new DockingAction("Ungroup All Vertices", owner) {
 				@Override
 				public void actionPerformed(ActionContext context) {
 
-					int choice = OptionDialog.showYesNoDialog(provider.getComponent(),
+					int choice = OptionDialog.showYesNoDialog(getCenterOverComponent(),
 						"Ungroup All Vertices?", "Ungroup all grouped vertices?");
 					if (choice != OptionDialog.YES_OPTION) {
 						return;
@@ -635,55 +648,13 @@ class FGActionManager {
 		ungroupAllVertices.setHelpLocation(
 			new HelpLocation("FunctionGraphPlugin", "Vertex_Grouping_Ungroup_All_Popup"));
 
-		//
-		// Miscellaneous Actions
-		//
-		DockingAction cloneAction = new DockingAction("Function Graph Clone", plugin.getName()) {
-			@Override
-			public void actionPerformed(ActionContext context) {
-				provider.cloneWindow();
-			}
-
-			@Override
-			public boolean isEnabledForContext(ActionContext context) {
-				return controller.getGraphedFunction() != null;
-			}
-		};
-		ImageIcon image = ResourceManager.loadImage("images/camera-photo.png");
-		cloneAction.setToolBarData(new ToolBarData(image, toolbarEndGroup));
-		cloneAction.setDescription(
-			"Create a snapshot (disconnected) copy of this Function Graph window ");
-		cloneAction.setHelpLocation(new HelpLocation("Snapshots", "Snapshots_Start"));
-		cloneAction.setHelpLocation(
-			new HelpLocation("FunctionGraphPlugin", "Function_Graph_Action_Snapshot"));
-		cloneAction.setKeyBindingData(new KeyBindingData(KeyEvent.VK_T,
-			InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK));
-
-		DockingAction optionsAction =
-			new DockingAction("Function Graph Options", plugin.getName()) {
-
-				@Override
-				public void actionPerformed(ActionContext context) {
-					OptionsService service = tool.getService(OptionsService.class);
-					service.showOptionsDialog(FunctionGraphPlugin.PLUGIN_OPTIONS_NAME,
-						"Function Graph");
-				}
-
-				@Override
-				public boolean isEnabledForContext(ActionContext context) {
-					return true;
-				}
-			};
-		optionsAction.setPopupMenuData(
-			new MenuData(new String[] { "Properties" }, null, popupVeryLastGroup));
-		optionsAction.setHelpLocation(new HelpLocation("FunctionGraphPlugin", "Options"));
 
 		//
 		// Selection Actions
 		//
 		String selectionMenuName = "Program Selection";
 		DockingAction selectHoveredEdgesAction =
-			new DockingAction("Make Selection From Hovered Edges", plugin.getName()) {
+			new DockingAction("Make Selection From Hovered Edges", owner) {
 
 				@Override
 				public void actionPerformed(ActionContext context) {
@@ -713,11 +684,11 @@ class FGActionManager {
 			};
 		selectHoveredEdgesAction.setPopupMenuData(new MenuData(
 			new String[] { selectionMenuName, "From Hovered Edges" }, popupSelectionGroup2));
-		selectHoveredEdgesAction.setHelpLocation(
-			new HelpLocation("FunctionGraphPlugin", "Path_Selection"));
+		selectHoveredEdgesAction
+				.setHelpLocation(new HelpLocation("FunctionGraphPlugin", "Path_Selection"));
 
 		DockingAction selectFocusedEdgesAction =
-			new DockingAction("Make Selection From Focused Edges", plugin.getName()) {
+			new DockingAction("Make Selection From Focused Edges", owner) {
 
 				@Override
 				public void actionPerformed(ActionContext context) {
@@ -747,11 +718,11 @@ class FGActionManager {
 			};
 		selectFocusedEdgesAction.setPopupMenuData(new MenuData(
 			new String[] { selectionMenuName, "From Focused Edges" }, popupSelectionGroup2));
-		selectFocusedEdgesAction.setHelpLocation(
-			new HelpLocation("FunctionGraphPlugin", "Path_Selection"));
+		selectFocusedEdgesAction
+				.setHelpLocation(new HelpLocation("FunctionGraphPlugin", "Path_Selection"));
 
 		DockingAction clearCurrentSelectionAction =
-			new DockingAction("Clear Current Selection", plugin.getName()) {
+			new DockingAction("Clear Current Selection", owner) {
 
 				@Override
 				public void actionPerformed(ActionContext context) {
@@ -765,17 +736,17 @@ class FGActionManager {
 
 				@Override
 				public boolean isEnabledForContext(ActionContext context) {
-					ProgramSelection selection = provider.getCurrentProgramSelection();
+					ProgramSelection selection = controller.getSelection();
 					return selection != null && !selection.isEmpty();
 				}
 			};
 		clearCurrentSelectionAction.setPopupMenuData(new MenuData(
 			new String[] { selectionMenuName, "Clear Graph Selection" }, popupSelectionGroup3));
-		clearCurrentSelectionAction.setHelpLocation(
-			new HelpLocation("FunctionGraphPlugin", "Path_Selection"));
+		clearCurrentSelectionAction
+				.setHelpLocation(new HelpLocation("FunctionGraphPlugin", "Path_Selection"));
 
 		DockingAction selectAllAction =
-			new DockingAction("Select All Code Units", plugin.getName()) {
+			new DockingAction("Select All Code Units", owner) {
 
 				@Override
 				public void actionPerformed(ActionContext context) {
@@ -811,38 +782,35 @@ class FGActionManager {
 					return isValidContext(context);
 				}
 			};
-		selectAllAction.setKeyBindingData(
-			new KeyBindingData(KeyEvent.VK_A, InputEvent.CTRL_DOWN_MASK));
+		selectAllAction
+				.setKeyBindingData(new KeyBindingData(KeyEvent.VK_A, DockingUtils.CONTROL_KEY_MODIFIER_MASK));
 		selectAllAction.setPopupMenuData(new MenuData(
 			new String[] { selectionMenuName, "Select All Code Units" }, popupSelectionGroup3));
-		selectAllAction.setHelpLocation(
-			new HelpLocation("FunctionGraphPlugin", "Code_Unit_Selection"));
+		selectAllAction
+				.setHelpLocation(new HelpLocation("FunctionGraphPlugin", "Code_Unit_Selection"));
 
-		provider.addLocalAction(chooseFormatsAction);
-		provider.addLocalAction(homeAction);
-		provider.addLocalAction(zoomInAction);
-		provider.addLocalAction(zoomOutAction);
-		provider.addLocalAction(zoomToVertexAction);
-		provider.addLocalAction(zoomToWindowAction);
+		addLocalAction(chooseFormatsAction);
+		addLocalAction(homeAction);
+		addLocalAction(zoomInAction);
+		addLocalAction(zoomOutAction);
+		addLocalAction(zoomToVertexAction);
+		addLocalAction(zoomToWindowAction);
 
-		provider.addLocalAction(editLabelAction);
-		provider.addLocalAction(fullViewAction);
-		provider.addLocalAction(xrefsAction);
+		addLocalAction(editLabelAction);
+		addLocalAction(fullViewAction);
+		addLocalAction(xrefsAction);
 
-		provider.addLocalAction(groupSelectedVertices);
-		provider.addLocalAction(addSelectedVerticesToGroup);
-		provider.addLocalAction(removeFromGroup);
-		provider.addLocalAction(ungroupSelectedVertices);
-		provider.addLocalAction(ungroupAllVertices);
-		provider.addLocalAction(togglePopups);
+		addLocalAction(groupSelectedVertices);
+		addLocalAction(addSelectedVerticesToGroup);
+		addLocalAction(removeFromGroup);
+		addLocalAction(ungroupSelectedVertices);
+		addLocalAction(ungroupAllVertices);
+		addLocalAction(togglePopups);
 
-		provider.addLocalAction(cloneAction);
-		provider.addLocalAction(optionsAction);
-
-		provider.addLocalAction(selectAllAction);
-		provider.addLocalAction(selectHoveredEdgesAction);
-		provider.addLocalAction(selectFocusedEdgesAction);
-		provider.addLocalAction(clearCurrentSelectionAction);
+		addLocalAction(selectAllAction);
+		addLocalAction(selectHoveredEdgesAction);
+		addLocalAction(selectFocusedEdgesAction);
+		addLocalAction(clearCurrentSelectionAction);
 
 		// this does two things: 1) allows us to subgroup the pull-right menu and 2) it matches
 		// the organization of the highlight and selection actions from the main listing
@@ -855,18 +823,18 @@ class FGActionManager {
 		HelpLocation layoutHelpLocation =
 			new HelpLocation("FunctionGraphPlugin", "Function_Graph_Action_Layout");
 
-		layoutAction = new MultiStateDockingAction<>("Relayout Graph", plugin.getName(), true) {
+		layoutAction = new MultiStateDockingAction<>("Relayout Graph", owner, 
+				KeyBindingType.SHARED) {
 
 			@Override
-			protected void doActionPerformed(ActionContext context) {
+			public void actionPerformed(ActionContext context) {
 				// this callback is when the user clicks the button
-				Class<? extends FGLayoutProvider> currentUserData = getCurrentUserData();
+				FGLayoutProvider currentUserData = getCurrentUserData();
 				changeLayout(currentUserData);
 			}
 
 			@Override
-			public void actionStateChanged(
-					ActionState<Class<? extends FGLayoutProvider>> newActionState,
+			public void actionStateChanged(ActionState<FGLayoutProvider> newActionState,
 					EventTrigger trigger) {
 				changeLayout(newActionState.getUserData());
 				if (trigger != EventTrigger.API_CALL) {
@@ -878,76 +846,71 @@ class FGActionManager {
 		layoutAction.setSubGroup("2"); // 2 after refresh, which is 1
 		layoutAction.setHelpLocation(layoutHelpLocation);
 
-		List<ActionState<Class<? extends FGLayoutProvider>>> actionStates =
-			loadActionStatesForLayoutProviders();
+		// This icon will display when the action has no icon.   This allows actions with no good
+		// icon to be blank in the menu, but to use this icon on the toolbar.
+		layoutAction.setDefaultIcon(new GIcon("icon.plugin.functiongraph.action.viewer.layout"));
 
-		for (ActionState<Class<? extends FGLayoutProvider>> actionState : actionStates) {
+		List<ActionState<FGLayoutProvider>> actionStates = loadActionStatesForLayoutProviders();
+		for (ActionState<FGLayoutProvider> actionState : actionStates) {
 			layoutAction.addActionState(actionState);
 		}
 
-		provider.addLocalAction(layoutAction);
+		addLocalAction(layoutAction);
 	}
 
-	private void changeLayout(Class<? extends FGLayoutProvider> layoutClass) {
-		FGLayoutProvider layoutInstance = getLayoutInstance(layoutClass);
-		if (layoutInstance == null) {
-			return;
-		}
-		controller.changeLayout(layoutInstance);
+	private void changeLayout(FGLayoutProvider layout) {
+		controller.changeLayout(layout);
 	}
 
-	private List<ActionState<Class<? extends FGLayoutProvider>>> loadActionStatesForLayoutProviders() {
+	private List<ActionState<FGLayoutProvider>> loadActionStatesForLayoutProviders() {
+		FgEnv env = controller.getEnv();
+		List<FGLayoutProvider> layoutInstances = env.getLayoutProviders();
+		return createActionStates(layoutInstances);
+	}
 
-		List<FGLayoutProvider> layoutInstances = plugin.getLayoutProviders();
-		List<ActionState<Class<? extends FGLayoutProvider>>> list = new ArrayList<>();
-		HelpLocation layoutHelpLocation =
-			new HelpLocation("FunctionGraphPlugin", "Function_Graph_Action_Layout");
-		for (FGLayoutProvider layout : layoutInstances) {
+	private List<ActionState<FGLayoutProvider>> createActionStates(
+			List<FGLayoutProvider> layoutProviders) {
+		List<ActionState<FGLayoutProvider>> list = new ArrayList<>();
+		for (FGLayoutProvider layout : layoutProviders) {
 
-			ActionState<Class<? extends FGLayoutProvider>> layoutState = new ActionState<>(
-				layout.getLayoutName(), layout.getActionIcon(), layout.getClass());
-			layoutState.setHelpLocation(layoutHelpLocation);
+			ActionState<FGLayoutProvider> layoutState =
+				new ActionState<>(layout.getLayoutName(), layout.getActionIcon(), layout);
+			layoutState.setHelpLocation(layout.getHelpLocation());
 			list.add(layoutState);
 		}
 
 		return list;
 	}
 
-	private FGLayoutProvider getLayoutInstance(Class<? extends FGLayoutProvider> layoutClass) {
-		FGLayoutProvider layoutInstance = null;
-		try {
-			Constructor<? extends FGLayoutProvider> constructor =
-				layoutClass.getConstructor((Class<?>[]) null);
-			layoutInstance = constructor.newInstance((Object[]) null);
-		}
-		catch (Exception e) {
-			Msg.showError(this, provider.getComponent(), "Unable to Create Graph Layout",
-				"Unable to create layout: " + layoutClass.getName(), e);
-		}
-		return layoutInstance;
-	}
+	private void setLayoutActionStateByClassName(String layoutClassName, String layoutName) {
 
-	@SuppressWarnings("unchecked")
-	private void setLayoutActionStateByClassName(String layoutClassName) {
-		try {
-			Class<?> classInstance = Class.forName(layoutClassName);
-			layoutAction.setCurrentActionStateByUserData(
-				(Class<? extends FGLayoutProvider>) classInstance);
+		if (layoutName == null) {
+			return; // this may be null when coming from an older version of Ghidra
 		}
-		catch (ClassNotFoundException e) {
-			// give up...leave the action the way it was
+
+		List<ActionState<FGLayoutProvider>> states = layoutAction.getAllActionStates();
+		for (ActionState<FGLayoutProvider> state : states) {
+			FGLayoutProvider layoutProvider = state.getUserData();
+			String stateLayoutName = layoutProvider.getLayoutName();
+			if (stateLayoutName.equals(layoutName)) {
+				layoutAction.setCurrentActionState(state);
+				return;
+			}
 		}
 	}
 
 	private void addVertexHoverModeAction(String group) {
-		Icon pathsToVertexIcon = ResourceManager.loadImage("images/fgin.png");
-		Icon pathsFromVertexIcon = ResourceManager.loadImage("images/fgout.png");
-		Icon pathsFromToVertexIcon = ResourceManager.loadImage("images/fginout.png");
-		Icon cyclesIcon = ResourceManager.loadImage("images/fgloop.png");
-		Icon pathsIcon = ResourceManager.loadImage("images/fgpaths.png");
-		Icon forwardScopedIcon = ResourceManager.loadImage("images/fgblock.png");
-		Icon reverseScopedIcon = ResourceManager.loadImage("images/fgrevblock.png");
-		Icon nothingIcon = ResourceManager.loadImage("images/hoverOff.gif");
+
+		//@formatter:off
+		Icon pathsToVertexIcon = new GIcon("icon.plugin.functiongraph.action.viewer.vertex.hover.paths.to.vertex");
+		Icon pathsFromVertexIcon = new GIcon("icon.plugin.functiongraph.action.viewer.vertex.hover.paths.from.vertex");
+		Icon pathsFromToVertexIcon = new GIcon("icon.plugin.functiongraph.action.viewer.vertex.hover.paths.from.to.vertex");
+		Icon pathsIcon = new GIcon("icon.plugin.functiongraph.action.viewer.vertex.hover.paths.all");
+		Icon cyclesIcon = new GIcon("icon.plugin.functiongraph.action.viewer.vertex.hover.cycles");
+		Icon forwardScopedIcon = new GIcon("icon.plugin.functiongraph.action.viewer.vertex.hover.scoped.flow.forward");
+		Icon reverseScopedIcon = new GIcon("icon.plugin.functiongraph.action.viewer.vertex.hover.scoped.flow.reverse");
+		Icon nothingIcon = new GIcon("icon.plugin.functiongraph.action.viewer.vertex.hover.off");
+		//@formatter:off
 
 		HelpLocation pathHelpLocation =
 			new HelpLocation("FunctionGraphPlugin", "Path_Highlight_Actions");
@@ -985,7 +948,7 @@ class FGActionManager {
 		offState.setHelpLocation(pathHelpLocation);
 
 		vertexHoverModeAction =
-			new MultiStateDockingAction<>("Block Hover Mode", plugin.getName()) {
+			new MultiStateDockingAction<>("Block Hover Mode", owner) {
 
 				@Override
 				public void actionStateChanged(ActionState<EdgeDisplayType> newActionState,
@@ -998,7 +961,6 @@ class FGActionManager {
 			};
 		vertexHoverModeAction.setGroup(group);
 		vertexHoverModeAction.setHelpLocation(pathHelpLocation);
-		vertexHoverModeAction.setPerformActionOnPrimaryButtonClick(false);
 
 		vertexHoverModeAction.addActionState(offState);
 		vertexHoverModeAction.addActionState(pathsForwardScopedFlow);
@@ -1011,19 +973,23 @@ class FGActionManager {
 
 		vertexHoverModeAction.setCurrentActionState(pathsForwardScopedFlow);
 
-		provider.addLocalAction(vertexHoverModeAction);
+		addLocalAction(vertexHoverModeAction);
 
 	}
 
 	private void addVertexSelectedModeAction(String group) {
-		Icon pathsToVertexIcon = ResourceManager.loadImage("images/fgin.png");
-		Icon pathsFromVertexIcon = ResourceManager.loadImage("images/fgout.png");
-		Icon pathsFromToVertexIcon = ResourceManager.loadImage("images/fginout.png");
-		Icon cyclesIcon = ResourceManager.loadImage("images/fgloop.png");
-		Icon allCyclesIcon = ResourceManager.loadImage("images/fgloopall.png");
-		Icon forwardScopedIcon = ResourceManager.loadImage("images/fgblock.png");
-		Icon reverseScopedIcon = ResourceManager.loadImage("images/fgrevblock.png");
-		Icon nothingIcon = ResourceManager.loadImage("images/hoverOff.gif");
+
+		//@formatter:off
+		Icon pathsToVertexIcon = new GIcon("icon.plugin.functiongraph.action.viewer.vertex.hover.paths.to.vertex");
+		Icon pathsFromVertexIcon = new GIcon("icon.plugin.functiongraph.action.viewer.vertex.hover.paths.from.vertex");
+		Icon pathsFromToVertexIcon = new GIcon("icon.plugin.functiongraph.action.viewer.vertex.hover.paths.from.to.vertex");
+		Icon cyclesIcon = new GIcon("icon.plugin.functiongraph.action.viewer.vertex.hover.cycles");
+		Icon allCyclesIcon = new GIcon("icon.plugin.functiongraph.action.viewer.vertex.hover.cycles.all");
+		Icon forwardScopedIcon = new GIcon("icon.plugin.functiongraph.action.viewer.vertex.hover.scoped.flow.forward");
+		Icon reverseScopedIcon = new GIcon("icon.plugin.functiongraph.action.viewer.vertex.hover.scoped.flow.reverse");
+		Icon nothingIcon = new GIcon("icon.plugin.functiongraph.action.viewer.vertex.hover.off");
+		//@formatter:off
+
 
 		HelpLocation pathHelpLocation =
 			new HelpLocation("FunctionGraphPlugin", "Path_Highlight_Actions");
@@ -1054,7 +1020,7 @@ class FGActionManager {
 		offState.setHelpLocation(pathHelpLocation);
 
 		vertexFocusModeAction =
-			new MultiStateDockingAction<>("Block Focus Mode", plugin.getName()) {
+			new MultiStateDockingAction<>("Block Focus Mode", owner) {
 
 				@Override
 				public void actionStateChanged(ActionState<EdgeDisplayType> newActionState,
@@ -1067,7 +1033,6 @@ class FGActionManager {
 			};
 		vertexFocusModeAction.setGroup(group);
 		vertexFocusModeAction.setHelpLocation(pathHelpLocation);
-		vertexFocusModeAction.setPerformActionOnPrimaryButtonClick(false);
 
 		vertexFocusModeAction.addActionState(offState);
 		vertexFocusModeAction.addActionState(pathsForwardScopedFlow);
@@ -1080,7 +1045,7 @@ class FGActionManager {
 
 		vertexFocusModeAction.setCurrentActionState(allCyclesState);
 
-		provider.addLocalAction(vertexFocusModeAction);
+		addLocalAction(vertexFocusModeAction);
 	}
 
 	private void clearGraphSelection() {
@@ -1088,11 +1053,14 @@ class FGActionManager {
 		FGData functionGraphData = controller.getFunctionGraphData();
 		Function function = functionGraphData.getFunction();
 		AddressSetView functionBody = function.getBody();
-		AddressSet subtraction = provider.getCurrentProgramSelection().subtract(functionBody);
-
+		ProgramSelection selection = controller.getSelection();
+		
+		AddressSet subtraction = selection.subtract(functionBody);
 		ProgramSelection programSelectionWithoutGraphBody = new ProgramSelection(subtraction);
-		plugin.getTool().firePluginEvent(new ProgramSelectionPluginEvent("Spoof!",
-			programSelectionWithoutGraphBody, provider.getCurrentProgram()));
+		FgEnv env = controller.getEnv();
+		Program program = env.getProgram();
+		tool.firePluginEvent(new ProgramSelectionPluginEvent("Spoof!",
+					programSelectionWithoutGraphBody, program));
 	}
 
 	private Set<FGVertex> getAllVertices() {
@@ -1140,15 +1108,10 @@ class FGActionManager {
 
 	private void goHome() {
 		Function function = controller.getGraphedFunction();
-		ProgramLocation homeLocation =
-			new ProgramLocation(provider.getCurrentProgram(), function.getEntryPoint());
-		if (SystemUtilities.isEqual(provider.getCurrentLocation(), homeLocation)) {
-			// already at the right location, just make sure we are on the screen and selected
-			provider.displayLocation(homeLocation);
-		}
-		else {
-			provider.internalGoTo(homeLocation, provider.getCurrentProgram());
-		}
+		FgEnv env = controller.getEnv();
+		Program program = env.getProgram();
+		ProgramLocation homeLocation = new ProgramLocation(program, function.getEntryPoint());
+		controller.display(program, homeLocation);
 	}
 
 	private AddressSet getAddressesForVertices(Collection<FGVertex> vertices) {
@@ -1161,8 +1124,9 @@ class FGActionManager {
 
 	private void makeSelectionFromAddresses(AddressSet addresses) {
 		ProgramSelection selection = new ProgramSelection(addresses);
-		plugin.getTool().firePluginEvent(
-			new ProgramSelectionPluginEvent("Spoof!", selection, provider.getCurrentProgram()));
+		FgEnv env = controller.getEnv();
+		Program program = env.getProgram();
+		tool.firePluginEvent(new ProgramSelectionPluginEvent("Spoof!", selection, program));
 	}
 
 	private void ungroupVertices(Set<GroupedFunctionGraphVertex> groupVertices) {
@@ -1174,7 +1138,7 @@ class FGActionManager {
 
 		String vertexString = size == 1 ? "1 group vertex" : size + " group vertices";
 
-		int choice = OptionDialog.showYesNoDialog(provider.getComponent(), "Ungroup Vertices?",
+		int choice = OptionDialog.showYesNoDialog(getCenterOverComponent(), "Ungroup Vertices?",
 			"Ungroup " + vertexString + "?");
 		if (choice != OptionDialog.YES_OPTION) {
 			return;
@@ -1213,11 +1177,16 @@ class FGActionManager {
 		togglePopups.setSelected(visible);
 	}
 
-	void setCurrentActionState(ActionState<Class<? extends FGLayoutProvider>> state) {
+	void setCurrentActionState(ActionState<FGLayoutProvider> state) {
 		layoutAction.setCurrentActionState(state);
 	}
 
-	ActionState<Class<? extends FGLayoutProvider>> getCurrentLayoutState() {
+	void setLayouts(List<FGLayoutProvider> layouts) {
+		List<ActionState<FGLayoutProvider>> states = createActionStates(layouts);
+		layoutAction.setActionStates(states);
+	}
+
+	ActionState<FGLayoutProvider> getCurrentLayoutState() {
 		return layoutAction.getCurrentState();
 	}
 
@@ -1230,14 +1199,26 @@ class FGActionManager {
 			vertexFocusModeAction.getCurrentState().getUserData());
 		vertexFocusModeAction.setCurrentActionStateByUserData(selectedState);
 
-		String layoutClassName =
-			saveState.getString(LAYOUT_NAME, layoutAction.getCurrentUserData().getName());
-		setLayoutActionStateByClassName(layoutClassName);
+		FGLayoutProvider layoutProvider = layoutAction.getCurrentUserData();
+		SaveState layoutState = saveState.getSaveState(COMPLEX_LAYOUT_NAME);
+		if (layoutState != null) {
+			String layoutName = layoutState.getString(LAYOUT_NAME, layoutProvider.getLayoutName());
+			String layoutClassName =
+				layoutState.getString(LAYOUT_CLASS_NAME, layoutProvider.getClass().getName());
+			setLayoutActionStateByClassName(layoutClassName, layoutName);
+		}
 	}
 
 	void writeConfigState(SaveState saveState) {
 		saveState.putEnum(EDGE_HOVER_HIGHLIGHT, vertexHoverModeAction.getCurrentUserData());
 		saveState.putEnum(EDGE_SELECTION_HIGHLIGHT, vertexFocusModeAction.getCurrentUserData());
-		saveState.putString(LAYOUT_NAME, layoutAction.getCurrentUserData().getName());
+
+		FGLayoutProvider layoutProvider = layoutAction.getCurrentUserData();
+
+		SaveState layoutState = new SaveState(COMPLEX_LAYOUT_NAME);
+		String layoutName = layoutProvider.getLayoutName();
+		layoutState.putString(LAYOUT_NAME, layoutName);
+		layoutState.putString(LAYOUT_CLASS_NAME, layoutProvider.getClass().getName());
+		saveState.putSaveState(COMPLEX_LAYOUT_NAME, layoutState);
 	}
 }

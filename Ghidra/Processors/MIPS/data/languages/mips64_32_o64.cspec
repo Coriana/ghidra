@@ -25,9 +25,7 @@
   </data_organization>
   <stackpointer register="sp" space="ram"/>
   <funcptr align="2"/>
-  <spacebase name="gp" register="gp" space="ram"/>
   <global>
-    <range space="gp"/>
     <range space="ram"/>
     <range space="register" first="0x2000" last="0x2fff"/>
   </global>
@@ -97,4 +95,15 @@
       </unaffected>
     </prototype>
   </default_proto>
+  
+  <callotherfixup targetop="setISAMode">
+    <pcode incidentalcopy="true">
+      <input name="newMode"/>
+      <!-- NOP -->
+      <body><![CDATA[
+        v0 = v0;
+      ]]></body>
+    </pcode>
+  </callotherfixup>
+  
 </compiler_spec>

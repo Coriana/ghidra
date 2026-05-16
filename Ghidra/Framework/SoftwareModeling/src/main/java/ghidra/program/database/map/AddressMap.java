@@ -15,12 +15,9 @@
  */
 package ghidra.program.database.map;
 
-import java.io.IOException;
 import java.util.List;
 
 import ghidra.program.model.address.*;
-import ghidra.program.model.lang.Language;
-import ghidra.program.util.LanguageTranslator;
 
 /**
  * Address map interface add methods need by the program database implementation to manage its address map.
@@ -65,7 +62,7 @@ public interface AddressMap {
 	/**
 	 * Search for addr within the "sorted" keyRangeList and return the index of the
 	 * keyRange which contains the specified addr.
-	 * @param keyRangeList
+	 * @param keyRangeList key range list to search
 	 * @param addr address or null
 	 * @return index of the keyRange within the keyRangeList which contains addr 
 	 * if it is contained in the list; otherwise, <code>(-(<i>insertion point</i>) - 1)</code>. 
@@ -87,12 +84,19 @@ public interface AddressMap {
 	 * never be generated.  The returned key ranges will correspond 
 	 * to those key ranges which have previously been created within 
 	 * the specified address range and may represent a much smaller subset 
-	 * of addresses within the specified range.
-	 * @param start minimum address of range
+	 * of addresses within the specified range. 
+	 * NOTE: if the create parameter is true, the given range must not extend in the upper 32 bits 
+	 * by more than 1 segment. For example, range(0x0000000000000000 - 0x0000000100000000) 
+	 * is acceptable, but the range (0x0000000000000000 - 0x0000000200000000) is not because the
+	 * upper 32 bits differ by 2.
+	 * @param start the start address of the range
 	 * @param end maximum address of range
 	 * @param create true if a new keys may be generated, otherwise returned 
-	 * key-ranges will be limited to those already defined.
+	 * key-ranges will be limited to those already defined. And if true, the range will be limited
+	 * to a size of 2^32 so that at most it creates two new address bases
 	 * @return "sorted" list of KeyRange objects
+	 * @throws UnsupportedOperationException if the given range is so large that the upper 32 bit
+	 * segments differ by more than 1.
 	 */
 	public List<KeyRange> getKeyRanges(Address start, Address end, boolean create);
 
@@ -100,7 +104,7 @@ public interface AddressMap {
 	 * Generates a properly ordered list of database key ranges for a
 	 * a specified address set.  If absolute encodings are requested, 
 	 * only memory addresses will be included.
-	 * @param set address set or null for all real address.
+	 * @param set address set or null for all addresses.  May not be null if <code>create</code> is true.
 	 * @param create true if a new keys may be generated, otherwise returned 
 	 * key-ranges will be limited to those already defined.
 	 * @return "sorted" list of KeyRange objects
@@ -113,12 +117,14 @@ public interface AddressMap {
 	 * "absoluteEncoding" method.  If the program's default address space is segmented (i.e., SegmentedAddressSpace).
 	 * the address returned will be always be normalized to defined segmented memory blocks if possible.
 	 * @param value the long value to convert to an address.
+	 * @return address decoded from long 
 	 */
 	public Address decodeAddress(long value);
 
 	/**
 	 * Returns the address factory associated with this map.
 	 * Null may be returned if map not associated with a specific address factory.
+	 * @return associated {@link AddressFactory} or null
 	 */
 	public AddressFactory getAddressFactory();
 
@@ -134,13 +140,14 @@ public interface AddressMap {
 	 * key-ranges will be limited to those already defined.
 	 * @return "sorted" list of KeyRange objects
 	 */
-	public List<KeyRange> getKeyRanges(Address start, Address end, boolean absolute, boolean create);
+	public List<KeyRange> getKeyRanges(Address start, Address end, boolean absolute,
+			boolean create);
 
 	/**
 	 * Generates a properly ordered list of database key ranges for a
 	 * a specified address set.  If absolute encodings are requested, 
 	 * only memory addresses will be included.
-	 * @param set address set or null for all real address.
+	 * @param set address set or null for all addresses.  May not be null if <code>create</code> is true.
 	 * @param absolute if true, absolute key encodings are returned, otherwise 
 	 * standard/relocatable address key encodings are returned.
 	 * @param create true if a new keys may be generated, otherwise returned 
@@ -160,71 +167,8 @@ public interface AddressMap {
 	public boolean isUpgraded();
 
 	/**
-	 * Sets the image base, effectively changing the mapping between addresses and longs.
-	 * @param base the new base address.
-	 */
-	public void setImageBase(Address base);
-
-	/**
-	 * Returns a modification number that always increases when the address map base table has
-	 * changed.
-	 */
-	public int getModCount();
-
-	/**
 	 * Returns the current image base setting.
 	 */
 	public Address getImageBase();
 
-	/**
-	 * Converts the current base addresses to addresses compatible with the new language.
-	 * @param newLanguage the new language to use.
-	 * @param addrFactory the new AddressFactory.
-	 * @param translator translates address spaces from the old language to the new language.
-	 */
-	public void setLanguage(Language newLanguage, AddressFactory addrFactory,
-			LanguageTranslator translator) throws IOException;
-
-	/**
-	 * Clears any cached values.
-	 * @throws IOException
-	 */
-	public void invalidateCache() throws IOException;
-
-	/**
-	 * Rename an existing overlay space.
-	 * @param oldName old overlay name
-	 * @param newName new overlay name (must be unique among all space names within this map)
-	 * @throws IOException
-	 */
-	public void renameOverlaySpace(String oldName, String newName) throws IOException;
-
-	/**
-	 * Delete the specified overlay space from this address map.
-	 * @param name overlay space name (must be unique among all space names within this map)
-	 * @throws IOException
-	 */
-	public void deleteOverlaySpace(String name) throws IOException;
-
-	/**
-	 * Returns true if the two address keys share a common key base and can be 
-	 * used within a single key-range.
-	 * @param addrKey1
-	 * @param addrKey2
-	 */
-	public boolean hasSameKeyBase(long addrKey1, long addrKey2);
-
-	/**
-	 * Returns true if the specified addrKey is the minimum key within
-	 * its key-range.
-	 * @param addrKey
-	 */
-	public boolean isKeyRangeMin(long addrKey);
-
-	/**
-	 * Returns true if the specified addrKey is the maximum key within
-	 * its key-range.
-	 * @param addrKey
-	 */
-	public boolean isKeyRangeMax(long addrKey);
 }

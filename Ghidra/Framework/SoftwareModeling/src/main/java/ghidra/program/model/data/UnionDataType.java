@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,25 +15,32 @@
  */
 package ghidra.program.model.data;
 
-import java.util.ArrayList;
-import java.util.Iterator;
+import java.util.*;
+import java.util.function.Consumer;
 
 import ghidra.docking.settings.Settings;
+import ghidra.program.database.data.DataTypeUtilities;
 import ghidra.program.model.mem.MemBuffer;
-import ghidra.util.Msg;
 import ghidra.util.UniversalID;
 
 /**
- * Basic implementation of the union data type
+ * Basic implementation of the union data type.
+ * <p>
+ * NOTE: Implementation is not thread safe.
  */
-public class UnionDataType extends CompositeDataTypeImpl implements Union {
-	private ArrayList<DataTypeComponentImpl> components;
+public class UnionDataType extends CompositeDataTypeImpl implements UnionInternal {
+
 	private int unionLength;
+	private int unionAlignment;
+
+	private List<DataTypeComponentImpl> components;
 
 	/**
 	 * Construct a new empty union with the given name within the
 	 * specified categry path.  An empty union will report its length as 1 and 
 	 * {@link #isNotYetDefined()} will return true.
+	 * NOTE: A constructor form which accepts a {@link DataTypeManager} should be used when possible
+	 * since there may be performance benefits during datatype resolution.
 	 * @param path the category path indicating where this data type is located.
 	 * @param name the name of the new union
 	 */
@@ -79,7 +86,9 @@ public class UnionDataType extends CompositeDataTypeImpl implements Union {
 	}
 
 	/**
-	 * Construct a new UnionDataType
+	 * Construct a new UnionDataType.
+	 * NOTE: A constructor form which accepts a {@link DataTypeManager} should be used when possible
+	 * since there may be performance benefits during datatype resolution.
 	 * @param name the name of this dataType
 	 */
 	public UnionDataType(String name) {
@@ -92,11 +101,6 @@ public class UnionDataType extends CompositeDataTypeImpl implements Union {
 			return "<Empty-Union>";
 		}
 		return "";
-	}
-
-	@Override
-	public boolean isNotYetDefined() {
-		return components.size() == 0;
 	}
 
 	@Override
@@ -115,6 +119,11 @@ public class UnionDataType extends CompositeDataTypeImpl implements Union {
 	}
 
 	@Override
+	void forEachDefinedComponent(Consumer<DataTypeComponentImpl> dtcConsumer) {
+		components.forEach(dtcConsumer);
+	}
+
+	@Override
 	public int getNumComponents() {
 		return components.size();
 	}
@@ -127,14 +136,25 @@ public class UnionDataType extends CompositeDataTypeImpl implements Union {
 	@Override
 	public DataTypeComponent add(DataType dataType, int length, String componentName,
 			String comment) throws IllegalArgumentException {
-		DataTypeComponent dtc = doAdd(dataType, length, componentName, comment);
-		adjustLength(true);
-		return dtc;
+
+		try {
+			int oldAlignment = getAlignment();
+
+			DataTypeComponent dtc = doAdd(dataType, length, componentName, comment);
+
+			if (!repack(true) && isPackingEnabled() && oldAlignment != getAlignment()) {
+				notifyAlignmentChanged();
+			}
+			return dtc;
+		}
+		catch (DataTypeDependencyException e) {
+			throw new IllegalArgumentException(e.getMessage(), e);
+		}
 	}
 
 	private int getBitFieldAllocation(BitFieldDataType bitfieldDt) {
 
-		BitFieldPacking bitFieldPacking = getBitFieldPacking();
+		BitFieldPacking bitFieldPacking = getDataOrganization().getBitFieldPacking();
 		if (bitFieldPacking.useMSConvention()) {
 			return bitfieldDt.getBaseTypeSize();
 		}
@@ -144,28 +164,28 @@ public class UnionDataType extends CompositeDataTypeImpl implements Union {
 		}
 
 		int length = bitfieldDt.getBaseTypeSize();
-		int packValue = getPackingValue();
-		if (packValue != NOT_PACKING && length > packValue) {
+		if (packing > 0 && length > packing) {
 			length =
-				DataOrganizationImpl.getLeastCommonMultiple(bitfieldDt.getStorageSize(), packValue);
+				DataOrganizationImpl.getLeastCommonMultiple(bitfieldDt.getStorageSize(), packing);
 		}
 		return length;
 	}
 
-	DataTypeComponent doAdd(DataType dataType, int length, String componentName, String comment)
-			throws IllegalArgumentException {
+	DataTypeComponentImpl doAdd(DataType dataType, int length, String componentName,
+			String comment) throws DataTypeDependencyException {
 
-		validateDataType(dataType);
+		dataType = validateDataType(dataType);
 
 		dataType = adjustBitField(dataType);
 
 		dataType = dataType.clone(dataMgr);
-		checkAncestry(dataType);
+		DataTypeUtilities.checkAncestry(this, dataType);
 
 		length = getPreferredComponentLength(dataType, length);
 
-		DataTypeComponentImpl dtc = new DataTypeComponentImpl(dataType, this, length,
+		DataTypeComponentImpl dtc = createComponent(dataType, length,
 			components.size(), 0, componentName, comment);
+
 		dataType.addParent(this);
 		components.add(dtc);
 
@@ -175,23 +195,32 @@ public class UnionDataType extends CompositeDataTypeImpl implements Union {
 	@Override
 	public DataTypeComponent insert(int ordinal, DataType dataType, int length,
 			String componentName, String comment) throws IllegalArgumentException {
-		validateDataType(dataType);
+		try {
+			dataType = validateDataType(dataType);
 
-		dataType = adjustBitField(dataType);
+			int oldAlignment = getAlignment();
 
-		dataType = dataType.clone(dataMgr);
-		checkAncestry(dataType);
+			dataType = adjustBitField(dataType);
 
-		length = getPreferredComponentLength(dataType, length);
+			dataType = dataType.clone(dataMgr);
+			DataTypeUtilities.checkAncestry(this, dataType);
 
-		DataTypeComponentImpl dtc =
-			new DataTypeComponentImpl(dataType, this, length, ordinal, 0, componentName, comment);
-		dataType.addParent(this);
-		shiftOrdinals(ordinal, 1);
-		components.add(ordinal, dtc);
+			length = getPreferredComponentLength(dataType, length);
 
-		adjustLength(true);
-		return dtc;
+			DataTypeComponentImpl dtc = createComponent(dataType, length, ordinal,
+				0, componentName, comment);
+			dataType.addParent(this);
+			shiftOrdinals(ordinal, 1);
+			components.add(ordinal, dtc);
+
+			if (!repack(true) && isPackingEnabled() && oldAlignment != getAlignment()) {
+				notifyAlignmentChanged();
+			}
+			return dtc;
+		}
+		catch (DataTypeDependencyException e) {
+			throw new IllegalArgumentException(e.getMessage(), e);
+		}
 	}
 
 	@Override
@@ -203,10 +232,10 @@ public class UnionDataType extends CompositeDataTypeImpl implements Union {
 	@Override
 	public DataTypeComponent insertBitField(int ordinal, DataType baseDataType, int bitSize,
 			String componentName, String comment)
-			throws InvalidDataTypeException, ArrayIndexOutOfBoundsException {
+			throws InvalidDataTypeException, IndexOutOfBoundsException {
 
 		if (ordinal < 0 || ordinal > components.size()) {
-			throw new ArrayIndexOutOfBoundsException(ordinal);
+			throw new IndexOutOfBoundsException(ordinal);
 		}
 
 		BitFieldDataType.checkBaseDataType(baseDataType);
@@ -217,15 +246,26 @@ public class UnionDataType extends CompositeDataTypeImpl implements Union {
 	}
 
 	@Override
+	public boolean isZeroLength() {
+		return unionLength == 0;
+	}
+
+	@Override
 	public int getLength() {
 		if (unionLength == 0) {
-			return 1;
+			return 1; // positive length required
 		}
 		return unionLength;
 	}
 
 	@Override
-	public DataType clone(DataTypeManager dtm) {
+	public boolean hasLanguageDependantLength() {
+		// Assume any component may have a language-dependent length
+		return true;
+	}
+
+	@Override
+	public Union clone(DataTypeManager dtm) {
 		if (dataMgr == dtm) {
 			return this;
 		}
@@ -246,16 +286,60 @@ public class UnionDataType extends CompositeDataTypeImpl implements Union {
 
 	@Override
 	public void delete(int ordinal) {
+
+		int oldAlignment = getAlignment();
+
 		DataTypeComponent dtc = components.remove(ordinal);
 		dtc.getDataType().removeParent(this);
 		shiftOrdinals(ordinal, -1);
-		adjustLength(true);
+
+		if (!repack(true) && isPackingEnabled() && oldAlignment != getAlignment()) {
+			notifyAlignmentChanged();
+		}
 	}
 
 	@Override
-	public void delete(int[] ordinals) {
-		for (int ordinal : ordinals) {
-			delete(ordinal);
+	public void delete(Set<Integer> ordinals) {
+
+		if (ordinals.isEmpty()) {
+			return;
+		}
+
+		if (ordinals.size() == 1) {
+			ordinals.forEach(ordinal -> delete(ordinal));
+			return;
+		}
+
+		int oldAlignment = getAlignment();
+
+		List<DataTypeComponentImpl> newComponents = new ArrayList<>();
+		int newLength = 0;
+		int ordinalAdjustment = 0;
+		for (DataTypeComponentImpl dtc : components) {
+			int ordinal = dtc.getOrdinal();
+			if (ordinals.contains(ordinal)) {
+				// component removed
+				--ordinalAdjustment;
+				dtc.getDataType().removeParent(this);
+			}
+			else {
+				if (ordinalAdjustment != 0) {
+					dtc.setOrdinal(dtc.getOrdinal() + ordinalAdjustment);
+				}
+				newComponents.add(dtc);
+				newLength = Math.max(newLength, dtc.getLength());
+			}
+		}
+		components = newComponents;
+
+		if (isPackingEnabled()) {
+			if (!repack(true) && oldAlignment != getAlignment()) {
+				notifyAlignmentChanged();
+			}
+		}
+		else if (unionLength != newLength) {
+			unionLength = newLength;
+			notifySizeChanged();
 		}
 	}
 
@@ -270,8 +354,8 @@ public class UnionDataType extends CompositeDataTypeImpl implements Union {
 		DataType baseDataType = bitfieldDt.getBaseDataType();
 		baseDataType = baseDataType.clone(dataMgr);
 
-		// Both aligned and unaligned bitfields use same adjustment
-		// unaligned must force bitfield placement at byte offset 0 
+		// Both aligned and non-packed bitfields use same adjustment
+		// non-packed must force bitfield placement at byte offset 0 
 		int bitSize = bitfieldDt.getDeclaredBitSize();
 		int effectiveBitSize =
 			BitFieldDataType.getEffectiveBitSize(bitSize, baseDataType.getLength());
@@ -303,22 +387,55 @@ public class UnionDataType extends CompositeDataTypeImpl implements Union {
 		return bitfieldDt;
 	}
 
-	private void adjustLength(boolean notify) {
+	@Override
+	public int getAlignment() {
+		if (unionAlignment > 0) {
+			return unionAlignment;
+		}
+		if (isPackingEnabled()) {
+			unionAlignment = CompositeAlignmentHelper.getAlignment(getDataOrganization(), this);
+		}
+		else {
+			unionAlignment = getNonPackedAlignment();
+		}
+		return unionAlignment;
+	}
+
+	@Override
+	public boolean repack(boolean notify) {
+
 		int oldLength = unionLength;
+		int oldAlignment = getAlignment();
+
 		unionLength = 0;
 		for (DataTypeComponent dtc : components) {
-
+			// TODO: compute alignment in this loop
 			int length = dtc.getLength();
-			if (isInternallyAligned() && dtc.isBitFieldComponent()) {
+			if (isPackingEnabled() && dtc.isBitFieldComponent()) {
 				// revise length to reflect compiler bitfield allocation rules
 				length = getBitFieldAllocation((BitFieldDataType) dtc.getDataType());
 			}
-
 			unionLength = Math.max(length, unionLength);
 		}
-		if (notify && oldLength != unionLength) {
-			notifySizeChanged();
+
+		unionAlignment = -1; // force recompute of unionAlignment
+		getAlignment();
+
+		if (isPackingEnabled()) {
+			unionLength = DataOrganizationImpl.getAlignedOffset(unionAlignment, unionLength);
 		}
+
+		boolean changed = (oldLength != unionLength) || (oldAlignment != unionAlignment);
+
+		if (changed && notify) {
+			if (oldLength != unionLength) {
+				notifySizeChanged();
+			}
+			else if (oldAlignment != unionAlignment) {
+				notifyAlignmentChanged();
+			}
+		}
+		return changed;
 	}
 
 	@Override
@@ -330,13 +447,10 @@ public class UnionDataType extends CompositeDataTypeImpl implements Union {
 			return false;
 		}
 
-		if (dt instanceof Union) {
-			Union union = (Union) dt;
-			if (isInternallyAligned() != union.isInternallyAligned() ||
-				isDefaultAligned() != union.isDefaultAligned() ||
-				isMachineAligned() != union.isMachineAligned() ||
-				getMinimumAlignment() != union.getMinimumAlignment() ||
-				getPackingValue() != union.getPackingValue()) {
+		if (dt instanceof UnionInternal) {
+			UnionInternal union = (UnionInternal) dt;
+			if (packing != union.getStoredPackingValue() ||
+				minimumAlignment != union.getStoredMinimumAlignment()) {
 				// rely on component match instead of checking length 
 				// since dynamic component sizes could affect length
 				return false;
@@ -365,168 +479,141 @@ public class UnionDataType extends CompositeDataTypeImpl implements Union {
 
 	@Override
 	public void dataTypeAlignmentChanged(DataType dt) {
-		if (isInternallyAligned()) {
-			adjustInternalAlignment();
+		if (!isPackingEnabled()) {
+			return;
+		}
+		if (dt instanceof BitFieldDataType) {
+			return; // unsupported
+		}
+		boolean hasPossibleChange = false;
+		for (DataTypeComponentImpl dtc : components) {
+			if (dtc.getDataType() == dt) {
+				hasPossibleChange = true;
+				break;
+			}
+		}
+		if (hasPossibleChange && !repack(true) && isPackingEnabled()) {
+			// NOTE: Must assume alignment change since we are unable to determine
+			// without stored alignment
+			notifyAlignmentChanged();
 		}
 	}
 
 	@Override
 	public void dataTypeSizeChanged(DataType dt) {
+		if (dt instanceof BitFieldDataType) {
+			return; // unsupported
+		}
 		boolean changed = false;
 		for (DataTypeComponentImpl dtc : components) {
-			int length = dtc.getLength();
 			if (dtc.getDataType() == dt) {
-				length = getPreferredComponentLength(dt, length);
-				dtc.setLength(length);
-				changed = true;
+				int length = getPreferredComponentLength(dt, dtc.getLength());
+				if (length != dtc.getLength()) {
+					dtc.setLength(length);
+					changed = true;
+				}
 			}
 		}
-		if (changed) {
-			adjustLength(true);
+		if (changed && !repack(true) && isPackingEnabled()) {
+			// NOTE: Must assume alignment change since we are unable to determine
+			// without stored alignment
+			notifyAlignmentChanged();
 		}
 	}
 
 	@Override
 	public void dataTypeReplaced(DataType oldDt, DataType newDt) throws IllegalArgumentException {
+		DataTypeUtilities.checkValidReplacement(oldDt, newDt);
 		DataType replacementDt = newDt;
 		try {
-			validateDataType(replacementDt);
-			if (replacementDt.getDataTypeManager() != dataMgr) {
-				replacementDt = replacementDt.clone(dataMgr);
-			}
-			checkAncestry(replacementDt);
+			replacementDt = validateDataType(replacementDt); // blocks DEFAULT use
+			replacementDt = replacementDt.clone(dataMgr);
+			DataTypeUtilities.checkAncestry(this, replacementDt);
 		}
 		catch (Exception e) {
-			// TODO: should we use Undefined instead since we do not support
-			// DEFAULT in Unions
-			replacementDt = DataType.DEFAULT;
+			replacementDt = Undefined1DataType.dataType;
 		}
 		boolean changed = false;
 		for (int i = components.size() - 1; i >= 0; i--) {
-
 			DataTypeComponentImpl dtc = components.get(i);
-
-			boolean remove = false;
 			if (dtc.isBitFieldComponent()) {
-				try {
-					changed |= updateBitFieldDataType(dtc, oldDt, replacementDt);
-				}
-				catch (InvalidDataTypeException e) {
-					Msg.error(this,
-						"Invalid bitfield replacement type " + newDt.getName() +
-							", removing bitfield " + dtc.getDataType().getName() + ": " +
-							getPathName());
-					remove = true;
-				}
+				changed |= updateBitFieldDataType(dtc, oldDt, replacementDt);
 			}
 			else if (dtc.getDataType() == oldDt) {
-				if (replacementDt == DEFAULT) {
-					Msg.error(this,
-						"Invalid replacement type " + newDt.getName() + ", removing component " +
-							dtc.getDataType().getName() + ": " + getPathName());
-					remove = true;
-				}
-				else {
-					oldDt.removeParent(this);
-					dtc.setDataType(replacementDt);
-					replacementDt.addParent(this);
-					int len = replacementDt.getLength();
-					if (len > 0) {
-						dtc.setLength(len);
-					}
-					changed = true;
-				}
-			}
-			if (remove) {
-				// error case - remove component
+				int len = getPreferredComponentLength(newDt, dtc.getLength());
 				oldDt.removeParent(this);
-				components.remove(i);
-				shiftOrdinals(i, -1);
+				dtc.setLength(len);
+				dtc.setDataType(replacementDt);
+				dtc.invalidateSettings();
+				replacementDt.addParent(this);
 				changed = true;
 			}
 		}
 		if (changed) {
-			adjustLength(true);
+			repack(false);
+			notifySizeChanged(); // also handles alignment change
 		}
 	}
 
 	@Override
 	public void dataTypeDeleted(DataType dt) {
-		boolean didDelete = false;
+		boolean changed = false;
 		for (int i = components.size() - 1; i >= 0; i--) { // reverse order
 			DataTypeComponentImpl dtc = components.get(i);
-			boolean removeBitFieldComponent = false;
 			if (dtc.isBitFieldComponent()) {
+				// Do not allow bitfield to be destroyed
+				// If base type is removed - revert to primitive type
 				BitFieldDataType bitfieldDt = (BitFieldDataType) dtc.getDataType();
-				removeBitFieldComponent = bitfieldDt.getBaseDataType() == dt;
+				if (bitfieldDt.getBaseDataType() == dt &&
+					updateBitFieldDataType(dtc, dt, bitfieldDt.getPrimitiveBaseDataType())) {
+					changed = true;
+				}
 			}
-			if (removeBitFieldComponent || dtc.getDataType() == dt) {
+			else if (dtc.getDataType() == dt) {
 				dt.removeParent(this);
-				components.remove(i);
-				shiftOrdinals(i, -1);
-				didDelete = true;
+				dtc.setDataType(BadDataType.dataType); // updates record
+				changed = true;
 			}
 		}
-		if (didDelete) {
-			adjustLength(true);
+		if (changed && isPackingEnabled() && !repack(true)) {
+			// NOTE: Must assume alignment change since we are unable to determine
+			// without stored alignment
+			notifyAlignmentChanged();
 		}
 	}
 
 	@Override
 	public void replaceWith(DataType dataType) throws IllegalArgumentException {
-		if (!(dataType instanceof Union)) {
+		if (!(dataType instanceof UnionInternal union)) {
 			throw new IllegalArgumentException();
 		}
+		try {
+			for (DataTypeComponent dtc : components) {
+				dtc.getDataType().removeParent(this);
+			}
+			components.clear();
+			unionAlignment = -1;
 
-		Union union = (Union) dataType;
+			this.packing = union.getStoredPackingValue();
+			this.minimumAlignment = union.getStoredMinimumAlignment();
 
-		Iterator<DataTypeComponentImpl> it = components.iterator();
-		while (it.hasNext()) {
-			DataTypeComponent dtc = it.next();
-			dtc.getDataType().removeParent(this);
+			DataTypeComponent[] compArray = union.getComponents();
+			for (DataTypeComponent dtc : compArray) {
+				DataType dt = dtc.getDataType();
+				doAdd(dt, dtc.getLength(), dtc.getFieldName(), dtc.getComment());
+			}
+
+			repack(false);
+			notifySizeChanged(); // simplified assumption to force parents to update
 		}
-		components.clear();
-
-		setAlignment(union);
-
-		DataTypeComponent[] compArray = union.getComponents();
-		for (DataTypeComponent dtc : compArray) {
-			DataType dt = dtc.getDataType();
-			doAdd(dt, dtc.getLength(), dtc.getFieldName(), dtc.getComment());
+		catch (DataTypeDependencyException e) {
+			throw new IllegalArgumentException(e.getMessage(), e);
 		}
-
-		adjustLength(true);
-	}
-
-	@Override
-	public void dataTypeNameChanged(DataType dt, String oldName) {
-		// ignored
-	}
-
-	@Override
-	public boolean dependsOn(DataType dt) {
-		if (getNumComponents() == 1) {
-			DataTypeComponent dtc = getComponent(0);
-			return dtc.getDataType().dependsOn(dt);
-		}
-		return false;
 	}
 
 	@Override
 	public String getDefaultLabelPrefix() {
 		return "UNION_" + getName();
-	}
-
-	@Override
-	public void realign() {
-		if (isInternallyAligned()) {
-			adjustInternalAlignment();
-		}
-	}
-
-	@Override
-	public void adjustInternalAlignment() {
-		adjustLength(true);
 	}
 
 }

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,6 +21,8 @@ import java.util.List;
 
 import javax.swing.*;
 
+import org.apache.commons.lang3.StringUtils;
+
 import docking.DialogComponentProvider;
 import docking.DockingWindowManager;
 import docking.widgets.combobox.GComboBox;
@@ -28,7 +30,6 @@ import docking.widgets.label.GDLabel;
 import generic.util.WindowUtilities;
 import ghidra.framework.preferences.Preferences;
 import ghidra.util.NumericUtilities;
-import ghidra.util.SystemUtilities;
 
 public class AskDialog<T> extends DialogComponentProvider {
 	public final static int STRING = 0;
@@ -97,12 +98,13 @@ public class AskDialog<T> extends DialogComponentProvider {
 			panel.add(comboField, BorderLayout.CENTER);
 		}
 
+		setTransient(true);
 		addWorkPanel(panel);
 		addOKButton();
 		addCancelButton();
 		setDefaultButton(okButton);
 		setRememberSize(false);
-		SystemUtilities.runSwingNow(() -> DockingWindowManager.showDialog(parent, AskDialog.this));
+		DockingWindowManager.showDialog(parent, AskDialog.this);
 	}
 
 	private void saveCurrentDimensions() {
@@ -246,21 +248,12 @@ public class AskDialog<T> extends DialogComponentProvider {
 
 	protected Integer getValueAsInt() {
 		String text = getValueAsString();
-		if (text == null) {
-			return null;
-		}
-		if (text.startsWith("0x")) {
-			return (int) NumericUtilities.parseHexLong(text);
-		}
-		return (int) NumericUtilities.parseLong(text);
+		return !StringUtils.isBlank(text) ? NumericUtilities.parseInt(text) : null;
 	}
 
 	protected Long getValueAsLong() {
 		String text = getValueAsString();
-		if (text == null) {
-			return null;
-		}
-		return NumericUtilities.parseLong(text);
+		return !StringUtils.isBlank(text) ? NumericUtilities.parseLong(text) : null;
 	}
 
 	protected Double getValueAsDouble() {
@@ -274,7 +267,7 @@ public class AskDialog<T> extends DialogComponentProvider {
 		if (text.equalsIgnoreCase("e")) {
 			return Math.E;
 		}
-		return new Double(text);
+		return Double.valueOf(text);
 	}
 
 }

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,23 +15,24 @@
  */
 package ghidra.program.database.code;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
-import db.Record;
+import db.DBRecord;
 import ghidra.docking.settings.Settings;
 import ghidra.docking.settings.SettingsDefinition;
-import ghidra.program.database.DBObjectCache;
-import ghidra.program.database.data.DataTypeManagerDB;
+import ghidra.program.database.DbCache;
+import ghidra.program.database.DbFactory;
+import ghidra.program.database.data.ProgramDataTypeManager;
 import ghidra.program.database.map.AddressMap;
 import ghidra.program.model.address.*;
 import ghidra.program.model.data.*;
+import ghidra.program.model.listing.CommentType;
 import ghidra.program.model.listing.Data;
 import ghidra.program.model.mem.Memory;
 import ghidra.program.model.mem.MemoryBlock;
 import ghidra.program.model.scalar.Scalar;
 import ghidra.program.model.symbol.*;
-import ghidra.program.util.ChangeManager;
+import ghidra.util.Lock.Closeable;
 import ghidra.util.Msg;
 
 /**
@@ -49,19 +50,30 @@ class DataDB extends CodeUnitDB implements Data {
 	protected DataType baseDataType;
 
 	protected int level = 0;
-	protected DataTypeManagerDB dataMgr;
-	protected Settings defaultSettings;
+
+	protected ProgramDataTypeManager dataMgr;
 
 	private Boolean hasMutabilitySetting;
 
 	private static final int[] EMPTY_PATH = new int[0];
 
-	private DBObjectCache<DataDB> componentCache = null;// data components are keyed on index in parent (i.e., ordinal)
+	// data components are keyed on index in parent (i.e., ordinal)
+	private DbCache<DataComponent> componentCache = null;
 
-	DataDB(CodeManager codeMgr, DBObjectCache<? extends CodeUnitDB> codeUnitCache, long cacheKey,
-			Address address, long addr, DataType dataType) {
+	/**
+	 * Constructs a new DataDB object
+	 * @param codeManager the code manager
+	 * @param cacheKey the cache key (normally this is the encoded address, but for data components
+	 * the objects are cached based on their ordinal (and the cache is a special cache inside the
+	 * data object and not the normal code manager cache)
+	 * @param address the address for the data
+	 * @param addr the encoded address for the data
+	 * @param dataType the datatype for the data
+	 */
+	protected DataDB(CodeManager codeManager, long cacheKey, Address address, long addr,
+			DataType dataType) {
 
-		super(codeMgr, codeUnitCache, cacheKey, address, addr,
+		super(codeManager, cacheKey, address, addr,
 			dataType == null ? 1 : dataType.getLength());
 		if (dataType == null) {
 			dataType = DataType.DEFAULT;
@@ -71,11 +83,7 @@ class DataDB extends CodeUnitDB implements Data {
 
 		baseDataType = getBaseDataType(dataType);
 
-		defaultSettings = dataType.getDefaultSettings();
-		computeLength();
-		if (length < 0) {
-			Msg.error(this, " bad bad");
-		}
+		length = -1; // lazy compute
 	}
 
 	protected static DataType getBaseDataType(DataType dataType) {
@@ -87,7 +95,7 @@ class DataDB extends CodeUnitDB implements Data {
 	}
 
 	@Override
-	protected boolean refresh(Record record) {
+	protected boolean refresh(DBRecord record) {
 		if (componentCache != null) {
 			componentCache.invalidate();
 		}
@@ -96,13 +104,15 @@ class DataDB extends CodeUnitDB implements Data {
 	}
 
 	@Override
-	protected boolean hasBeenDeleted(Record rec) {
+	protected boolean hasBeenDeleted(DBRecord rec) {
 		if (dataType == DataType.DEFAULT) {
 			return rec != null || !codeMgr.isUndefined(address, addr);
 		}
 		DataType dt;
 		if (rec != null) {
 			// ensure that record provided corresponds to a DataDB record
+			// since following an undo/redo the record could correspond to
+			// a different type of code unit (hopefully with a different record schema)
 			if (!rec.hasSameSchema(DataDBAdapter.DATA_SCHEMA)) {
 				return true;
 			}
@@ -110,6 +120,18 @@ class DataDB extends CodeUnitDB implements Data {
 			if (dt == null) {
 				Msg.error(this, "Data found but datatype missing at " + address);
 			}
+		}
+		else if (address.isExternalAddress()) {
+			Symbol externalSymbol = program.getSymbolTable().getPrimarySymbol(address);
+			if (externalSymbol == null || externalSymbol.getSymbolType() != SymbolType.LABEL) {
+				return true;
+			}
+
+			ExternalLocation externalLocation =
+				program.getExternalManager().getExternalLocation(externalSymbol);
+
+			dt = externalLocation.getDataType();
+			dt = dt == null ? DataType.DEFAULT : dt;
 		}
 		else {
 			dt = codeMgr.getDataType(addr);
@@ -119,23 +141,38 @@ class DataDB extends CodeUnitDB implements Data {
 		}
 		dataType = dt;
 		baseDataType = getBaseDataType(dataType);
-		defaultSettings = dataType.getDefaultSettings();
-		computeLength();
+		length = -1; // set to compute lazily later
+		bytes = null;
 		return false;
 	}
 
+	@Override
+	public int getLength() {
+		if (length == -1) {
+			computeLength();
+		}
+		return length;
+	}
+
 	private void computeLength() {
+		// NOTE: Data intentionally does not use aligned-length
 		length = dataType.getLength();
+
+		// undefined will never change their size
+		if (dataType instanceof Undefined) {
+			return;
+		}
+
 		if (length < 1) {
 			length = codeMgr.getLength(address);
 		}
-		if (length < 1) {
-			if (baseDataType instanceof Pointer) {
-				length = address.getPointerSize();
-			}
-			else {
-				length = 1;
-			}
+		if (length <= 0) {
+			length = 1;
+		}
+
+		// no need to do all that follow on checking when length == 1
+		if (length == 1) {
+			return;
 		}
 
 		// FIXME Trying to get Data to display for External.
@@ -164,92 +201,56 @@ class DataDB extends CodeUnitDB implements Data {
 			}
 		}
 
+		// if this is not a component where the size could change and
+		// the length restricted by the following instruction/data item, assume
+		// the createData method stopped fixed code units that won't fit from being added
+		//
+		// TODO: If the data organization for a program changes, for example a long was 32-bits
+		//       and is changed to 64-bits, that could cause an issue.
+		//       If the data organization changing could be detected, this could be done.
+		//
+		// if (!(baseDataType instanceof Composite || baseDataType instanceof ArrayDataType)) {
+		//	return;
+		// }
+
+		// This is potentially expensive! So only do if necessary
+		// see if the datatype length is restricted by a following codeunit
 		Address nextAddr = codeMgr.getDefinedAddressAfter(address);
 		if ((nextAddr != null) && nextAddr.compareTo(endAddress) <= 0) {
 			length = (int) nextAddr.subtract(address);
 		}
-		bytes = null;
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#addValueReference(ghidra.program.model.address.Address, ghidra.program.model.symbol.RefType)
-	 */
 	@Override
 	public void addValueReference(Address refAddr, RefType type) {
-		refreshIfNeeded();
+		validate(lock);
 		refMgr.addMemoryReference(address, refAddr, type, SourceType.USER_DEFINED,
 			CodeManager.DATA_OP_INDEX);
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#removeValueReference(ghidra.program.model.address.Address)
-	 */
 	@Override
 	public void removeValueReference(Address refAddr) {
 		removeOperandReference(CodeManager.DATA_OP_INDEX, refAddr);
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#getComponent(int)
-	 */
-	@Override
-	public Data getComponent(int index) {
-		lock.acquire();
-		try {
-
-			checkIsValid();
-
-			if (index < 0 || index >= getNumComponents()) {
-				return null;
-			}
-
-			if (componentCache == null) {
-				componentCache = new DBObjectCache<>(1);
-			}
-			else {
-				Data data = componentCache.get(index);
-				if (data != null) {
-					return data;
-				}
-			}
-
-			AddressMap addressMap = codeMgr.getAddressMap();
-
-			if (baseDataType instanceof Array) {
-				Array array = (Array) baseDataType;
-				int elementLength = array.getElementLength();
-				Address componentAddr = address.add(index * elementLength);
-				return new DataComponent(codeMgr, componentCache, componentAddr,
-					addressMap.getKey(componentAddr, false), this, array.getDataType(), index,
-					index * elementLength, elementLength);
-			}
-			if (baseDataType instanceof Composite) {
-				Composite struct = (Composite) baseDataType;
-				DataTypeComponent dtc = struct.getComponent(index);
-				Address componentAddr = address.add(dtc.getOffset());
-				return new DataComponent(codeMgr, componentCache, componentAddr,
-					addressMap.getKey(componentAddr, false), this, dtc);
-
-			}
-			if (baseDataType instanceof DynamicDataType) {
-				DynamicDataType ddt = (DynamicDataType) baseDataType;
-				DataTypeComponent dtc = ddt.getComponent(index, this);
-				Address componentAddr = address.add(dtc.getOffset());
-				return new DataComponent(codeMgr, componentCache, componentAddr,
-					addressMap.getKey(componentAddr, false), this, dtc);
-			}
-			Msg.error(this,
-				"Unsupported composite data type class: " + baseDataType.getClass().getName());
-			return null;
-		}
-		finally {
-			lock.release();
+	private void createCacheIfNeeded() {
+		if (componentCache == null) {
+			componentCache =
+				new DbCache<DataComponent>(new ComponentFactory(), lock, 1);
 		}
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.CodeUnit#getAddress(int)
-	 */
+	@Override
+	public Data getComponent(int index) {
+		try (Closeable c = lock.read()) {
+			if (index < 0 || index >= getNumComponents()) {
+				return null;
+			}
+			createCacheIfNeeded();
+			return componentCache.getCachedInstance((long) index);
+		}
+	}
+
 	@Override
 	public Address getAddress(int opIndex) {
 		if (opIndex == 0) {
@@ -261,10 +262,6 @@ class DataDB extends CodeUnitDB implements Data {
 		return null;
 	}
 
-	/**
-	 * Provide default formatted string representation of this instruction.
-	 * @see java.lang.Object#toString()
-	 */
 	@Override
 	public String toString() {
 		String valueRepresentation = getDefaultValueRepresentation();
@@ -275,47 +272,27 @@ class DataDB extends CodeUnitDB implements Data {
 		return mnemonicString + " " + valueRepresentation;
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#getDefaultValueRepresentation()
-	 */
 	@Override
 	public String getDefaultValueRepresentation() {
-		lock.acquire();
-		try {
-			checkIsValid();
-			return dataType.getRepresentation(this, this, length);
-		}
-		finally {
-			lock.release();
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
+			return dataType.getRepresentation(this, this, getLength());
 		}
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.CodeUnit#getMnemonicString()
-	 */
 	@Override
 	public String getMnemonicString() {
-		lock.acquire();
-		try {
-			checkIsValid();
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
 			return dataType.getMnemonic(this);
-		}
-		finally {
-			lock.release();
 		}
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.CodeUnit#getNumOperands()
-	 */
 	@Override
 	public int getNumOperands() {
 		return 1;
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.CodeUnit#getScalar(int)
-	 */
 	@Override
 	public Scalar getScalar(int opIndex) {
 		if (opIndex == 0) {
@@ -332,9 +309,6 @@ class DataDB extends CodeUnitDB implements Data {
 		return null;
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#getBaseDataType()
-	 */
 	@Override
 	public DataType getBaseDataType() {
 		return baseDataType;
@@ -342,8 +316,7 @@ class DataDB extends CodeUnitDB implements Data {
 
 	private <T extends SettingsDefinition> T getSettingsDefinition(
 			Class<T> settingsDefinitionClass) {
-		DataType dt = baseDataType;
-		for (SettingsDefinition def : dt.getSettingsDefinitions()) {
+		for (SettingsDefinition def : dataType.getSettingsDefinitions()) {
 			if (settingsDefinitionClass.isAssignableFrom(def.getClass())) {
 				return settingsDefinitionClass.cast(def);
 			}
@@ -356,9 +329,8 @@ class DataDB extends CodeUnitDB implements Data {
 		if (hasSetting != null && !hasSetting) {
 			return mutabilityType == MutabilitySettingsDefinition.NORMAL;
 		}
-		lock.acquire();
-		try {
-			checkIsValid();
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
 			MutabilitySettingsDefinition def =
 				getSettingsDefinition(MutabilitySettingsDefinition.class);
 			if (def != null) {
@@ -366,176 +338,105 @@ class DataDB extends CodeUnitDB implements Data {
 				return def.getChoice(this) == mutabilityType;
 			}
 			hasMutabilitySetting = false;
+			return false;
 		}
-		finally {
-			lock.release();
-		}
-		return false;
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#isConstant()
-	 */
 	@Override
 	public boolean isConstant() {
 		return hasMutability(MutabilitySettingsDefinition.CONSTANT);
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#isVolatile()
-	 */
+	@Override
+	public boolean isWritable() {
+		return hasMutability(MutabilitySettingsDefinition.WRITABLE);
+	}
+
 	@Override
 	public boolean isVolatile() {
 		return hasMutability(MutabilitySettingsDefinition.VOLATILE);
 	}
 
-	/**
-	 * @see ghidra.docking.settings.Settings#clear(java.lang.String)
-	 */
+	@Override
+	public boolean isChangeAllowed(SettingsDefinition settingsDefinition) {
+		validate(lock);
+		return dataMgr.isChangeAllowed(this, settingsDefinition);
+	}
+
 	@Override
 	public void clearSetting(String name) {
-		refreshIfNeeded();
-		Address cuAddr = getDataSettingsAddress();
-		if (dataMgr.clearSetting(cuAddr, name)) {
-			changeMgr.setChanged(ChangeManager.DOCR_DATA_TYPE_SETTING_CHANGED, cuAddr, cuAddr, null,
-				null);
-		}
+		validate(lock);
+		dataMgr.clearSetting(this, name);
 	}
 
-	/**
-	 * @see ghidra.docking.settings.Settings#getByteArray(java.lang.String)
-	 */
-	@Override
-	public byte[] getByteArray(String name) {
-		refreshIfNeeded();
-		byte[] tempBytes = dataMgr.getByteSettingsValue(getDataSettingsAddress(), name);
-		if (tempBytes == null && defaultSettings != null) {
-			tempBytes = defaultSettings.getByteArray(name);
-		}
-		return tempBytes;
-	}
-
-	/**
-	 * @see ghidra.docking.settings.Settings#getLong(java.lang.String)
-	 */
 	@Override
 	public Long getLong(String name) {
-		refreshIfNeeded();
-		Long value = dataMgr.getLongSettingsValue(getDataSettingsAddress(), name);
-		if (value == null && defaultSettings != null) {
-			value = defaultSettings.getLong(name);
+		validate(lock);
+		Long value = dataMgr.getLongSettingsValue(this, name);
+		if (value == null) {
+			value = getDefaultSettings().getLong(name);
 		}
 		return value;
 	}
 
-	/**
-	 * @see ghidra.docking.settings.Settings#getNames()
-	 */
 	@Override
 	public String[] getNames() {
-		refreshIfNeeded();
-		return dataMgr.getNames(getDataSettingsAddress());
+		validate(lock);
+		return dataMgr.getInstanceSettingsNames(this);
 	}
 
-	/**
-	 * @see ghidra.docking.settings.Settings#getString(java.lang.String)
-	 */
 	@Override
 	public String getString(String name) {
-		refreshIfNeeded();
-		String value = dataMgr.getStringSettingsValue(getDataSettingsAddress(), name);
-		if (value == null && defaultSettings != null) {
-			value = defaultSettings.getString(name);
+		validate(lock);
+		String value = dataMgr.getStringSettingsValue(this, name);
+		if (value == null) {
+			value = getDefaultSettings().getString(name);
 		}
 		return value;
 	}
 
-	/**
-	 * @see ghidra.docking.settings.Settings#getValue(java.lang.String)
-	 */
 	@Override
 	public Object getValue(String name) {
-		refreshIfNeeded();
-		Object value = dataMgr.getSettings(getDataSettingsAddress(), name);
-		if (value == null && defaultSettings != null) {
-			value = defaultSettings.getValue(name);
+		validate(lock);
+		Object value = dataMgr.getSettings(this, name);
+		if (value == null) {
+			value = getDefaultSettings().getValue(name);
 		}
 		return value;
 	}
 
-	/**
-	 * @see ghidra.docking.settings.Settings#setByteArray(java.lang.String, byte[])
-	 */
-	@Override
-	public void setByteArray(String name, byte[] value) {
-		refreshIfNeeded();
-		Address cuAddr = getDataSettingsAddress();
-		if (dataMgr.setByteSettingsValue(cuAddr, name, value)) {
-			changeMgr.setChanged(ChangeManager.DOCR_DATA_TYPE_SETTING_CHANGED, cuAddr, cuAddr, null,
-				null);
-		}
-	}
-
-	/**
-	 * @see ghidra.docking.settings.Settings#setLong(java.lang.String, long)
-	 */
 	@Override
 	public void setLong(String name, long value) {
-		refreshIfNeeded();
-		Address cuAddr = getDataSettingsAddress();
-		if (dataMgr.setLongSettingsValue(cuAddr, name, value)) {
-			changeMgr.setChanged(ChangeManager.DOCR_DATA_TYPE_SETTING_CHANGED, cuAddr, cuAddr, null,
-				null);
-		}
+		validate(lock);
+		dataMgr.setLongSettingsValue(this, name, value);
 	}
 
-	/**
-	 * @see ghidra.docking.settings.Settings#setString(java.lang.String, java.lang.String)
-	 */
 	@Override
 	public void setString(String name, String value) {
-		refreshIfNeeded();
-		Address cuAddr = getDataSettingsAddress();
-		if (dataMgr.setStringSettingsValue(cuAddr, name, value)) {
-			changeMgr.setChanged(ChangeManager.DOCR_DATA_TYPE_SETTING_CHANGED, cuAddr, cuAddr, null,
-				null);
-		}
+		validate(lock);
+		dataMgr.setStringSettingsValue(this, name, value);
 	}
 
-	/**
-	 * @see ghidra.docking.settings.Settings#setValue(java.lang.String, java.lang.Object)
-	 */
 	@Override
 	public void setValue(String name, Object value) {
-		refreshIfNeeded();
-		Address cuAddr = getDataSettingsAddress();
-		if (dataMgr.setSettings(cuAddr, name, value)) {
-			changeMgr.setChanged(ChangeManager.DOCR_DATA_TYPE_SETTING_CHANGED, cuAddr, cuAddr, null,
-				null);
-		}
+		validate(lock);
+		dataMgr.setSettings(this, name, value);
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#getComponent(int[])
-	 */
 	@Override
 	public Data getComponent(int[] componentPath) {
-		lock.acquire();
-		try {
+		try (Closeable c = lock.read()) {
 			if (componentPath == null || componentPath.length <= level) {
 				return this;
 			}
 			Data component = getComponent(componentPath[level]);
 			return (component == null ? null : component.getComponent(componentPath));
 		}
-		finally {
-			lock.release();
-		}
 	}
 
 	@Override
-	public String getComment(int commentType) {
-		Data child = getComponentAt(0);
+	public String getComment(CommentType commentType) {
+		Data child = getComponentContaining(0);
 		if (child != null) {
 			// avoid caching issue by maintaining comment at lowest point in data path
 			return child.getComment(commentType);
@@ -544,8 +445,8 @@ class DataDB extends CodeUnitDB implements Data {
 	}
 
 	@Override
-	public void setComment(int commentType, String comment) {
-		Data child = getComponentAt(0);
+	public void setComment(CommentType commentType, String comment) {
+		Data child = getComponentContaining(0);
 		if (child != null) {
 			// avoid caching issue by maintaining comment at lowest point in data path
 			child.setComment(commentType, comment);
@@ -557,10 +458,14 @@ class DataDB extends CodeUnitDB implements Data {
 
 	@Override
 	public Data getComponentAt(int offset) {
-		lock.acquire();
-		try {
-			checkIsValid();
-			if (offset < 0 || offset >= length) {
+		return getComponentContaining(offset);
+	}
+
+	@Override
+	public Data getComponentContaining(int offset) {
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
+			if (offset < 0 || offset > getLength()) {
 				return null;
 			}
 
@@ -572,7 +477,7 @@ class DataDB extends CodeUnitDB implements Data {
 			}
 			else if (baseDataType instanceof Structure) {
 				Structure struct = (Structure) baseDataType;
-				DataTypeComponent dtc = struct.getComponentAt(offset);
+				DataTypeComponent dtc = struct.getComponentContaining(offset);
 				return (dtc != null) ? getComponent(dtc.getOrdinal()) : null;
 			}
 			else if (baseDataType instanceof DynamicDataType) {
@@ -586,161 +491,93 @@ class DataDB extends CodeUnitDB implements Data {
 			}
 			return null;
 		}
-		finally {
-			lock.release();
-		}
-
 	}
 
 	@Override
 	public List<Data> getComponentsContaining(int offset) {
-		List<Data> list = new ArrayList<>();
-		lock.acquire();
-		try {
-			checkIsValid();
-			if (offset < 0 || offset >= length) {
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
+			if (offset < 0 || offset >= getLength()) {
 				return null;
 			}
-
 			if (baseDataType instanceof Array) {
 				Array array = (Array) baseDataType;
 				int elementLength = array.getElementLength();
 				int index = offset / elementLength;
-				list.add(getComponent(index));
+				return Collections.singletonList(getComponent(index));
 			}
 			else if (baseDataType instanceof Structure) {
 				Structure struct = (Structure) baseDataType;
-				DataTypeComponent dtc = struct.getComponentAt(offset);
-				// Logic handles overlapping bit-fields
-				// Include if offset is contains within bounds of component
-				while (dtc != null && (offset >= dtc.getOffset()) &&
-					(offset <= (dtc.getOffset() + dtc.getLength() - 1))) {
-					int ordinal = dtc.getOrdinal();
-					list.add(getComponent(ordinal++));
-					dtc = ordinal < struct.getNumComponents() ? struct.getComponent(ordinal) : null;
+				List<Data> result = new ArrayList<>();
+				for (DataTypeComponent dtc : struct.getComponentsContaining(offset)) {
+					result.add(getComponent(dtc.getOrdinal()));
 				}
+				return result;
 			}
 			else if (baseDataType instanceof DynamicDataType) {
 				DynamicDataType ddt = (DynamicDataType) baseDataType;
 				DataTypeComponent dtc = ddt.getComponentAt(offset, this);
-				if (dtc != null) {
-					list.add(getComponent(dtc.getOrdinal()));
+				List<Data> result = new ArrayList<>();
+				// Logic handles overlapping bit-fields
+				// Include if offset is contained within bounds of component
+				while (dtc != null && (offset >= dtc.getOffset()) &&
+					(offset < (dtc.getOffset() + dtc.getLength()))) {
+					int ordinal = dtc.getOrdinal();
+					result.add(getComponent(ordinal++));
+					dtc = ordinal < ddt.getNumComponents(this) ? ddt.getComponent(ordinal, this)
+							: null;
 				}
+				return result;
 			}
 			else if (baseDataType instanceof Union) {
-				if (offset == 0) {
-					for (int i = 0; i < getNumComponents(); i++) {
-						list.add(getComponent(i));
+				Union union = (Union) baseDataType;
+				List<Data> result = new ArrayList<>();
+				for (DataTypeComponent dtc : union.getComponents()) {
+					if (offset < dtc.getLength()) {
+						result.add(getComponent(dtc.getOrdinal()));
 					}
 				}
+				return result;
 			}
-			return list;
+			return Collections.emptyList();
 		}
-		finally {
-			lock.release();
-		}
-
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#getComponentIndex()
-	 */
 	@Override
 	public int getComponentIndex() {
 		return -1;
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#getComponentLevel()
-	 */
 	@Override
 	public int getComponentLevel() {
 		return level;
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#getComponentPath()
-	 */
 	@Override
 	public int[] getComponentPath() {
 		return EMPTY_PATH;
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#getComponentPathName()
-	 */
 	@Override
 	public String getComponentPathName() {
 		return null;
 	}
 
-//	/**
-//	 * @see ghidra.program.model.listing.Data#getComponents()
-//	 */
-//	public Data[] getComponents() {
-//		lock.acquire();
-//		try {
-//	      	checkIsValid();
-//	        if (length < dataType.getLength()) {
-//	            return null;
-//	        }
-//	        Data[] retData = EMPTY_COMPONENTS;
-//	        if (baseDataType instanceof Composite) {
-//				Composite composite = (Composite)baseDataType;
-//				int n = composite.getNumComponents();
-//				retData = new Data[n];
-//				for(int i=0;i<n;i++) {
-//					retData[i] = getComponent(i);
-//				}
-//	        }
-//			else if (baseDataType instanceof Array) {
-//				Array array = (Array)baseDataType;
-//				int n = array.getNumElements();
-//				retData = new Data[n];
-//				for(int i=0;i<n;i++) {
-//					retData[i] = getComponent(i);
-//				}
-//			}
-//			else if (baseDataType instanceof DynamicDataType) {
-//				DynamicDataType ddt = (DynamicDataType)baseDataType;
-//				int n = ddt.getNumComponents(this);
-//				retData = new Data[n];
-//				for(int i=0;i<n;i++) {
-//					retData[i] = getComponent(i);
-//				}
-//			}
-//			return retData;
-//		}
-//		finally {
-//			lock.release();
-//		}
-//	}
-
-	/**
-	 * @see ghidra.program.model.listing.Data#getDataType()
-	 */
 	@Override
 	public DataType getDataType() {
 		return dataType;
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#getFieldName()
-	 */
 	@Override
 	public String getFieldName() {
 		return null;
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#getNumComponents()
-	 */
 	@Override
 	public int getNumComponents() {
-		lock.acquire();
-		try {
-			checkIsValid();
-			if (length < dataType.getLength()) {
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
+			if (getLength() < dataType.getLength()) {
 				return -1;
 			}
 			if (baseDataType instanceof Composite) {
@@ -761,33 +598,21 @@ class DataDB extends CodeUnitDB implements Data {
 			}
 			return 0;
 		}
-		finally {
-			lock.release();
-		}
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#getParent()
-	 */
 	@Override
 	public Data getParent() {
 		return null;
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#getParentOffset()
-	 */
 	@Override
 	public int getParentOffset() {
 		return 0;
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#getPathName()
-	 */
 	@Override
 	public String getPathName() {
-		refreshIfNeeded();
+		validate(lock);
 		Address cuAddress = address;
 		SymbolTable st = program.getSymbolTable();
 		Symbol symbol = st.getPrimarySymbol(cuAddress);
@@ -797,56 +622,36 @@ class DataDB extends CodeUnitDB implements Data {
 		return symbol.getName();
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#getPrimitiveAt(int)
-	 */
 	@Override
 	public Data getPrimitiveAt(int offset) {
-		lock.acquire();
-		try {
-			checkIsValid();
-			if (offset < 0 || offset >= length) {
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
+			if (offset < 0 || offset >= getLength()) {
 				return null;
 			}
-			Data dc = getComponentAt(offset);
+			Data dc = getComponentContaining(offset);
 			if (dc == null || dc == this) {
 				return this;
 			}
 			return dc.getPrimitiveAt(offset - dc.getParentOffset());
 		}
-		finally {
-			lock.release();
-		}
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#getRoot()
-	 */
 	@Override
 	public Data getRoot() {
 		return this;
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#getRootOffset()
-	 */
 	@Override
 	public int getRootOffset() {
 		return 0;
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#getValue()
-	 */
 	@Override
 	public Object getValue() {
-		lock.acquire();
-		try {
-			checkIsValid();
-			return baseDataType.getValue(this, this, length);
-		}
-		finally {
-			lock.release();
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
+			return dataType.getValue(this, this, getLength());
 		}
 	}
 
@@ -872,89 +677,56 @@ class DataDB extends CodeUnitDB implements Data {
 		if (options == null) {
 			options = DataTypeDisplayOptions.DEFAULT;
 		}
-		return dataType.getDefaultLabelPrefix(this, this, length, options);
+		return dataType.getDefaultLabelPrefix(this, this, getLength(), options);
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#getValueReferences()
-	 */
 	@Override
 	public Reference[] getValueReferences() {
 		return getOperandReferences(CodeManager.DATA_OP_INDEX);
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#isArray()
-	 */
 	@Override
 	public boolean isArray() {
 		return baseDataType instanceof Array;
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#isDefined()
-	 */
 	@Override
 	public boolean isDefined() {
 		return !(dataType instanceof DefaultDataType);
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#isPointer()
-	 */
 	@Override
 	public boolean isPointer() {
 		return baseDataType instanceof Pointer;
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#isStructure()
-	 */
 	@Override
 	public boolean isStructure() {
 		return baseDataType instanceof Structure;
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#isDynamic()
-	 */
 	@Override
 	public boolean isDynamic() {
 		return baseDataType instanceof DynamicDataType;
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.Data#isUnion()
-	 */
 	@Override
 	public boolean isUnion() {
 		return baseDataType instanceof Union;
 	}
 
-	/**
-	 * @see ghidra.docking.settings.Settings#clearAllSettings()
-	 */
 	@Override
 	public void clearAllSettings() {
-		refreshIfNeeded();
-		Address cuAddr = getDataSettingsAddress();
-		dataMgr.clearAllSettings(cuAddr);
-		changeMgr.setChanged(ChangeManager.DOCR_DATA_TYPE_SETTING_CHANGED, cuAddr, cuAddr, null,
-			null);
+		validate(lock);
+		dataMgr.clearAllSettings(this);
 	}
 
-	/**
-	 * @see ghidra.docking.settings.Settings#isEmpty()
-	 */
 	@Override
 	public boolean isEmpty() {
-		refreshIfNeeded();
-		return dataMgr.isEmptySetting(getDataSettingsAddress());
+		validate(lock);
+		return dataMgr.isEmptySetting(this);
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.CodeUnit#getReferencesFrom()
-	 */
 	@Override
 	public Reference[] getReferencesFrom() {
 		ArrayList<Reference> list = new ArrayList<>();
@@ -971,15 +743,49 @@ class DataDB extends CodeUnitDB implements Data {
 		return list.toArray(new Reference[list.size()]);
 	}
 
-	/**
-	 * @see ghidra.docking.settings.Settings#getDefaultSettings()
-	 */
 	@Override
 	public Settings getDefaultSettings() {
-		return defaultSettings;
+		return dataType.getDefaultSettings();
 	}
 
-	protected Address getDataSettingsAddress() {
-		return address;
+	private class ComponentFactory implements DbFactory<DataComponent> {
+
+		@Override
+		public DataComponent instantiate(long ordinal) {
+			AddressMap addressMap = codeMgr.getAddressMap();
+			int index = (int) ordinal;
+			if (baseDataType instanceof Array) {
+				Array array = (Array) baseDataType;
+				Address componentAddr = address.add(index * array.getElementLength());
+				long dbKey = addressMap.getKey(componentAddr, false);
+				return new DataComponent(codeMgr, componentAddr,
+					dbKey, DataDB.this, array, index);
+			}
+			if (baseDataType instanceof Composite) {
+				Composite composite = (Composite) baseDataType;
+				DataTypeComponent dtc = composite.getComponent(index);
+				Address componentAddr = address.add(dtc.getOffset());
+				long dbKey = addressMap.getKey(componentAddr, false);
+				return new DataComponent(codeMgr, componentAddr, dbKey, DataDB.this, dtc);
+			}
+			if (baseDataType instanceof DynamicDataType) {
+				DynamicDataType ddt = (DynamicDataType) baseDataType;
+				DataTypeComponent dtc = ddt.getComponent(index, DataDB.this);
+				Address componentAddr = address.add(dtc.getOffset());
+				long dbKey = addressMap.getKey(componentAddr, false);
+				return new DataComponent(codeMgr, componentAddr, dbKey, DataDB.this, dtc);
+			}
+			Msg.error(this,
+				"Unsupported composite data type class: " + baseDataType.getClass().getName());
+			return null;
+		}
+
+		@Override
+		public DataComponent instantiate(DBRecord record) {
+			// DataComponents don't have records
+			return null;
+		}
+
 	}
+
 }

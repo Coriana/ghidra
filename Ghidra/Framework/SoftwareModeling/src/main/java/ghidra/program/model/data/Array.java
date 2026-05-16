@@ -23,6 +23,10 @@ import ghidra.program.model.mem.MemBuffer;
  */
 public interface Array extends DataType {
 
+	// TODO: May need to handle both packed and non-packed arrays where packed would use
+	// DataType.getAlignedLength() while non-packed would not.  At present, arrays are 
+	// always are treated as packed using getAlignedLength.
+
 	public static final String ARRAY_LABEL_PREFIX = "ARRAY";
 
 	/**
@@ -32,7 +36,10 @@ public interface Array extends DataType {
 	int getNumElements();
 
 	/**
-	 * Returns the length of an element in the array
+	 * Returns the length of an element in the array.  In the case
+	 * of a Dynamic base datatype, this element length will have been explicitly specified
+	 * at the time of construction.  For a zero-length base type an element length of 1 
+	 * will be reported with {@link #getLength()} returning the number of elements.
 	 * @return the length of one element in the array.
 	 */
 	int getElementLength();
@@ -99,14 +106,17 @@ public interface Array extends DataType {
 	 * @return a String if it is an array of chars; otherwise empty string, never null.
 	 */
 	default public String getArrayRepresentation(MemBuffer buf, Settings settings, int length) {
+		if (getNumElements() == 0) {
+			return "";
+		}
 		if (!buf.isInitializedMemory()) {
 			return StringDataInstance.UNKNOWN;
 		}
 		ArrayStringable stringableElementType = ArrayStringable.getArrayStringable(getDataType());
 		String value =
 			(stringableElementType != null && stringableElementType.hasStringValue(settings))
-					? new StringDataInstance(stringableElementType, settings, buf, length,
-						true).getStringRepresentation()
+					? new StringDataInstance(stringableElementType, settings, buf, length, true)
+							.getStringRepresentation()
 					: null;
 		return (value != null) ? value : "";
 	}

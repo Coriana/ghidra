@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,6 +17,7 @@ package mdemangler.naming;
 
 import ghidra.util.Msg;
 import mdemangler.*;
+import mdemangler.datatype.MDDataType;
 import mdemangler.object.MDObjectCPP;
 import mdemangler.template.MDTemplateNameAndArguments;
 
@@ -30,13 +31,13 @@ public class MDBasicName extends MDParsableItem {
 	MDReusableName reusableName;
 	MDObjectCPP embeddedObject;
 	MDQualification embeddedObjectQualification;
-	String nameModifier;
+	MDNameModifier nameModifier;
 
 	public MDBasicName(MDMang dmang) {
 		super(dmang);
 	}
 
-	public void setNameModifier(String nameModifier) {
+	public void setNameModifier(MDNameModifier nameModifier) {
 		this.nameModifier = nameModifier;
 	}
 
@@ -110,7 +111,7 @@ public class MDBasicName extends MDParsableItem {
 
 	/**
 	 * Return the embedded object (essentially what could stand on its own as a mangled
-	 *  symbol) that is used as part of the name of mangled object 
+	 *  symbol) that is used as part of the name of mangled object
 	 * @return The embedded object that essentially represents this MDBasicName.
 	 */
 	public MDObjectCPP getEmbeddedObject() {
@@ -125,6 +126,20 @@ public class MDBasicName extends MDParsableItem {
 		}
 		else if (templateNameAndArguments != null) {
 			templateNameAndArguments.setName(name);
+		}
+		else {
+			Msg.warn(this, "name cannot be set");
+		}
+	}
+
+	public void setXtorQual(MDQualifier qual) {
+		// We should only get a call for setName() due to a contructor or destructor,
+		// which come from MDSpecialName or from MDTemplateNameAndArguments.
+		if (specialName != null) {
+			specialName.setXtorQual(qual);
+		}
+		else if (templateNameAndArguments != null) {
+			templateNameAndArguments.setXtorQual(qual);
 		}
 		else {
 			Msg.warn(this, "name cannot be set");
@@ -150,6 +165,18 @@ public class MDBasicName extends MDParsableItem {
 		}
 	}
 
+	public void setCastType(MDDataType castType) {
+		if (specialName != null) {
+			specialName.setCastType(castType);
+		}
+		else if (templateNameAndArguments != null) {
+			templateNameAndArguments.setCastType(castType);
+		}
+		else {
+			Msg.warn(this, "castType cannot be set");
+		}
+	}
+
 	@Override
 	public void insert(StringBuilder builder) {
 		if (reusableName != null) {
@@ -165,13 +192,12 @@ public class MDBasicName extends MDParsableItem {
 			templateNameAndArguments.insert(builder);
 		}
 		if (nameModifier != null) {
-			builder.append(nameModifier);
+			builder.append(nameModifier.getModifier());
 		}
 	}
 
 	@Override
 	protected void parseInternal() throws MDException {
-		// First pass can only have name fragment of special name
 		if (dmang.peek() == '?') {
 			if (dmang.peek(1) == '$') {
 				templateNameAndArguments = new MDTemplateNameAndArguments(dmang);

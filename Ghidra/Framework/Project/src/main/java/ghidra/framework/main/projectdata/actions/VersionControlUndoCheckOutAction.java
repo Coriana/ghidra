@@ -19,10 +19,11 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.swing.ImageIcon;
+import javax.swing.Icon;
 
 import docking.action.MenuData;
 import docking.action.ToolBarData;
+import generic.theme.GIcon;
 import ghidra.framework.client.ClientUtil;
 import ghidra.framework.main.datatable.DomainFileContext;
 import ghidra.framework.main.datatree.UndoActionDialog;
@@ -33,12 +34,13 @@ import ghidra.util.exception.CancelledException;
 import ghidra.util.exception.FileInUseException;
 import ghidra.util.task.Task;
 import ghidra.util.task.TaskMonitor;
-import resources.ResourceManager;
 
 /**
  * Action to undo checkouts for domain files in the repository.
  */
 public class VersionControlUndoCheckOutAction extends VersionControlAction {
+
+	private static final Icon ICON = new GIcon("icon.version.control.check.out.undo");
 
 	/**
 	 * Creates an action to undo checkouts for domain files in the repository.
@@ -46,11 +48,8 @@ public class VersionControlUndoCheckOutAction extends VersionControlAction {
 	 */
 	public VersionControlUndoCheckOutAction(Plugin plugin) {
 		super("UndoCheckOut", plugin.getName(), plugin.getTool());
-		ImageIcon icon = ResourceManager.loadImage("images/vcUndoCheckOut.png");
-		setPopupMenuData(new MenuData(new String[] { "Undo Checkout" }, icon, GROUP));
-
-		setToolBarData(new ToolBarData(icon, GROUP));
-
+		setPopupMenuData(new MenuData(new String[] { "Undo Checkout" }, ICON, GROUP));
+		setToolBarData(new ToolBarData(ICON, GROUP));
 		setDescription("Undo checkout");
 
 		setEnabled(false);
@@ -61,11 +60,12 @@ public class VersionControlUndoCheckOutAction extends VersionControlAction {
 		undoCheckOut(context.getSelectedFiles());
 	}
 
-	/**
-	 * Returns true if at least one of the provided domain files is checked out from the repository.
-	 */
 	@Override
 	public boolean isEnabledForContext(DomainFileContext context) {
+		if (isFileSystemBusy()) {
+			return false; // don't block; we should get called again later
+		}
+
 		List<DomainFile> domainFiles = context.getSelectedFiles();
 		for (DomainFile domainFile : domainFiles) {
 			if (domainFile.isCheckedOut()) {
@@ -83,8 +83,8 @@ public class VersionControlUndoCheckOutAction extends VersionControlAction {
 		if (!checkRepositoryConnected()) {
 			return;
 		}
-		List<DomainFile> unmodifiedCheckOutsList = new ArrayList<DomainFile>();
-		List<DomainFile> modifiedCheckOutsList = new ArrayList<DomainFile>();
+		List<DomainFile> unmodifiedCheckOutsList = new ArrayList<>();
+		List<DomainFile> modifiedCheckOutsList = new ArrayList<>();
 		for (DomainFile domainFile : domainFiles) {
 			if (domainFile.isCheckedOut()) {
 				if (domainFile.modifiedSinceCheckout()) {
@@ -115,8 +115,7 @@ public class VersionControlUndoCheckOutAction extends VersionControlAction {
 		// Now confirm the modified ones and undo checkout for the ones the user indicates.
 		if (modifiedCheckOutsList.size() > 0) {
 			UndoActionDialog dialog = new UndoActionDialog("Confirm Undo Checkout",
-				resources.ResourceManager.loadImage("images/vcUndoCheckOut.png"), "UndoCheckOut",
-				"checkout", modifiedCheckOutsList);
+				ICON, "UndoCheckOut", "checkout", modifiedCheckOutsList);
 			int actionID = dialog.showDialog(tool);
 			if (actionID != UndoActionDialog.CANCEL) {
 				saveCopy = dialog.saveCopy();
@@ -145,10 +144,9 @@ public class VersionControlUndoCheckOutAction extends VersionControlAction {
 		/**
 		 * Creates a task for undoing checkouts of domain files.
 		 * @param unmodifiedCheckOutsList the list of unmodified checked out files
-		 * @param modifiedCheckOutsList the list of checked out files that have been modified
+		 * @param modifiedCheckedOutFiles the list of checked out files that have been modified
 		 * @param saveCopy true indicates that copies of the modified files should be made 
-		 * before undo of the checkout.
-		 * @param listener the task listener to call when the task completes or is cancelled.
+		 * before undo of the checkout
 		 */
 		UndoCheckOutTask(List<DomainFile> unmodifiedCheckOutsList,
 				DomainFile[] modifiedCheckedOutFiles, boolean saveCopy) {
@@ -158,20 +156,16 @@ public class VersionControlUndoCheckOutAction extends VersionControlAction {
 			this.saveCopy = saveCopy;
 		}
 
-		/* (non-Javadoc)
-		 * @see ghidra.util.task.Task#run(ghidra.util.task.TaskMonitor)
-		 */
 		@Override
 		public void run(TaskMonitor monitor) {
 			try {
-				for (int i = 0; i < unmodifiedCheckOutsList.size(); i++) {
-					DomainFile df = unmodifiedCheckOutsList.get(i);
+				for (DomainFile df : unmodifiedCheckOutsList) {
 					if (df.isCheckedOut()) {
 						df.undoCheckout(false);
 					}
 				}
 				for (DomainFile currentDF : modifiedCheckedOutFiles) {
-					monitor.checkCanceled();
+					monitor.checkCancelled();
 					monitor.setMessage("Undoing Check Out " + currentDF.getName());
 					currentDF.undoCheckout(saveCopy);
 				}

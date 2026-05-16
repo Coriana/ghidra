@@ -236,7 +236,7 @@ public class AddBlockModelTest extends AbstractGhidraHeadedIntegrationTest
 		model.setStartAddress(getAddr(0x100));
 		model.setLength(100);
 		model.setBlockType(MemoryBlockType.BIT_MAPPED);
-		assertEquals(InitializedType.UNITIALIZED, model.getInitializedType());
+		assertEquals(InitializedType.UNINITIALIZED, model.getInitializedType());
 		model.setBaseAddress(getAddr(0x2000));
 
 		assertTrue(model.execute());
@@ -251,7 +251,7 @@ public class AddBlockModelTest extends AbstractGhidraHeadedIntegrationTest
 		model.setStartAddress(getAddr(0x100));
 		model.setLength(100);
 		model.setBlockType(MemoryBlockType.BYTE_MAPPED);
-		assertEquals(InitializedType.UNITIALIZED, model.getInitializedType());
+		assertEquals(InitializedType.UNINITIALIZED, model.getInitializedType());
 		model.setBaseAddress(getAddr(0x2000));
 
 		assertTrue(model.execute());
@@ -262,8 +262,8 @@ public class AddBlockModelTest extends AbstractGhidraHeadedIntegrationTest
 	}
 
 	@Test
-	public void testDuplicateNameSetting() {
-		model.setBlockName(".data");
+	public void testInvalidNameSetting() {
+		model.setBlockName("");
 		assertTrue(!model.isValidInfo());
 		assertTrue(model.getMessage().length() > 0);
 	}
@@ -271,11 +271,12 @@ public class AddBlockModelTest extends AbstractGhidraHeadedIntegrationTest
 	@Test
 	public void testDuplicateName() {
 		model.setBlockName(".data");
+		model.setOverlay(false);
 		model.setStartAddress(getAddr(0x100));
 		model.setLength(100);
 		model.setBlockType(MemoryBlockType.DEFAULT);
 		model.setInitialValue(0xa);
-		assertFalse(model.execute());
+		assertTrue(model.execute());
 	}
 
 	@Test

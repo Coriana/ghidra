@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,8 +21,13 @@ import java.net.URL;
 
 import ghidra.framework.client.NotConnectedException;
 import ghidra.framework.client.RepositoryAdapter;
+import ghidra.framework.data.DefaultProjectData;
 import ghidra.framework.model.ProjectLocator;
-import ghidra.framework.store.FileSystem;
+import ghidra.framework.protocol.ghidra.GhidraURLConnection.StatusCode;
+import ghidra.framework.store.LockException;
+import ghidra.util.NotOwnerException;
+import ghidra.util.ReadOnlyException;
+import ghidra.util.exception.NotFoundException;
 
 /**
  * <code>DefaultLocalGhidraProtocolConnector</code> provides support for the
@@ -61,16 +66,18 @@ public class DefaultLocalGhidraProtocolConnector extends GhidraProtocolConnector
 	}
 
 	@Override
-	protected String parseRepositoryName() throws MalformedURLException {
-		return null;
+	public String getRepositoryName() {
+		return localStorageLocator.getName();
 	}
 
 	@Override
 	protected String parseItemPath() throws MalformedURLException {
-		// root folder access only - TODO: add support for specifying local item/folder path
-		folderPath = FileSystem.SEPARATOR;
-		folderItemName = null;
-		return folderPath;
+
+		String path = url.getQuery();
+
+		initFolderItemPath(path);
+
+		return path != null ? path : folderPath;
 	}
 
 	@Override
@@ -80,7 +87,7 @@ public class DefaultLocalGhidraProtocolConnector extends GhidraProtocolConnector
 
 	/**
 	 * Get the ProjectLocator associated with a local project URL.
-	 * @return project locator object or null if URL supplies a a RepositoryAdapter and/or 
+	 * @return project locator object or null if URL supplies a RepositoryAdapter and/or 
 	 * RepositoryServerAdapter.
 	 */
 	public ProjectLocator getLocalProjectLocator() {
@@ -94,22 +101,50 @@ public class DefaultLocalGhidraProtocolConnector extends GhidraProtocolConnector
 
 	@Override
 	public boolean isReadOnly() throws NotConnectedException {
-		if (responseCode == -1) {
+		if (statusCode == null) {
 			throw new NotConnectedException("not connected");
 		}
 		return readOnly;
 	}
 
 	@Override
-	public int connect(boolean readOnlyAccess) throws IOException {
+	public StatusCode connect(boolean readOnlyAccess) throws IOException {
 		this.readOnly = readOnlyAccess;
 		if (!localStorageLocator.exists()) {
-			responseCode = GhidraURLConnection.GHIDRA_NOT_FOUND;
+			statusCode = StatusCode.NOT_FOUND;
 		}
 		else {
-			responseCode = GhidraURLConnection.GHIDRA_OK;
+			statusCode = StatusCode.OK;
 		}
-		return responseCode;
+		return statusCode;
+	}
+
+	/**
+	 * Connect and establish a local project data instance.  Opening a project for
+	 * write access is subject to in-use lock restriction.
+	 * See {@link #getStatusCode()} if null is returned.
+	 * @param readOnlyAccess true if project data should be read-only
+	 * @return project data instance or null if project not found
+	 * @throws IOException if IO error occurs
+	 */
+	DefaultProjectData getLocalProjectData(boolean readOnlyAccess) throws IOException {
+		if (connect(readOnlyAccess) != StatusCode.OK) {
+			return null;
+		}
+
+		try {
+			return new DefaultProjectData(localStorageLocator, !readOnlyAccess, false);
+		}
+		catch (NotFoundException e) {
+			statusCode = StatusCode.NOT_FOUND;
+		}
+		catch (NotOwnerException | ReadOnlyException e) {
+			statusCode = StatusCode.UNAUTHORIZED;
+		}
+		catch (LockException e) {
+			statusCode = StatusCode.LOCKED;
+		}
+		return null;
 	}
 
 }

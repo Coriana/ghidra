@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,12 +20,12 @@ import java.awt.dnd.*;
 import java.awt.event.*;
 
 import javax.swing.*;
-import javax.swing.FocusManager;
+
+import org.apache.commons.lang3.ArrayUtils;
 
 import docking.action.DockingActionIf;
-import docking.help.HelpService;
-import ghidra.util.CascadedDropTarget;
-import ghidra.util.HelpLocation;
+import ghidra.util.*;
+import help.HelpService;
 
 /**
  * Wrapper class for user components. Adds the title, local toolbar and provides the drag target
@@ -46,7 +46,7 @@ public class DockableComponent extends JPanel implements ContainerListener {
 	private MouseListener popupListener;
 	private ComponentPlaceholder placeholder;
 	private JComponent providerComp;
-	private Component focusedComponent;
+	private Component lastFocusedComponent;
 	private DockingWindowManager winMgr;
 	private ActionToGuiMapper actionMgr;
 	private DropTarget dockableDropTarget;
@@ -67,17 +67,17 @@ public class DockableComponent extends JPanel implements ContainerListener {
 				@Override
 				public void mousePressed(MouseEvent e) {
 					componentSelected((Component) e.getSource());
-					processPopupMouseEvent(e);
+					showContextMenu(e);
 				}
 
 				@Override
 				public void mouseReleased(MouseEvent e) {
-					processPopupMouseEvent(e);
+					showContextMenu(e);
 				}
 
 				@Override
 				public void mouseClicked(MouseEvent e) {
-					processPopupMouseEvent(e);
+					showContextMenu(e);
 				}
 			};
 
@@ -142,29 +142,57 @@ public class DockableComponent extends JPanel implements ContainerListener {
 		return helpLocation;
 	}
 
-	public Component getFocusedComponent() {
-		return focusedComponent;
+	void showContextMenu(PopupMenuContext popupContext) {
+		actionMgr.showPopupMenu(placeholder, popupContext);
 	}
 
-	private void processPopupMouseEvent(final MouseEvent e) {
-		Component component = e.getComponent();
-		if (component == null) {
+	private void showContextMenu(MouseEvent e) {
+
+		if (e.isConsumed()) {
 			return;
 		}
 
-		// get the bounds to see if the clicked point is over the component
-		Rectangle bounds = component.getBounds(); // get bounds to get width and height
+		if (!e.isPopupTrigger()) {
+			return;
+		}
 
+		Component component = e.getComponent();
+		if (component == null) {
+			return; // not sure this can happen
+		}
+
+		// get the bounds to see if the clicked point is over the component
+		Rectangle bounds = component.getBounds();
 		if (component instanceof JComponent) {
 			((JComponent) component).computeVisibleRect(bounds);
 		}
 
 		Point point = e.getPoint();
-		boolean withinBounds = bounds.contains(point);
-
-		if (e.isPopupTrigger() && withinBounds) {
-			actionMgr.showPopupMenu(placeholder, e);
+		if (!bounds.contains(point)) {
+			return;
 		}
+
+		//
+		// Consume the event so that Java UI listeners do not process it.  This fixes issues with
+		// UI classes (e.g., listeners change table selection).   We want to run this code later to
+		// allow trailing application mouse listeners to have a chance to update the context.  If
+		// the delayed nature causes any timing issues, then we will need a more robust way of 
+		// registering mouse listeners to work around this issue.
+		//
+		e.consume();
+		Swing.runLater(() -> {
+
+			MenuSelectionManager msm = MenuSelectionManager.defaultManager();
+			MenuElement[] selectedPath = msm.getSelectedPath();
+			if (!ArrayUtils.isEmpty(selectedPath)) {
+				// This means that a menu is open.  This can happen if a mouse listener further down
+				// the listener list has shown a popup.  In that case, do not show the context menu.
+				return;
+			}
+
+			PopupMenuContext popupContext = new PopupMenuContext(e);
+			actionMgr.showPopupMenu(placeholder, popupContext);
+		});
 	}
 
 	@Override
@@ -187,7 +215,7 @@ public class DockableComponent extends JPanel implements ContainerListener {
 	/**
 	 * Returns the component provider attached to this dockable component; null if this object
 	 * has been disposed
-	 * 
+	 *
 	 * @return the provider
 	 */
 	public ComponentProvider getComponentProvider() {
@@ -252,7 +280,7 @@ public class DockableComponent extends JPanel implements ContainerListener {
 		public synchronized void dragEnter(DropTargetDragEvent dtde) {
 			super.dragEnter(dtde);
 
-			// On Mac, sometimes this component is not showing, 
+			// On Mac, sometimes this component is not showing,
 			// which causes exception in the translate method.
 			if (!isShowing()) {
 				dtde.rejectDrag();
@@ -275,7 +303,7 @@ public class DockableComponent extends JPanel implements ContainerListener {
 		public synchronized void dragOver(DropTargetDragEvent dtde) {
 			super.dragOver(dtde);
 
-			// On Mac, sometimes this component is not showing, 
+			// On Mac, sometimes this component is not showing,
 			// which causes exception in the translate method.
 			if (!isShowing()) {
 				dtde.rejectDrag();
@@ -326,8 +354,27 @@ public class DockableComponent extends JPanel implements ContainerListener {
 		}
 
 		if (comp.isFocusable()) {
-			comp.removeMouseListener(popupListener);
-			comp.addMouseListener(popupListener);
+			installPopupListenerFirst(comp);
+		}
+	}
+
+	/**
+	 * Remove and re-add all mouse listeners so our popup listener can go first.  This allows our
+	 * popup listener to consume the event, preventing Java UI listeners from changing the table 
+	 * selection when the user is performing a Ctrl-Mouse click on the Mac.
+	 * 
+	 * @param comp the component
+	 */
+	private void installPopupListenerFirst(Component comp) {
+		comp.removeMouseListener(popupListener);
+		MouseListener[] listeners = comp.getMouseListeners();
+		for (MouseListener l : listeners) {
+			comp.removeMouseListener(l);
+		}
+
+		comp.addMouseListener(popupListener);
+		for (MouseListener l : listeners) {
+			comp.addMouseListener(l);
 		}
 	}
 
@@ -439,54 +486,36 @@ public class DockableComponent extends JPanel implements ContainerListener {
 	}
 
 	@Override
-	// we aren't focusable, so pass focus to a valid child component
 	public void requestFocus() {
-		focusedComponent = findFocusedComponent();
-		if (focusedComponent != null) {
-			DockingWindowManager.requestFocus(focusedComponent);
+		if (lastFocusedComponent != null && lastFocusedComponent.isShowing()) {
+			lastFocusedComponent.requestFocus();
+			return;
 		}
+
+		if (placeholder == null) {
+			return;	// this implies we have been disposed
+		}
+		placeholder.getProvider().requestFocus();
 	}
 
 	void setFocusedComponent(Component newFocusedComponet) {
 		// remember it so we can restore it later when necessary
-		focusedComponent = newFocusedComponet;
+		lastFocusedComponent = newFocusedComponet;
 	}
 
 	private void componentSelected(Component component) {
 		if (!component.isFocusable()) {
-			// In this case, Java will not change focus for us, so we need to tell the DWM to 
+			// In this case, Java will not change focus for us, so we need to tell the DWM to
 			// change the active DockableComponent
 			requestFocus();
 		}
 	}
 
-	// find the first available component that can take focus
-	private Component findFocusedComponent() {
-		if (focusedComponent != null && focusedComponent.isShowing()) {
-			return focusedComponent;
-		}
-
-		DefaultFocusManager dfm = (DefaultFocusManager) FocusManager.getCurrentManager();
-		Component component = dfm.getComponentAfter(this, this);
-
-		// component must be a child of this DockableComponent
-		if (component != null && SwingUtilities.isDescendingFrom(component, this)) {
-			return component;
-		}
-		return null;
-	}
-
-	/**
-	 * @see java.awt.event.ContainerListener#componentAdded(java.awt.event.ContainerEvent)
-	 */
 	@Override
 	public void componentAdded(ContainerEvent e) {
 		initializeComponents(e.getChild());
 	}
 
-	/**
-	 * @see java.awt.event.ContainerListener#componentRemoved(java.awt.event.ContainerEvent)
-	 */
 	@Override
 	public void componentRemoved(ContainerEvent e) {
 		deinitializeComponents(e.getChild());

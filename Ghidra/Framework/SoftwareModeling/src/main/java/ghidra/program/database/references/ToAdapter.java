@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -25,7 +25,7 @@ import java.io.IOException;
 
 import db.*;
 import db.util.ErrorHandler;
-import ghidra.program.database.DBObjectCache;
+import ghidra.framework.data.OpenMode;
 import ghidra.program.database.ProgramDB;
 import ghidra.program.database.map.AddressMap;
 import ghidra.program.model.address.*;
@@ -38,19 +38,19 @@ abstract class ToAdapter implements RecordAdapter {
 
 	static final String TO_REFS_TABLE_NAME = "TO REFS";
 	static final int CURRENT_VERSION = 1;
-	static final Schema TO_REFS_SCHEMA = new Schema(CURRENT_VERSION, "To Address", new Class[] {
-		IntField.class, BinaryField.class, ByteField.class }, new String[] { "Number of Refs",
-		"Ref Data", "Ref Level" });
+	static final Schema TO_REFS_SCHEMA = new Schema(CURRENT_VERSION, "To Address",
+		new Field[] { IntField.INSTANCE, BinaryField.INSTANCE, ByteField.INSTANCE },
+		new String[] { "Number of Refs", "Ref Data", "Ref Level" });
 
 	static final int REF_COUNT_COL = 0;
 	static final int REF_DATA_COL = 1;
 	static final int REF_LEVEL_COL = 2;
 
-	static ToAdapter getAdapter(DBHandle dbHandle, int openMode, AddressMap addrMap,
-			ErrorHandler errHandler, TaskMonitor monitor) throws VersionException,
-			CancelledException, IOException {
+	static ToAdapter getAdapter(DBHandle dbHandle, OpenMode openMode, AddressMap addrMap,
+			ErrorHandler errHandler, TaskMonitor monitor)
+			throws VersionException, CancelledException, IOException {
 
-		if (openMode == DBConstants.CREATE) {
+		if (openMode == OpenMode.CREATE) {
 			return new ToAdapterV1(dbHandle, true, addrMap, errHandler);
 		}
 
@@ -62,11 +62,11 @@ abstract class ToAdapter implements RecordAdapter {
 			return adapter;
 		}
 		catch (VersionException e) {
-			if (!e.isUpgradable() || openMode == DBConstants.UPDATE) {
+			if (!e.isUpgradable() || openMode == OpenMode.UPDATE) {
 				throw e;
 			}
 			ToAdapter adapter = findReadOnlyAdapter(dbHandle, addrMap, errHandler);
-			if (openMode == DBConstants.UPGRADE) {
+			if (openMode == OpenMode.UPGRADE) {
 				adapter = upgrade(dbHandle, adapter, addrMap, errHandler, monitor);
 			}
 			return adapter;
@@ -91,8 +91,8 @@ abstract class ToAdapter implements RecordAdapter {
 	}
 
 	private static ToAdapter upgrade(DBHandle dbHandle, ToAdapter oldAdapter, AddressMap addrMap,
-			ErrorHandler errHandler, TaskMonitor monitor) throws VersionException, IOException,
-			CancelledException {
+			ErrorHandler errHandler, TaskMonitor monitor)
+			throws VersionException, IOException, CancelledException {
 
 		AddressMap oldAddrMap = addrMap.getOldAddressMap();
 		DBHandle tmpHandle = new DBHandle();
@@ -110,10 +110,11 @@ abstract class ToAdapter implements RecordAdapter {
 					throw new CancelledException();
 				}
 				Address to = addrIter.next();
+				long key = addrMap.getKey(to, true);
 				RefListV0 refList =
-					(RefListV0) oldAdapter.getRefList(null, null, to, oldAddrMap.getKey(to, false));
+					(RefListV0) oldAdapter.getRefList(null, to, oldAddrMap.getKey(to, false));
 				Reference[] refs = refList.getAllRefs();
-				RefListV0 newRefList = new RefListV0(to, tmpAdapter, addrMap, null, null, false);
+				RefListV0 newRefList = RefListV0.createNew(to, tmpAdapter, addrMap, null, false);
 				newRefList.addRefs(refs);
 				monitor.setProgress(++count);
 			}
@@ -128,7 +129,7 @@ abstract class ToAdapter implements RecordAdapter {
 				}
 				Address to = addrIter.next();
 				long toAddr = addrMap.getKey(to, true);
-				RefListV0 refList = (RefListV0) tmpAdapter.getRefList(null, null, to, toAddr);
+				RefListV0 refList = (RefListV0) tmpAdapter.getRefList(null, to, toAddr);
 				byte refLevel = -1;
 				if (refList != null) {
 					refLevel = refList.getReferenceLevel();
@@ -146,11 +147,9 @@ abstract class ToAdapter implements RecordAdapter {
 
 	abstract int getRecordCount();
 
-	abstract RefList createRefList(ProgramDB program, DBObjectCache<RefList> cache, Address toAddr)
-			throws IOException;
+	abstract RefList createRefList(ProgramDB program, Address toAddr) throws IOException;
 
-	abstract RefList getRefList(ProgramDB program, DBObjectCache<RefList> cache, Address to,
-			long toAddr) throws IOException;
+	abstract RefList getRefList(ProgramDB program, Address to, long toAddr) throws IOException;
 
 	abstract boolean hasRefTo(long toAddr) throws IOException;
 

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -92,6 +92,7 @@ class BookmarkTableModel extends AddressBasedTableModel<BookmarkRowObject> {
 	@Override
 	protected void doLoad(Accumulator<BookmarkRowObject> accumulator, TaskMonitor monitor)
 			throws CancelledException {
+		lastBookmark = null;
 		LongIterator it = LongIterator.EMPTY;
 		if (bookmarkMgr != null && !types.isEmpty()) {
 			it = new BookmarkKeyIterator(bookmarkMgr);
@@ -99,7 +100,7 @@ class BookmarkTableModel extends AddressBasedTableModel<BookmarkRowObject> {
 		monitor.initialize(getIteratorKeyCount());
 		int i = 0;
 		while (it.hasNext()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			monitor.setProgress(i++);
 			long key = it.next();
 			accumulator.add(new BookmarkRowObject(key));
@@ -112,8 +113,8 @@ class BookmarkTableModel extends AddressBasedTableModel<BookmarkRowObject> {
 		}
 
 		BookmarkType[] programTypes = bookmarkMgr.getBookmarkTypes();
-		int allKnowTypesSize = programTypes.length;
-		return !types.isEmpty() && types.size() != allKnowTypesSize;
+		int allKnownTypesSize = programTypes.length;
+		return !types.isEmpty() && types.size() != allKnownTypesSize;
 	}
 
 	FilterState getFilterState() {

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,7 +15,7 @@
  */
 package docking.actions;
 
-import static org.apache.commons.lang3.StringUtils.*;
+import static org.apache.commons.lang3.Strings.*;
 
 import java.awt.Component;
 import java.awt.KeyboardFocusManager;
@@ -30,9 +30,9 @@ import org.apache.commons.collections4.map.LazyMap;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jdom.*;
-import org.jdom.input.SAXBuilder;
-import org.jdom.output.XMLOutputter;
+import org.jdom2.*;
+import org.jdom2.input.SAXBuilder;
+import org.jdom2.output.XMLOutputter;
 
 import docking.DockingUtils;
 import docking.Tool;
@@ -51,11 +51,13 @@ import utilities.util.reflection.ReflectionUtilities;
 /**
  * A class to provide utilities for system key bindings, such as importing and
  * exporting key binding configurations.
- * 
- * 
+ *
+ *
  * @since Tracker Id 329
  */
 public class KeyBindingUtils {
+	private static final String NO_KEYBINDING_NAME = "none";
+
 	private static final String LAST_KEY_BINDING_EXPORT_DIRECTORY = "LastKeyBindingExportDirectory";
 
 	private static final String RELEASED = "released";
@@ -90,9 +92,9 @@ public class KeyBindingUtils {
 	}
 
 	public static ToolOptions importKeyBindings() {
-		// show a filechooser for the user to choose a location        
+		// show a filechooser for the user to choose a location
 		InputStream inputStream = getInputStreamForFile(getStartingDir());
-		return createOptionsforKeybindings(inputStream);
+		return createOptionsforKeyBindings(inputStream);
 	}
 
 	/**
@@ -100,12 +102,12 @@ public class KeyBindingUtils {
 	 * <p>
 	 * If there is a problem reading the data then the user will be shown an
 	 * error dialog.
-	 * 
+	 *
 	 * @param inputStream the input stream from which to read options
 	 * @return An options object that is composed of key binding names and their
 	 *         associated keystrokes.
 	 */
-	public static ToolOptions createOptionsforKeybindings(InputStream inputStream) {
+	public static ToolOptions createOptionsforKeyBindings(InputStream inputStream) {
 		if (inputStream == null) {
 			return null;
 		}
@@ -141,11 +143,11 @@ public class KeyBindingUtils {
 	 * <p>
 	 * If there is a problem writing the data then the user will be shown an
 	 * error dialog.
-	 * 
+	 *
 	 * @param keyBindingOptions The options that contains key binding data.
 	 */
 	public static void exportKeyBindings(ToolOptions keyBindingOptions) {
-		// show a filechooser for the user to choose a location        
+		// show a filechooser for the user to choose a location
 		OutputStream outputStream = getOutputStreamForFile(getStartingDir());
 
 		if (outputStream == null) {
@@ -155,7 +157,7 @@ public class KeyBindingUtils {
 		// create the xml structure, the outputter and then write the data
 		Element rootElement = keyBindingOptions.getXmlRoot(true);
 		Document document = new Document(rootElement);
-		XMLOutputter xmlOutputter = new GenericXMLOutputter();
+		XMLOutputter xmlOutputter = GenericXMLOutputter.getInstance();
 
 		try {
 			xmlOutputter.output(document, outputStream);
@@ -175,16 +177,16 @@ public class KeyBindingUtils {
 
 	/**
 	 * Changes the given key event to the new source component and then dispatches that event.
-	 * This method is intended for clients that wish to effectively take a key event given to 
-	 * one component and give it to another component.  
-	 * 
-	 * <p>This method exists to deal with the complicated nature of key event processing and 
+	 * This method is intended for clients that wish to effectively take a key event given to
+	 * one component and give it to another component.
+	 *
+	 * <p>This method exists to deal with the complicated nature of key event processing and
 	 * how our (not Java's) framework processes key event bindings to trigger actions.  If not
-	 * for our special processing of action key bindings, then this method would not be 
+	 * for our special processing of action key bindings, then this method would not be
 	 * necessary.
-	 * 
+	 *
 	 * <p><b>This is seldom-used code; if you don't know when to use this code, then don't.</b>
-	 * 
+	 *
 	 * @param newSource the new target of the event
 	 * @param e the existing event
 	 */
@@ -199,25 +201,25 @@ public class KeyBindingUtils {
 
 		/*
 		 						Unusual Code Alert!
-		 						
+		
 			The KeyboardFocusManager is a complicated beast.  Here we use knowledge of one such
-			complication to correctly route key events.  If the client of this method passes 
+			complication to correctly route key events.  If the client of this method passes
 			a component whose 'isShowing()' returns false, then the manager will not send the
-			event to that component.   Almost all clients will pass fully attached/realized 
+			event to that component.   Almost all clients will pass fully attached/realized
 			components to the manager.   We, however, will sometimes pass components that are not
 			attached; for example, when we are using said components with a renderer to perform
-			our own painting.   In the case of non-attached components, we must call the 
+			our own painting.   In the case of non-attached components, we must call the
 			redispatchEvent() method ourselves.
-			
-			Why don't we just always call redispatchEvent()?  Well, that 
-			method will not pass the new cloned event we just created back through the full 
-			key event pipeline.  This means that tool-level (our Tool API, not Java) 
-			actions will not work, as tool-level actions are handled at the beginning of the 
+		
+			Why don't we just always call redispatchEvent()?  Well, that
+			method will not pass the new cloned event we just created back through the full
+			key event pipeline.  This means that tool-level (our Tool API, not Java)
+			actions will not work, as tool-level actions are handled at the beginning of the
 			key event pipeline, not by the components themselves.
-			
-			Also, we have here guilty knowledge that the aforementioned tool-level key processing 
-			will check to see if the event was consumed.  If consumed, then no further processing 
-			will happen; if not consumed, then the framework will continue to process the event 
+		
+			Also, we have here guilty knowledge that the aforementioned tool-level key processing
+			will check to see if the event was consumed.  If consumed, then no further processing
+			will happen; if not consumed, then the framework will continue to process the event
 			passed into this method.   Thus, after we send the new event, we will update the
 			original event to match the consumed state of our new event.  This means that the
 			component passed to this method must, somewhere in its processing, consume the key
@@ -245,7 +247,7 @@ public class KeyBindingUtils {
 	 * <p>
 	 * The given action must have a keystroke assigned, or this method will do
 	 * nothing.
-	 * 
+	 *
 	 * @param component the component to which the given action will be bound
 	 * @param action the action to bind
 	 */
@@ -263,12 +265,12 @@ public class KeyBindingUtils {
 	 * <p>
 	 * The given action must have a keystroke assigned, or this method will do
 	 * nothing.
-	 * 
+	 *
 	 * <p>
 	 * A typical use-case is to register an existing docking action with a text
 	 * component, which is needed because the docking key event processing will
 	 * not execute docking- registered actions if a text component has focus.
-	 * 
+	 *
 	 * @param component the component to which the given action will be bound
 	 * @param action the action to bind
 	 * @param contextProvider the provider of the context
@@ -289,12 +291,12 @@ public class KeyBindingUtils {
 	 * <p>
 	 * The given action must have a keystroke assigned, or this method will do
 	 * nothing.
-	 * 
+	 *
 	 * <p>
 	 * A typical use-case is to register an existing docking action with a text
 	 * component, which is needed because the docking key event processing will
 	 * not execute docking- registered actions if a text component has focus.
-	 * 
+	 *
 	 * @param component the component to which the given action will be bound
 	 * @param action the action to bind
 	 * @param contextProvider the provider of the context
@@ -311,12 +313,12 @@ public class KeyBindingUtils {
 	/**
 	 * Registers the given action with the given key binding on the given
 	 * component.
-	 * 
+	 *
 	 * @param component the component to which the action will be registered
 	 * @param keyStroke the keystroke for to which the action will be bound
 	 * @param action the action to execute when the given keystroke is triggered
 	 * @param focusCondition the focus condition under which to bind the action
-	 *            ({@link JComponent#getInputMap(int)}).  See {@link JComponent} for more info; 
+	 *            ({@link JComponent#getInputMap(int)}).  See {@link JComponent} for more info;
 	 *            the default is usually {@link JComponent#WHEN_FOCUSED}
 	 */
 	public static void registerAction(JComponent component, KeyStroke keyStroke, Action action,
@@ -338,9 +340,15 @@ public class KeyBindingUtils {
 		}
 
 		Object keyText = im.get(keyStroke);
-		if (keyText == null) {
+		if (keyText == null || keyText.equals(NO_KEYBINDING_NAME)) {
 			// no binding--just pick a name
 			keyText = action.getValue(Action.NAME);
+			if (keyText == null) {
+				Msg.error(KeyBindingUtils.class, "Action must have a name to be registered",
+					ReflectionUtilities.createJavaFilteredThrowable());
+				return;
+			}
+
 			im.put(keyStroke, keyText);
 		}
 
@@ -348,12 +356,12 @@ public class KeyBindingUtils {
 	}
 
 	/**
-	 * Allows the client to clear Java key bindings when the client is creating a docking 
+	 * Allows the client to clear Java key bindings when the client is creating a docking
 	 * action.   Without this call, any actions bound to the given component will prevent an
 	 * action with the same key binding from firing.  This is useful when your
 	 * application is using tool-level key bindings that share the same
 	 * keystroke as a built-in Java action, such as Ctrl-C for the copy action.
-	 * 
+	 *
 	 * @param component the component for which to clear the key binding
 	 * @param action the action from which to get the key binding
 	 */
@@ -370,10 +378,10 @@ public class KeyBindingUtils {
 	 * application is using tool-level key bindings that share the same
 	 * keystroke as a built-in Java action, such as Ctrl-C for the copy action.
 	 * <p>
-	 * Note: this method clears the key binding for the 
-	 * {@link JComponent#WHEN_FOCUSED} and 
+	 * Note: this method clears the key binding for the
+	 * {@link JComponent#WHEN_FOCUSED} and
 	 * {@link JComponent#WHEN_ANCESTOR_OF_FOCUSED_COMPONENT} focus conditions.
-	 * 
+	 *
 	 * @param component the component for which to clear the key binding
 	 * @param keyStroke the keystroke of the binding to be cleared
 	 * @see #clearKeyBinding(JComponent, KeyStroke, int)
@@ -387,7 +395,7 @@ public class KeyBindingUtils {
 	 * Allows clients to clear Java key bindings. This is useful when your
 	 * application is using tool-level key bindings that share the same
 	 * keystroke as a built-in Java action, such as Ctrl-C for the copy action.
-	 * 
+	 *
 	 * @param component the component for which to clear the key binding
 	 * @param keyStroke the keystroke of the binding to be cleared
 	 * @param focusCondition the particular focus condition under which the
@@ -398,14 +406,14 @@ public class KeyBindingUtils {
 			int focusCondition) {
 		InputMap inputMap = component.getInputMap(focusCondition);
 		if (inputMap != null) {
-			inputMap.put(keyStroke, "none");
+			inputMap.put(keyStroke, NO_KEYBINDING_NAME);
 		}
 	}
 
 	/**
 	 * Clears the currently assigned Java key binding for the action by the given name.  This
 	 * method will find the currently assigned key binding, if any, and then remove it.
-	 * 
+	 *
 	 * @param component the component for which to clear the key binding
 	 * @param actionName the name of the action that should not have a key binding
 	 * @see LookAndFeel
@@ -419,6 +427,12 @@ public class KeyBindingUtils {
 
 		KeyStroke keyStroke = null;
 		KeyStroke[] keys = inputMap.allKeys();
+		if (keys == null) {
+			Msg.debug(KeyBindingUtils.class, "Cannot remove action by name; does not exist: '" +
+				actionName + "' " + "on component: " + component.getClass().getSimpleName());
+			return;
+		}
+
 		for (KeyStroke ks : keys) {
 			Object object = inputMap.get(ks);
 			if (actionName.equals(object)) {
@@ -435,7 +449,7 @@ public class KeyBindingUtils {
 	/**
 	 * Returns the registered action for the given keystroke, or null of no
 	 * action is bound to that keystroke.
-	 * 
+	 *
 	 * @param component the component for which to check the binding
 	 * @param keyStroke the keystroke for which to find a bound action
 	 * @param focusCondition the focus condition under which to check for the
@@ -455,14 +469,14 @@ public class KeyBindingUtils {
 	}
 
 	/**
-	 * A utility method to get all key binding actions.  This method will 
+	 * A utility method to get all key binding actions.  This method will
 	 * only return actions that support {@link KeyBindingType key bindings}.
-	 * 
-	 * <p>The mapping returned provides a list of items because it is possible for there to 
+	 *
+	 * <p>The mapping returned provides a list of items because it is possible for there to
 	 * exists multiple actions with the same name and owner.  (This can happen when multiple copies
 	 * of a component provider are shown, each with their own set of actions that share the
 	 * same name.)
-	 * 
+	 *
 	 * @param tool the tool containing the actions
 	 * @return the actions mapped by their full name (e.g., 'Name (OwnerName)')
 	 */
@@ -474,7 +488,7 @@ public class KeyBindingUtils {
 		for (DockingActionIf action : actions) {
 			if (isIgnored(action)) {
 				// don't bother tracking non-keybinding actions; this would be a mistake due
-				// to the potential for a shared key binding action overwriting its 
+				// to the potential for a shared key binding action overwriting its
 				// SharedStubKeyBindingAction
 				continue;
 			}
@@ -486,23 +500,22 @@ public class KeyBindingUtils {
 	}
 
 	/**
-	 * A utility method to get all key binding actions that have the given owner.  
-	 * This method will remove duplicate actions and will only return actions 
+	 * A utility method to get all key binding actions that have the given owner.
+	 * This method will remove duplicate actions and will only return actions
 	 * that support {@link KeyBindingType key bindings}.
-	 * 
+	 *
 	 * @param tool the tool containing the actions
 	 * @param owner the action owner name
 	 * @return the actions
 	 */
-	public static Set<DockingActionIf> getKeyBindingActionsForOwner(Tool tool,
-			String owner) {
+	public static Set<DockingActionIf> getKeyBindingActionsForOwner(Tool tool, String owner) {
 
 		Map<String, DockingActionIf> deduper = new HashMap<>();
 		Set<DockingActionIf> actions = tool.getDockingActionsByOwnerName(owner);
 		for (DockingActionIf action : actions) {
 			if (isIgnored(action)) {
 				// don't bother tracking non-keybinding actions; this would be a mistake due
-				// to the potential for a shared key binding action overwriting its 
+				// to the potential for a shared key binding action overwriting its
 				// SharedStubKeyBindingAction
 				continue;
 			}
@@ -515,7 +528,7 @@ public class KeyBindingUtils {
 
 	/**
 	 * Returns all actions that match the given owner and name
-	 * 
+	 *
 	 * @param allActions the universe of actions
 	 * @param owner the owner
 	 * @param name the name
@@ -532,13 +545,13 @@ public class KeyBindingUtils {
 	/**
 	 * Takes the existing docking action and allows it to be registered with
 	 * Swing components
-	 * 
+	 *
 	 * <p>
 	 * The new action will not be correctly wired into the Docking Action
 	 * Context system. This means that the given docking action should not rely
 	 * on {@link DockingAction#isEnabledForContext(docking.ActionContext)} to
 	 * work when called from the Swing widget.
-	 * 
+	 *
 	 * @param action the docking action to adapt to a Swing {@link Action}
 	 * @return the new action
 	 */
@@ -547,70 +560,14 @@ public class KeyBindingUtils {
 	}
 
 	/**
-	 * Checks each action in the given collection against the given new action to make sure that
-	 * they share the same default key binding.
-	 * 
-	 * @param newAction the action to check
-	 * @param existingActions the actions that have already been checked
-	 */
-	public static void assertSameDefaultKeyBindings(DockingActionIf newAction,
-			Collection<DockingActionIf> existingActions) {
-
-		if (!newAction.getKeyBindingType().supportsKeyBindings()) {
-			return;
-		}
-
-		KeyBindingData newDefaultBinding = newAction.getDefaultKeyBindingData();
-		KeyStroke defaultKs = getKeyStroke(newDefaultBinding);
-		for (DockingActionIf action : existingActions) {
-			if (!action.getKeyBindingType().supportsKeyBindings()) {
-				continue;
-			}
-
-			KeyBindingData existingDefaultBinding = action.getDefaultKeyBindingData();
-			KeyStroke existingKs = getKeyStroke(existingDefaultBinding);
-			if (!Objects.equals(defaultKs, existingKs)) {
-				logDifferentKeyBindingsWarnigMessage(newAction, action, existingKs);
-				break; // one warning seems like enough
-			}
-		}
-	}
-
-	/**
-	 * Logs a warning message for the two given actions to signal that they do not share the
-	 * same default key binding
-	 * 
-	 * @param newAction the new action
-	 * @param existingAction the action that has already been validated
-	 * @param existingDefaultKs the current validated key stroke
-	 */
-	public static void logDifferentKeyBindingsWarnigMessage(DockingActionIf newAction,
-			DockingActionIf existingAction, KeyStroke existingDefaultKs) {
-
-		//@formatter:off
-		String s = "Shared Key Binding Actions have different default values.  These " +
-				"must be the same." +
-				"\n\tAction name: '"+existingAction.getName()+"'" + 
-				"\n\tAction 1: " + existingAction.getInceptionInformation() +
-				"\n\t\tKey Binding: " + existingDefaultKs +
-				"\n\tAction 2: " + newAction.getInceptionInformation() + 
-				"\n\t\tKey Binding: " + newAction.getKeyBinding() +
-				"\nUsing the " +
-				"first value set - " + existingDefaultKs;
-		//@formatter:on
-
-		Msg.warn(KeyBindingUtils.class, s, ReflectionUtilities.createJavaFilteredThrowable());
-	}
-
-	/**
-	 * Updates the given data with system-independent versions of key modifiers.  For example, 
+	 * Updates the given data with system-independent versions of key modifiers.  For example,
 	 * the <code>control</code> key will be converted to the <code>command</code> key on the Mac.
-	 * 
+	 *
 	 * @param keyStroke the keystroke to validate
 	 * @return the potentially changed keystroke
 	 */
-	// TODO ignore the deprecation, as this method is responsible for fixing deprecated usage.  
-	//      When all actions no longer user the deprecated modifiers, the deprecated elements 
+	// TODO ignore the deprecation, as this method is responsible for fixing deprecated usage.
+	//      When all actions no longer user the deprecated modifiers, the deprecated elements
 	//      of this method can be removed
 	@SuppressWarnings("deprecation")
 	public static KeyStroke validateKeyStroke(KeyStroke keyStroke) {
@@ -667,10 +624,10 @@ public class KeyBindingUtils {
 	 * and we want it to look like: "Ctrl-M".
 	 * <br>In Java 1.5.0, Ctrl-M is returned as "ctrl pressed M"
 	 * and we want it to look like: "Ctrl-M".
-	 * <br>In Java 11 we have seen toString() values get printed with repeated text, such 
+	 * <br>In Java 11 we have seen toString() values get printed with repeated text, such
 	 * as: "shift ctrl pressed SHIFT".  We want to trim off the repeated modifiers.
-	 * 
-	 * @param keyStroke the key stroke  
+	 *
+	 * @param keyStroke the key stroke
 	 * @return the string value; the empty string if the key stroke is null
 	 */
 	public static String parseKeyStroke(KeyStroke keyStroke) {
@@ -717,19 +674,19 @@ public class KeyBindingUtils {
 		StringBuilder buffy = new StringBuilder();
 		if (isShift(modifiers)) {
 			buffy.insert(0, SHIFT + MODIFIER_SEPARATOR);
-			keyString = removeIgnoreCase(keyString, SHIFT);
+			keyString = remove(keyString, SHIFT);
 		}
 		if (isAlt(modifiers)) {
 			buffy.insert(0, ALT + MODIFIER_SEPARATOR);
-			keyString = removeIgnoreCase(keyString, ALT);
+			keyString = remove(keyString, ALT);
 		}
 		if (isControl(modifiers)) {
 			buffy.insert(0, CTRL + MODIFIER_SEPARATOR);
-			keyString = removeIgnoreCase(keyString, CONTROL);
+			keyString = remove(keyString, CONTROL);
 		}
 		if (isMeta(modifiers)) {
 			buffy.insert(0, META + MODIFIER_SEPARATOR);
-			keyString = removeIgnoreCase(keyString, META);
+			keyString = remove(keyString, META);
 		}
 		buffy.append(keyString);
 
@@ -741,31 +698,40 @@ public class KeyBindingUtils {
 	}
 
 	private static int indexOf(String source, String search, int offset) {
-		return StringUtils.indexOfIgnoreCase(source, search, offset);
+		return CI.indexOf(source, search, offset);
 	}
 
-	// ignore the deprecated; remove when we are confident that all tool actions no longer use the 
+	private static int indexOf(String source, String search) {
+		return CI.indexOf(source, search);
+	}
+
+	private static String remove(String source, String toRemove) {
+		return CI.remove(source, toRemove);
+	}
+
+	// ignore the deprecated; remove when we are confident that all tool actions no longer use the
 	// deprecated InputEvent mask types
 	@SuppressWarnings("deprecation")
 	private static boolean isShift(int mask) {
 		return (mask & InputEvent.SHIFT_DOWN_MASK) != 0 || (mask & InputEvent.SHIFT_MASK) != 0;
 	}
 
-	// ignore the deprecated; remove when we are confident that all tool actions no longer use the 
+	// ignore the deprecated; remove when we are confident that all tool actions no longer use the
 	// deprecated InputEvent mask types
 	@SuppressWarnings("deprecation")
 	private static boolean isAlt(int mask) {
 		return (mask & InputEvent.ALT_DOWN_MASK) != 0 || (mask & InputEvent.ALT_MASK) != 0;
 	}
 
-	// ignore the deprecated; remove when we are confident that all tool actions no longer use the 
+	// ignore the deprecated; remove when we are confident that all tool actions no longer use the
 	// deprecated InputEvent mask types
 	@SuppressWarnings("deprecation")
 	private static boolean isControl(int mask) {
-		return (mask & InputEvent.CTRL_DOWN_MASK) != 0 || (mask & InputEvent.CTRL_MASK) != 0;
+		return (mask & InputEvent.CTRL_DOWN_MASK) != 0 || (mask & InputEvent.CTRL_MASK) != 0 ||
+			(mask & DockingUtils.CONTROL_KEY_MODIFIER_MASK) != 0;
 	}
 
-	// ignore the deprecated; remove when we are confident that all tool actions no longer use the 
+	// ignore the deprecated; remove when we are confident that all tool actions no longer use the
 	// deprecated InputEvent mask types
 	@SuppressWarnings("deprecation")
 	private static boolean isMeta(int mask) {
@@ -773,23 +739,30 @@ public class KeyBindingUtils {
 	}
 
 	/**
-	 * Parses the given text into a KeyStroke.  This method relies upon 
+	 * Parses the given text into a KeyStroke.  This method relies upon
 	 * {@link KeyStroke#getKeyStroke(String)} for parsing.  Before making that call, this method
-	 * will perform fixup on the given text for added flexibility.  For example, the given 
-	 * text may contain spaces or dashes as the separators between parts in the string.  Also, 
-	 * the text is converted such that it is not case-sensitive.  So, the following example 
+	 * will perform fixup on the given text for added flexibility.  For example, the given
+	 * text may contain spaces or dashes as the separators between parts in the string.  Also,
+	 * the text is converted such that it is not case-sensitive.  So, the following example
 	 * formats are allowed:
 	 * <pre>
 	 *    Alt-F
 	 *    alt p
 	 *    Ctrl-Alt-Z
 	 *    ctrl Z
-	 * </pre>  
-	 * 
+	 * </pre>
+	 *
+	 * <p><b>Note:</b> The returned keystroke will always correspond to a {@code pressed} event,
+	 * regardless of the value passed in (pressed, typed or released).
+	 *
 	 * @param keyStroke the key stroke
 	 * @return the new key stroke (as returned by  {@link KeyStroke#getKeyStroke(String)}
 	 */
 	public static KeyStroke parseKeyStroke(String keyStroke) {
+		if (StringUtils.isBlank(keyStroke)) {
+			return null;
+		}
+
 		List<String> pieces = new ArrayList<>();
 		StringTokenizer tokenizer = new StringTokenizer(keyStroke, "- ");
 		while (tokenizer.hasMoreTokens()) {
@@ -802,33 +775,33 @@ public class KeyBindingUtils {
 		StringBuilder buffy = new StringBuilder();
 		for (Iterator<String> iterator = pieces.iterator(); iterator.hasNext();) {
 			String piece = iterator.next();
-			if (indexOfIgnoreCase(piece, SHIFT) != -1) {
+			if (indexOf(piece, SHIFT) != -1) {
 				buffy.append("shift ");
 				iterator.remove();
 			}
-			else if (indexOfIgnoreCase(piece, CTRL) != -1) {
+			else if (indexOf(piece, CTRL) != -1) {
 				buffy.append("ctrl ");
 				iterator.remove();
 			}
-			else if (indexOfIgnoreCase(piece, CONTROL) != -1) {
+			else if (indexOf(piece, CONTROL) != -1) {
 				buffy.append("ctrl ");
 				iterator.remove();
 			}
-			else if (indexOfIgnoreCase(piece, ALT) != -1) {
+			else if (indexOf(piece, ALT) != -1) {
 				buffy.append("alt ");
 				iterator.remove();
 			}
-			else if (indexOfIgnoreCase(piece, META) != -1) {
+			else if (indexOf(piece, META) != -1) {
 				buffy.append("meta ");
 				iterator.remove();
 			}
-			else if (indexOfIgnoreCase(piece, PRESSED) != -1) {
+			else if (indexOf(piece, PRESSED) != -1) {
 				iterator.remove();
 			}
-			else if (indexOfIgnoreCase(piece, TYPED) != -1) {
+			else if (indexOf(piece, TYPED) != -1) {
 				iterator.remove();
 			}
-			else if (indexOfIgnoreCase(piece, RELEASED) != -1) {
+			else if (indexOf(piece, RELEASED) != -1) {
 				iterator.remove();
 			}
 
@@ -855,19 +828,12 @@ public class KeyBindingUtils {
 
 //==================================================================================================
 // Private Methods
-//==================================================================================================	
+//==================================================================================================
 
 	private static boolean isIgnored(DockingActionIf action) {
-		// a shared keybinding implies that this action should not be in 
+		// a shared keybinding implies that this action should not be in
 		// the UI, as there will be a single proxy in place of all actions sharing that binding
 		return !action.getKeyBindingType().isManaged();
-	}
-
-	private static KeyStroke getKeyStroke(KeyBindingData data) {
-		if (data == null) {
-			return null;
-		}
-		return data.getKeyBinding();
 	}
 
 	// prompts the user for a file location from which to read key binding data
@@ -922,9 +888,11 @@ public class KeyBindingUtils {
 	private static File getStartingDir() {
 		String lastDirectoryPath = Preferences.getProperty(LAST_KEY_BINDING_EXPORT_DIRECTORY);
 		if (lastDirectoryPath != null) {
-			return new File(lastDirectoryPath);
+			File dir = new File(lastDirectoryPath);
+			if (dir.isDirectory()) {
+				return dir;
+			}
 		}
-
 		return new File(System.getProperty("user.home"));
 	}
 
@@ -949,7 +917,7 @@ public class KeyBindingUtils {
 		// return them to that spot if they user the dialog again.
 		Preferences.setProperty(LAST_KEY_BINDING_EXPORT_DIRECTORY,
 			fileChooser.getCurrentDirectory().getAbsolutePath());
-
+		fileChooser.dispose();
 		return selectedFile;
 	}
 }

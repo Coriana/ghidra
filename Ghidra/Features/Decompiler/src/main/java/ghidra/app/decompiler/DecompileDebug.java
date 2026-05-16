@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,8 +15,12 @@
  */
 package ghidra.app.decompiler;
 
+import static ghidra.program.model.pcode.AttributeId.*;
+import static ghidra.program.model.pcode.ElementId.*;
+
 import java.io.*;
 import java.util.*;
+import java.util.Map.Entry;
 
 import ghidra.app.decompiler.DecompileCallback.StringData;
 import ghidra.app.plugin.processors.sleigh.ContextCache;
@@ -46,10 +50,10 @@ public class DecompileDebug {
 	private Function func;					// The function being decompiled
 	private Program program;				// The program
 	private File debugFile;					// The file to dump the XML document to
+	private Map<String, Object> specExtensions;	// Local extensions to the compiler spec
 	private ArrayList<Namespace> dbscope;	// Symbol query:  scope
 	private ArrayList<String> database;		//                description of the symbol
 	private ArrayList<DataType> dtypes;		// Data-types queried
-	private ArrayList<String> symbol;		// Names of code labels
 	private ArrayList<String> context;		// Tracked register values associated with an address
 	private ArrayList<String> cpool;		// Constant pool results
 	private ArrayList<String> flowoverride;	// Flow overrides associated with an address
@@ -108,17 +112,17 @@ public class DecompileDebug {
 	public DecompileDebug(File debugf) {
 		func = null;
 		debugFile = debugf;
-		dbscope = new ArrayList<Namespace>();
-		database = new ArrayList<String>();
-		dtypes = new ArrayList<DataType>();
-		symbol = new ArrayList<String>();
-		context = new ArrayList<String>();
-		cpool = new ArrayList<String>();
-		byteset = new TreeSet<ByteChunk>();
-		contextchange = new TreeSet<Address>();
-		stringmap = new TreeMap<Address, StringData>();
-		flowoverride = new ArrayList<String>();
-		inject = new ArrayList<String>();
+		specExtensions = new TreeMap<>();
+		dbscope = new ArrayList<>();
+		database = new ArrayList<>();
+		dtypes = new ArrayList<>();
+		context = new ArrayList<>();
+		cpool = new ArrayList<>();
+		byteset = new TreeSet<>();
+		contextchange = new TreeSet<>();
+		stringmap = new TreeMap<>();
+		flowoverride = new ArrayList<>();
+		inject = new ArrayList<>();
 		contextRegister = null;
 		comments = null;
 		globalnamespace = null;
@@ -159,6 +163,7 @@ public class DecompileDebug {
 			buf.append(">\n");
 			debugStream.write(buf.toString().getBytes());
 			dumpImage(debugStream, pcodelanguage);
+			dumpExtensions(debugStream);
 			dumpCoretypes(debugStream);
 			debugStream.write("<save_state>\n".getBytes());
 //			dumpTypes(debugStream);
@@ -179,7 +184,6 @@ public class DecompileDebug {
 			debugStream.close();
 		}
 		catch (Exception e) {
-			// TODO Auto-generated catch block
 			Msg.error(this, "Unexpected Exception: " + e.getMessage(), e);
 		}
 	}
@@ -192,9 +196,6 @@ public class DecompileDebug {
 		binimage += "\">\n";
 		debugStream.write(binimage.getBytes());
 		dumpBytes(debugStream);
-		for (String element : symbol) {
-			debugStream.write((element).getBytes());
-		}
 		debugStream.write("</binaryimage>\n".getBytes());
 	}
 
@@ -228,24 +229,23 @@ public class DecompileDebug {
 				lastreadonly = readval;
 			}
 
-			if (tagstarted &&
-				((chunk.min != 0) || (lastspace != space) || (lastoffset != chunk.addr.getOffset()))) {
+			if (tagstarted && ((chunk.min != 0) || (lastspace != space) ||
+				(lastoffset != chunk.addr.getOffset()))) {
 				buf.append("\n</bytechunk>\n");
 				tagstarted = false;
 			}
 			if (!tagstarted) {
 				buf.append("<bytechunk");
-				SpecXmlUtils.encodeStringAttribute(buf, "space", space.getPhysicalSpace().getName());
-				SpecXmlUtils.encodeUnsignedIntegerAttribute(buf, "offset", chunk.addr.getOffset() +
-					chunk.min);
+				SpecXmlUtils.encodeStringAttribute(buf, "space", space.getName());
+				SpecXmlUtils.encodeUnsignedIntegerAttribute(buf, "offset",
+					chunk.addr.getOffset() + chunk.min);
 				if (lastreadonly) {
 					SpecXmlUtils.encodeBooleanAttribute(buf, "readonly", lastreadonly);
 				}
 				buf.append(">\n");
 				tagstarted = true;
 			}
-			for (int i = 0; i < chunk.min; ++i)
-			 {
+			for (int i = 0; i < chunk.min; ++i) {
 				buf.append("  ");					// pad the hex display to 16 bytes
 			}
 			for (int i = chunk.min; i < chunk.max; ++i) {
@@ -291,14 +291,14 @@ public class DecompileDebug {
 		if (stringmap.isEmpty()) {
 			return;
 		}
-		StringBuilder buf = new StringBuilder();
-		buf.append("<stringmanage>\n");
+		XmlEncode encoder = new XmlEncode();
+		encoder.openElement(ELEM_STRINGMANAGE);
 		for (Map.Entry<Address, StringData> entry : stringmap.entrySet()) {
-			buf.append("<string>\n<addr");
-			Varnode.appendSpaceOffset(buf, entry.getKey());
-			buf.append("/>\n<bytes");
-			SpecXmlUtils.encodeBooleanAttribute(buf, "trunc", entry.getValue().isTruncated);
-			buf.append(">\n  ");
+			encoder.openElement(ELEM_STRING);
+			AddressXML.encode(encoder, entry.getKey());
+			encoder.openElement(ELEM_BYTES);
+			encoder.writeBool(ATTRIB_TRUNC, entry.getValue().isTruncated);
+			StringBuilder buf = new StringBuilder();
 			int count = 0;
 			for (byte element : entry.getValue().byteData) {
 				int hi = (element >> 4) & 0xf;
@@ -320,38 +320,36 @@ public class DecompileDebug {
 				if (count % 20 == 19) {
 					buf.append("\n  ");
 				}
+				count++;
 			}
-			buf.append("00\n</bytes>\n");
-			buf.append("</string>\n");
+			buf.append("00\n");
+			encoder.writeString(ATTRIB_CONTENT, buf.toString());
+			encoder.closeElement(ELEM_BYTES);
+			encoder.closeElement(ELEM_STRING);
 		}
-		buf.append("</stringmanage>\n");
-		debugStream.write(buf.toString().getBytes());
+		encoder.closeElement(ELEM_STRINGMANAGE);
+		encoder.writeTo(debugStream);
 	}
 
 	private void dumpDataTypes(OutputStream debugStream) throws IOException {
-		int intSize = program.getCompilerSpec().getDataOrganization().getIntegerSize();
-		StringBuilder buf = new StringBuilder();
-		buf.append("<typegrp");
-		SpecXmlUtils.encodeSignedIntegerAttribute(buf, "intsize", intSize);
-		SpecXmlUtils.encodeSignedIntegerAttribute(buf, "structalign", 4);
-		SpecXmlUtils.encodeSignedIntegerAttribute(buf, "enumsize", 4);
-		SpecXmlUtils.encodeBooleanAttribute(buf, "enumsigned", false);
-		buf.append(">\n");
+		XmlEncode encoder = new XmlEncode();
+		encoder.openElement(ELEM_TYPEGRP);
+		encoder.writeSignedInteger(ATTRIB_STRUCTALIGN, 4);
 		// structalign should come out of pcodelanguage.getCompilerSpec()
-		debugStream.write(buf.toString().getBytes());
 		DataTypeDependencyOrderer TypeOrderer =
 			new DataTypeDependencyOrderer(program.getDataTypeManager(), dtypes);
 		//First output all structures as zero size so to avoid any cyclic dependencies.
-		for (DataType dataType : TypeOrderer.getStructList()) {
-			debugStream.write((dtmanage.buildStructTypeZeroSizeOveride(dataType) + "\n").toString().getBytes());
+		for (DataType dataType : TypeOrderer.getCompositeList()) {
+			dtmanage.encodeCompositePlaceholder(encoder, dataType);
 		}
 		//Next, use the dependency stack to output types.
 		for (DataType dataType : TypeOrderer.getDependencyList()) {
 			if (!(dataType instanceof BuiltIn)) {
-				debugStream.write((dtmanage.buildType(dataType, dataType.getLength()) + "\n").toString().getBytes());
+				dtmanage.encodeType(encoder, dataType, dataType.getLength());
 			}
 		}
-		debugStream.write("</typegrp>\n".getBytes());
+		encoder.closeElement(ELEM_TYPEGRP);
+		encoder.writeTo(debugStream);
 	}
 
 	private void dumpTrackedContext(OutputStream debugStream) throws IOException {
@@ -369,7 +367,7 @@ public class DecompileDebug {
 		if (!(lang instanceof SleighLanguage)) {
 			return null;
 		}
-		ArrayList<ContextSymbol> res = new ArrayList<ContextSymbol>();
+		ArrayList<ContextSymbol> res = new ArrayList<>();
 		ghidra.app.plugin.processors.sleigh.symbol.Symbol[] list =
 			((SleighLanguage) lang).getSymbolTable().getSymbolList();
 		for (Symbol element : list) {
@@ -422,7 +420,6 @@ public class DecompileDebug {
 			Address addr = iter.next();
 			ProgramProcessorContext procctx = new ProgramProcessorContext(progctx, addr);
 			ctxcache.getContext(procctx, buf);
-			StringBuilder stringBuf = new StringBuilder();
 			if (lastbuf != null) {		// Check to make sure we don't have identical context data
 				int i;
 				for (i = 0; i < buf.length; ++i) {
@@ -430,8 +427,7 @@ public class DecompileDebug {
 						break;
 					}
 				}
-				if (i == buf.length)
-				 {
+				if (i == buf.length) {
 					continue;	// If all data is identical, then changepoint is not necessary
 				}
 			}
@@ -442,26 +438,25 @@ public class DecompileDebug {
 				lastbuf[i] = buf[i];
 			}
 
-			stringBuf.append("<context_pointset");
-			Varnode.appendSpaceOffset(stringBuf, addr);
-			stringBuf.append(">\n");
+			XmlEncode encoder = new XmlEncode();
+			encoder.openElement(ELEM_CONTEXT_POINTSET);
+			AddressXML.encodeAttributes(encoder, addr);
 			for (ContextSymbol sym : ctxsymbols) {
-				int sbit = sym.getLow();
-				int ebit = sym.getHigh();
+				int sbit = sym.getInternalLow();
+				int ebit = sym.getInternalHigh();
 				int word = sbit / (8 * 4);
 				int startbit = sbit - word * (8 * 4);
 				int endbit = ebit - word * (8 * 4);
 				int shift = (8 * 4) - endbit - 1;
 				int mask = -1 >>> (startbit + shift);
 				int val = (buf[word] >>> shift) & mask;
-				stringBuf.append("  <set");
-				SpecXmlUtils.encodeStringAttribute(stringBuf, "name", sym.getName());
-				SpecXmlUtils.encodeSignedIntegerAttribute(stringBuf, "val", val);
-				stringBuf.append("/>\n");
+				encoder.openElement(ELEM_SET);
+				encoder.writeString(ATTRIB_NAME, sym.getName());
+				encoder.writeSignedInteger(ATTRIB_VAL, val);
+				encoder.closeElement(ELEM_SET);
 			}
-			stringBuf.append("</context_pointset>\n");
-			String end = stringBuf.toString();
-			debugStream.write(end.getBytes());
+			encoder.closeElement(ELEM_CONTEXT_POINTSET);
+			encoder.writeTo(debugStream);
 		}
 	}
 
@@ -470,7 +465,7 @@ public class DecompileDebug {
 			return;
 		}
 		debugStream.write("<constantpool>\n".getBytes());
-		for(String rec : cpool) {
+		for (String rec : cpool) {
 			debugStream.write(rec.getBytes());
 		}
 		debugStream.write("</constantpool>\n".getBytes());
@@ -496,8 +491,8 @@ public class DecompileDebug {
 		for (String element : flowoverride) {
 			debugStream.write(element.getBytes());
 		}
-		
-		debugStream.write("</flowoverridelist>\n".getBytes());		
+
+		debugStream.write("</flowoverridelist>\n".getBytes());
 	}
 
 	private void dumpInject(OutputStream debugStream) throws IOException {
@@ -511,56 +506,116 @@ public class DecompileDebug {
 		debugStream.write("</injectdebug>\n".getBytes());
 	}
 
+	private ArrayList<Namespace> orderNamespaces() {
+		TreeMap<Long, Namespace> namespaceMap = new TreeMap<>();
+		for (Namespace namespace : dbscope) {
+			namespaceMap.put(namespace.getID(), namespace);
+		}
+		ArrayList<Namespace> res = new ArrayList<>();
+		while (!namespaceMap.isEmpty()) {
+			Entry<Long, Namespace> entry = namespaceMap.firstEntry();
+			Long curKey = entry.getKey();
+			Namespace curSpace = entry.getValue();
+			for (;;) {
+				Long key;
+				Namespace parent = curSpace.getParentNamespace();
+				if (parent == null) {
+					break;
+				}
+				if (HighFunction.collapseToGlobal(parent)) {
+					key = Long.valueOf(Namespace.GLOBAL_NAMESPACE_ID);
+				}
+				else {
+					key = Long.valueOf(parent.getID());
+				}
+				parent = namespaceMap.get(key);
+				if (parent == null) {
+					break;
+				}
+				curKey = key;
+				curSpace = parent;
+			}
+			res.add(curSpace);
+			namespaceMap.remove(curKey);
+		}
+		return res;
+	}
+
 	private void dumpDatabases(OutputStream debugStream) throws IOException {
 		Namespace scopename = null;
-		debugStream.write("<db>\n".getBytes());
-		for (int i = 0; i < database.size(); ++i) {
-			scopename = dbscope.get(i);
-			if (scopename != null) {
-				break;
-			}
-		}
-		while (scopename != null) {
+		ArrayList<Namespace> spaceList = orderNamespaces();
+		debugStream.write("<db scopeidbyname=\"false\">\n".getBytes());
+		for (Namespace element : spaceList) {
+			scopename = element;
 			StringBuilder datahead = new StringBuilder();
 			Namespace parentNamespace;
 			datahead.append("<scope");
 			// Force globalnamespace to have blank name
-			if (scopename != globalnamespace && !(scopename instanceof Library)) {
+			if (scopename != globalnamespace) {
 				SpecXmlUtils.xmlEscapeAttribute(datahead, "name", scopename.getName());
 				parentNamespace = scopename.getParentNamespace();
+				SpecXmlUtils.encodeUnsignedIntegerAttribute(datahead, "id", scopename.getID());
 			}
 			else {
 				SpecXmlUtils.encodeStringAttribute(datahead, "name", "");
+				SpecXmlUtils.encodeUnsignedIntegerAttribute(datahead, "id",
+					Namespace.GLOBAL_NAMESPACE_ID);
 				parentNamespace = null;
 			}
 			datahead.append(">\n");
-			HighFunction.createNamespaceTag(datahead, parentNamespace, false);
+			if (parentNamespace != null) {
+				long parentId =
+					HighFunction.collapseToGlobal(parentNamespace) ? Namespace.GLOBAL_NAMESPACE_ID
+							: parentNamespace.getID();
+				datahead.append("<parent");
+				SpecXmlUtils.encodeUnsignedIntegerAttribute(datahead, "id", parentId);
+				datahead.append("/>\n");
+			}
 			if (scopename != globalnamespace) {
 				datahead.append("<rangeequalssymbols/>\n");
 			}
 			datahead.append("<symbollist>\n");
 			debugStream.write(datahead.toString().getBytes());
-			for (int i = 0; i < database.size(); ++i) {
-				Namespace namespc = dbscope.get(i);
+			for (int j = 0; j < database.size(); ++j) {
+				Namespace namespc = dbscope.get(j);
 				if (namespc == scopename) {
-					debugStream.write((database.get(i)).getBytes());
-					dbscope.set(i, null);
+					String entry = database.get(j);
+					if (entry == null) {
+						continue;			// String may be null
+					}
+					debugStream.write(entry.getBytes());
 				}
 			}
 			debugStream.write("</symbollist>\n</scope>\n".getBytes());
-			scopename = null;
-			for (Namespace element : dbscope) {
-				scopename = element;
-				if (scopename != null) {
-					break;
-				}
-			}
 		}
 		debugStream.write("</db>\n".getBytes());
 	}
 
+	private void dumpExtensions(OutputStream debugStream) throws IOException {
+		if (specExtensions.isEmpty()) {
+			return;
+		}
+		PcodeInjectLibrary library = program.getCompilerSpec().getPcodeInjectLibrary();
+		XmlEncode encoder = new XmlEncode();
+		encoder.openElement(ELEM_SPECEXTENSIONS);
+		for (Object obj : specExtensions.values()) {
+			if (obj instanceof PrototypeModel) {
+				PrototypeModel model = (PrototypeModel) obj;
+				model.encode(encoder, library);
+			}
+			else if (obj instanceof InjectPayload) {
+				InjectPayload payload = (InjectPayload) obj;
+				payload.encode(encoder);
+			}
+		}
+		encoder.closeElement(ELEM_SPECEXTENSIONS);
+		encoder.writeTo(debugStream);
+	}
+
 	private void dumpCoretypes(OutputStream debugStream) throws IOException {
-		debugStream.write(dtmanage.buildCoreTypes().getBytes());
+		XmlEncode encoder = new XmlEncode();
+		dtmanage.encodeCoreTypes(encoder);
+		encoder.writeTo(debugStream);
 	}
 
 	public void getPcode(Address addr, Instruction instr) {
@@ -627,19 +682,34 @@ public class DecompileDebug {
 		comments = comm;	// Already in XML form
 	}
 
-	public void getSymbol(Address addr, String name) {
-		StringBuilder buf = new StringBuilder();
-		buf.append("<symbol");
-		AddressSpace space = addr.getAddressSpace();
-		SpecXmlUtils.encodeStringAttribute(buf, "space", space.getPhysicalSpace().getName());
-		SpecXmlUtils.encodeUnsignedIntegerAttribute(buf, "offset", addr.getOffset());
-		SpecXmlUtils.xmlEscapeAttribute(buf, "name", name);
-		buf.append("/>\n");
-		symbol.add(buf.toString());
+	public void getCodeSymbol(Address addr, long id, String name, Namespace namespace)
+			throws IOException {
+		XmlEncode encoder = new XmlEncode();
+		encoder.openElement(ELEM_MAPSYM);
+		encoder.openElement(ELEM_LABELSYM);
+		encoder.writeString(ATTRIB_NAME, name);
+		encoder.writeUnsignedInteger(ATTRIB_ID, id);
+		encoder.closeElement(ELEM_LABELSYM);
+		AddressXML.encode(encoder, addr);
+		encoder.openElement(ELEM_RANGELIST);
+		encoder.closeElement(ELEM_RANGELIST);
+		encoder.closeElement(ELEM_MAPSYM);
+		getMapped(namespace, encoder.toString());
+	}
+
+	public void getNamespacePath(Namespace namespace) {
+		while (namespace != null) {
+			if (HighFunction.collapseToGlobal(namespace)) {
+				break;		// Treat library namespace as root
+			}
+			dbscope.add(namespace);		// Add namespace to guarantee <scope> tag
+			database.add(null);			// Even if there isn't necessarily any symbols
+			namespace = namespace.getParentNamespace();
+		}
 	}
 
 	public void getMapped(Namespace namespc, String res) {
-		if (namespc == null) {
+		if (namespc == null || HighFunction.collapseToGlobal(namespc)) {
 			dbscope.add(globalnamespace);
 		}
 		else {
@@ -663,7 +733,7 @@ public class DecompileDebug {
 		context.add(doc);
 	}
 
-	public void getCPoolRef(String rec,long[] refs) {
+	public void getCPoolRef(String rec, long[] refs) {
 		StringBuilder buf = new StringBuilder();
 		buf.append("<ref");
 		SpecXmlUtils.encodeUnsignedIntegerAttribute(buf, "a", refs[0]);
@@ -685,43 +755,61 @@ public class DecompileDebug {
 		getMapped(spc, buffer.toString());
 	}
 
-	public void addFlowOverride(Address addr,FlowOverride fo) {
-		StringBuilder buf = new StringBuilder();
-		buf.append("<flow type=\"");
+	public void addFlowOverride(Address addr, FlowOverride fo) throws IOException {
+		XmlEncode encoder = new XmlEncode();
+		encoder.openElement(ELEM_FLOW);
 		if (fo == FlowOverride.BRANCH) {
-			buf.append("branch");
+			encoder.writeString(ATTRIB_TYPE, "branch");
 		}
 		else if (fo == FlowOverride.CALL) {
-			buf.append("call");
+			encoder.writeString(ATTRIB_TYPE, "call");
 		}
 		else if (fo == FlowOverride.CALL_RETURN) {
-			buf.append("callreturn");
+			encoder.writeString(ATTRIB_TYPE, "callreturn");
 		}
 		else if (fo == FlowOverride.RETURN) {
-			buf.append("return");
+			encoder.writeString(ATTRIB_TYPE, "return");
 		}
 		else {
-			buf.append("none");
+			encoder.writeString(ATTRIB_TYPE, "none");
 		}
-		buf.append("\"><addr");
-		Varnode.appendSpaceOffset(buf,func.getEntryPoint());
-		buf.append("/><addr");
-		Varnode.appendSpaceOffset(buf, addr);
-		buf.append("/></flow>\n");
-		flowoverride.add(buf.toString());
+		AddressXML.encode(encoder, func.getEntryPoint());
+		AddressXML.encode(encoder, addr);
+		encoder.closeElement(ELEM_FLOW);
+		flowoverride.add(encoder.toString());
 	}
 
-	public void addInject(Address addr,String name,int injectType,String payload) {
-		StringBuilder buf = new StringBuilder();
-		buf.append("<inject name=\"");
-		buf.append(name);
-		buf.append('"');
-		SpecXmlUtils.encodeSignedIntegerAttribute(buf, "type", injectType);
-		buf.append(">\n  <addr");
-		Varnode.appendSpaceOffset(buf, addr);
-		buf.append("/>\n  <payload><![CDATA[\n");
-		buf.append(payload);
-		buf.append("\n]]></payload>\n</inject>\n");
-		inject.add(buf.toString());
+	public void addInject(Address addr, String name, int injectType, String payload)
+			throws IOException {
+		XmlEncode encoder = new XmlEncode();
+		encoder.openElement(ELEM_INJECT);
+		encoder.writeString(ATTRIB_NAME, name);
+		encoder.writeSignedInteger(ATTRIB_TYPE, injectType);
+		AddressXML.encode(encoder, addr);
+		encoder.openElement(ELEM_PAYLOAD);
+		encoder.writeString(ATTRIB_CONTENT, payload);
+		encoder.closeElement(ELEM_PAYLOAD);
+		encoder.closeElement(ELEM_INJECT);
+		inject.add(encoder.toString());
+
+		PcodeInjectLibrary library = program.getCompilerSpec().getPcodeInjectLibrary();
+		if (library.hasProgramPayload(name, injectType)) {
+			InjectPayload programPayload = library.getPayload(injectType, name);
+			String title =
+				(injectType == InjectPayload.CALLFIXUP_TYPE) ? "callfixup_" : "callotherfixup_";
+			title = title + name;
+			specExtensions.put(title, programPayload);
+		}
+	}
+
+	public void addPossiblePrototypeExtension(Function testFunc) {
+		PrototypeModel model = testFunc.getCallingConvention();
+		if (model == null) {
+			return;
+		}
+		if (model.isProgramExtension()) {
+			String title = "prototype_" + model.getName();
+			specExtensions.put(title, model);
+		}
 	}
 }

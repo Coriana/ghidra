@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,8 +19,6 @@ import java.math.BigInteger;
 
 import ghidra.pcode.emulate.Emulate;
 import ghidra.pcode.emulate.EmulateInstructionStateModifier;
-import ghidra.pcode.emulate.callother.CountLeadingOnesOpBehavior;
-import ghidra.pcode.emulate.callother.CountLeadingZerosOpBehavior;
 import ghidra.pcode.error.LowlevelError;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.lang.Register;
@@ -28,6 +26,7 @@ import ghidra.program.model.lang.RegisterValue;
 import ghidra.program.model.pcode.PcodeOp;
 //import ghidra.pcode.emulate.callother.SignalingNaNOpBehavior;
 
+@Deprecated(forRemoval = true, since = "12.1")
 public class MIPSEmulateInstructionStateModifier extends EmulateInstructionStateModifier {
 
 	private Register ismReg;
@@ -37,21 +36,17 @@ public class MIPSEmulateInstructionStateModifier extends EmulateInstructionState
 
 	public MIPSEmulateInstructionStateModifier(Emulate emu) {
 		super(emu);
-		ismReg = language.getRegister("ISAModeSwitch");
 		isaModeReg = language.getRegister("ISA_MODE");
-		if (ismReg == null || isaModeReg == null) {
-			throw new RuntimeException("Expected language " + language.getLanguageID() +
-				" to have ISM and ISA_MODE registers defined");
+		if (isaModeReg != null) {
+			ismReg = language.getRegister("ISAModeSwitch");
+			if (ismReg == null) {
+				throw new RuntimeException(
+					"Expected ISA_VARIANT language " + language.getLanguageID() +
+						" to have ISAModeSwitch register defined");
+			}
+			ISA_MODE1 = new RegisterValue(isaModeReg, BigInteger.ONE);
+			ISA_MODE0 = new RegisterValue(isaModeReg, BigInteger.ZERO);
 		}
-		ISA_MODE1 = new RegisterValue(isaModeReg, BigInteger.ONE);
-		ISA_MODE0 = new RegisterValue(isaModeReg, BigInteger.ZERO);
-
-		// These classes are defined here:
-		// ghidra/Ghidra/Framework/SoftwareModeling/src/main/java/ghidra/pcode/emulate/callother
-
-		registerPcodeOpBehavior("countLeadingZeros", new CountLeadingZerosOpBehavior());
-
-		registerPcodeOpBehavior("countLeadingOnes", new CountLeadingOnesOpBehavior());
 
 		/**
 		 * We could registerPcodeOpBehavior for one or more of the following
@@ -79,6 +74,9 @@ public class MIPSEmulateInstructionStateModifier extends EmulateInstructionState
 	@Override
 	public void initialExecuteCallback(Emulate emulate, Address current_address,
 			RegisterValue contextRegisterValue) throws LowlevelError {
+		if (ismReg == null) {
+			return;
+		}
 		BigInteger isaModeValue = BigInteger.ZERO;
 		if (contextRegisterValue != null) {
 			isaModeValue =
@@ -102,6 +100,9 @@ public class MIPSEmulateInstructionStateModifier extends EmulateInstructionState
 	public void postExecuteCallback(Emulate emulate, Address lastExecuteAddress,
 			PcodeOp[] lastExecutePcode, int lastPcodeIndex, Address currentAddress)
 			throws LowlevelError {
+		if (ismReg == null) {
+			return;
+		}
 		if (lastPcodeIndex < 0) {
 			// ignore fall-through condition
 			return;

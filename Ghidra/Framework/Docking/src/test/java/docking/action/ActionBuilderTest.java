@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,7 +21,7 @@ import javax.swing.KeyStroke;
 
 import org.junit.Test;
 
-import docking.ActionContext;
+import docking.DefaultActionContext;
 import docking.action.builder.ActionBuilder;
 import resources.Icons;
 
@@ -172,7 +172,7 @@ public class ActionBuilderTest {
 				.build();
 
 		assertEquals(0, actionCount);
-		action.actionPerformed(new ActionContext());
+		action.actionPerformed(new DefaultActionContext());
 		assertEquals(6, actionCount);
 	}
 
@@ -199,19 +199,19 @@ public class ActionBuilderTest {
 				.onAction(e -> actionCount++)
 				.build();
 
-		assertTrue(action.isEnabledForContext(new ActionContext(null, this, null)));
-		assertFalse(action.isEnabledForContext(new ActionContext()));
+		assertTrue(action.isEnabledForContext(new DefaultActionContext(null, this, null)));
+		assertFalse(action.isEnabledForContext(new DefaultActionContext()));
 	}
 
 	@Test
 	public void testValidContextWhen() {
 		DockingAction action = new ActionBuilder("Test", "Test")
-				.validContextWhen(c -> c.getContextObject() == this)
+				.validWhen(c -> c.getContextObject() == this)
 				.onAction(e -> actionCount++)
 				.build();
 
-		assertTrue(action.isValidContext(new ActionContext(null, this, null)));
-		assertFalse(action.isValidContext(new ActionContext()));
+		assertTrue(action.isValidContext(new DefaultActionContext(null, this, null)));
+		assertFalse(action.isValidContext(new DefaultActionContext()));
 	}
 
 	@Test
@@ -221,8 +221,8 @@ public class ActionBuilderTest {
 				.onAction(e -> actionCount++)
 				.build();
 
-		assertTrue(action.isAddToPopup(new ActionContext(null, this, null)));
-		assertFalse(action.isAddToPopup(new ActionContext()));
+		assertTrue(action.isAddToPopup(new DefaultActionContext(null, this, null)));
+		assertFalse(action.isAddToPopup(new DefaultActionContext()));
 	}
 
 	@Test
@@ -233,11 +233,25 @@ public class ActionBuilderTest {
 				.onAction(e -> actionCount++)
 				.build();
 
-		assertFalse(action.isEnabledForContext(new ActionContext()));
+		assertFalse(action.isEnabledForContext(new DefaultActionContext()));
 		assertTrue(action.isEnabledForContext(new FooActionContext()));
 	}
 
-	static class FooActionContext extends ActionContext {
+	@Test
+	public void testManualEnablement() {
+		DockingAction action = new ActionBuilder("Test", "Test")
+				.onAction(e -> actionCount++)
+				.enabled(false)
+				.build();
+
+		assertFalse(action.isEnabledForContext(new DefaultActionContext()));
+		action.setEnabled(true);
+		assertTrue(action.isEnabledForContext(new DefaultActionContext()));
+		action.setEnabled(true);
+		assertTrue(action.isEnabledForContext(new DefaultActionContext()));
+	}
+
+	static class FooActionContext extends DefaultActionContext {
 		public boolean foo() {
 			return true;
 		}

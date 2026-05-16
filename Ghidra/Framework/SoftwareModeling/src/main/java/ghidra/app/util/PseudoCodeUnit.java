@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,18 +20,13 @@ import java.util.*;
 
 import ghidra.program.model.address.*;
 import ghidra.program.model.lang.Register;
-import ghidra.program.model.listing.CodeUnit;
-import ghidra.program.model.listing.Program;
+import ghidra.program.model.listing.*;
 import ghidra.program.model.mem.*;
 import ghidra.program.model.symbol.*;
-import ghidra.program.model.util.TypeMismatchException;
 import ghidra.util.*;
 import ghidra.util.exception.NoValueException;
-import ghidra.util.prop.PropertyVisitor;
+import ghidra.util.map.TypeMismatchException;
 
-/**
- * 
- */
 abstract class PseudoCodeUnit implements CodeUnit {
 
 	protected Address address;
@@ -47,7 +42,7 @@ abstract class PseudoCodeUnit implements CodeUnit {
 
 	protected final static Reference[] emptyMemRefs = new Reference[0];
 
-	protected Map<Integer, String> comments = new HashMap<Integer, String>();
+	protected Map<CommentType, String> comments = new HashMap<CommentType, String>();
 
 	protected ReferenceManager refMgr;
 
@@ -92,8 +87,7 @@ abstract class PseudoCodeUnit implements CodeUnit {
 	 * @param memBuffer the memory buffer where bytes can be obtained for this code unit.
 	 * @throws AddressOverflowException if code unit length causes wrap within space
 	 */
-	PseudoCodeUnit(Address addr, int length, MemBuffer memBuffer)
-			throws AddressOverflowException {
+	PseudoCodeUnit(Address addr, int length, MemBuffer memBuffer) throws AddressOverflowException {
 		this(addr, length, length, memBuffer);
 	}
 
@@ -128,8 +122,8 @@ abstract class PseudoCodeUnit implements CodeUnit {
 			isValid = true;
 		}
 		catch (MemoryAccessException e) {
-			throw new RuntimeException("Not enough bytes in memory buffer to create code unit: " +
-				e.getMessage());
+			throw new RuntimeException(
+				"Not enough bytes in memory buffer to create code unit: " + e.getMessage());
 		}
 	}
 
@@ -412,20 +406,6 @@ abstract class PseudoCodeUnit implements CodeUnit {
 	}
 
 	/**
-	 * Invokes the visit() method of the specified PropertyVisitor if the named
-	 * property exists for this code unit.
-	 * 
-	 * @param visitor
-	 *            the class implementing the PropertyVisitor interface.
-	 * @param propertyName
-	 *            the name of the property to be visited.
-	 */
-	@Override
-	public void visitProperty(PropertyVisitor visitor, String propertyName) {
-		throw new UnsupportedOperationException();
-	}
-
-	/**
 	 * Get the label for this code unit.
 	 * 
 	 * @throws ConcurrentModificationException
@@ -497,7 +477,7 @@ abstract class PseudoCodeUnit implements CodeUnit {
 	}
 
 	/**
-	 * Get the code unit after this code unit.
+	 * {@return the code unit after this code unit.}
 	 * 
 	 * @throws ConcurrentModificationException
 	 *             if this object is no longer valid.
@@ -509,10 +489,9 @@ abstract class PseudoCodeUnit implements CodeUnit {
 	}
 
 	/**
-	 * Get the code unit before this code unit.
+	 * {@return the code unit before this code unit.}
 	 * 
-	 * @throws ConcurrentModificationException
-	 *             if this object is no longer valid.
+	 * @throws ConcurrentModificationException if this object is no longer valid.
 	 */
 	public CodeUnit getPreviousCodeUnit() {
 		if (program == null)
@@ -520,21 +499,8 @@ abstract class PseudoCodeUnit implements CodeUnit {
 		return program.getListing().getCodeUnitBefore(address);
 	}
 
-	/**
-	 * Return true if the given CodeUnit follows directly after this code unit.
-	 * 
-	 * @throws ConcurrentModificationException
-	 *             if this object is no longer valid.
-	 */
 	@Override
-	public boolean isSuccessor(CodeUnit codeUnit) {
-		Address min = codeUnit.getMinAddress();
-
-		return this.getMaxAddress().isSuccessor(min);
-	}
-
-	@Override
-	public String getComment(int commentType) {
+	public String getComment(CommentType commentType) {
 		return comments.get(commentType);
 		//throw new UnsupportedOperationException();
 	}
@@ -552,7 +518,7 @@ abstract class PseudoCodeUnit implements CodeUnit {
 	 *             if this object is no longer valid.
 	 */
 	@Override
-	public String[] getCommentAsArray(int commentType) {
+	public String[] getCommentAsArray(CommentType commentType) {
 		String comment = comments.get(commentType);
 		if (comment == null)
 			return new String[0];
@@ -575,7 +541,7 @@ abstract class PseudoCodeUnit implements CodeUnit {
 	 *             if this object is no longer valid.
 	 */
 	@Override
-	public void setCommentAsArray(int commentType, String comment[]) {
+	public void setCommentAsArray(CommentType commentType, String comment[]) {
 		setComment(commentType, comment[0]);
 		//throw new UnsupportedOperationException();
 	}
@@ -593,34 +559,9 @@ abstract class PseudoCodeUnit implements CodeUnit {
 	 *             if this object is no longer valid.
 	 */
 	@Override
-	public void setComment(int commentType, String comment) {
+	public void setComment(CommentType commentType, String comment) {
 		comments.put(commentType, comment);
-//		String oldValue = comments.get(commentType);
 		comments.put(commentType, comment);
-//		int changeType;
-//		switch (commentType) {
-//			case CodeUnit.EOL_COMMENT:
-//				changeType = ChangeManager.DOCR_EOL_COMMENT_CHANGED;
-//				break;
-//			case CodeUnit.PLATE_COMMENT:
-//				changeType = ChangeManager.DOCR_PLATE_COMMENT_CHANGED;
-//				break;
-//			case CodeUnit.POST_COMMENT:
-//				changeType = ChangeManager.DOCR_POST_COMMENT_CHANGED;
-//				break;
-//			case CodeUnit.PRE_COMMENT:
-//				changeType = ChangeManager.DOCR_PRE_COMMENT_CHANGED;
-//				break;
-//			case CodeUnit.REPEATABLE_COMMENT:
-//				changeType = ChangeManager.DOCR_REPEATABLE_COMMENT_CHANGED;
-//				break;
-//			default:
-//				changeType = ChangeManager.DOCR_EOL_COMMENT_CHANGED;
-//				break;
-//		}
-//		
-//		program.setObjChanged(changeType, getMinAddress(), this, oldValue, comment);
-		//throw new UnsupportedOperationException();
 	}
 
 	/**
@@ -799,8 +740,8 @@ abstract class PseudoCodeUnit implements CodeUnit {
 		ArrayList<Reference> list = new ArrayList<Reference>();
 		for (int i = 0; i < getNumOperands(); i++) {
 			Reference[] refs = getOperandReferences(i);
-			for (int j = 0; j < refs.length; j++) {
-				list.add(refs[j]);
+			for (Reference ref : refs) {
+				list.add(ref);
 			}
 		}
 		return list.toArray(emptyMemRefs);

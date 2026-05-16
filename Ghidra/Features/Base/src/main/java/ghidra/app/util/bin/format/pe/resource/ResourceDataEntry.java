@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,13 +15,12 @@
  */
 package ghidra.app.util.bin.format.pe.resource;
 
+import java.io.IOException;
+
 import ghidra.app.util.bin.BinaryReader;
 import ghidra.app.util.bin.StructConverter;
-import ghidra.app.util.bin.format.*;
 import ghidra.program.model.data.*;
 import ghidra.util.exception.DuplicateNameException;
-
-import java.io.IOException;
 
 /**
  * <pre>
@@ -46,7 +45,7 @@ public class ResourceDataEntry implements StructConverter {
 	 * @param reader the binary reader
 	 * @param index the index where this entry begins
 	 */
-    public ResourceDataEntry(FactoryBundledWithBinaryReader reader, int index) throws IOException {
+	public ResourceDataEntry(BinaryReader reader, int index) throws IOException {
         offsetToData = reader.readInt(index);
         size         = reader.readInt(index += BinaryReader.SIZEOF_INT);
         codePage     = reader.readInt(index += BinaryReader.SIZEOF_INT);
@@ -81,6 +80,7 @@ public class ResourceDataEntry implements StructConverter {
         return reserved;
     }
 
+	@Override
 	public DataType toDataType() throws DuplicateNameException, IOException {
 		StructureDataType struct = new StructureDataType(NAME, 0);
 		struct.add(DWORD, "OffsetToData", null);

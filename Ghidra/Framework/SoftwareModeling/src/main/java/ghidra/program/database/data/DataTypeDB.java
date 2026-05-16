@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,77 +16,89 @@
 package ghidra.program.database.data;
 
 import java.io.IOException;
-import java.net.URL;
-import java.util.List;
+import java.util.Collection;
 
-import javax.swing.event.ChangeEvent;
-import javax.swing.event.ChangeListener;
+import org.apache.commons.lang3.StringUtils;
 
-import db.Record;
-import ghidra.docking.settings.Settings;
-import ghidra.docking.settings.SettingsDefinition;
-import ghidra.program.database.DBObjectCache;
-import ghidra.program.database.DatabaseObject;
+import db.DBRecord;
+import ghidra.docking.settings.*;
+import ghidra.program.database.DbObject;
 import ghidra.program.model.data.*;
 import ghidra.program.model.mem.MemBuffer;
 import ghidra.util.*;
+import ghidra.util.Lock.Closeable;
 import ghidra.util.exception.DuplicateNameException;
 import ghidra.util.exception.NotYetImplementedException;
 
 /**
  * Base class for data types that are Database objects.
- *
- *
  */
-abstract class DataTypeDB extends DatabaseObject implements DataType, ChangeListener {
+abstract class DataTypeDB extends DbObject implements DataType {
 
-	protected Record record;
+	protected DBRecord record;
 	protected final DataTypeManagerDB dataMgr;
-	private volatile Settings defaultSettings;
+	protected volatile Settings defaultSettings;
 	private final static SettingsDefinition[] EMPTY_DEFINITIONS = new SettingsDefinition[0];
+	private final static TypeDefSettingsDefinition[] EMPTY_TYPEDEF_DEFINITIONS =
+		new TypeDefSettingsDefinition[0];
 	protected boolean resolving;
+	protected boolean deleting;
 	protected boolean pointerPostResolveRequired;
 	protected Lock lock;
 	private volatile String name;
 	private volatile Category category;
 
-	protected DataTypeDB(DataTypeManagerDB dataMgr, DBObjectCache<DataTypeDB> cache,
-			Record record) {
-		super(cache, record.getKey());
+	protected DataTypeDB(DataTypeManagerDB dataMgr, DBRecord record) {
+		super(record.getKey());
 		this.dataMgr = dataMgr;
 		this.record = record;
 		this.lock = dataMgr.lock;
-		refreshName();
-	}
-
-	protected void refreshName() {
-		name = doGetName();
 	}
 
 	/**
-	 * Subclasses implement this to either read the name from the database record or
-	 * compute if it is a derived name such as a pointer or array. Implementers can
-	 * assume that the database lock will be acquired when this method is called.
+	 * Invoked by {@link DataTypeManagerDB} when operation has started to delete this datatype.
+	 * In this state any invocation of other datatype changes should be ignored as reflected
+	 * by {@code deleting} variable.  Once this state is changed and cannot be reverted for this 
+	 * instance.
+	 */
+	protected final void deleteStarted() {
+		deleting = true;
+	}
+
+	/**
+	 * Clears the current name so that the next invocation of {@link #getName()} will
+	 * force its update via {@link #doGetName()}.  It is important that {@link #doGetName()}
+	 * does not get invoked during a {@link #refresh()} to avoid problematic recursion during the
+	 * refresh caused by recursive use of {@link #refreshIfNeeded()} on the same object.
+	 * <P>
+	 * NOTE: This must only be invoked while in a locked-state
+	 */
+	protected void refreshName() {
+		name = null;
+	}
+
+	/**
+	 * Subclasses implement this to either read the name from the database record or compute if it
+	 * is a derived name such as a pointer or array. Implementers can assume that the database lock
+	 * will be acquired when this method is called.
 	 */
 	protected abstract String doGetName();
 
 	/**
-	 * Subclasses implement this to read the category path from the database
-	 * record.Implementers can assume that the database lock will be acquired when
-	 * this method is called.
+	 * Subclasses implement this to read the category path from the database record.Implementers can
+	 * assume that the database lock will be acquired when this method is called.
 	 */
 	protected abstract long doGetCategoryID();
 
 	/**
-	 * Subclasses implement this to update the category path ID to the database.
-	 * Implementers can assume that the database lock will be acquired when this
-	 * method is called.
+	 * Subclasses implement this to update the category path ID to the database. Implementers can
+	 * assume that the database lock will be acquired when this method is called.
 	 */
 	protected abstract void doSetCategoryPathRecord(long categoryID) throws IOException;
 
 	/**
-	 * Subclasses implement this to update the to the database. Implementers can
-	 * assume that the database lock will be acquired when this method is called.
+	 * Subclasses implement this to update the to the database. Implementers can assume that the
+	 * database lock will be acquired when this method is called.
 	 * 
 	 * @param newName new data type name
 	 */
@@ -94,22 +106,26 @@ abstract class DataTypeDB extends DatabaseObject implements DataType, ChangeList
 			throws IOException, InvalidNameException;
 
 	/**
-	 * Subclasses implement this to read the source archive id from the record.
-	 * Implementers can assume that the database lock will be acquired when this
-	 * method is called.
+	 * Subclasses implement this to read the source archive id from the record. Implementers can
+	 * assume that the database lock will be acquired when this method is called.
 	 */
 	protected abstract UniversalID getSourceArchiveID();
 
 	/**
-	 * Subclasses implement this to update the source archive id from the record.
-	 * Implementers can assume that the database lock will be acquired when this
-	 * method is called.
+	 * Subclasses implement this to update the source archive id from the record. Implementers can
+	 * assume that the database lock will be acquired when this method is called.
 	 */
 	protected abstract void setSourceArchiveID(UniversalID id);
 
 	@Override
 	public final DataOrganization getDataOrganization() {
 		return dataMgr.getDataOrganization();
+	}
+
+	@Override
+	protected void setDeleted() {
+		defaultSettings = null;
+		super.setDeleted();
 	}
 
 	@Override
@@ -125,9 +141,11 @@ abstract class DataTypeDB extends DatabaseObject implements DataType, ChangeList
 		return false;
 	}
 
-	/**
-	 * @see ghidra.program.model.data.DataType#getDisplayName()
-	 */
+	@Override
+	public boolean isZeroLength() {
+		return false;
+	}
+
 	@Override
 	public String getDisplayName() {
 		return getName();
@@ -140,8 +158,17 @@ abstract class DataTypeDB extends DatabaseObject implements DataType, ChangeList
 
 	@Override
 	public final String getName() {
-		validate(lock);
-		return name;
+		String n = name;
+		if (n != null && !needsRefreshing()) {
+			return n;
+		}
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
+			if (name == null) {
+				name = doGetName();
+			}
+			return name;
+		}
 	}
 
 	@Override
@@ -150,8 +177,8 @@ abstract class DataTypeDB extends DatabaseObject implements DataType, ChangeList
 	}
 
 	/**
-	 * Get the current name without refresh. This is intended to be used for event
-	 * generation when an old-name is needed.
+	 * Get the current name without refresh. This is intended to be used for event generation when
+	 * an old-name is needed.
 	 * 
 	 * @return old name
 	 */
@@ -159,88 +186,68 @@ abstract class DataTypeDB extends DatabaseObject implements DataType, ChangeList
 		return name;
 	}
 
-	/**
-	 * @see ghidra.program.model.data.DataType#getDefaultSettings()
-	 */
-	@Override
-	public Settings getDefaultSettings() {
-		validate(lock);
-		Settings localDefaultSettings = defaultSettings;
-		if (localDefaultSettings == null) {
-			localDefaultSettings = new SettingsDBManager(dataMgr, this, key);
-			defaultSettings = localDefaultSettings;
-		}
-		return localDefaultSettings;
+	protected Settings doGetDefaultSettings() {
+		return new DataTypeSettingsDB(dataMgr, this, key);
 	}
 
-	/**
-	 * @see ghidra.program.model.data.DataType#getDocs()
-	 */
 	@Override
-	public URL getDocs() {
-		return null;
+	public Settings getDefaultSettings() {
+		Settings localDefaultSettings = defaultSettings;
+		if (localDefaultSettings != null && !needsRefreshing()) {
+			return localDefaultSettings;
+		}
+		try (Closeable c = lock.read()) {
+			if (refreshIfNeeded()) {
+				defaultSettings = doGetDefaultSettings();
+			}
+			else {
+				defaultSettings = SettingsImpl.NO_SETTINGS; // deleted datatype - keep everyone happy
+			}
+			return defaultSettings;
+		}
 	}
 
 	/**
 	 * Set the data in the form of the appropriate Object for this DataType.
 	 *
-	 * @param buf      the data buffer.
+	 * @param buf the data buffer.
 	 * @param settings the display settings for the current value.
-	 * @param length   the number of bytes to set the value from.
-	 * @param value    the new value to set object
+	 * @param length the number of bytes to set the value from.
+	 * @param value the new value to set object
 	 */
 
 	public void setValue(MemBuffer buf, Settings settings, int length, Object value) {
 		throw new NotYetImplementedException("setValue() not implemented");
 	}
 
-	/**
-	 * @see ghidra.program.model.data.DataType#getSettingsDefinitions()
-	 */
 	@Override
 	public SettingsDefinition[] getSettingsDefinitions() {
 		return EMPTY_DEFINITIONS;
 	}
 
-	/**
-	 * @see ghidra.program.model.data.DataType#isDeleted()
-	 */
+	@Override
+	public TypeDefSettingsDefinition[] getTypeDefSettingsDefinitions() {
+		return EMPTY_TYPEDEF_DEFINITIONS;
+	}
+
 	@Override
 	public boolean isDeleted() {
-		return !checkIsValid();
+		return isDeleted(lock);
 	}
 
-	/**
-	 * @see ghidra.program.model.data.DataType#update(ghidra.program.model.data.DataType)
-	 */
 	@Override
 	public void dataTypeSizeChanged(DataType dt) {
-		// no-op
+		// do nothing
 	}
 
-	/**
-	 * @see javax.swing.event.ChangeListener#stateChanged(javax.swing.event.ChangeEvent)
-	 */
 	@Override
-	public void stateChanged(ChangeEvent e) {
-		dataMgr.dataTypeChanged(this);
+	public void dataTypeAlignmentChanged(DataType dt) {
+		// do nothing
 	}
 
-	/**
-	 * @see ghidra.program.model.data.DataType#getDataTypeManager()
-	 */
 	@Override
 	public DataTypeManager getDataTypeManager() {
 		return dataMgr;
-	}
-
-	/**
-	 * @see ghidra.program.model.data.DataType#setDefaultSettings(ghidra.docking.settings.Settings)
-	 */
-	@Override
-	public void setDefaultSettings(Settings settings) {
-		checkIsValid();
-		defaultSettings = settings;
 	}
 
 	@Override
@@ -250,12 +257,9 @@ abstract class DataTypeDB extends DatabaseObject implements DataType, ChangeList
 			return 1;
 		}
 		DataOrganization dataOrganization = dataMgr.getDataOrganization();
-		return dataOrganization.getAlignment(this, length);
+		return dataOrganization.getAlignment(this);
 	}
 
-	/**
-	 * @see ghidra.program.model.data.DataType#getPathName()
-	 */
 	@Override
 	public String getPathName() {
 		return getDataTypePath().getPath();
@@ -286,15 +290,20 @@ abstract class DataTypeDB extends DatabaseObject implements DataType, ChangeList
 
 	@Override
 	public CategoryPath getCategoryPath() {
-		validate(lock);
-		if (category == null) {
-			category = dataMgr.getCategory(doGetCategoryID());
+		Category cat = category;
+		if (cat != null && !needsRefreshing()) {
+			return cat.getCategoryPath();
 		}
-		if (category == null) {
-			category = dataMgr.getRootCategory();
-			return CategoryPath.ROOT;
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
+			if (category == null) {
+				category = dataMgr.getCategory(doGetCategoryID());
+			}
+			if (category == null) {
+				category = dataMgr.getRootCategory();
+			}
+			return category.getCategoryPath();
 		}
-		return category.getCategoryPath();
 	}
 
 	@Override
@@ -302,23 +311,19 @@ abstract class DataTypeDB extends DatabaseObject implements DataType, ChangeList
 		return new DataTypePath(getCategoryPath(), getName());
 	}
 
-	/**
-	 * @see ghidra.program.model.data.DataType#setName(java.lang.String)
-	 */
 	@Override
-	public void setName(String name) throws InvalidNameException, DuplicateNameException {
-		lock.acquire();
-		try {
+	public void setName(String newName) throws InvalidNameException, DuplicateNameException {
+		try (Closeable c = lock.write()) {
 			checkDeleted();
+			if (getName().equals(newName)) {
+				return;
+			}
 			CategoryPath categoryPath = getCategoryPath();
-			if (dataMgr.getDataType(categoryPath, name) != null) {
-				throw new DuplicateNameException("DataType named " + name +
+			if (dataMgr.getDataType(categoryPath, newName) != null) {
+				throw new DuplicateNameException("DataType named " + newName +
 					" already exists in category " + categoryPath.getPath());
 			}
-			doSetName(name);
-		}
-		finally {
-			lock.release();
+			doSetName(newName);
 		}
 	}
 
@@ -339,23 +344,19 @@ abstract class DataTypeDB extends DatabaseObject implements DataType, ChangeList
 
 	}
 
-	/**
-	 * @see ghidra.program.model.data.DataType#setCategoryPath(ghidra.program.model.data.CategoryPath)
-	 */
 	@Override
 	public void setCategoryPath(CategoryPath path) throws DuplicateNameException {
-		lock.acquire();
-		try {
+		try (Closeable c = lock.write()) {
 			checkDeleted();
-			DataType type = dataMgr.getDataType(path, getName());
-			if (type != null) {
-				throw new DuplicateNameException("DataType named " + getDisplayName() +
+			if (getCategoryPath().equals(path)) {
+				return;
+			}
+			String currentName = getName();
+			if (dataMgr.getDataType(path, currentName) != null) {
+				throw new DuplicateNameException("DataType named " + currentName +
 					" already exists in category " + path.getPath());
 			}
 			doSetCategoryPath(path);
-		}
-		finally {
-			lock.release();
 		}
 	}
 
@@ -380,10 +381,13 @@ abstract class DataTypeDB extends DatabaseObject implements DataType, ChangeList
 	@Override
 	public void setNameAndCategory(CategoryPath path, String name)
 			throws InvalidNameException, DuplicateNameException {
-		lock.acquire();
-		try {
+		try (Closeable c = lock.write()) {
 			checkDeleted();
-			if (dataMgr.getDataType(path, name) != null) {
+			DataType dt = dataMgr.getDataType(path, name);
+			if (dt != null) {
+				if (dt == this) {
+					return; // unchanged
+				}
 				throw new DuplicateNameException(
 					"DataType named " + name + " already exists in category " + path.getPath());
 			}
@@ -391,7 +395,7 @@ abstract class DataTypeDB extends DatabaseObject implements DataType, ChangeList
 			// generate a name that would not cause a duplicate in either the current path
 			// or
 			// the new path. Use the new name if possible.
-			String uniqueName = dataMgr.getUniqueName(path, getCategoryPath(), name);
+			String uniqueName = dataMgr.getTemporaryUniqueName(path, getCategoryPath(), name);
 			doSetName(uniqueName);
 
 			// set the path - this is guaranteed to work since we make a name that won't
@@ -403,9 +407,6 @@ abstract class DataTypeDB extends DatabaseObject implements DataType, ChangeList
 			if (!uniqueName.equals(name)) {
 				doSetName(name);
 			}
-		}
-		finally {
-			lock.release();
 		}
 	}
 
@@ -432,11 +433,29 @@ abstract class DataTypeDB extends DatabaseObject implements DataType, ChangeList
 		}
 	}
 
-	protected void notifySizeChanged() {
+	/**
+	 * Notify all parents that the size of this datatype has changed or other significant change
+	 * that may affect a parent containing this datatype.
+	 * 
+	 * @param isAutoChange true if changes are in response to another datatype's change.
+	 */
+	protected void notifySizeChanged(boolean isAutoChange) {
 		for (DataType dt : dataMgr.getParentDataTypes(key)) {
 			dt.dataTypeSizeChanged(this);
 		}
-		dataMgr.dataTypeChanged(this);
+		dataMgr.dataTypeChanged(this, isAutoChange);
+	}
+
+	/**
+	 * Notification that this composite data type's alignment has changed.
+	 * 
+	 * @param isAutoChange true if changes are in response to another datatype's change.
+	 */
+	protected void notifyAlignmentChanged(boolean isAutoChange) {
+		for (DataType dt : dataMgr.getParentDataTypes(key)) {
+			dt.dataTypeAlignmentChanged(this);
+		}
+		dataMgr.dataTypeChanged(this, isAutoChange);
 	}
 
 	protected void notifyNameChanged(String oldName) {
@@ -453,10 +472,8 @@ abstract class DataTypeDB extends DatabaseObject implements DataType, ChangeList
 	}
 
 	@Override
-	public DataType[] getParents() {
-		List<DataType> parents = dataMgr.getParentDataTypes(key);
-		DataType[] array = new DataType[parents.size()];
-		return parents.toArray(array);
+	public Collection<DataType> getParents() {
+		return dataMgr.getParentDataTypes(key);
 	}
 
 	@Override
@@ -501,9 +518,6 @@ abstract class DataTypeDB extends DatabaseObject implements DataType, ChangeList
 
 	@Override
 	public SourceArchive getSourceArchive() {
-		if (dataMgr == null) {
-			return null;
-		}
 		return dataMgr.getSourceArchive(getSourceArchiveID());
 	}
 
@@ -514,8 +528,8 @@ abstract class DataTypeDB extends DatabaseObject implements DataType, ChangeList
 
 	/**
 	 * Sets a String briefly describing this DataType. <br>
-	 * If a data type that extends this class wants to allow the description to be
-	 * changed, then it must override this method.
+	 * If a data type that extends this class wants to allow the description to be changed, then it
+	 * must override this method.
 	 * 
 	 * @param description a one-liner describing this DataType.
 	 */
@@ -525,15 +539,13 @@ abstract class DataTypeDB extends DatabaseObject implements DataType, ChangeList
 	}
 
 	/**
-	 * setUniversalID is a package level method that allows you to change a data
-	 * type's universal ID. This is only intended to be used when transforming a
-	 * newly parsed data type archive so that it can be used as a replacement of the
-	 * archive from a previous software release.
+	 * setUniversalID is a package level method that allows you to change a data type's universal
+	 * ID. This is only intended to be used when transforming a newly parsed data type archive so
+	 * that it can be used as a replacement of the archive from a previous software release.
 	 * 
-	 * @param oldUniversalID the old universal ID value that the user is already
-	 *                       referencing with their data types. This is the
-	 *                       universal ID that we want the new data type to be known
-	 *                       by.
+	 * @param oldUniversalID the old universal ID value that the user is already referencing with
+	 *            their data types. This is the universal ID that we want the new data type to be
+	 *            known by.
 	 */
 	abstract void setUniversalID(UniversalID oldUniversalID);
 
@@ -554,6 +566,60 @@ abstract class DataTypeDB extends DatabaseObject implements DataType, ChangeList
 		return otherDt.getDataTypeManager() == getDataTypeManager() &&
 			getCategoryPath().equals(otherDt.getCategoryPath()) &&
 			getName().equals(otherDt.getName()) && isEquivalent(otherDt);
+	}
+
+	@Override
+	public boolean isEncodable() {
+		return false;
+	}
+
+	@Override
+	public byte[] encodeValue(Object value, MemBuffer buf, Settings settings, int length)
+			throws DataTypeEncodeException {
+		throw new DataTypeEncodeException("Encoding not supported", value, this);
+	}
+
+	@Override
+	public byte[] encodeRepresentation(String repr, MemBuffer buf, Settings settings, int length)
+			throws DataTypeEncodeException {
+		throw new DataTypeEncodeException("Encoding not supported", repr, this);
+	}
+
+	/**
+	 * Perform equivalence check while resolving the specified dataType.  If the specified conflict 
+	 * handler under a conflict situation indicates that the existing data type (i.e., this type)
+	 * be used in place of the specified dataType this method will return true.
+	 * @param dataType datatype being resolved
+	 * @param handler resolve conflict handler (if null perform normal {@link #isEquivalent(DataType)}
+	 * @return true if the specified dataType should be considered equivalent to this datatype.
+	 */
+	protected abstract boolean isEquivalent(DataType dataType, DataTypeConflictHandler handler);
+
+	/**
+	 * If possible, perform equivalence check while resolving the specified dataType if the 
+	 * existingDataType is an instance of DataTypeDB.  Otherwise, perform a normal 
+	 * isEquivalent operation.  If the specified conflict 
+	 * handler under a conflict situation indicates that the existing data type (i.e., this type)
+	 * be used in place of the specified dataType this method will return true.
+	 * @param existingDataType existing datatype
+	 * @param otherDataType datatype being resolved
+	 * @param handler resolve conflict handler (if null perform normal {@link #isEquivalent(DataType)}
+	 * @return true if the specified dataType should be considered equivalent to this datatype.
+	 */
+	static boolean isEquivalent(DataType existingDataType, DataType otherDataType,
+			DataTypeConflictHandler handler) {
+		if (existingDataType instanceof DataTypeDB existingDataTypeDB) {
+			return existingDataTypeDB.isEquivalent(otherDataType, handler);
+		}
+		return existingDataType.isEquivalent(otherDataType);
+	}
+
+	static String prependComment(String additionalComment, String oldComment) {
+		String comment = additionalComment;
+		if (!StringUtils.isBlank(oldComment)) {
+			comment += "; " + oldComment;
+		}
+		return comment;
 	}
 
 }

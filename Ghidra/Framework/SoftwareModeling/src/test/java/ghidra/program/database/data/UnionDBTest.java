@@ -4,17 +4,14 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- */
-/*
- *
  */
 package ghidra.program.database.data;
 
@@ -22,17 +19,16 @@ import static org.junit.Assert.*;
 
 import org.junit.*;
 
-import generic.test.AbstractGTest;
+import com.google.common.collect.Sets;
+
+import generic.test.AbstractGenericTest;
 import ghidra.program.model.data.*;
-import ghidra.util.task.TaskMonitor;
 
-/**
- *
- */
-public class UnionDBTest extends AbstractGTest {
+public class UnionDBTest extends AbstractGenericTest {
 
-	private DataTypeManager dataMgr;
+	private StandAloneDataTypeManager dataMgr;
 	private UnionDB union;
+	private int txId;
 
 	@Before
 	public void setUp() throws Exception {
@@ -42,7 +38,7 @@ public class UnionDBTest extends AbstractGTest {
 		// default data organization is little-endian
 		// default BitFieldPackingImpl uses gcc conventions
 
-		dataMgr.startTransaction("Test");
+		txId = dataMgr.startTransaction("Test");
 
 		union = createUnion("TestUnion");
 		union.add(new ByteDataType(), "field1", "Comment1");
@@ -51,15 +47,23 @@ public class UnionDBTest extends AbstractGTest {
 		union.add(new ByteDataType(), "field4", "Comment4");
 	}
 
+	@After
+	public void tearDown() {
+		if (dataMgr != null) {
+			dataMgr.endTransaction(txId, true);
+			dataMgr.close();
+		}
+	}
+
 	private void transitionToBigEndian() {
 
-		Union unionClone = (Union) union.clone(null);
-		dataMgr.remove(union, TaskMonitor.DUMMY);
+		Union unionClone = union.clone(null);
+		dataMgr.remove(union);
 
 		DataOrganizationImpl dataOrg = (DataOrganizationImpl) dataMgr.getDataOrganization();
 		dataOrg.setBigEndian(true);
 
-		// re-resolve with modified endianess
+		// re-resolve with modified endianness
 		union = (UnionDB) dataMgr.resolve(unionClone, null);
 	}
 
@@ -169,17 +173,17 @@ public class UnionDBTest extends AbstractGTest {
 
 		//@formatter:off
 		CompositeTestUtils.assertExpectedComposite(this, "/TestUnion\n" + 
-			"Unaligned\n" + 
+			"pack(disabled)\n" + 
 			"Union TestUnion {\n" + 
-			"   0   short   2   null   \"\"\n" + 
+			"   0   short   2      \"\"\n" + 
 			"   0   int:2(0)   1   bf1   \"bf1Comment\"\n" + 
 			"}\n" + 
-			"Size = 2   Actual Alignment = 1", union);
+			"Length: 2 Alignment: 1", union);
 		//@formatter:on
 	}
 
 	@Test
-	public void testAlignedBitFieldUnion() throws Exception {
+	public void testPackedBitFieldUnion() throws Exception {
 
 		int cnt = union.getNumComponents();
 		for (int i = 0; i < cnt; i++) {
@@ -187,16 +191,16 @@ public class UnionDBTest extends AbstractGTest {
 		}
 		union.insertBitField(0, IntegerDataType.dataType, 2, "bf1", "bf1Comment");
 		union.insert(0, ShortDataType.dataType);
-		union.setInternallyAligned(true);
+		union.setPackingEnabled(true);
 
 		//@formatter:off
 		CompositeTestUtils.assertExpectedComposite(this, "/TestUnion\n" + 
-			"Aligned\n" + 
+			"pack()\n" + 
 			"Union TestUnion {\n" + 
-			"   0   short   2   null   \"\"\n" + 
+			"   0   short   2      \"\"\n" + 
 			"   0   int:2(0)   1   bf1   \"bf1Comment\"\n" + 
 			"}\n" + 
-			"Size = 4   Actual Alignment = 4", union);
+			"Length: 4 Alignment: 4", union);
 		//@formatter:on
 	}
 
@@ -208,16 +212,16 @@ public class UnionDBTest extends AbstractGTest {
 
 		//@formatter:off
 		CompositeTestUtils.assertExpectedComposite(this, "/TestUnion\n" + 
-			"Unaligned\n" + 
+			"pack(disabled)\n" + 
 			"Union TestUnion {\n" + 
 			"   0   byte   1   field1   \"Comment1\"\n" + 
-			"   0   word   2   null   \"Comment2\"\n" + 
+			"   0   word   2      \"Comment2\"\n" + 
 			"   0   int:4(0)   1   bf1   \"bf1Comment\"\n" + 
 			"   0   byte:4(0)   1   bf2   \"bf2Comment\"\n" + 
 			"   0   dword   4   field3   \"\"\n" + 
 			"   0   byte   1   field4   \"Comment4\"\n" + 
 			"}\n" + 
-			"Size = 4   Actual Alignment = 1", union);
+			"Length: 4 Alignment: 1", union);
 		//@formatter:on
 	}
 
@@ -231,16 +235,16 @@ public class UnionDBTest extends AbstractGTest {
 
 		//@formatter:off
 		CompositeTestUtils.assertExpectedComposite(this, "/TestUnion\n" + 
-			"Unaligned\n" + 
+			"pack(disabled)\n" + 
 			"Union TestUnion {\n" + 
 			"   0   byte   1   field1   \"Comment1\"\n" + 
-			"   0   word   2   null   \"Comment2\"\n" + 
+			"   0   word   2      \"Comment2\"\n" + 
 			"   0   int:4(4)   1   bf1   \"bf1Comment\"\n" + 
 			"   0   byte:4(4)   1   bf2   \"bf2Comment\"\n" + 
 			"   0   dword   4   field3   \"\"\n" + 
 			"   0   byte   1   field4   \"Comment4\"\n" + 
 			"}\n" + 
-			"Size = 4   Actual Alignment = 1", union);
+			"Length: 4 Alignment: 1", union);
 		//@formatter:on
 	}
 
@@ -255,30 +259,32 @@ public class UnionDBTest extends AbstractGTest {
 
 		//@formatter:off
 		CompositeTestUtils.assertExpectedComposite(this, "/TestUnion\n" + 
-			"Unaligned\n" + 
+			"pack(disabled)\n" + 
 			"Union TestUnion {\n" + 
 			"   0   byte   1   field1   \"Comment1\"\n" + 
-			"   0   word   2   null   \"Comment2\"\n" + 
+			"   0   word   2      \"Comment2\"\n" + 
 			"   0   Foo:4(0)   1   bf1   \"bf1Comment\"\n" + 
 			"   0   Foo:4(0)   1   bf2   \"bf2Comment\"\n" + 
 			"   0   dword   4   field3   \"\"\n" + 
 			"   0   byte   1   field4   \"Comment4\"\n" + 
 			"}\n" + 
-			"Size = 4   Actual Alignment = 1", union);
+			"Length: 4 Alignment: 1", union);
 		//@formatter:on
 
-		dataMgr.remove(td, TaskMonitor.DUMMY);
+		dataMgr.remove(td);
 
 		//@formatter:off
 		CompositeTestUtils.assertExpectedComposite(this, "/TestUnion\n" + 
-			"Unaligned\n" + 
+			"pack(disabled)\n" + 
 			"Union TestUnion {\n" + 
 			"   0   byte   1   field1   \"Comment1\"\n" + 
-			"   0   word   2   null   \"Comment2\"\n" + 
+			"   0   word   2      \"Comment2\"\n" + 
+			"   0   int:4(0)   1   bf1   \"Type 'Foo' was deleted; bf1Comment\"\n" + 
+			"   0   int:4(0)   1   bf2   \"Type 'Foo' was deleted; bf2Comment\"\n" + 
 			"   0   dword   4   field3   \"\"\n" + 
 			"   0   byte   1   field4   \"Comment4\"\n" + 
 			"}\n" + 
-			"Size = 4   Actual Alignment = 1", union);
+			"Length: 4 Alignment: 1", union);
 		//@formatter:on
 	}
 
@@ -294,32 +300,32 @@ public class UnionDBTest extends AbstractGTest {
 
 		//@formatter:off
 		CompositeTestUtils.assertExpectedComposite(this, "/TestUnion\n" + 
-			"Unaligned\n" + 
+			"pack(disabled)\n" + 
 			"Union TestUnion {\n" + 
 			"   0   byte   1   field1   \"Comment1\"\n" + 
-			"   0   word   2   null   \"Comment2\"\n" + 
+			"   0   word   2      \"Comment2\"\n" + 
 			"   0   Foo:4(0)   1   bf1   \"bf1Comment\"\n" + 
 			"   0   Foo:4(0)   1   bf2   \"bf2Comment\"\n" + 
 			"   0   dword   4   field3   \"\"\n" + 
 			"   0   byte   1   field4   \"Comment4\"\n" + 
 			"}\n" + 
-			"Size = 4   Actual Alignment = 1", union);
+			"Length: 4 Alignment: 1", union);
 		//@formatter:on
 
 		dataMgr.replaceDataType(td, CharDataType.dataType, false);
 
 		//@formatter:off
 		CompositeTestUtils.assertExpectedComposite(this, "/TestUnion\n" + 
-			"Unaligned\n" + 
+			"pack(disabled)\n" + 
 			"Union TestUnion {\n" + 
 			"   0   byte   1   field1   \"Comment1\"\n" + 
-			"   0   word   2   null   \"Comment2\"\n" + 
+			"   0   word   2      \"Comment2\"\n" + 
 			"   0   char:4(0)   1   bf1   \"bf1Comment\"\n" + 
 			"   0   char:4(0)   1   bf2   \"bf2Comment\"\n" + 
 			"   0   dword   4   field3   \"\"\n" + 
 			"   0   byte   1   field4   \"Comment4\"\n" + 
 			"}\n" + 
-			"Size = 4   Actual Alignment = 1", union);
+			"Length: 4 Alignment: 1", union);
 		//@formatter:on
 	}
 
@@ -330,7 +336,7 @@ public class UnionDBTest extends AbstractGTest {
 
 	@Test
 	public void testCloneRetainIdentity() throws Exception {
-		Union unionCopy = (Union) union.clone(null);
+		Union unionCopy = union.clone(null);
 		assertNull(unionCopy.getDataTypeManager());
 		assertEquals(4, union.getLength());
 	}
@@ -355,6 +361,70 @@ public class UnionDBTest extends AbstractGTest {
 
 		union.delete(2);
 		assertEquals(2, union.getLength());
+	}
+
+	@Test
+	public void testDeleteMany() throws Exception {
+		Structure struct = createStructure("struct_1", 0);
+		struct.add(new ByteDataType());
+		struct.add(new StringDataType(), 10);
+		union.add(struct);
+		assertEquals(11, union.getLength());
+
+		//@formatter:off
+		CompositeTestUtils.assertExpectedComposite(this, "/TestUnion\n" + 
+			"pack(disabled)\n" + 
+			"Union TestUnion {\n" + 
+			"   0   byte   1   field1   \"Comment1\"\n" + 
+			"   0   word   2      \"Comment2\"\n" + 
+			"   0   dword   4   field3   \"\"\n" + 
+			"   0   byte   1   field4   \"Comment4\"\n" + 
+			"   0   struct_1   11      \"\"\n" + 
+			"}\n" + 
+			"Length: 11 Alignment: 1", union);
+		//@formatter:on
+
+		union.delete(Sets.newHashSet(2, 4));
+
+		assertEquals(2, union.getLength());
+
+		//@formatter:off
+		CompositeTestUtils.assertExpectedComposite(this, "/TestUnion\n" + 
+			"pack(disabled)\n" + 
+			"Union TestUnion {\n" + 
+			"   0   byte   1   field1   \"Comment1\"\n" + 
+			"   0   word   2      \"Comment2\"\n" + 
+			"   0   byte   1   field4   \"Comment4\"\n" + 
+			"}\n" + 
+			"Length: 2 Alignment: 1", union);
+		//@formatter:on
+
+		DataTypeComponent[] comps = union.getDefinedComponents();
+		assertEquals(ByteDataType.class, comps[2].getDataType().getClass());
+		assertEquals(2, comps[2].getOrdinal());
+
+		// Verify that records were properly updated by comitting and performing an undo/redo
+		dataMgr.endTransaction(txId, true);
+		dataMgr.undo();
+		dataMgr.redo();
+		txId = dataMgr.startTransaction("Continue Test");
+
+		assertEquals(2, union.getLength());
+
+		//@formatter:off
+		CompositeTestUtils.assertExpectedComposite(this, "/TestUnion\n" + 
+			"pack(disabled)\n" + 
+			"Union TestUnion {\n" + 
+			"   0   byte   1   field1   \"Comment1\"\n" + 
+			"   0   word   2      \"Comment2\"\n" + 
+			"   0   byte   1   field4   \"Comment4\"\n" + 
+			"}\n" + 
+			"Length: 2 Alignment: 1", union);
+		//@formatter:on
+
+		comps = union.getDefinedComponents();
+		assertEquals(ByteDataType.class, comps[2].getDataType().getClass());
+		assertEquals(2, comps[2].getOrdinal());
 	}
 
 	@Test
@@ -388,33 +458,33 @@ public class UnionDBTest extends AbstractGTest {
 
 		//@formatter:off
 		CompositeTestUtils.assertExpectedComposite(this, "/Replaced\n" + 
-			"Unaligned\n" + 
+			"pack(disabled)\n" + 
 			"Union Replaced {\n" + 
 			"   0   byte   1   field0   \"Comment1\"\n" + 
-			"   0   word   2   null   \"Comment2\"\n" + 
+			"   0   word   2      \"Comment2\"\n" + 
 			"   0   dword   4   field2   \"\"\n" + 
 			"   0   int:4(0)   1   MyBit1   \"bitComment1\"\n" + 
 			"   0   int:3(0)   1   MyBit2   \"bitComment2\"\n" + 
 			"}\n" + 
-			"Size = 4   Actual Alignment = 1", newUnion);
+			"Length: 4 Alignment: 1", newUnion);
 		//@formatter:on
 
 		union.replaceWith(newUnion);
 
 		//@formatter:off
 		CompositeTestUtils.assertExpectedComposite(this, "/TestUnion\n" + 
-			"Unaligned\n" + 
+			"pack(disabled)\n" + 
 			"Union TestUnion {\n" + 
 			"   0   byte   1   field0   \"Comment1\"\n" + 
-			"   0   word   2   null   \"Comment2\"\n" + 
+			"   0   word   2      \"Comment2\"\n" + 
 			"   0   dword   4   field2   \"\"\n" + 
 			"   0   int:4(0)   1   MyBit1   \"bitComment1\"\n" + 
 			"   0   int:3(0)   1   MyBit2   \"bitComment2\"\n" + 
 			"}\n" + 
-			"Size = 4   Actual Alignment = 1", union);
+			"Length: 4 Alignment: 1", union);
 		//@formatter:on
 
-		assertEquals("", union.getDescription()); // unchanged
+		assertEquals("testReplaceWith()", union.getDescription());
 	}
 
 	@Test
@@ -674,5 +744,64 @@ public class UnionDBTest extends AbstractGTest {
 			Assert.fail(
 				"Should be able to insert a union typedef array pointer into the pointer's union.");
 		}
+	}
+
+	@Test
+	public void testFieldNameWhitespaceConvertedToUnderscores() {
+		UnionDataType newUnion = new UnionDataType("Test");
+		DataTypeComponent component = newUnion.add(new ByteDataType(), " name with spaces", null);
+		assertEquals("name_with_spaces", component.getFieldName());
+
+		union = (UnionDB) dataMgr.resolve(newUnion, null);
+
+		component = union.getComponent(0);
+		component.setFieldName(" name in db with spaces ");
+		assertEquals("name_in_db_with_spaces", component.getFieldName());
+
+		component = union.add(new ByteDataType(), " another test ", null);
+		assertEquals("another_test", component.getFieldName());
+
+		union.insert(0, new ByteDataType(), 1, " insert test ", "");
+		component = union.getComponent(0);
+		assertEquals("insert_test", component.getFieldName());
+
+		union.insert(1, new ByteDataType(), 1, " insert test ", "");
+		component = union.getComponent(1);
+		assertEquals("insert_test", component.getFieldName());
+	}
+
+	@Test
+	public void testDefaultFieldNames() {
+		UnionDataType newUnion = new UnionDataType("Test");
+		DataTypeComponent component = newUnion.add(new ByteDataType(), " ", null);
+		assertNull(component.getFieldName());
+		assertEquals("field0", component.getDefaultFieldName());
+
+		union = (UnionDB) dataMgr.resolve(newUnion, null);
+
+		component = union.add(new ByteDataType(), null, null);
+		assertNull(component.getFieldName());
+		assertEquals("field1", component.getDefaultFieldName());
+
+		component = union.getComponent(0);
+		assertNull(component.getFieldName());
+		assertEquals("field0", component.getDefaultFieldName());
+
+		component.setFieldName(" ");
+		assertNull(component.getFieldName());
+		assertEquals("field0", component.getDefaultFieldName());
+
+		component = union.add(new ByteDataType(), null, null);
+		assertNull(component.getFieldName());
+		assertEquals("field2", component.getDefaultFieldName());
+
+		component = union.add(new ByteDataType(), " ", null);
+		assertNull(component.getFieldName());
+		assertEquals("field3", component.getDefaultFieldName());
+
+		union.insert(0, new ByteDataType(), 1, null, "");
+		component = union.getComponent(0);
+		assertNull(component.getFieldName());
+		assertEquals("field0", component.getDefaultFieldName());
 	}
 }

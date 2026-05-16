@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,8 +15,7 @@
  */
 package ghidra.app.cmd.data.rtti;
 
-import static ghidra.app.util.datatype.microsoft.MSDataTypeUtils.getAlignedPack4Structure;
-import static ghidra.app.util.datatype.microsoft.MSDataTypeUtils.getReferencedAddress;
+import static ghidra.app.util.datatype.microsoft.MSDataTypeUtils.*;
 
 import ghidra.app.cmd.data.EHDataTypeUtilities;
 import ghidra.app.cmd.data.TypeDescriptorModel;
@@ -36,7 +35,6 @@ import ghidra.program.model.mem.*;
  * BaseClassDescriptor structure.
  * <p>
  * Fields for this RunTimeTypeInformation structure can be found on http://www.openrce.org
- * <p>
  * <pre>
  * struct BaseClassDescriptor {
  *     4byte_ptr_or_disp pTypeDescriptor; // ref to TypeDescriptor (RTTI 0) for class
@@ -46,7 +44,6 @@ import ghidra.program.model.mem.*;
  *     4byte_ptr_or_disp pClassHierarchyDescriptor; // ref to ClassHierarchyDescriptor (RTTI 3) for class
  * }
  * </pre>
- * <p>
  * <pre>
  * struct pmd {
  *     int mdisp; // member displacement
@@ -123,7 +120,7 @@ public class Rtti1Model extends AbstractCreateRttiDataModel {
 		// First component is either a direct reference or an image base offset.
 		Address rtti0Address = getReferencedAddress(program, startAddress);
 		if (rtti0Address == null) {
-			invalid(); // throws Exception
+			invalid("Invalid TypeDescriptor reference (pTypeDescriptor)."); // throws Exception
 		}
 		rtti0Model = new TypeDescriptorModel(program, rtti0Address, validationOptions);
 		if (validateReferredToData) {
@@ -233,7 +230,7 @@ public class Rtti1Model extends AbstractCreateRttiDataModel {
 		boolean is64Bit = MSDataTypeUtils.is64Bit(program);
 		Structure rtti1Struct = (Structure) DataTypeUtils.getBaseDataType(rtti1Dt);
 		DataType rtti3RefDt =
-			is64Bit ? new ImageBaseOffset32DataType(dataTypeManager) : new PointerDataType(rtti3Dt);
+			is64Bit ? new IBO32DataType(dataTypeManager) : new PointerDataType(rtti3Dt);
 		rtti1Struct.replace(CLASS_HIERARCHY_POINTER_ORDINAL, rtti3RefDt, rtti3RefDt.getLength(),
 			"pClassHierarchyDescriptor", "ref to ClassHierarchyDescriptor (RTTI 3) for class");
 	}
@@ -249,9 +246,9 @@ public class Rtti1Model extends AbstractCreateRttiDataModel {
 		boolean is64Bit = MSDataTypeUtils.is64Bit(program);
 		DataType rtti0Dt = TypeDescriptorModel.getDataType(program);
 		DataType rtti0RefDt =
-			is64Bit ? new ImageBaseOffset32DataType(dataTypeManager) : new PointerDataType(rtti0Dt);
+			is64Bit ? new IBO32DataType(dataTypeManager) : new PointerDataType(rtti0Dt);
 		DataType rtti3RefDt =
-			is64Bit ? new ImageBaseOffset32DataType(dataTypeManager) : new PointerDataType();
+			is64Bit ? new IBO32DataType(dataTypeManager) : new PointerDataType();
 
 		CategoryPath categoryPath = new CategoryPath(CATEGORY_PATH);
 		StructureDataType struct =
@@ -402,4 +399,17 @@ public class Rtti1Model extends AbstractCreateRttiDataModel {
 		return rtti0Model;
 	}
 
+	/**
+	 * Gets the BaseClassDescriptor (RTTI 3) model associated with this RTTI 1.
+	 * @return the BaseClassDescriptor (RTTI 3) model or null.
+	 */
+	public Rtti3Model getRtti3Model() {
+		try {
+			checkValidity();
+		}
+		catch (InvalidDataTypeException e) {
+			return null;
+		}
+		return rtti3Model;
+	}
 }

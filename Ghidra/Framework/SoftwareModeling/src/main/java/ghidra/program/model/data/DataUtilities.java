@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 package ghidra.program.model.data;
+
+import org.apache.commons.lang3.StringUtils;
 
 import ghidra.program.model.address.*;
 import ghidra.program.model.listing.*;
@@ -26,9 +28,8 @@ import ghidra.util.exception.InvalidInputException;
 
 public final class DataUtilities {
 
-	//private final static Set<Character> VALID_DATA_TYPE_NAME_SET = SystemUtilities.makeSet(FileSystem.DASH_CHAR, '_',' ', '.');
-
 	private DataUtilities() {
+		// utilities class
 	}
 
 	/**
@@ -37,7 +38,7 @@ public final class DataUtilities {
 	 * @return true if name is valid, else false
 	 */
 	public static boolean isValidDataTypeName(String name) {
-		if (name == null) {
+		if (StringUtils.isBlank(name)) {
 			return false;
 		}
 
@@ -71,61 +72,260 @@ public final class DataUtilities {
 		 */
 		CLEAR_SINGLE_DATA,
 		/**
-		 * Clear all conflicting Undefined data provided data will
+		 * Clear all conflicting Undefined Data provided new data will
 		 * fit within memory and not conflict with an
 		 * instruction or other defined data.  Undefined refers to defined
-		 * data with the Undefined data-type.
-		 * @see Undefined#isUndefined(DataType)
+		 * data with the Undefined data-type (see {@link Undefined#isUndefined(DataType)}).
 		 */
 		CLEAR_ALL_UNDEFINED_CONFLICT_DATA,
 		/**
-		 * Clear all conflicting data provided data will
-		 * fit within memory and not conflict with an
-		 * instruction.
+		 * Clear all Default Data provided new data will fit within memory and 
+		 * not conflict with an instruction or other defined data.  In this
+		 * context Default Data refers to all defined data with either an
+		 * Undefined data-type (see {@link Undefined#isUndefined(DataType)}) or
+		 * is considered a default pointer which is either:
+		 * <ol>
+		 * <li>A pointer without a referenced datatype (i.e., <i>addr</i>), or</li>
+		 * <li>An auto-named pointer-typedef without a referenced datatype 
+		 * (e.g., <i>pointer __((offset(0x8)))</i>.</li>
+		 * </ol>
+		 */
+		CLEAR_ALL_DEFAULT_CONFLICT_DATA,
+		/**
+		 * Clear all conflicting data provided new data will fit within memory and 
+		 * not conflict with an instruction.
 		 */
 		CLEAR_ALL_CONFLICT_DATA
 	}
 
+	private static boolean isDefaultData(DataType dt) {
+		// see ClearDataMode.CLEAR_ALL_DEFAULT_CONFLICT_DATA
+		if (Undefined.isUndefined(dt)) {
+			return true;
+		}
+		if (dt instanceof TypeDef) {
+			TypeDef td = (TypeDef) dt;
+			if (!td.isAutoNamed()) {
+				return false;
+			}
+			dt = td.getDataType();
+		}
+		if (dt instanceof Pointer) {
+			Pointer p = (Pointer) dt;
+			dt = p.getDataType();
+			return dt == null || dt == DataType.DEFAULT;
+		}
+		return false;
+	}
+
+	private static boolean isDataClearingDenied(DataType dt, ClearDataMode clearMode) {
+		if ((clearMode == ClearDataMode.CLEAR_ALL_UNDEFINED_CONFLICT_DATA &&
+			!Undefined.isUndefined(dt))) {
+			return true;
+		}
+		if (clearMode == ClearDataMode.CLEAR_ALL_DEFAULT_CONFLICT_DATA && !isDefaultData(dt)) {
+			return true;
+		}
+		return false;
+	}
+
 	/**
-	 * Create data where existing data may already exist.
-	 * @param program
+	 * Create data where existing data may already exist.  Pointer datatype stacking will not
+	 * be performed.
+	 * @param program the program
 	 * @param addr data address (offcut data address only allowed if clearMode == ClearDataMode.CLEAR_ALL_CONFLICT_DATA)
-	 * @param newDataType new data-type being applied
+	 * @param newType new data-type being applied
 	 * @param length data length (used only for Dynamic newDataType which has canSpecifyLength()==true)
-	 * @param stackPointers see {@link #reconcileAppliedDataType(DataType, DataType, boolean)}
-	 * @param clearMode see CreateDataMode
+	 * @param clearMode the {@link ClearDataMode}
 	 * @return new data created
 	 * @throws CodeUnitInsertionException if data creation failed
 	 */
-	public static Data createData(Program program, Address addr, DataType newDataType, int length,
+	public static Data createData(Program program, Address addr, DataType newType, int length,
+			ClearDataMode clearMode) throws CodeUnitInsertionException {
+		return createData(program, addr, newType, length, false, clearMode);
+	}
+
+	/**
+	 * Create data where existing data may already exist.
+	 * @param program the program
+	 * @param addr data address (offcut data address only allowed if clearMode == ClearDataMode.CLEAR_ALL_CONFLICT_DATA)
+	 * @param newType new data-type being applied
+	 * @param length data length (used only for Dynamic newDataType which has canSpecifyLength()==true)
+	 * @param stackPointers see {@link #reconcileAppliedDataType(DataType, DataType, boolean)}
+	 * @param clearMode the {@link ClearDataMode}
+	 * @return new data created
+	 * @throws CodeUnitInsertionException if data creation failed
+	 */
+	public static Data createData(Program program, Address addr, DataType newType, int length,
 			boolean stackPointers, ClearDataMode clearMode) throws CodeUnitInsertionException {
 
 		Listing listing = program.getListing();
 		ReferenceManager refMgr = program.getReferenceManager();
 
-		Data data = listing.getDataAt(addr);
-		DataType existingDT = null;
+		Data data = getData(addr, clearMode, listing);
+		int existingLength = addr.getAddressSpace().getAddressableUnitSize();
+		DataType existingType = data.getDataType();
 		Reference extRef = null;
-		int existingDataLen = addr.getAddressSpace().getAddressableUnitSize();
-		if (data == null) {
-			if (clearMode == ClearDataMode.CLEAR_ALL_CONFLICT_DATA ||
-				clearMode == ClearDataMode.CLEAR_ALL_UNDEFINED_CONFLICT_DATA) {
-				// allow offcut addr if CLEAR_ALL_CONFLICT_DATA
-				data = listing.getDataContaining(addr);
-				if (data != null && clearMode == ClearDataMode.CLEAR_ALL_UNDEFINED_CONFLICT_DATA &&
-					!Undefined.isUndefined(data.getDataType())) {
-					data = null; // force error
-				}
-			}
-			if (data == null) {
+		if (!isParentData(data, addr)) {
+
+			if (!stackPointers && isDataClearingDenied(existingType, clearMode)) {
 				throw new CodeUnitInsertionException("Could not create Data at address " + addr);
 			}
+
+			existingLength = data.getLength();
+
+			if (data.isDefined()) {
+				DataType existingDt = data.getDataType();
+				if (stackPointers && (newType instanceof Pointer) &&
+					(existingDt instanceof Pointer ptr)) {
+					if (isDefaultPointer(newType)) {
+						// When applying default-pointer to existing pointer replicate the outermost
+						// pointer type to wrap existing pointer (e.g., char* becomes char**)
+						newType = ptr.newPointer(ptr);
+					}
+					// Any use of stacking already reflected by newType
+					stackPointers = false;
+				}
+				if (newType.isEquivalent(existingType)) {
+					return data;
+				}
+			}
+
+			// TODO: This can probably be eliminated
+			// Check for external reference on pointer
+			extRef =
+				getExternalPointerReference(addr, newType, stackPointers, refMgr, existingType);
+		}
+
+		newType = newType.clone(program.getDataTypeManager());
+		newType = reconcileAppliedDataType(existingType, newType, stackPointers);
+
+		DataType realType = newType;
+		if (newType instanceof TypeDef) {
+			realType = ((TypeDef) newType).getBaseDataType();
+		}
+
+		// is the datatype already there?
+		if (isExistingNonDynamicType(realType, newType, existingType)) {
+			return data;
+		}
+
+		DataTypeInstance dti = getDtInstance(program, addr, newType, length, realType);
+		if (stackPointers && existingType instanceof Pointer && newType instanceof Pointer) {
+			listing.clearCodeUnits(addr, addr, false);
+		}
+
+		Data newData;
+		try {
+			newData = listing.createData(addr, dti.getDataType(), dti.getLength());
+		}
+		catch (CodeUnitInsertionException e) {
+			// ok lets see if we need to clear some code units
+			if (clearMode == ClearDataMode.CLEAR_SINGLE_DATA) {
+				listing.clearCodeUnits(addr, addr, false);
+			}
+			else {
+				checkEnoughSpace(program, addr, existingLength, dti, clearMode);
+			}
+			newData = listing.createData(addr, dti.getDataType(), dti.getLength());
+		}
+
+		restoreReference(newType, refMgr, extRef);
+
+		return newData;
+	}
+
+	private static boolean isParentData(Data data, Address addr) {
+		return !data.getAddress().equals(addr);
+	}
+
+	private static Data getData(Address addr, ClearDataMode clearMode, Listing listing)
+			throws CodeUnitInsertionException {
+
+		Data data = listing.getDataAt(addr);
+		if (data != null) {
+			return data; // existing data; it us possible to create data
+		}
+
+		// null data; see if we are in a composite
+		if (clearMode == ClearDataMode.CLEAR_ALL_CONFLICT_DATA ||
+			clearMode == ClearDataMode.CLEAR_ALL_UNDEFINED_CONFLICT_DATA ||
+			clearMode == ClearDataMode.CLEAR_ALL_DEFAULT_CONFLICT_DATA) {
+
+			// allow offcut addr if CLEAR_ALL_CONFLICT_DATA
+			data = listing.getDataContaining(addr);
+			if (data != null && isDataClearingDenied(data.getDataType(), clearMode)) {
+				data = null; // force error
+			}
+		}
+
+		// null data implies that we cannot create data at this address
+		if (data == null) {
+			throw new CodeUnitInsertionException("Could not create Data at address " + addr);
+		}
+
+		return data;
+	}
+
+	private static DataTypeInstance getDtInstance(Program program, Address addr, DataType newType,
+			int length, DataType realType) throws CodeUnitInsertionException {
+
+		MemBuffer memBuf = new DumbMemBufferImpl(program.getMemory(), addr);
+		DataTypeInstance dti;
+		if (length > 0 && (realType instanceof Dynamic) &&
+			((Dynamic) realType).canSpecifyLength()) {
+			dti = DataTypeInstance.getDataTypeInstance(newType, memBuf, length, false);
 		}
 		else {
-			existingDataLen = data.getLength();
-			existingDT = data.getDataType();
+			dti = DataTypeInstance.getDataTypeInstance(newType, memBuf, false);
+		}
 
-			// Check for external reference on pointer
+		if (dti == null) {
+			throw new CodeUnitInsertionException(
+				"Could not create DataType " + newType.getDisplayName());
+		}
+
+		return dti;
+	}
+
+	private static boolean isExistingNonDynamicType(DataType realType, DataType newType,
+			DataType existingType) {
+
+		if (realType instanceof Dynamic || realType instanceof FactoryDataType) {
+			return false;
+		}
+
+		// not dynamic or factory--does it exist?
+		return newType.equals(existingType);
+	}
+
+	private static void restoreReference(DataType newType, ReferenceManager refMgr, Reference ref) {
+
+		if (ref == null) {
+			return;
+		}
+
+		if (!(newType instanceof Pointer)) {
+			return;
+		}
+
+		// if this was a pointer and had an external reference, put it back!
+		ExternalLocation extLoc = ((ExternalReference) ref).getExternalLocation();
+		Address fromAddress = ref.getFromAddress();
+		SourceType source = ref.getSource();
+		RefType type = ref.getReferenceType();
+		try {
+			refMgr.addExternalReference(fromAddress, 0, extLoc, source, type);
+		}
+		catch (InvalidInputException e) {
+			throw new AssertException(e);
+		}
+	}
+
+	private static Reference getExternalPointerReference(Address addr, DataType newType,
+			boolean stackPointers, ReferenceManager refMgr, DataType existingType) {
+		Reference extRef = null;
+		if ((stackPointers || newType instanceof Pointer) && existingType instanceof Pointer) {
 			Reference[] refs = refMgr.getReferencesFrom(addr);
 			for (Reference ref : refs) {
 				if (ref.getOperandIndex() == 0 && ref.isExternalReference()) {
@@ -134,110 +334,63 @@ public final class DataUtilities {
 				}
 			}
 		}
-
-		newDataType = newDataType.clone(program.getDataTypeManager());
-		newDataType = reconcileAppliedDataType(existingDT, newDataType, stackPointers);
-
-		DataType realType = newDataType;
-		if (newDataType instanceof TypeDef) {
-			realType = ((TypeDef) newDataType).getBaseDataType();
-		}
-
-		// is the datatype already there?
-		if (!(realType instanceof Dynamic) && !(realType instanceof FactoryDataType) &&
-			newDataType.equals(existingDT)) {
-			return data;
-		}
-
-		MemBuffer memBuf = new DumbMemBufferImpl(program.getMemory(), addr);
-		DataTypeInstance dti;
-		if (length > 0 && (realType instanceof Dynamic) &&
-			((Dynamic) realType).canSpecifyLength()) {
-			dti = DataTypeInstance.getDataTypeInstance(newDataType, memBuf, length);
-		}
-		else {
-			dti = DataTypeInstance.getDataTypeInstance(newDataType, memBuf);
-		}
-		if (dti == null) {
-			throw new CodeUnitInsertionException(
-				"Could not create DataType " + newDataType.getDisplayName());
-		}
-		try {
-			return listing.createData(addr, dti.getDataType(), dti.getLength());
-		}
-		catch (CodeUnitInsertionException e) {
-			// ok lets see if we need to clear some code units
-		}
-		if (clearMode == ClearDataMode.CLEAR_SINGLE_DATA) {
-			listing.clearCodeUnits(addr, addr, false);
-		}
-		else {
-			checkEnoughSpace(program, addr, existingDataLen, dti, clearMode);
-		}
-		Data newData = listing.createData(addr, dti.getDataType(), dti.getLength());
-		// if this was a pointer and had an external reference, put it back!
-		if ((newDataType instanceof Pointer) && extRef != null) {
-			ExternalLocation extLoc = ((ExternalReference) extRef).getExternalLocation();
-			try {
-				refMgr.addExternalReference(extRef.getFromAddress(), 0, extLoc, extRef.getSource(),
-					extRef.getReferenceType());
-			}
-			catch (InvalidInputException e) {
-				throw new AssertException(e);
-			}
-		}
-		return newData;
+		return extRef;
 	}
 
 	private static void checkEnoughSpace(Program program, Address addr, int existingDataLen,
-			DataTypeInstance dti, ClearDataMode mode) throws CodeUnitInsertionException {
+			DataTypeInstance dti, ClearDataMode clearMode) throws CodeUnitInsertionException {
+		// NOTE: method not invoked when clearMode == ClearDataMode.CLEAR_SINGLE_DATA
 		Listing listing = program.getListing();
-		int newSize = dti.getLength();
-		if (newSize <= existingDataLen) {
-			listing.clearCodeUnits(addr, addr, false);
-			return;
-		}
+		Address end = null;
+		Address newEnd = null;
 		try {
-			Address end = addr.addNoWrap(existingDataLen - 1);
-			Address newEnd = addr.addNoWrap(dti.getLength() - 1);
-			Instruction instr = listing.getInstructionAfter(end);
-			if (instr != null && instr.getMinAddress().compareTo(newEnd) <= 0) {
-				throw new CodeUnitInsertionException(
-					"Not enough space to create DataType " + dti.getDataType().getDisplayName());
-			}
-			Data definedData = listing.getDefinedDataAfter(end);
-			if (definedData != null && definedData.getMinAddress().compareTo(newEnd) <= 0) {
-				if (mode == ClearDataMode.CLEAR_ALL_UNDEFINED_CONFLICT_DATA &&
-					Undefined.isUndefined(definedData.getDataType())) {
-					// ignore all defined data which is considered Undefined and may be cleared
-					end = definedData.getMaxAddress();
-					while (end.compareTo(newEnd) <= 0) {
-						definedData = listing.getDefinedDataAfter(end);
-						if (definedData == null ||
-							definedData.getMinAddress().compareTo(newEnd) > 0) {
-							break;
-						}
-						if (!Undefined.isUndefined(definedData.getDataType())) {
-							throw new CodeUnitInsertionException(
-								"Not enough space to create DataType " +
-									dti.getDataType().getDisplayName());
-						}
-						end = definedData.getMaxAddress();
-					}
-				}
-				else if (mode != ClearDataMode.CLEAR_ALL_CONFLICT_DATA) {
-					throw new CodeUnitInsertionException("Not enough space to create DataType " +
-						dti.getDataType().getDisplayName());
-				}
-				listing.clearCodeUnits(addr, newEnd, false);
-			}
-			else {
-				listing.clearCodeUnits(addr, addr, false);
-			}
+			end = addr.addNoWrap(existingDataLen - 1);
+			newEnd = addr.addNoWrap(dti.getLength() - 1);
 		}
 		catch (AddressOverflowException e) {
 			throw new CodeUnitInsertionException(
 				"Not enough space to create DataType " + dti.getDataType().getDisplayName());
+		}
+
+		Instruction instr = listing.getInstructionAfter(end);
+		if (instr != null && instr.getMinAddress().compareTo(newEnd) <= 0) {
+			throw new CodeUnitInsertionException(
+				"Not enough space to create DataType " + dti.getDataType().getDisplayName());
+		}
+
+		Data definedData = listing.getDefinedDataAfter(end);
+		if (definedData == null || definedData.getMinAddress().compareTo(newEnd) > 0) {
+			listing.clearCodeUnits(addr, addr, false);
+			return;
+		}
+
+		if ((clearMode == ClearDataMode.CLEAR_ALL_UNDEFINED_CONFLICT_DATA ||
+			clearMode == ClearDataMode.CLEAR_ALL_DEFAULT_CONFLICT_DATA) &&
+			!isDataClearingDenied(definedData.getDataType(), clearMode)) {
+			checkForDefinedData(dti, listing, newEnd, definedData.getMaxAddress(), clearMode);
+		}
+		else if (clearMode != ClearDataMode.CLEAR_ALL_CONFLICT_DATA) {
+			throw new CodeUnitInsertionException(
+				"Not enough space to create DataType " + dti.getDataType().getDisplayName());
+		}
+		listing.clearCodeUnits(addr, newEnd, false);
+	}
+
+	private static void checkForDefinedData(DataTypeInstance dti, Listing listing, Address address,
+			Address end, ClearDataMode clearMode) throws CodeUnitInsertionException {
+
+		// ignore all defined data which may be cleared
+		while (end.compareTo(address) <= 0) {
+			Data definedData = listing.getDefinedDataAfter(end);
+			if (definedData == null || definedData.getMinAddress().compareTo(address) > 0) {
+				return;
+			}
+
+			if (isDataClearingDenied(definedData.getDataType(), clearMode)) {
+				throw new CodeUnitInsertionException(
+					"Not enough space to create DataType " + dti.getDataType().getDisplayName());
+			}
+			end = definedData.getMaxAddress();
 		}
 	}
 
@@ -271,7 +424,7 @@ public final class DataUtilities {
 	 * </li>
 	 * <li>If the originalDataType is any type of pointer the supplied newDatatype
 	 * will replace the pointer's base type (e.g., int * would become db * when
-	 * newDataType is {@link ByteDataType}).
+	 * newDataType is {@link ByteDataType}).</li>
 	 * </ul>
 	 * <P>If false, only required transformations will be applied, Example:
 	 * if newDataType is a FunctionDefinitionDataType it will be transformed
@@ -286,12 +439,14 @@ public final class DataUtilities {
 		}
 
 		DataType resultDt = newDataType;
-		if (stackPointers && isDefaultPointer(newDataType) &&
-			(originalDataType instanceof Pointer)) {
-			// wrap existing pointer with specified default pointer
-			resultDt = ((Pointer) newDataType).newPointer(originalDataType);
+		if (stackPointers && (newDataType instanceof Pointer) &&
+			(originalDataType instanceof Pointer ptr)) {
+			if (isDefaultPointer(newDataType)) {
+				// When applying default-pointer to existing pointer replicate the outermost
+				// pointer type to wrap existing pointer (e.g., char* becomes char**)
+				resultDt = ptr.newPointer(ptr);
+			}
 		}
-
 		else if (stackPointers && (originalDataType instanceof Pointer)) {
 			// replace existing pointer's base data type
 			resultDt = stackPointers((Pointer) originalDataType, newDataType);
@@ -304,12 +459,11 @@ public final class DataUtilities {
 	}
 
 	private static boolean isDefaultPointer(DataType dt) {
-		if (!(dt instanceof Pointer)) {
-			return false;
+		if (dt instanceof Pointer ptr) {
+			DataType ptrDt = ptr.getDataType();
+			return ptrDt == null || ptrDt == DataType.DEFAULT;
 		}
-		Pointer p = (Pointer) dt;
-		DataType ptrDt = p.getDataType();
-		return ptrDt == null || ptrDt == DataType.DEFAULT;
+		return false;
 	}
 
 	/**
@@ -339,7 +493,10 @@ public final class DataUtilities {
 	 * Get the data for the given address.
 	 * <P>
 	 * This will return a Data if and only if there is data that starts at the given address.
-	 * @return the Data that starts at the given address or null if the address is code or offcut.
+	 * 
+	 * @param program the program 
+	 * @param address the data address
+	 * @return the Data that starts at the given address or null if the address is code or offcut
 	 */
 	public static Data getDataAtAddress(Program program, Address address) {
 		if (address == null) {
@@ -401,9 +558,9 @@ public final class DataUtilities {
 	 * Determine if the specified addr corresponds to an undefined data location
 	 * where both undefined code units and defined data which has an Undefined
 	 * data type is considered to be undefined.
-	 * @param program
-	 * @param addr
-	 * @return
+	 * @param program the program
+	 * @param addr the data address
+	 * @return true if the data is undefined
 	 */
 	public static boolean isUndefinedData(Program program, Address addr) {
 		Data data = program.getListing().getDataAt(addr);

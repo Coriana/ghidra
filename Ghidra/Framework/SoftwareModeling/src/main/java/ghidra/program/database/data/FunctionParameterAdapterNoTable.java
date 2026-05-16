@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,12 +15,11 @@
  */
 package ghidra.program.database.data;
 
-import ghidra.program.database.util.EmptyRecordIterator;
-import ghidra.util.exception.VersionException;
-
 import java.io.IOException;
 
 import db.*;
+import ghidra.program.database.util.EmptyRecordIterator;
+import ghidra.util.exception.VersionException;
 
 /**
  * Adapter needed for a read-only version of data type manager that is not going
@@ -32,20 +30,21 @@ class FunctionParameterAdapterNoTable extends FunctionParameterAdapter {
 	/**
 	 * Gets a pre-table version of the adapter for the Function Definition Parameters database table.
 	 * @param handle handle to the database which doesn't contain the table.
-	 * @throws VersionException if the the table's version does not match the expected version
+	 * @throws VersionException if the table's version does not match the expected version
 	 * for this adapter.
 	 */
 	public FunctionParameterAdapterNoTable(DBHandle handle) {
+		// no table required
 	}
 
 	@Override
-	public Record createRecord(long dataTypeID, long parentID, int ordinal, String name,
+	public DBRecord createRecord(long dataTypeID, long parentID, int ordinal, String name,
 			String comment, int dtLength) throws IOException {
 		return null;
 	}
 
 	@Override
-	public Record getRecord(long parameterID) throws IOException {
+	public DBRecord getRecord(long parameterID) throws IOException {
 		return null;
 	}
 
@@ -55,7 +54,7 @@ class FunctionParameterAdapterNoTable extends FunctionParameterAdapter {
 	}
 
 	@Override
-	public void updateRecord(Record record) throws IOException {
+	public void updateRecord(DBRecord record) throws IOException {
 		throw new UnsupportedOperationException();
 	}
 
@@ -66,11 +65,12 @@ class FunctionParameterAdapterNoTable extends FunctionParameterAdapter {
 
 	@Override
 	protected void deleteTable(DBHandle handle) throws IOException {
+		// do nothing
 	}
 
 	@Override
-	public long[] getParameterIdsInFunctionDef(long functionDefID) throws IOException {
-		return new long[0];
+	public Field[] getParameterIdsInFunctionDef(long functionDefID) throws IOException {
+		return Field.EMPTY_ARRAY;
 	}
 
 }

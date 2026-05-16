@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -23,22 +23,24 @@ import java.util.Map.Entry;
 import ghidra.app.util.MemoryBlockUtils;
 import ghidra.app.util.Option;
 import ghidra.app.util.bin.ByteProvider;
+import ghidra.app.util.bin.format.RelocationException;
 import ghidra.app.util.bin.format.coff.*;
-import ghidra.app.util.bin.format.coff.relocation.CoffRelocationHandler;
-import ghidra.app.util.bin.format.coff.relocation.CoffRelocationHandlerFactory;
+import ghidra.app.util.bin.format.coff.relocation.*;
 import ghidra.app.util.importer.MessageLog;
 import ghidra.framework.model.DomainObject;
-import ghidra.program.database.function.OverlappingFunctionException;
 import ghidra.program.database.mem.FileBytes;
 import ghidra.program.model.address.*;
 import ghidra.program.model.data.*;
 import ghidra.program.model.lang.Language;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.mem.*;
+import ghidra.program.model.reloc.Relocation.Status;
+import ghidra.program.model.reloc.RelocationResult;
 import ghidra.program.model.symbol.*;
 import ghidra.program.model.util.CodeUnitInsertionException;
 import ghidra.util.Msg;
-import ghidra.util.exception.*;
+import ghidra.util.exception.CancelledException;
+import ghidra.util.exception.InvalidInputException;
 import ghidra.util.task.TaskMonitor;
 
 public class CoffLoader extends AbstractLibrarySupportLoader {
@@ -46,14 +48,11 @@ public class CoffLoader extends AbstractLibrarySupportLoader {
 	public final static String COFF_NAME = "Common Object File Format (COFF)";
 	public static final String FAKE_LINK_OPTION_NAME = "Attempt to link sections located at 0x0";
 	static final boolean FAKE_LINK_OPTION_DEFAULT = true;
-	private static final int COFF_NULL_SANITY_CHECK_LEN = 64;
 
 	// where do sections start if they're all zero???  this affects object files
 	// and if we're high enough (!!!) the scalar operand analyzer will work
 	// properly with external symbols laid down
 	private static final int EMPTY_START_OFFSET = 0x2000;
-
-	private static final long MIN_BYTE_LENGTH = 22;
 
 	/**
 	 * @return true if this loader assumes the Microsoft variant of the COFF format
@@ -97,63 +96,47 @@ public class CoffLoader extends AbstractLibrarySupportLoader {
 	public Collection<LoadSpec> findSupportedLoadSpecs(ByteProvider provider) throws IOException {
 		List<LoadSpec> loadSpecs = new ArrayList<>();
 
-		if (provider.length() < MIN_BYTE_LENGTH) {
-			return loadSpecs;
-		}
-
-		CoffFileHeader header = new CoffFileHeader(provider);
-
-		// Check to prevent false positives when the file is full of '\0' bytes.
-		// If the machine type is unknown (0), check the first 64 bytes of the file and bail if
-		// they are also all 0.
-		if (header.getMagic() == CoffMachineType.IMAGE_FILE_MACHINE_UNKNOWN /* ie. == 0 */ &&
-			provider.length() > COFF_NULL_SANITY_CHECK_LEN) {
-			byte[] headerBytes = provider.readBytes(0, COFF_NULL_SANITY_CHECK_LEN);
-			boolean allZeros = true;
-			for (byte b : headerBytes) {
-				allZeros = (b == 0);
-				if (!allZeros) {
-					break;
-				}
-			}
-			if (allZeros) {
-				return loadSpecs;
-			}
-		}
-
-		if (CoffMachineType.isMachineTypeDefined(header.getMagic())) {
-			header.parseSectionHeaders(provider);
+		try {
+			CoffFileHeader header = new CoffFileHeader(provider);
+			header.parseSectionHeaders();
 
 			if (isVisualStudio(header) != isMicrosoftFormat()) {
 				// Only one of the CoffLoader/MSCoffLoader will survive this check
 				return loadSpecs;
 			}
-			String secondary = isCLI(header) ? "cli" : null;
+			String secondary = isCLI(header) ? "cli" : Integer.toString(header.getFlags() & 0xffff);
 			List<QueryResult> results =
 				QueryOpinionService.query(getName(), header.getMachineName(), secondary);
 			for (QueryResult result : results) {
-				loadSpecs.add(new LoadSpec(this, header.getImageBase(true), result));
+				loadSpecs.add(new LoadSpec(this, header.getImageBase(isMicrosoftFormat()), result));
 			}
 			if (loadSpecs.isEmpty()) {
 				loadSpecs.add(new LoadSpec(this, header.getImageBase(false), true));
 			}
 		}
+		catch (CoffException e) {
+			// that's ok, probably not a COFF
+		}
+
 		return loadSpecs;
 	}
 
 	@Override
 	public List<Option> getDefaultOptions(ByteProvider provider, LoadSpec loadSpec,
-			DomainObject domainObject, boolean loadIntoProgram) {
-		List<Option> list =
-			super.getDefaultOptions(provider, loadSpec, domainObject, loadIntoProgram);
+			DomainObject domainObject, boolean loadIntoProgram, boolean mirrorFsLayout) {
+		List<Option> list = super.getDefaultOptions(provider, loadSpec, domainObject,
+			loadIntoProgram, mirrorFsLayout);
 		if (!loadIntoProgram) {
-			list.add(new Option(FAKE_LINK_OPTION_NAME, FAKE_LINK_OPTION_DEFAULT));
+			list.add(Option.newBoolean(FAKE_LINK_OPTION_NAME)
+					.value(FAKE_LINK_OPTION_DEFAULT)
+					.build());
 		}
 		return list;
 	}
 
 	@Override
-	public String validateOptions(ByteProvider provider, LoadSpec loadSpec, List<Option> options, Program program) {
+	public String validateOptions(ByteProvider provider, LoadSpec loadSpec, List<Option> options,
+			Program program) {
 		if (options != null) {
 			for (Option option : options) {
 				String name = option.getName();
@@ -181,35 +164,30 @@ public class CoffLoader extends AbstractLibrarySupportLoader {
 	}
 
 	@Override
-	protected void load(ByteProvider provider, LoadSpec loadSpec, List<Option> options,
-			Program program, TaskMonitor monitor, MessageLog log)
+	protected void load(Program program, ImporterSettings settings)
 			throws IOException, CancelledException {
 
-		boolean performFakeLinking = performFakeLinking(options);
+		MessageLog log = settings.log();
+		TaskMonitor monitor = settings.monitor();
 
-		CoffFileHeader header = new CoffFileHeader(provider);
-		header.parse(provider, monitor);
-
-		Map<CoffSectionHeader, Address> sectionsMap = new HashMap<>();
-		Map<CoffSymbol, Symbol> symbolsMap = new HashMap<>();
-
-		FileBytes fileBytes = MemoryBlockUtils.createFileBytes(program, provider, monitor);
-
-		int id = program.startTransaction("loading program from COFF");
-		boolean success = false;
 		try {
-			processSectionHeaders(provider, header, program, fileBytes, monitor, log, sectionsMap,
-				performFakeLinking);
+			CoffFileHeader header = new CoffFileHeader(settings.provider());
+			header.parse(monitor);
+
+			Map<CoffSectionHeader, Address> sectionsMap = new HashMap<>();
+			Map<CoffSymbol, Symbol> symbolsMap = new HashMap<>();
+
+			FileBytes fileBytes =
+				MemoryBlockUtils.createFileBytes(program, settings.provider(), monitor);
+			processSectionHeaders(settings.provider(), header, program, fileBytes, monitor, log,
+				sectionsMap, performFakeLinking(settings.options()));
 			processSymbols(header, program, monitor, log, sectionsMap, symbolsMap);
 			processEntryPoint(header, program, monitor, log);
 			processRelocations(header, program, sectionsMap, symbolsMap, log, monitor);
-			success = true;
+			markupHeaders(header, program, fileBytes, log, monitor);
 		}
-		catch (AddressOverflowException e) {
+		catch (CoffException | AddressOverflowException e) {
 			throw new IOException(e);
-		}
-		finally {
-			program.endTransaction(id, success);
 		}
 	}
 
@@ -267,7 +245,7 @@ public class CoffLoader extends AbstractLibrarySupportLoader {
 			Address address = null;
 			try {
 				short sectionNum = symbol.getSectionNumber();
-				if (sectionNum == 0) {//external symbols
+				if (sectionNum == CoffSymbolSectionNumber.N_UNDEF) {//external symbols
 					address = externalAddress;
 					String name = symbol.getName();
 					Symbol sym = symbolTable.getGlobalSymbol(name, address);
@@ -277,16 +255,20 @@ public class CoffLoader extends AbstractLibrarySupportLoader {
 
 					symbolsMap.put(symbol, sym);
 
-					externalAddress = externalAddress.add(
-						getPointerSizeAligned(externalAddress.getAddressSpace()));
+					externalAddress = externalAddress
+							.add(getPointerSizeAligned(externalAddress.getAddressSpace()));
 				}
-				else if (sectionNum <= -2) {
+				else if (sectionNum < CoffSymbolSectionNumber.N_DEBUG) {
 					log.appendMsg("Strange symbol " + symbol + " : " + symbol.getBasicType() +
 						" - from section " + sectionNum);
 				}
+				else if (sectionNum == CoffSymbolSectionNumber.N_DEBUG) {
+					// skip debug symbols
+					continue;
+				}
 				else {
 					CoffSectionHeader section = null;
-					if (sectionNum == -1) { // absolute symbols
+					if (sectionNum == CoffSymbolSectionNumber.N_ABS) { // absolute symbols {
 						// usually corresponds to IO or memory registers
 						address = CoffSectionHeader.getAddress(program.getLanguage(),
 							symbol.getValue(), program.getLanguage().getDefaultDataSpace());
@@ -342,7 +324,7 @@ public class CoffLoader extends AbstractLibrarySupportLoader {
 						symbol.getStorageClass() != CoffSymbolStorageClass.C_STAT) {
 						// ONLY DO THIS IF THE SYMBOL IS A FUNCTION!
 						symbolTable.addExternalEntryPoint(address);
-						createOneByteFunction(program, sym.getName(), address);
+						markAsFunction(program, sym.getName(), address);
 					}
 
 					symbolsMap.put(symbol, sym);
@@ -363,11 +345,15 @@ public class CoffLoader extends AbstractLibrarySupportLoader {
 		if (!externalAddressStart.equals(externalAddress)) {
 			long size = externalAddress.subtract(externalAddressStart);
 			try {
-				MemoryBlock block = program.getMemory().createUninitializedBlock("EXTERNAL",
-					externalAddressStart, size, false);
+				MemoryBlock block = program.getMemory()
+						.createUninitializedBlock(MemoryBlock.EXTERNAL_BLOCK_NAME,
+							externalAddressStart, size, false);
 
 				// assume any value in external is writable.
 				block.setWrite(true);
+
+				// Mark block as an artificial fabrication
+				block.setArtificial(true);
 
 				Address current = externalAddressStart;
 				while (current.compareTo(externalAddress) < 0) {
@@ -383,7 +369,7 @@ public class CoffLoader extends AbstractLibrarySupportLoader {
 	}
 
 	private Data createUndefined(Listing listing, Memory memory, Address addr, int size)
-			throws CodeUnitInsertionException, DataTypeConflictException {
+			throws CodeUnitInsertionException {
 		MemoryBlock block = memory.getBlock(addr);
 		if (block == null || !block.isInitialized()) {
 			return null;
@@ -469,8 +455,8 @@ public class CoffLoader extends AbstractLibrarySupportLoader {
 				// don't create a block, but record the section to get at the address!
 				block = program.getMemory().getBlock(sectionAddr);
 				try {
-					program.getSymbolTable().createLabel(sectionAddr, section.getName(),
-						SourceType.IMPORTED);
+					program.getSymbolTable()
+							.createLabel(sectionAddr, section.getName(), SourceType.IMPORTED);
 					// TODO: sectionSize somewhere for case where flags==0 ?
 				}
 				catch (InvalidInputException e) {
@@ -555,7 +541,7 @@ public class CoffLoader extends AbstractLibrarySupportLoader {
 			Map<CoffSectionHeader, Address> map) {
 		// 1. loop over all sections
 		//    put all sections not at 0 into address set
-		//    put all sections at 0 into "totals" map
+		//    put all sections at 0 into "totals" map, accounting for later alignment needs
 		// 2. look for space before minimum of taken addresses
 		// 3. or, look for space after maximum of taken addresses
 
@@ -565,24 +551,22 @@ public class CoffLoader extends AbstractLibrarySupportLoader {
 
 		AddressSet nonZeroSet = new AddressSet();
 
-		int totalSize = 0;
-		TreeMap<String, Integer> zeroSectionSizes = new TreeMap<>();
-		TreeMap<String, Integer> zeroSectionOffsets = new TreeMap<>();
+		int totalZeroSectionSize = 0;
+		Map<String, Integer> zeroSectionSizes = new TreeMap<>();
+		Map<String, Integer> zeroSectionOffsets = new TreeMap<>();
 
 		List<CoffSectionHeader> sections = header.getSections();
 		for (CoffSectionHeader section : sections) {
 			int physicalAddress = section.getPhysicalAddress();
 			int size = section.getSize(language);
 			if (physicalAddress == 0) {
+				// We don't know the exact offset now, so assume worst-case alignment penalty
+				int alignedSize = size + getSectionAlignment(section) - 1;
 				String name = section.getName();
-				Integer s = zeroSectionSizes.get(name);
-				if (s == null) {
-					zeroSectionSizes.put(name, size);
-				}
-				else {
-					zeroSectionSizes.put(name, s + size);
-				}
-				totalSize += size;
+				zeroSectionSizes.compute(name,
+					(k, v) -> (v == null ? alignedSize : v + alignedSize));
+
+				totalZeroSectionSize += alignedSize;
 			}
 			else {
 				if (size > 0) {
@@ -596,35 +580,47 @@ public class CoffLoader extends AbstractLibrarySupportLoader {
 				}
 			}
 		}
+
 		Address maxAddress = nonZeroSet.getMaxAddress();
 		int offset = (maxAddress == null ? EMPTY_START_OFFSET - 1
 				: (int) (maxAddress.getOffset() & 0xffffffff));
 		long sum = offset;
-		sum += totalSize;
+		sum += totalZeroSectionSize;
 		if (sum <= 0x100000000L) {
-			int start = align(offset + 1);
+			offset += 1;
+			// Each group of sections with the same name should be aligned at least at 256 bytes
 			for (Entry<String, Integer> entry : zeroSectionSizes.entrySet()) {
-				zeroSectionOffsets.put(entry.getKey(), start);
-				start = align(start + entry.getValue());
+				offset = (offset + DEFAULT_ALIGNMENT - 1) / DEFAULT_ALIGNMENT * DEFAULT_ALIGNMENT;
+				zeroSectionOffsets.put(entry.getKey(), offset);
+				offset += zeroSectionSizes.get(entry.getKey());
 			}
 			int sectionNumber = 1;
 			for (CoffSectionHeader section : sections) {
 				int physicalAddress = section.getPhysicalAddress();
 				if (physicalAddress == 0) {
 					String name = section.getName();
-					start = zeroSectionOffsets.get(name);
-					relocateSection(header, section, sectionNumber, start);
-					zeroSectionOffsets.put(name, start + section.getSize(language));
+					int alignment = getSectionAlignment(section);
+					offset = (zeroSectionOffsets.get(name) + alignment - 1) / alignment * alignment;
+					relocateSection(header, section, sectionNumber, offset);
+					zeroSectionOffsets.put(name, offset + section.getSize(language));
 				}
 				++sectionNumber;
 			}
 		}
 	}
 
-	private static final int ALIGNMENT = 0x100;
+	private static final int DEFAULT_ALIGNMENT = 0x100;
 
-	private int align(int i) {
-		return (i + ALIGNMENT - 1) / ALIGNMENT * ALIGNMENT;
+	/**
+	 * Query a section header for alignment information. The base version of this method assumes 
+	 * no alignment information is stored in the section header. Subclasses may implement a 
+	 * platform-specific check for alignment information.
+	 * 
+	 * @param section header object for the section 
+	 * @return the alignment requested by the section
+	 */
+	protected int getSectionAlignment(CoffSectionHeader section) {
+		return 1;
 	}
 
 	private void relocateSection(CoffFileHeader header, CoffSectionHeader section,
@@ -643,6 +639,16 @@ public class CoffLoader extends AbstractLibrarySupportLoader {
 			MessageLog log, TaskMonitor monitor) {
 
 		CoffRelocationHandler handler = CoffRelocationHandlerFactory.getHandler(header);
+		if (handler == null) {
+			String msg = String.format("No COFF relocation handler for machine type 0x%x",
+				(Short) header.getMachine());
+			log.appendMsg(msg);
+			Msg.error(this, program.getName() + ": " + msg);
+		}
+
+		CoffRelocationContext relocationContext =
+			new CoffRelocationContext(program, header, symbolsMap);
+		int failureCount = 0;
 
 		for (CoffSectionHeader section : header.getSections()) {
 			if (monitor.isCancelled()) {
@@ -651,83 +657,168 @@ public class CoffLoader extends AbstractLibrarySupportLoader {
 
 			Address sectionStartAddr = sectionsMap.get(section);
 			if (sectionStartAddr == null) {
-				if (section.getRelocationCount() > 0) {
-					log.appendMsg("Unable to process relocations for " + section.getName() +
-						". No memory block was created.");
+				int relocCount = section.getRelocationCount();
+				if (relocCount > 0) {
+					failureCount += relocCount;
+					String msg = "Unable to process " + relocCount + " relocations for section " +
+						section.getName() + ". No memory block was created.";
+					log.appendMsg(msg);
+					Msg.error(this, program.getName() + ": " + msg);
 				}
 				continue;
 			}
 
+			relocationContext.resetContext(section);
+
+			Address failedAddr = null;
 			for (CoffRelocation relocation : section.getRelocations()) {
 				if (monitor.isCancelled()) {
 					break;
 				}
 
-				Address address = sectionStartAddr.add(relocation.getAddress()); // assuming it's always a byte-offset
+				// Sections are defined with physical address while relocations use virtual address.
+				// Must adjust relocation address to physical.
+				// NOTE: Relocation address offset assumed to always be a byte-offset
+				Address address =
+					sectionStartAddr.add(relocation.getAddress() - section.getVirtualAddress());
+				short relocationType = relocation.getType();
 
-				byte[] origBytes = new byte[0];
-
-				Symbol symbol =
-					symbolsMap.get(header.getSymbolAtIndex(relocation.getSymbolIndex()));
+				Status status = Status.FAILURE;
+				int byteLength = 0;
 
 				if (handler == null) {
-					handleRelocationError(program, log, address, String.format(
-						"No relocation handler for machine type 0x%x to process relocation at %s with type 0x%x",
-						header.getMachine(), address, relocation.getType()));
-				}
-				else if (symbol == null) {
-					handleRelocationError(program, log, address,
-						String.format("No symbol to process relocation at %s with type 0x%x",
-							address, relocation.getType()));
+					++failureCount;
+					handleRelocationError(program, address, relocationType,
+						"No COFF relocation handler", null);
 				}
 				else {
 					try {
-						origBytes = new byte[4];
-						program.getMemory().getBytes(address, origBytes);
-						handler.relocate(program, address, symbol, relocation);
+						if (address.equals(failedAddr)) {
+							// skip relocation if previous failed relocation was at the same address
+							// since it is likely dependent on the previous failed relocation result
+							++failureCount;
+							status = Status.SKIPPED;
+
+							String logMessage =
+								String.format("Skipped dependent COFF Relocation type 0x%x at %s",
+									relocationType, address.toString());
+							Msg.error(this, program.getName() + ": " + logMessage);
+						}
+						else {
+							RelocationResult result =
+								handler.relocate(address, relocation, relocationContext);
+							status = result.status();
+							byteLength = result.byteLength();
+
+							if (status == Status.UNSUPPORTED) {
+								++failureCount;
+								failedAddr = address;
+								handleRelocationError(program, address, relocationType,
+									"unsupported type", null);
+							}
+							else if (status == Status.FAILURE) {
+								++failureCount;
+								failedAddr = address;
+								handleRelocationError(program, address, relocationType,
+									"unknown reason", null);
+							}
+						}
 					}
 					catch (MemoryAccessException e) {
-						handleRelocationError(program, log, address, String.format(
-							"Error accessing memory at address %s.  Relocation failed.", address));
+						++failureCount;
+						failedAddr = address;
+						handleRelocationError(program, address, relocationType,
+							"error accessing memory", null);
 					}
-					catch (NotFoundException e) {
-						handleRelocationError(program, log, address,
-							String.format("Relocation type 0x%x at address %s is not supported.",
-								relocation.getType(), address));
+					catch (RelocationException e) {
+						++failureCount;
+						failedAddr = address;
+						handleRelocationError(program, address, relocationType, e.getMessage(),
+							null);
 					}
-					catch (AddressOutOfBoundsException e) {
-						handleRelocationError(program, log, address,
-							String.format("Error computing relocation at address %s.", address));
+					catch (Exception e) { // handle unexpected exceptions
+						++failureCount;
+						failedAddr = address;
+						String msg = e.getMessage();
+						if (msg == null) {
+							msg = e.toString();
+						}
+						handleRelocationError(program, address, relocationType, msg, e);
 					}
 				}
 
-				program.getRelocationTable().add(address, relocation.getType(),
-					new long[] { relocation.getSymbolIndex() }, origBytes,
-					symbol != null ? symbol.getName() : "<null>");
+				// The relocation symbol may be null when either not required by a relocation or
+				// not found with symbol index
+				Symbol symbol =
+					symbolsMap.get(header.getSymbolAtIndex(relocation.getSymbolIndex()));
+
+				program.getRelocationTable()
+						.add(address, status, relocation.getType(),
+							new long[] { relocation.getSymbolIndex() }, byteLength,
+							symbol != null ? symbol.getName() : "<null>");
 			}
 		}
-	}
 
-	private void handleRelocationError(Program program, MessageLog log, Address address,
-			String message) {
-		program.getBookmarkManager().setBookmark(address, BookmarkType.ERROR, "Relocations",
-			message);
-		log.appendMsg(message);
-	}
-
-	private void createOneByteFunction(Program program, String name, Address address) {
-		FunctionManager functionMgr = program.getFunctionManager();
-		if (functionMgr.getFunctionAt(address) != null) {
-			return;
+		if (failureCount != 0) {
+			String msg = "Failed to process a total of " + failureCount +
+				" relocations.  See log and error bookmarks for details.";
+			log.appendMsg(msg);
+			Msg.error(this, program.getName() + ": " + msg);
 		}
+	}
+
+	private void handleRelocationError(Program program, Address address, Short relocationType,
+			String message, Exception causeToReport) {
+		String bookmarkMessage =
+			String.format("Failed to apply COFF Relocation type 0x%x: %s", relocationType, message);
+		program.getBookmarkManager()
+				.setBookmark(address, BookmarkType.ERROR, "Relocations", bookmarkMessage);
+		String logMessage = String.format("Failed to apply COFF Relocation type 0x%x at %s: %s",
+			relocationType, address.toString(), message);
+		Msg.error(this, program.getName() + ": " + logMessage, causeToReport);
+	}
+
+	private void markupHeaders(CoffFileHeader header, Program program, FileBytes fileBytes,
+			MessageLog log, TaskMonitor monitor) {
+		monitor.setMessage("Marking up headers...");
 		try {
-			functionMgr.createFunction(name, address, new AddressSet(address), SourceType.IMPORTED);
+			Map<Long, DataType> dtMap = new HashMap<>();
+			long blockSize = 0;
+
+			// Header
+			dtMap.put(blockSize, header.toDataType());
+			blockSize += header.sizeof();
+
+			// Optional Header
+			AoutHeader optionalHeader = header.getOptionalHeader();
+			if (header.getOptionalHeader() != null) {
+				dtMap.put(blockSize, optionalHeader.toDataType());
+				blockSize += header.getOptionalHeaderSize();
+			}
+
+			// Sections
+			for (CoffSectionHeader section : header.getSections()) {
+				DataType dt = section.toDataType();
+				dtMap.put(blockSize, dt);
+				blockSize += dt.getLength();
+			}
+
+			// Create memory block
+			Address headerSpaceAddr = AddressSpace.OTHER_SPACE.getAddress(0);
+			MemoryBlock headerBlock =
+				MemoryBlockUtils.createInitializedBlock(program, true, "HEADER", headerSpaceAddr,
+					fileBytes, 0, blockSize, "", "", false, false, false, log);
+			Address addr = headerBlock.getStart();
+
+			// Create data
+			for (long offset : dtMap.keySet()) {
+				DataUtilities.createData(program, addr.add(offset), dtMap.get(offset), -1,
+					DataUtilities.ClearDataMode.CHECK_FOR_SPACE);
+			}
+
 		}
-		catch (InvalidInputException e) {
-			// ignore
-		}
-		catch (OverlappingFunctionException e) {
-			// ignore
+		catch (Exception e) {
+			log.appendMsg("Failed to markup headers");
 		}
 	}
 

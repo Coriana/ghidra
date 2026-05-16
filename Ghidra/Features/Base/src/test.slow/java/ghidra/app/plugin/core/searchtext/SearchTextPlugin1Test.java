@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,7 +19,8 @@ import static org.junit.Assert.*;
 
 import java.awt.Component;
 import java.awt.Container;
-import java.awt.event.*;
+import java.awt.event.KeyEvent;
+import java.awt.event.KeyListener;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Date;
 import java.util.Random;
@@ -31,8 +32,7 @@ import org.junit.*;
 import docking.ActionContext;
 import docking.action.DockingActionIf;
 import docking.tool.ToolConstants;
-import docking.widgets.MultiLineLabel;
-import docking.widgets.OptionDialog;
+import docking.widgets.OkDialog;
 import docking.widgets.table.GTable;
 import docking.widgets.table.threaded.GThreadedTablePanel;
 import ghidra.app.events.ProgramSelectionPluginEvent;
@@ -114,7 +114,7 @@ public class SearchTextPlugin1Test extends AbstractGhidraHeadedIntegrationTest {
 		builder.createMemory(".debug_data", Long.toHexString(0xF0001300), 0x1C);
 		builder.createOverlayMemory("otherOverlay", "OTHER:0", 100);
 
-		builder.createComment("0x100415a", "scanf, fscanf, sscanf ...", CodeUnit.PRE_COMMENT);
+		builder.createComment("0x100415a", "scanf, fscanf, sscanf ...", CommentType.PRE);
 		//create and disassemble a function
 		builder.setBytes("0x0100415a",
 			"55 8b ec 83 ec 0c 33 c0 c7 45 f8 01 00 00 00 21 45 fc 39 45 08 c7 45 f4 04" +
@@ -167,7 +167,7 @@ public class SearchTextPlugin1Test extends AbstractGhidraHeadedIntegrationTest {
 			param, param);
 
 		builder.createComment("otherOverlay:4", "This is a comment in the other overlay",
-			CodeUnit.EOL_COMMENT);
+			CommentType.EOL);
 		return builder.getProgram();
 	}
 
@@ -188,7 +188,7 @@ public class SearchTextPlugin1Test extends AbstractGhidraHeadedIntegrationTest {
 		assertNotNull(commentsCB);
 		assertSelected(commentsCB);
 
-		// verify that the case sensitive checkbox is not selected				
+		// verify that the case sensitive checkbox is not selected
 		JCheckBox csCB = (JCheckBox) findButton(dialog.getComponent(), "Case Sensitive");
 		assertNotNull(csCB);
 		assertNotSelected(csCB);
@@ -217,7 +217,7 @@ public class SearchTextPlugin1Test extends AbstractGhidraHeadedIntegrationTest {
 	@Test
 	public void testSearchOptions() throws Exception {
 		// verify that the search dialog allows for searching Functions,
-		// Comments, labels, instruction mnemonics and operands, defined data 
+		// Comments, labels, instruction mnemonics and operands, defined data
 		// mnemonics and values.
 		SearchTextDialog dialog = getDialog();
 		JCheckBox cb = (JCheckBox) findButton(dialog.getComponent(), "Functions");
@@ -242,7 +242,7 @@ public class SearchTextPlugin1Test extends AbstractGhidraHeadedIntegrationTest {
 
 	@Test
 	public void testSearchStringEntry() throws Exception {
-		// verify that a string string must be entered
+		// verify that a string must be entered
 
 		SearchTextDialog dialog = getDialog();
 
@@ -376,17 +376,17 @@ public class SearchTextPlugin1Test extends AbstractGhidraHeadedIntegrationTest {
 
 		CodeUnit cu = listing.getCodeUnitAt(getAddr(0x0100416f));
 		int transactionID = program.startTransaction("test");
-		cu.setComment(CodeUnit.EOL_COMMENT, "call sscanf");
+		cu.setComment(CommentType.EOL, "call sscanf");
 
 		cu = listing.getCodeUnitAt(getAddr(0x01004178));
-		cu.setComment(CodeUnit.REPEATABLE_COMMENT, "make a reference to sscanf");
+		cu.setComment(CommentType.REPEATABLE, "make a reference to sscanf");
 
 		cu = listing.getCodeUnitAt(getAddr(0x01004192));
-		cu.setComment(CodeUnit.PLATE_COMMENT, "another ref to sscanf");
-		cu.setComment(CodeUnit.POST_COMMENT, "sscanf in a post comment");
+		cu.setComment(CommentType.PLATE, "another ref to sscanf");
+		cu.setComment(CommentType.POST, "sscanf in a post comment");
 
 		cu = listing.getCodeUnitAt(getAddr(0x0100467b));
-		cu.setComment(CodeUnit.PRE_COMMENT, "call sscanf here");
+		cu.setComment(CommentType.PRE, "call sscanf here");
 
 		program.endTransaction(transactionID, true);
 
@@ -403,7 +403,7 @@ public class SearchTextPlugin1Test extends AbstractGhidraHeadedIntegrationTest {
 		ProgramLocation loc = cbPlugin.getCurrentLocation();
 		assertEquals(getAddr(0x0100416f), loc.getAddress());
 		assertTrue(loc instanceof CommentFieldLocation);
-		assertEquals(CodeUnit.EOL_COMMENT, ((CommentFieldLocation) loc).getCommentType());
+		assertEquals(CommentType.EOL, ((CommentFieldLocation) loc).getCommentType());
 
 		JButton searchButton = (JButton) findButton(dialog.getComponent(), "Next");
 		pressButton(searchButton);
@@ -412,7 +412,7 @@ public class SearchTextPlugin1Test extends AbstractGhidraHeadedIntegrationTest {
 		loc = cbPlugin.getCurrentLocation();
 		assertEquals(getAddr(0x01004178), loc.getAddress());
 		assertTrue(loc instanceof CommentFieldLocation);
-		assertEquals(CodeUnit.REPEATABLE_COMMENT, ((CommentFieldLocation) loc).getCommentType());
+		assertEquals(CommentType.REPEATABLE, ((CommentFieldLocation) loc).getCommentType());
 
 		pressButton(searchButton);
 		waitForSearchTasks(dialog);
@@ -420,7 +420,9 @@ public class SearchTextPlugin1Test extends AbstractGhidraHeadedIntegrationTest {
 		loc = cbPlugin.getCurrentLocation();
 		assertEquals(getAddr(0x01004192), loc.getAddress());
 		assertTrue(loc instanceof CommentFieldLocation);
-		assertEquals(CodeUnit.PLATE_COMMENT, ((CommentFieldLocation) loc).getCommentType());
+		assertEquals("Search result not placed at the matching character position", 15,
+			loc.getCharOffset());
+		assertEquals(CommentType.PLATE, ((CommentFieldLocation) loc).getCommentType());
 
 		pressButton(searchButton);
 		waitForSearchTasks(dialog);
@@ -428,7 +430,7 @@ public class SearchTextPlugin1Test extends AbstractGhidraHeadedIntegrationTest {
 		loc = cbPlugin.getCurrentLocation();
 		assertEquals(getAddr(0x01004192), loc.getAddress());
 		assertTrue(loc instanceof CommentFieldLocation);
-		assertEquals(CodeUnit.POST_COMMENT, ((CommentFieldLocation) loc).getCommentType());
+		assertEquals(CommentType.POST, ((CommentFieldLocation) loc).getCommentType());
 
 		pressButton(searchButton);
 		waitForSearchTasks(dialog);
@@ -441,7 +443,7 @@ public class SearchTextPlugin1Test extends AbstractGhidraHeadedIntegrationTest {
 		loc = cbPlugin.getCurrentLocation();
 		assertEquals(getAddr(0x0100415a), loc.getAddress());
 		assertTrue(loc instanceof CommentFieldLocation);
-		assertEquals(CodeUnit.PRE_COMMENT, ((CommentFieldLocation) loc).getCommentType());
+		assertEquals(CommentType.PRE, ((CommentFieldLocation) loc).getCommentType());
 	}
 
 	private void programLocationChange2(String buttonText) throws Exception {
@@ -668,10 +670,10 @@ public class SearchTextPlugin1Test extends AbstractGhidraHeadedIntegrationTest {
 
 		//
 		// test marker stuff
-		// 
+		//
 		AddressSet set = getAddressesFromModel(model);
 		MarkerService markerService = tool.getService(MarkerService.class);
-		MarkerSet markerSet = markerService.getMarkerSet("Search", program);
+		MarkerSet markerSet = markerService.getMarkerSet("Search Results", program);
 		assertNotNull(markerSet);
 		AddressSet addresses = runSwing(() -> markerSet.getAddressSet());
 		assertTrue(set.hasSameAddresses(addresses));
@@ -682,9 +684,9 @@ public class SearchTextPlugin1Test extends AbstractGhidraHeadedIntegrationTest {
 			AddressBasedTableModel<ProgramLocation> model) {
 		GThreadedTablePanel<ProgramLocation> threadedTablePanel =
 			(GThreadedTablePanel<ProgramLocation>) providers[0].getThreadedTablePanel();
-		final GTable table = threadedTablePanel.getTable();
+		GTable table = threadedTablePanel.getTable();
 		Random random = new Random();
-		final int randomRow = random.nextInt(model.getRowCount());
+		int randomRow = random.nextInt(model.getRowCount());
 
 		DockingActionIf deleteRowAction = getAction(tool, "TableServicePlugin", "Remove Items");
 		ProgramLocation toBeDeleted = model.getRowObject(randomRow);
@@ -954,12 +956,9 @@ public class SearchTextPlugin1Test extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	private void closeMaxSearchResultsDialog() throws Exception {
-		final OptionDialog d = waitForDialogComponent(OptionDialog.class);
-		assertNotNull(d);
-		String msg = findMessage(d.getComponent());
-		assertNotNull(msg);
-		assertTrue(msg.indexOf("Stopped search") >= 0);
-		runSwing(() -> d.close());
+		OkDialog d = waitForInfoDialog();
+		assertTrue(d.getMessage().contains("Stopped search"));
+		close(d);
 		waitForSwing();
 	}
 
@@ -976,8 +975,7 @@ public class SearchTextPlugin1Test extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	private void searchOnce(JTextField tf) throws Exception {
-		final ActionListener listener = tf.getActionListeners()[0];
-		runSwing(() -> listener.actionPerformed(null));
+		triggerEnter(tf);
 	}
 
 	private void searchBackOnce(SearchTextDialog dialog) throws Exception {
@@ -1065,22 +1063,6 @@ public class SearchTextPlugin1Test extends AbstractGhidraHeadedIntegrationTest {
 				JTextField tf = findTextField((Container) element);
 				if (tf != null) {
 					return tf;
-				}
-			}
-		}
-		return null;
-	}
-
-	private String findMessage(Container container) {
-		Component[] c = container.getComponents();
-		for (Component element : c) {
-			if (element instanceof MultiLineLabel) {
-				return ((MultiLineLabel) element).getLabel();
-			}
-			if (element instanceof Container) {
-				String str = findMessage((Container) element);
-				if (str != null) {
-					return str;
 				}
 			}
 		}

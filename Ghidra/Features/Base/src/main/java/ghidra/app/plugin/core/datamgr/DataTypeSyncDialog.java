@@ -41,17 +41,9 @@ public class DataTypeSyncDialog extends DialogComponentProvider implements DataT
 	private DataTypeSyncPanel syncPanel;
 	private DataTypeComparePanel comparePanel;
 	private final String operationName;
-	private boolean cancelled;
 
-	/**
-	 * Creates a data type synchronization dialog
-	 * @param plugin the data type manager plug-in
-	 * @param synchronizer the data type synchronizer for synchronizing a program and archive.
-	 * @param list the list of data types to be displayed to the user.
-	 * @param commit true means data types from the program data types are to be committed 
-	 * back to the associated data types in the archive. false means update the program data 
-	 * types with changes that were made in the archive.
-	 */
+	private List<DataTypeSyncInfo> selectedInfos = Collections.emptyList();
+
 	public DataTypeSyncDialog(DataTypeManagerPlugin plugin, String clientName, String sourceName,
 			List<DataTypeSyncInfo> list, Set<DataTypeSyncInfo> preselectedInfos,
 			String operationName, String title) {
@@ -60,11 +52,15 @@ public class DataTypeSyncDialog extends DialogComponentProvider implements DataT
 		this.operationName = operationName;
 
 		syncPanel = new DataTypeSyncPanel(list, preselectedInfos, this);
+		syncPanel.getAccessibleContext().setAccessibleName("Data Sync");
 		comparePanel = new DataTypeComparePanel(clientName, sourceName);
+		comparePanel.getAccessibleContext().setAccessibleName("Compare Data");
 		JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, syncPanel, comparePanel);
 		splitPane.setResizeWeight(0.6);
+		splitPane.getAccessibleContext().setAccessibleName("Data Sync and Compare");
 		mainPanel = new JPanel(new BorderLayout());
 		mainPanel.add(splitPane, BorderLayout.CENTER);
+		mainPanel.getAccessibleContext().setAccessibleName("Data Type Sync");
 		addWorkPanel(mainPanel);
 		initialize();
 		createActions();
@@ -119,19 +115,16 @@ public class DataTypeSyncDialog extends DialogComponentProvider implements DataT
 
 	@Override
 	protected void okCallback() {
+		selectedInfos = syncPanel.getSelectedInfos();
 		close();
 	}
 
 	@Override
 	protected void cancelCallback() {
-		cancelled = true;
 		close();
 	}
 
 	public List<DataTypeSyncInfo> getSelectedInfos() {
-		if (cancelled) {
-			return new ArrayList<>();
-		}
-		return syncPanel.getSelectedInfos();
+		return selectedInfos;
 	}
 }

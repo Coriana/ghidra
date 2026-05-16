@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -32,10 +32,10 @@ public class DemangledAddressTable extends DemangledObject {
 	/**
 	 * Constructor
 	 * 
-	 * @param mangled the source mangled string 
+	 * @param mangled the source mangled string
 	 * @param originalDemangled the original demangled string
 	 * @param name the name of the address table
-	 * @param calculateLength true if the length of this address table should be calculdated at 
+	 * @param calculateLength true if the length of this address table should be calculated at
 	 *        analysis time
 	 */
 	public DemangledAddressTable(String mangled, String originalDemangled, String name,
@@ -56,7 +56,7 @@ public class DemangledAddressTable extends DemangledObject {
 
 	@Override
 	public String getSignature(boolean format) {
-		StringBuffer buffer = new StringBuffer();
+		StringBuilder buffer = new StringBuilder();
 
 		if (specialPrefix != null) {
 			buffer.append(specialPrefix);
@@ -88,9 +88,17 @@ public class DemangledAddressTable extends DemangledObject {
 			return false;
 		}
 
+		if (address.isExternalAddress()) {
+			Msg.warn(this,
+				"Unable to fully apply external demangled Address Table: " + s.getName(true));
+			return true;
+		}
+
 		Listing listing = program.getListing();
-		if (MemoryBlock.isExternalBlockAddress(address, program)) {
-			listing.setComment(address, CodeUnit.EOL_COMMENT,
+		if (program.getMemory().isExternalBlockAddress(address)) {
+			Msg.warn(this, "Unable to fully apply external demangled Address Table at " + address +
+				": " + s.getName(true));
+			listing.setComment(address, CommentType.EOL,
 				"WARNING: Unable to apply demangled Address Table");
 			return true; // don't complain
 		}
@@ -120,11 +128,11 @@ public class DemangledAddressTable extends DemangledObject {
 	}
 
 	/**
-	 * Perform a best guess at the length of an address table assuming that 
+	 * Perform a best guess at the length of an address table assuming that
 	 * another label (or end of block) can be used to identify the end.
 	 * @param program the program
 	 * @param address start of address table
-	 * @return maximum length of table or -1 if address does not reside 
+	 * @return maximum length of table or -1 if address does not reside
 	 * within an initialized memory block
 	 */
 	private static int guessTableLength(Program program, Address address) {
@@ -191,7 +199,7 @@ public class DemangledAddressTable extends DemangledObject {
 
 			if (!mem.contains(refAddr)) {
 				// terminate table early if pointer reference address does not exist
-				// within memory (demangled address tables should only refer to entities 
+				// within memory (demangled address tables should only refer to entities
 				// contained within program memory).
 				return;
 			}

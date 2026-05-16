@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,7 +15,13 @@
  */
 package docking;
 
+import java.awt.Component;
+import java.awt.KeyboardFocusManager;
 import java.util.*;
+import java.util.stream.Collectors;
+
+import javax.swing.JComponent;
+import javax.swing.SwingUtilities;
 
 import docking.action.DockingActionIf;
 
@@ -26,7 +32,7 @@ import docking.action.DockingActionIf;
 class PlaceholderManager {
 
 	private Map<String, PlaceholderSet> ownerToPlaceholderMap =
-		new HashMap<String, PlaceholderSet>();
+		new HashMap<>();
 	private PlaceholderInstaller installer;
 
 	PlaceholderManager(PlaceholderInstaller installer) {
@@ -43,16 +49,22 @@ class PlaceholderManager {
 	}
 
 	ComponentPlaceholder replacePlaceholder(ComponentProvider provider,
-			ComponentPlaceholder oldPlaceholder) {
-		ComponentPlaceholder newPlaceholder = createOrRecyclePlaceholder(provider, oldPlaceholder);
+			ComponentPlaceholder defaultPlaceholder) {
 
-		moveActions(oldPlaceholder, newPlaceholder);
-		if (!oldPlaceholder.isHeaderShowing()) {
-			newPlaceholder.showHeader(false);
+		// Note: the 'restoredPlaceholder' is from xml; the 'defaultPlaceholder' is that which was
+		// created by a plugin as it was constructed.  If there is no placeholder in the xml,
+		// then the original 'defaultPlaceholder' will be returned from
+		// createOrRecyclePlaceholder().
+		ComponentPlaceholder restoredPlaceholder =
+			createOrRecyclePlaceholder(provider, defaultPlaceholder);
+
+		moveActions(defaultPlaceholder, restoredPlaceholder);
+		if (!defaultPlaceholder.isHeaderShowing()) {
+			restoredPlaceholder.showHeader(false);
 		}
 
-		if (oldPlaceholder.isShowing() != newPlaceholder.isShowing()) {
-			if (newPlaceholder.isShowing()) {
+		if (defaultPlaceholder.isActive() != restoredPlaceholder.isActive()) {
+			if (restoredPlaceholder.isActive()) {
 				provider.componentShown();
 			}
 			else {
@@ -60,10 +72,13 @@ class PlaceholderManager {
 			}
 		}
 
-		if (newPlaceholder != oldPlaceholder) {
-			oldPlaceholder.dispose();
+		// if we have found a replacement placeholder, then remove the default placeholder
+		if (restoredPlaceholder != defaultPlaceholder) {
+			defaultPlaceholder.dispose();
+			removePlaceholder(defaultPlaceholder);
 		}
-		return newPlaceholder;
+
+		return restoredPlaceholder;
 	}
 
 	/**
@@ -96,6 +111,17 @@ class PlaceholderManager {
 		placeholderSet.placeholderUsed(provider, placeholder);
 	}
 
+	private void removePlaceholder(ComponentPlaceholder placeholder) {
+		ComponentProvider provider = placeholder.getProvider();
+		String owner = provider.getOwner();
+		PlaceholderSet placeholderSet = ownerToPlaceholderMap.get(owner);
+		if (placeholderSet == null) {
+			return;
+		}
+
+		placeholderSet.remove(placeholder);
+	}
+
 	ComponentPlaceholder createOrRecyclePlaceholder(ComponentProvider provider) {
 		return createOrRecyclePlaceholder(provider, null /*no default*/);
 	}
@@ -103,14 +129,14 @@ class PlaceholderManager {
 	/**
 	 * Finds or creates a component placeholder object for the given provider.
 	 * @param provider the provider for which to get an placeholder object.
-	 * @param TODO
+	 * @param defaultPlaceholder the placeholder to use if an existing one cannot be found
 	 * @return a component placeholder object that will be used to manager the providers component.
 	 */
 	ComponentPlaceholder createOrRecyclePlaceholder(ComponentProvider provider,
 			ComponentPlaceholder defaultPlaceholder) {
 
-		String windowOwner = provider.getOwner();
-		Set<ComponentPlaceholder> unusedPlaceholders = getUnusedPlaceholdersByOwner(windowOwner);
+		String owner = provider.getOwner();
+		Set<ComponentPlaceholder> unusedPlaceholders = getUnusedPlaceholdersByOwner(owner);
 		ComponentPlaceholder reusablePlaceholder =
 			findBestUnusedPlaceholder(unusedPlaceholders, provider);
 
@@ -227,8 +253,8 @@ class PlaceholderManager {
 		// 1) share the same owner (plugin), and
 		// 2) are in the same group, or related groups
 		//
-		// If there are not other providers that share the same owner as the one we are given, 
-		// then we will search all providers.  This allows different plugins to share 
+		// If there are not other providers that share the same owner as the one we are given,
+		// then we will search all providers.  This allows different plugins to share
 		// window arrangement.
 		//
 		Set<ComponentPlaceholder> buddies = activePlaceholders;
@@ -262,7 +288,7 @@ class PlaceholderManager {
 	 * provider.
 	 * @param activePlaceholders the set of currently showing placeholders.
 	 * @param newInfo the placeholder for the new provider to be shown.
-	 * @return an existing matching placeholder or null. 
+	 * @return an existing matching placeholder or null.
 	 */
 	private ComponentPlaceholder findBestPlaceholderToStackUpon(
 			Set<ComponentPlaceholder> activePlaceholders, ComponentPlaceholder newInfo) {
@@ -270,13 +296,23 @@ class PlaceholderManager {
 		String name = newInfo.getName();
 		String group = newInfo.getGroup();
 
-		for (ComponentPlaceholder placeholder : activePlaceholders) {
-			if (name.equals(placeholder.getName()) && group.equals(placeholder.getGroup())) {
-				return placeholder;
+		KeyboardFocusManager kfm = KeyboardFocusManager.getCurrentKeyboardFocusManager();
+		Component focusOwner = kfm.getFocusOwner();
+		List<ComponentPlaceholder> matching = activePlaceholders.stream()
+				.filter(p -> name.equals(p.getName()) && group.equals(p.getGroup()))
+				.collect(Collectors.toList());
+
+		// prefer using the focused window
+		for (ComponentPlaceholder placeholder : matching) {
+			JComponent component = placeholder.getProviderComponent();
+			if (focusOwner != null && component != null) {
+				if (SwingUtilities.isDescendingFrom(focusOwner, component)) {
+					return placeholder;
+				}
 			}
 		}
 
-		return null;
+		return matching.stream().findAny().orElse(null);
 	}
 
 	private ComponentPlaceholder findBestUnusedPlaceholder(
@@ -288,8 +324,16 @@ class PlaceholderManager {
 
 		String group = isInvalid ? ComponentProvider.DEFAULT_WINDOW_GROUP : windowGroup;
 
-		// look for a match based upon configuration and not IDs
+		// look for a match based on name and title, first prefer a visible one.
 		String title = provider.getTitle();
+		for (ComponentPlaceholder placeholder : unusedPlaceholders) {
+			if (placeholder.wantsToBeShowing() && name.equals(placeholder.getName()) &&
+				title.equals(placeholder.getTitle())) {
+				return placeholder;
+			}
+		}
+
+		// look for a match based upon name and title, now accept one that is not showing.
 		for (ComponentPlaceholder placeholder : unusedPlaceholders) {
 			if (name.equals(placeholder.getName()) && title.equals(placeholder.getTitle())) {
 				return placeholder;
@@ -299,15 +343,6 @@ class PlaceholderManager {
 		// look for a "close enough" match (same name and group)
 		for (ComponentPlaceholder placeholder : unusedPlaceholders) {
 			if (name.equals(placeholder.getName()) && group.equals(placeholder.getGroup())) {
-				return placeholder;
-			}
-		}
-
-		// backwards compatibility for before group changes (put in on 8/7/2015; take out after
-		// a couple years)
-		for (ComponentPlaceholder placeholder : unusedPlaceholders) {
-			if (name.equals(placeholder.getName()) &&
-				ComponentProvider.DEFAULT_WINDOW_GROUP.equals(placeholder.getGroup())) {
 				return placeholder;
 			}
 		}
@@ -356,7 +391,7 @@ class PlaceholderManager {
 
 	Map<ComponentProvider, ComponentPlaceholder> getActiveProvidersToPlaceholders() {
 		Map<ComponentProvider, ComponentPlaceholder> map =
-			new HashMap<ComponentProvider, ComponentPlaceholder>();
+			new HashMap<>();
 		Iterator<PlaceholderSet> placeholderIterator = ownerToPlaceholderMap.values().iterator();
 		while (placeholderIterator.hasNext()) {
 			PlaceholderSet placeholders = placeholderIterator.next();
@@ -367,7 +402,7 @@ class PlaceholderManager {
 
 	private Set<ComponentPlaceholder> getAllActivePlaceholders() {
 
-		Set<ComponentPlaceholder> set = new HashSet<ComponentPlaceholder>();
+		Set<ComponentPlaceholder> set = new HashSet<>();
 		Iterator<PlaceholderSet> placeholderIterator = ownerToPlaceholderMap.values().iterator();
 		while (placeholderIterator.hasNext()) {
 			PlaceholderSet placeholders = placeholderIterator.next();
@@ -392,7 +427,7 @@ class PlaceholderManager {
 
 	void removeAll(String owner) {
 		PlaceholderSet placeholderSet = getOrCreatePlaceholderSet(owner);
-		placeholderSet.removeAll(owner);
+		placeholderSet.removeAll();
 	}
 
 	void clearActivePlaceholders() {

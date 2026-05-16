@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,20 +15,23 @@
  */
 package ghidra.app.util.datatype;
 
+import java.awt.*;
 import java.awt.event.*;
 
 import javax.swing.*;
+import javax.swing.border.Border;
 import javax.swing.event.*;
 import javax.swing.tree.TreePath;
 
-import docking.options.editor.ButtonPanelFactory;
 import docking.widgets.DropDownSelectionTextField;
+import docking.widgets.button.BrowseButton;
 import ghidra.app.plugin.core.datamgr.util.DataTypeChooserDialog;
 import ghidra.app.plugin.core.datamgr.util.DataTypeUtils;
 import ghidra.app.services.DataTypeManagerService;
 import ghidra.framework.plugintool.ServiceProvider;
 import ghidra.program.model.data.*;
 import ghidra.util.data.DataTypeParser;
+import ghidra.util.data.DataTypeParser.AllowedDataTypes;
 import ghidra.util.exception.CancelledException;
 
 /**
@@ -50,8 +53,8 @@ import ghidra.util.exception.CancelledException;
  * via the {@link #addDocumentListener(DocumentListener)} method.  The added listener will be
  * notified as the user enters text into the editor's text field.  Then, to determine when there
  * is as valid DataType in the field you may call {@link #validateUserSelection()}.
- * 
- * 
+ *
+ *
  */
 public class DataTypeSelectionEditor extends AbstractCellEditor {
 
@@ -59,7 +62,6 @@ public class DataTypeSelectionEditor extends AbstractCellEditor {
 	private DropDownSelectionTextField<DataType> selectionField;
 	private JButton browseButton;
 	private DataTypeManagerService dataTypeManagerService;
-	private int maxSize = -1;
 	private DataTypeManager dataTypeManager;
 	private DataTypeParser.AllowedDataTypes allowedDataTypes;
 
@@ -69,48 +71,62 @@ public class DataTypeSelectionEditor extends AbstractCellEditor {
 	// optional path to initially select in the data type chooser tree
 	private TreePath initiallySelectedTreePath;
 
-	public DataTypeSelectionEditor(ServiceProvider serviceProvider, int maxSize,
+	/**
+	 * Creates a new instance.
+	 * 
+	 * @param dtm the preferred {@link DataTypeManager}.  Extra copies of data types that are 
+	 * already in the preferred DTM will be suppressed.
+	 * @param serviceProvider {@link ServiceProvider} 
+	 * @param allowedDataTypes {@link AllowedDataTypes} option enum, controls what kind of
+	 * data types that will be shown  
+	 */
+	public DataTypeSelectionEditor(DataTypeManager dtm, ServiceProvider serviceProvider,
 			DataTypeParser.AllowedDataTypes allowedDataTypes) {
-		this(serviceProvider.getService(DataTypeManagerService.class), maxSize, allowedDataTypes);
+		this(dtm, serviceProvider.getService(DataTypeManagerService.class), allowedDataTypes);
 	}
 
-	public DataTypeSelectionEditor(DataTypeManagerService service, int maxSize,
+	/**
+	 * Creates a new instance.
+	 * 
+	 * @param dtm the preferred {@link DataTypeManager}.  Extra copies of data types that are 
+	 * already in the preferred DTM will be suppressed.
+	 * @param service {@link DataTypeManagerService} 
+	 * @param allowedDataTypes {@link AllowedDataTypes} option enum, controls what kind of
+	 * data types that will be shown  
+	 */
+	public DataTypeSelectionEditor(DataTypeManager dtm, DataTypeManagerService service,
 			DataTypeParser.AllowedDataTypes allowedDataTypes) {
+
+		this.dataTypeManager = dtm;
 
 		if (service == null) {
 			throw new NullPointerException("DataTypeManagerService cannot be null");
 		}
 
 		this.dataTypeManagerService = service;
-		this.maxSize = maxSize;
 		this.allowedDataTypes = allowedDataTypes;
 
 		init();
 	}
 
 	/**
-	 * Sets the {@link DataTypeManager} to use when the chooser is forced to parse the given
-	 * data type text to resolve the data type.  If the users chooses a type, then this value
-	 * is not used.  Note that setting this value does not restrict the parser to just the 
-	 * given value, but rather the given value is the preferred manager and is thus searched
-	 * first. 
-	 * 
-	 * @param dataTypeManager the preferred data type manager
-	 */
-	public void setPreferredDataTypeManager(DataTypeManager dataTypeManager) {
-		this.dataTypeManager = dataTypeManager;
-	}
-
-	/**
+	 * Sets whether this editor should consumer Enter key presses
 	 * @see DropDownSelectionTextField#setConsumeEnterKeyPress(boolean)
+	 *
+	 * @param consume true to consume
 	 */
 	public void setConsumeEnterKeyPress(boolean consume) {
 		selectionField.setConsumeEnterKeyPress(consume);
 	}
 
+	protected DropDownSelectionTextField<DataType> createDropDownSelectionTextField(
+			DataTypeDropDownSelectionDataModel model) {
+		return new DropDownSelectionTextField<>(model);
+	}
+
 	private void init() {
-		selectionField = new DropDownSelectionTextField<>(
-			new DataTypeDropDownSelectionDataModel(dataTypeManagerService));
+		selectionField = createDropDownSelectionTextField(
+			new DataTypeDropDownSelectionDataModel(dataTypeManager, dataTypeManagerService));
 		selectionField.addCellEditorListener(new CellEditorListener() {
 			@Override
 			public void editingCanceled(ChangeEvent e) {
@@ -127,16 +143,16 @@ public class DataTypeSelectionEditor extends AbstractCellEditor {
 
 		selectionField.setBorder(UIManager.getBorder("Table.focusCellHighlightBorder"));
 
-		browseButton = ButtonPanelFactory.createButton(ButtonPanelFactory.BROWSE_TYPE);
-		browseButton.setToolTipText("Browse the Data Manager");
-		browseButton.addActionListener(e -> showDataTypeBrowser());
+		JPanel browsePanel = buildBrowsePanel();
 
 		editorPanel = new JPanel();
+		editorPanel.setOpaque(false);
 		editorPanel.setLayout(new BoxLayout(editorPanel, BoxLayout.X_AXIS));
 		editorPanel.add(selectionField);
-		editorPanel.add(Box.createHorizontalStrut(5));
-		editorPanel.add(browseButton);
+		editorPanel.add(browsePanel);
 
+		// This listener is not installed under certain conditions, such as when 
+		// setTabCommitsEdit(true) is called.  
 		keyListener = new KeyAdapter() {
 
 			@Override
@@ -157,9 +173,61 @@ public class DataTypeSelectionEditor extends AbstractCellEditor {
 		};
 	}
 
-	/**
-	 * @see javax.swing.CellEditor#getCellEditorValue()
-	 */
+	private JPanel buildBrowsePanel() {
+
+		// We override the various sizes to make sure the button does not get too big or too small,
+		// which changes depending upon the theme being used.
+		JPanel browsePanel = new JPanel() {
+
+			@Override
+			public Dimension getPreferredSize() {
+				int width = getBestWidth();
+				Dimension preferredSize = super.getPreferredSize();
+				preferredSize.width = Math.min(width, preferredSize.width);
+				return preferredSize;
+			}
+
+			@Override
+			public Dimension getMinimumSize() {
+				int width = getBestWidth();
+				Dimension preferredSize = super.getPreferredSize();
+				preferredSize.width = Math.min(width, preferredSize.width);
+				return preferredSize;
+			}
+
+			@Override
+			public Dimension getMaximumSize() {
+				int width = getBestWidth();
+				Dimension preferredSize = super.getPreferredSize();
+				preferredSize.width = Math.min(width, preferredSize.width);
+				return preferredSize;
+			}
+
+			private int getBestWidth() {
+				Font f = getFont();
+				FontMetrics fm = getFontMetrics(f);
+				int width = fm.stringWidth(" . . . ");
+				return width;
+			}
+		};
+
+		browsePanel.setLayout(new BorderLayout());
+		browsePanel.setOpaque(false);
+
+		// Space the button so that it pops out visually.  This was chosen by trial-and-error and 
+		// looks reasonable on all themes.  
+		Border empty = BorderFactory.createEmptyBorder(2, 2, 1, 1);
+		browsePanel.setBorder(empty);
+
+		browseButton = new BrowseButton();
+		browseButton.setToolTipText("Browse the Data Manager");
+		browseButton.addActionListener(e -> showDataTypeBrowser());
+
+		browsePanel.add(browseButton);
+
+		return browsePanel;
+	}
+
 	@Override
 	public Object getCellEditorValue() {
 		return selectionField.getSelectedValue();
@@ -202,9 +270,9 @@ public class DataTypeSelectionEditor extends AbstractCellEditor {
 	}
 
 	/**
-	 * Sets the initially selected node in the data type tree that the user can choose to 
+	 * Sets the initially selected node in the data type tree that the user can choose to
 	 * show.
-	 * 
+	 *
 	 * @param path The path to set
 	 */
 	public void setDefaultSelectedTreePath(TreePath path) {
@@ -224,7 +292,7 @@ public class DataTypeSelectionEditor extends AbstractCellEditor {
 
 	/**
 	 * Sets the value to be edited on this cell editor.
-	 * 
+	 *
 	 * @param dataType The data type which is to be edited.
 	 */
 	public void setCellEditorValue(DataType dataType) {
@@ -239,7 +307,7 @@ public class DataTypeSelectionEditor extends AbstractCellEditor {
 
 	/**
 	 * Adds a document listener to the text field editing component of this editor so that users
-	 * can be notified when the text contents of the editor change.  You may verify whether the 
+	 * can be notified when the text contents of the editor change.  You may verify whether the
 	 * text changes represent a valid DataType by calling {@link #validateUserSelection()}.
 	 * @param listener the listener to add.
 	 * @see #validateUserSelection()
@@ -250,7 +318,7 @@ public class DataTypeSelectionEditor extends AbstractCellEditor {
 
 	/**
 	 * Removes a previously added document listener.
-	 * @param listener the listener to remove.s
+	 * @param listener the listener to remove.
 	 */
 	public void removeDocumentListener(DocumentListener listener) {
 		selectionField.getDocument().removeDocumentListener(listener);
@@ -276,6 +344,7 @@ public class DataTypeSelectionEditor extends AbstractCellEditor {
 	/**
 	 * Returns the direction of the user triggered navigation; null if the user did not trigger
 	 * navigation out of this component.
+	 * @return the direction
 	 */
 	public NavigationDirection getNavigationDirection() {
 		return navigationDirection;
@@ -315,7 +384,7 @@ public class DataTypeSelectionEditor extends AbstractCellEditor {
 	}
 
 	private boolean isValidDataType() throws InvalidDataTypeException {
-		// look for the case where the user made a selection from the matching window, but 
+		// look for the case where the user made a selection from the matching window, but
 		// then changed the text field text.
 		DataType selectedDataType = selectionField.getSelectedValue();
 		if (selectedDataType != null &&
@@ -326,7 +395,7 @@ public class DataTypeSelectionEditor extends AbstractCellEditor {
 		return false;
 	}
 
-	// looks at the current text and the current data type and will return a non-null value if 
+	// looks at the current text and the current data type and will return a non-null value if
 	// the current text starts with the name of the data type
 	private DataType getDataTypeRootForCurrentText() {
 		DataType dataType = selectionField.getSelectedValue();
@@ -362,10 +431,8 @@ public class DataTypeSelectionEditor extends AbstractCellEditor {
 		catch (CancelledException e) {
 			return false;
 		}
+
 		if (newDataType != null) {
-			if (maxSize >= 0 && newDataType.getLength() > newDataType.getLength()) {
-				throw new InvalidDataTypeException("data-type larger than " + maxSize + " bytes");
-			}
 			selectionField.setSelectedValue(newDataType);
 			return true;
 		}

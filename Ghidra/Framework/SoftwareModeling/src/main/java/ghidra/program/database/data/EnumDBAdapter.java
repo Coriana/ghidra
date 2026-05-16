@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,13 +15,14 @@
  */
 package ghidra.program.database.data;
 
-import ghidra.util.UniversalID;
-import ghidra.util.exception.VersionException;
-import ghidra.util.task.TaskMonitor;
-
 import java.io.IOException;
 
 import db.*;
+import ghidra.framework.data.OpenMode;
+import ghidra.util.UniversalID;
+import ghidra.util.exception.CancelledException;
+import ghidra.util.exception.VersionException;
+import ghidra.util.task.TaskMonitor;
 
 /**
  * Adapter to access the Enumeration data types tables.
@@ -43,30 +43,29 @@ abstract class EnumDBAdapter {
 	static final int ENUM_LAST_CHANGE_TIME_COL = EnumDBAdapterV1.V1_ENUM_LAST_CHANGE_TIME_COL;
 
 	/**
-	 * Gets an adapter for working with the enumeration data type database table. The adapter is based 
+	 * Gets an adapter for working with the enumeration data type database table. The adapter is based
 	 * on the version of the database associated with the specified database handle and the openMode.
 	 * @param handle handle to the database to be accessed.
 	 * @param openMode the mode this adapter is to be opened for (CREATE, UPDATE, READ_ONLY, UPGRADE).
+	 * @param tablePrefix prefix to be used with default table name
 	 * @param monitor the monitor to use for displaying status or for canceling.
 	 * @return the adapter for accessing the table of enumeration data types.
 	 * @throws VersionException if the database handle's version doesn't match the expected version.
 	 * @throws IOException if there is trouble accessing the database.
+	 * @throws CancelledException if task cancelled
 	 */
-	static EnumDBAdapter getAdapter(DBHandle handle, int openMode, TaskMonitor monitor)
-			throws VersionException, IOException {
-		if (openMode == DBConstants.CREATE) {
-			return new EnumDBAdapterV1(handle, true);
+	static EnumDBAdapter getAdapter(DBHandle handle, OpenMode openMode, String tablePrefix,
+			TaskMonitor monitor) throws VersionException, IOException, CancelledException {
+		if (openMode == OpenMode.CREATE) {
+			return new EnumDBAdapterV1(handle, tablePrefix, true);
 		}
 		try {
-			return new EnumDBAdapterV1(handle, false);
+			return new EnumDBAdapterV1(handle, tablePrefix, false);
 		}
 		catch (VersionException e) {
-//			if (!e.isUpgradable() || openMode == DBConstants.UPDATE) {
-//				throw e;
-//			}
 			EnumDBAdapter adapter = findReadOnlyAdapter(handle);
-			if (openMode == DBConstants.UPGRADE) {
-				adapter = upgrade(handle, adapter);
+			if (openMode == OpenMode.UPGRADE) {
+				adapter = upgrade(handle, adapter, tablePrefix, monitor);
 			}
 			return adapter;
 		}
@@ -78,7 +77,7 @@ abstract class EnumDBAdapter {
 	 * @return the read only Enumeration data type table adapter
 	 * @throws VersionException if a read only adapter can't be obtained for the database handle's version.
 	 */
-	static EnumDBAdapter findReadOnlyAdapter(DBHandle handle) throws VersionException {
+	private static EnumDBAdapter findReadOnlyAdapter(DBHandle handle) throws VersionException {
 		try {
 			return new EnumDBAdapterV0(handle);
 		}
@@ -95,29 +94,35 @@ abstract class EnumDBAdapter {
 	 * Upgrades the Enumeration data type table from the oldAdapter's version to the current version.
 	 * @param handle handle to the database whose table is to be upgraded to a newer version.
 	 * @param oldAdapter the adapter for the existing table to be upgraded.
+	 * @param tablePrefix prefix to be used with default table name
+	 * @param monitor task monitor
 	 * @return the adapter for the new upgraded version of the table.
-	 * @throws VersionException if the the table's version does not match the expected version
+	 * @throws VersionException if the table's version does not match the expected version
 	 * for this adapter.
 	 * @throws IOException if the database can't be read or written.
+	 * @throws CancelledException if task cancelled
 	 */
-	static EnumDBAdapter upgrade(DBHandle handle, EnumDBAdapter oldAdapter)
-			throws VersionException, IOException {
+	private static EnumDBAdapter upgrade(DBHandle handle, EnumDBAdapter oldAdapter,
+			String tablePrefix, TaskMonitor monitor)
+			throws VersionException, IOException, CancelledException {
 
 		DBHandle tmpHandle = new DBHandle();
 		long id = tmpHandle.startTransaction();
 		EnumDBAdapter tmpAdapter = null;
 		try {
-			tmpAdapter = new EnumDBAdapterV1(tmpHandle, true);
+			tmpAdapter = new EnumDBAdapterV1(tmpHandle, tablePrefix, true);
 			RecordIterator it = oldAdapter.getRecords();
 			while (it.hasNext()) {
-				Record rec = it.next();
+				monitor.checkCancelled();
+				DBRecord rec = it.next();
 				tmpAdapter.updateRecord(rec, false);
 			}
 			oldAdapter.deleteTable(handle);
-			EnumDBAdapterV1 newAdapter = new EnumDBAdapterV1(handle, true);
+			EnumDBAdapterV1 newAdapter = new EnumDBAdapterV1(handle, tablePrefix, true);
 			it = tmpAdapter.getRecords();
 			while (it.hasNext()) {
-				Record rec = it.next();
+				monitor.checkCancelled();
+				DBRecord rec = it.next();
 				newAdapter.updateRecord(rec, false);
 			}
 			return newAdapter;
@@ -140,7 +145,7 @@ abstract class EnumDBAdapter {
 	 * @return the database record for this data type.
 	 * @throws IOException if the database can't be accessed.
 	 */
-	abstract Record createRecord(String name, String comments, long categoryID, byte size,
+	abstract DBRecord createRecord(String name, String comments, long categoryID, byte size,
 			long sourceArchiveID, long sourceDataTypeID, long lastChangeTime) throws IOException;
 
 	/**
@@ -149,7 +154,7 @@ abstract class EnumDBAdapter {
 	 * @return the record for the enumeration data type.
 	 * @throws IOException if the database can't be accessed.
 	 */
-	abstract Record getRecord(long enumID) throws IOException;
+	abstract DBRecord getRecord(long enumID) throws IOException;
 
 	/**
 	 * Gets an iterator over all enumeration data type records.
@@ -161,16 +166,17 @@ abstract class EnumDBAdapter {
 	/**
 	 * Updates the enumeration data type table with the provided record.
 	 * @param record the new record
-	 * @param setLastChangedTime true means change the last change time in the record to the 
+	 * @param setLastChangeTime true means change the last change time in the record to the
 	 * current time before putting the record in the database.
 	 * @throws IOException if the database can't be accessed.
 	 */
-	abstract void updateRecord(Record record, boolean setLastChangeTime) throws IOException;
+	abstract void updateRecord(DBRecord record, boolean setLastChangeTime) throws IOException;
 
 	/**
-	 * Remove the record for the given enumeration ID, and remove all of its 
-	 * associated value records.
+	 * Remove the record for the given enumeration ID, and remove all of its associated value
+	 * records.
 	 * @param enumID ID of enumerated data type to delete
+	 * @return true if successful
 	 * @throws IOException if there was a problem accessing the database
 	 */
 	abstract boolean removeRecord(long enumID) throws IOException;
@@ -188,7 +194,7 @@ abstract class EnumDBAdapter {
 	 * @return an array of IDs for the enumeration data types in the category.
 	 * @throws IOException if the database can't be accessed.
 	 */
-	abstract long[] getRecordIdsInCategory(long categoryID) throws IOException;
+	abstract Field[] getRecordIdsInCategory(long categoryID) throws IOException;
 
 	/**
 	 * Gets an array with the IDs of all data types in the enumeration table that were derived
@@ -197,9 +203,22 @@ abstract class EnumDBAdapter {
 	 * @return the array data type IDs.
 	 * @throws IOException if the database can't be accessed.
 	 */
-	abstract long[] getRecordIdsForSourceArchive(long archiveID) throws IOException;
+	abstract Field[] getRecordIdsForSourceArchive(long archiveID) throws IOException;
 
-	abstract Record getRecordWithIDs(UniversalID sourceID, UniversalID datatypeID)
+	/**
+	 * Get enum record whose sourceID and datatypeID match the specified Universal IDs.
+	 * @param sourceID universal source archive ID
+	 * @param datatypeID universal datatype ID
+	 * @return enum record found or null
+	 * @throws IOException if IO error occurs
+	 */
+	abstract DBRecord getRecordWithIDs(UniversalID sourceID, UniversalID datatypeID)
 			throws IOException;
+
+	/**
+	 * Get the number of enum datatype records
+	 * @return total number of composite records
+	 */
+	public abstract int getRecordCount();
 
 }

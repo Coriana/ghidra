@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,6 +17,7 @@ package mdemangler.datatype;
 
 import mdemangler.MDException;
 import mdemangler.MDMang;
+import mdemangler.MDMang.ProcessingMode;
 import mdemangler.datatype.complex.*;
 import mdemangler.datatype.extended.*;
 import mdemangler.datatype.modifier.*;
@@ -32,13 +33,58 @@ import mdemangler.object.MDObjectCPP;
  */
 public class MDDataTypeParser {
 	/**
+	 * This method is only to be used by MDMang itself for the highest level type parsing where
+	 * there is not already a multi-retry. This method checks for the '.' starting character,
+	 * determines the type by calling the {@link #parseDataType(MDMang, boolean)}, parses the type,
+	 * and does the multi-mode retry if there is an exception on the first pass as
+	 * MDMangObjectParser does for generic mangled objects
+	 * @param dmang - the MDMang driver
+	 * @param isHighest - boolean indicating whether something else modifies or names the data
+	 *  type to be parsed, which impacts when certain overloaded CV modifiers can be applied.
+	 * @return - a type derived from MDDataType
+	 * @throws MDException on parsing error
+	 */
+	public static MDDataType determineAndParseDataType(MDMang dmang, boolean isHighest)
+			throws MDException {
+
+		MDDataType dt = null;
+
+		dmang.setProcessingMode(ProcessingMode.DEFAULT_STANDARD);
+		try {
+			dmang.pushContext();
+			if (dmang.peek() == '.') {
+				dmang.increment(); // skip the now-optional '.'
+			}
+			dt = parseDataType(dmang, isHighest);
+			dt.parse();
+			dmang.popContext();
+		}
+		catch (MDException e1) {
+			dmang.resetState();
+			dmang.setProcessingMode(ProcessingMode.LLVM);
+			try {
+				dmang.pushContext();
+				dmang.increment(); // skip the '.'
+				dt = parseDataType(dmang, isHighest);
+				dt.parse();
+				dmang.popContext();
+			}
+			catch (MDException e2) {
+				throw new MDException(
+					"Reason1: " + e1.getMessage().trim() + "; Reason2: " + e2.getMessage().trim());
+			}
+		}
+		return dt;
+	}
+
+	/**
 	 * This method parses all data types.  Specifically, it parses void, data indirect types,
 	 * function indirect types, and all types parsed by parsePrimaryDataType().
 	 * @param dmang - the MDMang driver
 	 * @param isHighest - boolean indicating whether something else modifies or names the data
 	 *  type to be parsed, which impacts when certain overloaded CV modifiers can be applied.
 	 * @return - a type derived from MDDataType
-	 * @throws MDException
+	 * @throws MDException on parsing error
 	 */
 	public static MDDataType parseDataType(MDMang dmang, boolean isHighest) throws MDException {
 		MDDataType dt;
@@ -46,7 +92,7 @@ public class MDDataTypeParser {
 		switch (code) {
 			case '?':
 				dmang.increment();
-				dt = new MDModifierType(dmang);
+				dt = new MDQuestionModifierType(dmang);
 				break;
 			case 'X':
 				// The wiki document says 'X' can be void or coclass, but we have never been able
@@ -72,35 +118,23 @@ public class MDDataTypeParser {
 	 * @param isHighest - boolean indicating whether something else modifies or names the data
 	 *  type to be parsed, which impacts when certain overloaded CV modifiers can be applied.
 	 * @return - a type derived from MDDataType
-	 * @throws MDException
+	 * @throws MDException on parsing error
 	 */
 	public static MDDataType parsePrimaryDataType(MDMang dmang, boolean isHighest)
 			throws MDException {
 		MDDataType dt;
 		char code = dmang.peek();
 		switch (code) {
-			case '$':
-				dmang.increment();
-				dt = parseSpecialExtendedType(dmang, isHighest);
-				break;
 			case 'A':
+				dmang.increment();
+				dt = new MDReferenceType(dmang, isHighest, false, false);
+				break;
 			case 'B':
 				dmang.increment();
-				MDReferenceType rt = new MDReferenceType(dmang);
-				dt = rt;
-				if (isHighest) {
-					if (code == 'B') {
-						rt.clearConst();
-						rt.setVolatile();
-					}
-					else {
-						rt.clearConst();
-						rt.clearVolatile();
-					}
-				}
+				dt = new MDReferenceType(dmang, isHighest, false, true);
 				break;
 			case MDMang.DONE:
-				throw new MDException("Type code not expected: " + code);
+				throw new MDException("PrimaryDataType: no data for type code");
 			default:
 				dt = parseBasicDataType(dmang, isHighest);
 				break;
@@ -116,7 +150,7 @@ public class MDDataTypeParser {
 	 * @param isHighest - boolean indicating whether something else modifies or names the data
 	 *  type to be parsed, which impacts when certain overloaded CV modifiers can be applied.
 	 * @return - a type derived from MDDataType
-	 * @throws MDException
+	 * @throws MDException on parsing error
 	 */
 	public static MDDataType parseSpecialExtendedType(MDMang dmang, boolean isHighest)
 			throws MDException {
@@ -137,22 +171,28 @@ public class MDDataTypeParser {
 				dt = new MDDataReferenceType(dmang);
 				break;
 			case 'Q':
+				dt = new MDDataRightReferenceType(dmang, isHighest, false, false);
+				break;
 			case 'R':
-				MDDataRefRefType drrt = new MDDataRefRefType(dmang);
-				dt = drrt;
-				if (isHighest && (code == 'R')) {
-					drrt.clearConst();
-					drrt.setVolatile();
-				}
+				dt = new MDDataRightReferenceType(dmang, isHighest, false, true);
 				break;
 			case 'T':
 				dt = new MDStdNullPtrType(dmang);
 				break;
 			case 'Y': // UINFO: QualifiedName only (no type)
 				// TODO: implementation. Try symbol like "?var@@3$$Yabc@@"
+				dt = new MDNamedUnspecifiedType(dmang);
+				break;
+			case 'V': // Empty type parameter pack?
+				dt = new MDEmptyParameterType(dmang);
+				break;
+			case 'Z': // End template parameter pack?
+				dt = new MDEndParameterType(dmang);
+				break;
 			case 'S': // invalid (UINFO)
+			case 'F': // Investigate $$F in CVMod processing... does it belong here?
 			default:
-				throw new MDException("TemplateParameterModifierType unrecognized code: " + code);
+				throw new MDException("SpecialDataType: unrecognized code: " + code);
 		}
 		return dt;
 	}
@@ -163,13 +203,21 @@ public class MDDataTypeParser {
 	 * @param isHighest - boolean indicating whether something else modifies or names the data
 	 *  type to be parsed, which impacts when certain overloaded CV modifiers can be applied.
 	 * @return - a type derived from MDDataType
-	 * @throws MDException
+	 * @throws MDException on parsing error
 	 */
 	public static MDDataType parseBasicDataType(MDMang dmang, boolean isHighest)
 			throws MDException {
 		MDDataType dt;
 		char code = dmang.getAndIncrement();
 		switch (code) {
+			case '?':
+				// Not sure if this should be here or other place.  I suppose could have a
+				//  reference to one of these, so wouldn't want it in "Primary" data types
+				dt = new MDCustomType(dmang);
+				break;
+			case '$':
+				dt = parseSpecialExtendedType(dmang, isHighest);
+				break;
 			case 'C':
 				dt = new MDCharDataType(dmang);
 				dt.setSigned();
@@ -214,32 +262,17 @@ public class MDDataTypeParser {
 			case 'O':
 				dt = new MDLongDoubleDataType(dmang);
 				break;
-			case 'Q':
-			case 'R':
-			case 'S':
 			case 'P':
-				MDPointerType pt = new MDPointerType(dmang);
-				dt = pt;
-				if (isHighest) {
-					switch (code) {
-						case 'P':
-							pt.clearConst();
-							pt.clearVolatile();
-							break;
-						case 'R':
-							pt.clearConst();
-							pt.setVolatile();
-							break;
-						case 'Q':
-							pt.setConst();
-							pt.clearVolatile();
-							break;
-						case 'S':
-							pt.setConst();
-							pt.setVolatile();
-							break;
-					}
-				}
+				dt = new MDPointerType(dmang, isHighest, false, false);
+				break;
+			case 'Q':
+				dt = new MDPointerType(dmang, isHighest, true, false);
+				break;
+			case 'R':
+				dt = new MDPointerType(dmang, isHighest, false, true);
+				break;
+			case 'S':
+				dt = new MDPointerType(dmang, isHighest, true, true);
 				break;
 			case 'T':
 				dt = new MDUnionType(dmang);
@@ -314,6 +347,8 @@ public class MDDataTypeParser {
 					case 'O':
 						// TODO: possibly change this to ExtendedDataType (currently 'O' ArrayType
 						//  is a "ModifiedType")--investigate further
+						// 20230731: note that this class uses a CVMod type, which support its
+						//  being a MDModifierType.
 						dt = new MDArrayBasicType(dmang);
 						break;
 					case 'P':
@@ -365,9 +400,9 @@ public class MDDataTypeParser {
 //						dt.setTypeName("{MDMANG_UNK_EXTENDEDTYPE:" + tn.emit() + "}"); // 20160728 temp
 						break;
 					case MDMang.DONE:
-						throw new MDException("Type code not expected: " + code);
+						throw new MDException("Extended BasicDataType: no data for type code");
 					default:
-						throw new MDException("Type code not expected: " + code);
+						throw new MDException("Extended BasicDataType: unrecognized code: " + code);
 				}
 				break;
 			case '@':
@@ -380,13 +415,10 @@ public class MDDataTypeParser {
 				dt = dtv;
 				break;
 			case MDMang.DONE:
-				throw new MDException("Type code not expected: " + code);
+				throw new MDException("BasicDataType: no data for type code");
 			default:
-				throw new MDException("Type code not expected: " + code);
+				throw new MDException("BasicDataType: unrecognized code: " + code);
 		}
 		return dt;
 	}
 }
-
-/******************************************************************************/
-/******************************************************************************/

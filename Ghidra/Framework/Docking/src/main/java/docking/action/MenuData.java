@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,6 +15,7 @@
  */
 package docking.action;
 
+import java.awt.event.KeyEvent;
 import java.util.Arrays;
 
 import javax.swing.Icon;
@@ -96,6 +97,10 @@ public class MenuData {
 		return menuPath;
 	}
 
+	/**
+	 * Returns the menu path as a string. This method includes accelerator characters in the path
+	 * @return the menu path as a string
+	 */
 	public String getMenuPathAsString() {
 		if (menuPath == null || menuPath.length == 0) {
 			return null;
@@ -105,6 +110,29 @@ public class MenuData {
 			buildy.append(menuPath[i]);
 			if (i != (menuPath.length - 1)) {
 				buildy.append("->");
+			}
+		}
+		return buildy.toString();
+	}
+
+	/**
+	 * Returns the menu path as a string. This method filters accelerator chars('&amp;') from the
+	 * path.
+	 * @return the menu path as a string without unescaped '&amp;' chars
+	 */
+	public String getMenuPathDisplayString() {
+		if (menuPath == null || menuPath.length == 0) {
+			return null;
+		}
+		StringBuilder buildy = new StringBuilder();
+		for (int i = 0; i < menuPath.length; i++) {
+			if (i != (menuPath.length - 1)) {
+				buildy.append(stripMnemonicAmp(menuPath[i]));
+				buildy.append("->");
+			}
+			else {
+				// the last entry has already had processMenuItemName called on it
+				buildy.append(menuPath[i]);
 			}
 		}
 		return buildy.toString();
@@ -218,10 +246,7 @@ public class MenuData {
 		}
 		MenuData oldData = cloneData();
 		menuPath = processMenuPath(newPath);
-		int newMnemonic = getMnemonic(newPath);
-		if (newMnemonic != NO_MNEMONIC) {
-			mnemonic = newMnemonic;
-		}
+		mnemonic = getMnemonic(newPath);
 		firePropertyChanged(oldData);
 	}
 
@@ -231,32 +256,65 @@ public class MenuData {
 		firePropertyChanged(oldData);
 	}
 
+	public void clearMnemonic() {
+		setMnemonic((char) KeyEvent.VK_UNDEFINED /* == 0 */);
+	}
+
+	/**
+	 * Sets the menu item name and the mnemonic, using the first unescaped '&amp;' found in the text
+	 * as a marker ("S&amp;ave As").
+	 * <p>
+	 * NOTE: do NOT use this method with strings that contain user-supplied text.  Instead, use
+	 * {@link #setMenuItemNamePlain(String)}, and then manually {@link #setMnemonic(Character) set}
+	 * the mnemonic.
+	 * 
+	 * @param newMenuItemName the new name for this menu item, with an optional '&amp;' to flag one
+	 * of the characters of the name as the new mnemonic of this item 
+	 */
 	public void setMenuItemName(String newMenuItemName) {
-		String processedMenuItemName = processMenuItemName(newMenuItemName);
+		String processedMenuItemName = stripMnemonicAmp(newMenuItemName);
 		if (processedMenuItemName.equals(menuPath[menuPath.length - 1])) {
 			return;
 		}
 		MenuData oldData = cloneData();
 		menuPath = menuPath.clone();
 		menuPath[menuPath.length - 1] = processedMenuItemName;
-		int newMnemonic = getMnemonic(newMenuItemName);
-		if (newMnemonic != NO_MNEMONIC) {
-			mnemonic = newMnemonic;
-		}
+		mnemonic = getMnemonic(newMenuItemName);
 		firePropertyChanged(oldData);
 	}
 
-	private static int getMnemonic(String[] menuPath) {
+	/**
+	 * Sets the menu item name, without parsing the name for mnemonics ("&amp;File").
+	 * <p>
+	 * Use this method instead of {@link #setMenuItemName(String)} when the name may have '&amp;'
+	 * characters that need to be preserved, which is typically any user supplied strings.
+	 * 
+	 * @param newMenuItemName the new name for this menu item
+	 */
+	public void setMenuItemNamePlain(String newMenuItemName) {
+		MenuData oldData = cloneData();
+		menuPath = menuPath.clone();
+		menuPath[menuPath.length - 1] = newMenuItemName;
+		firePropertyChanged(oldData);
+	}
+
+	public static int getMnemonic(String[] menuPath) {
 		if (menuPath == null || menuPath.length == 0) {
 			return NO_MNEMONIC;
 		}
 		return getMnemonic(menuPath[menuPath.length - 1]);
 	}
 
-	private static int getMnemonic(String string) {
-		int indexOf = string.indexOf('&');
-		if (indexOf >= 0 && indexOf < string.length() - 1) {
-			return string.charAt(indexOf + 1);
+	/**
+	 * Parses the mnemonic key from the menu items text.
+	 * @param menuName the menu item text
+	 * @return the mnemonic key for encoded in the actions menu text. Returns 0 if there is none.
+	 */
+	public static int getMnemonic(String menuName) {
+		String cleaned = menuName.replaceAll("&&", "");
+		int firstIndex = cleaned.indexOf('&');
+		if (firstIndex >= 0 && firstIndex < cleaned.length() - 1) {
+			return cleaned.charAt(firstIndex + 1);
 		}
 		return NO_MNEMONIC;
 	}
@@ -264,13 +322,39 @@ public class MenuData {
 	private static String[] processMenuPath(String[] menuPath) {
 		String[] copy = Arrays.copyOf(menuPath, menuPath.length);
 		if (copy != null && copy.length > 0) {
-			copy[copy.length - 1] = processMenuItemName(copy[copy.length - 1]);
+			copy[copy.length - 1] = stripMnemonicAmp(copy[copy.length - 1]);
 		}
 		return copy;
 	}
 
-	private static String processMenuItemName(String string) {
-		return string.replaceFirst("&", "");
+	/**
+	 * Removes any single {@code '&'} characters used to set the mnemonic from the menu item name.  
+	 * The {@code '&'} character can be included in the name by escaping with another {@code '&'} 
+	 * character.
+	 * @param menuItemName the name that may include mnemonic information
+	 * @return the menu item name with single {@code '&'} characters removed.
+	 */
+	public static String stripMnemonicAmp(String menuItemName) {
+		if (menuItemName.indexOf('&') < 0) {
+			return menuItemName;
+		}
+
+		StringBuilder builder = new StringBuilder();
+		boolean previousWasAmpersand = false;
+		for (int i = 0; i < menuItemName.length(); i++) {
+			char c = menuItemName.charAt(i);
+			if (c != '&') {
+				builder.append(c);
+				previousWasAmpersand = false;
+				continue;
+			}
+			if (previousWasAmpersand) {
+				// add in escaped ampersand (double ampersands are replace with one ampersand)
+				builder.append('&');
+			}
+			previousWasAmpersand = !previousWasAmpersand;
+		}
+		return builder.toString();
 	}
 
 	public String getMenuItemName() {

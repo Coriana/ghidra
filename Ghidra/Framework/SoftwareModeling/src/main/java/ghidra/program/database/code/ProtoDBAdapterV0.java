@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -42,6 +41,7 @@ class ProtoDBAdapterV0 implements ProtoDBAdapter {
 	/**
 	 * @see ghidra.program.database.code.ProtoDBAdapter#getVersion()
 	 */
+	@Override
 	public int getVersion() {
 		return 0;
 	}
@@ -61,6 +61,7 @@ class ProtoDBAdapterV0 implements ProtoDBAdapter {
 	/**
 	 * @see ghidra.program.database.code.ProtoDBAdapter#createRecord(int, byte[])
 	 */
+	@Override
 	public void createRecord(int protoID, long addr, byte[] b, boolean inDelaySlot)
 			throws IOException {
 		throw new UnsupportedOperationException("Cannot create records with old schema");
@@ -69,6 +70,7 @@ class ProtoDBAdapterV0 implements ProtoDBAdapter {
 	/**
 	 * @see ghidra.program.database.code.ProtoDBAdapter#deleteAll()
 	 */
+	@Override
 	public void deleteAll() {
 		throw new UnsupportedOperationException();
 	}
@@ -76,6 +78,7 @@ class ProtoDBAdapterV0 implements ProtoDBAdapter {
 	/**
 	 * @see ghidra.program.database.code.ProtoDBAdapter#getKey()
 	 */
+	@Override
 	public long getKey() throws IOException {
 		return table.getKey();
 	}
@@ -83,6 +86,7 @@ class ProtoDBAdapterV0 implements ProtoDBAdapter {
 	/**
 	 * @see ghidra.program.database.code.ProtoDBAdapter#getNumRecords()
 	 */
+	@Override
 	public int getNumRecords() throws IOException {
 		return table.getRecordCount();
 	}
@@ -90,15 +94,16 @@ class ProtoDBAdapterV0 implements ProtoDBAdapter {
 	/**
 	 * @see ghidra.program.database.code.ProtoDBAdapter#getRecord(int)
 	 */
-	public Record getRecord(int protoId) throws IOException {
+	@Override
+	public DBRecord getRecord(int protoId) throws IOException {
 		return convertRecord(table.getRecord(protoId));
 	}
 
-	private Record convertRecord(Record oldRec) {
+	private DBRecord convertRecord(DBRecord oldRec) {
 		long key = oldRec.getKey();
 		if (key < 0)
 			key = -key;
-		Record newRec = PrototypeManager.PROTO_SCHEMA.createRecord(key);
+		DBRecord newRec = PrototypeManager.PROTO_SCHEMA.createRecord(key);
 		newRec.setBinaryData(0, oldRec.getBinaryData(0));
 		newRec.setLongValue(1, oldRec.getLongValue(1));
 		newRec.setBooleanValue(2, false);
@@ -108,6 +113,7 @@ class ProtoDBAdapterV0 implements ProtoDBAdapter {
 	/**
 	 * @see ghidra.program.database.code.ProtoDBAdapter#getRecords()
 	 */
+	@Override
 	public RecordIterator getRecords() throws IOException {
 		return new RecordUpdateIterator(table.iterator());
 	}
@@ -119,28 +125,33 @@ class ProtoDBAdapterV0 implements ProtoDBAdapter {
 			this.it = it;
 		}
 
+		@Override
 		public boolean delete() throws IOException {
 			throw new UnsupportedOperationException();
 		}
 
+		@Override
 		public boolean hasNext() throws IOException {
 			return it.hasNext();
 		}
 
+		@Override
 		public boolean hasPrevious() throws IOException {
 			return it.hasPrevious();
 		}
 
-		public Record next() throws IOException {
+		@Override
+		public DBRecord next() throws IOException {
 			return convertRecord(it.next());
 		}
 
-		public Record previous() throws IOException {
-			Record rec = it.previous();
+		@Override
+		public DBRecord previous() throws IOException {
+			DBRecord rec = it.previous();
 			long key = rec.getKey();
 			if (key < 0)
 				key = -key;
-			Record newRec = PrototypeManager.PROTO_SCHEMA.createRecord(key);
+			DBRecord newRec = PrototypeManager.PROTO_SCHEMA.createRecord(key);
 			newRec.setBinaryData(0, rec.getBinaryData(0));
 			newRec.setLongValue(1, rec.getLongValue(1));
 			newRec.setBooleanValue(2, false);

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -27,7 +27,7 @@ import ghidra.util.Msg;
  * This implementation relies on java.net.RandomAccessFile,
  * but adds buffering to limit the amount.
  */
-public class GhidraRandomAccessFile {
+public class GhidraRandomAccessFile implements AutoCloseable {
 	private static final byte[] EMPTY = new byte[0];
 	private static final int BUFFER_SIZE = 0x100000;
 
@@ -55,7 +55,6 @@ public class GhidraRandomAccessFile {
 	 * <p>
 	 * This implementation relies on java.net.RandomAccessFile,
 	 * but adds buffering to limit the amount.
-	 * <p>
 	 *
 	 * <a id="mode"></a><p> The <code>mode</code> argument specifies the access mode
 	 * in which the file is to be opened.  The permitted values and their
@@ -112,6 +111,7 @@ public class GhidraRandomAccessFile {
 	 * If this file has an associated channel then the channel is closed as well.
 	 * @exception  IOException  if an I/O error occurs.
 	 */
+	@Override
 	public void close() throws IOException {
 		checkOpen();
 		open = false;
@@ -291,8 +291,11 @@ public class GhidraRandomAccessFile {
 
 				buffer = new byte[BUFFER_SIZE];
 				randomAccessFile.seek(bufferFileStartIndex);
-				randomAccessFile.read(buffer);
+				int bytesRead = randomAccessFile.read(buffer);
 				bufferOffset = 0;
+				if (bytesRead <= 0) {
+					throw new EOFException();
+				}
 			}
 			else {
 				bufferOffset = newBufferOffset;

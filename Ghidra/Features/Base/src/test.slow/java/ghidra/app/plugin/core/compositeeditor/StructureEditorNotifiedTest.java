@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,59 +19,34 @@ import static org.junit.Assert.*;
 
 import java.awt.Window;
 
-import javax.swing.SwingUtilities;
+import org.junit.*;
 
-import org.junit.Assert;
-import org.junit.Test;
-
+import docking.DialogComponentProvider;
 import ghidra.program.model.data.*;
+import ghidra.util.Swing;
 import ghidra.util.exception.DuplicateNameException;
-import ghidra.util.exception.UsrException;
-import ghidra.util.task.TaskMonitorAdapter;
+import ghidra.util.task.TaskMonitor;
 
 public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 
-	protected void init(Structure dt, final Category cat) {
-		boolean commit = true;
-		startTransaction("Structure Editor Test Initialization");
-		try {
-			DataTypeManager dataTypeManager = cat.getDataTypeManager();
-			if (dt.getDataTypeManager() != dataTypeManager) {
-				dt = (Structure) dt.clone(dataTypeManager);
-			}
-			CategoryPath categoryPath = cat.getCategoryPath();
-			if (!dt.getCategoryPath().equals(categoryPath)) {
-				try {
-					dt.setCategoryPath(categoryPath);
-				}
-				catch (DuplicateNameException e) {
-					commit = false;
-					Assert.fail(e.getMessage());
-				}
-			}
-		}
-		finally {
-			endTransaction(commit);
-		}
+	private int persistentTxId = 0;
 
-		Structure structDt = dt;
-		runSwing(() -> {
-			installProvider(new StructureEditorProvider(plugin, structDt, false));
-		});
+	@Override
+	@Before
+	public void setUp() throws Exception {
+		super.setUp();
 
-		model = provider.getModel();
-		startTransaction("Modify Program");
+		// Create overlapping transaction to handle all changes
+		persistentTxId = program.startTransaction("Modify Program");
 	}
 
 	@Override
-	protected void cleanup() {
-		endTransaction(false);
-		provider.dispose();
-	}
-
-	@Test
-	public void testCategoryAdded() {
-		// Nothing to test here.
+	@After
+	public void tearDown() throws Exception {
+		if (persistentTxId != 0) {
+			program.endTransaction(persistentTxId, true);
+		}
+		super.tearDown();
 	}
 
 	@Test
@@ -80,8 +55,8 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 
 		assertEquals("simpleStructure", getDataType(21).getName());
 		assertEquals("/aa/bb", getDataType(21).getCategoryPath().getPath());
-		pgmTestCat.moveCategory(pgmBbCat, TaskMonitorAdapter.DUMMY_MONITOR);
-		waitForPostedSwingRunnables();
+		pgmTestCat.moveCategory(pgmBbCat, TaskMonitor.DUMMY);
+		waitForSwing();
 		assertEquals("/testCat/bb", getDataType(21).getCategoryPath().getPath());
 	}
 
@@ -90,48 +65,122 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 		init(simpleStructure, pgmBbCat);
 
 		assertEquals(pgmBbCat.getCategoryPathName(), model.getOriginalCategoryPath().getPath());
-		pgmTestCat.moveCategory(pgmBbCat, TaskMonitorAdapter.DUMMY_MONITOR);
-		waitForPostedSwingRunnables();
+		pgmTestCat.moveCategory(pgmBbCat, TaskMonitor.DUMMY);
+		waitForSwing();
 		assertTrue(
 			model.getOriginalCategoryPath().getPath().startsWith(pgmTestCat.getCategoryPathName()));
 		assertEquals(pgmBbCat.getCategoryPathName(), model.getOriginalCategoryPath().getPath());
 	}
 
 	@Test
-	public void testComponentDtCategoryRemoved() {
-		// Nothing to test here.
-	}
-
-	@Test
 	public void testEditedDataTypeRemoved() throws Exception {
-		Category tempCat;
-		try {
-			startTransaction("Modify Program");
-			tempCat = pgmRootCat.createCategory("Temp");
-			tempCat.moveDataType(complexStructure, DataTypeConflictHandler.DEFAULT_HANDLER);
-		}
-		finally {
-			endTransaction(true);
-		}
+
+		Category tempCat = modifyProgram(program, p -> {
+			Category tempCategory = pgmRootCat.createCategory("Temp");
+			tempCategory.moveDataType(complexStructure, DataTypeConflictHandler.DEFAULT_HANDLER);
+			return tempCategory;
+		});
+
 		init(complexStructure, tempCat);
 		int num = model.getNumComponents();
 		int len = model.getLength();
-		DataType dataType10 = model.viewComposite.getComponent(10).getDataType();
+		DataType dataType10 = getDataType(10);
 		assertEquals("complexStructure *", dataType10.getDisplayName());
-		assertEquals(4, dataType10.getLength());
+		assertEquals(4, getLength(10));
 
-		SwingUtilities.invokeLater(() -> {
-			programDTM.remove(complexStructure, TaskMonitorAdapter.DUMMY_MONITOR);
-			programDTM.getCategory(pgmRootCat.getCategoryPath()).removeCategory("Temp",
-				TaskMonitorAdapter.DUMMY_MONITOR);
-		});
-		waitForPostedSwingRunnables();
-		// complexStructure* gets removed and becomes 4 undefined bytes in this editor.
-		assertEquals(num + 3, model.getNumComponents());
+		programDTM.remove(complexStructure);
+
+		DialogComponentProvider dlg = waitForDialogComponent("Close Structure Editor?");
+		pressButton(dlg.getComponent(), "No");
+		waitForSwing();
+
+		assertEquals(num, model.getNumComponents());
 		assertEquals(len, model.getLength());
-		dataType10 = model.viewComposite.getComponent(10).getDataType();
-		assertEquals("undefined", dataType10.getDisplayName());
-		assertEquals(1, dataType10.getLength());
+		assertEquals("The original Structure has been deleted", model.getStatus());
+
+		// Verify pointer to edited composite remains valid within editor
+		dataType10 = getDataType(10);
+		assertEquals("complexStructure *", dataType10.getDisplayName());
+		assertEquals(4, getLength(10));
+		assertFalse(dataType10.isDeleted());
+
+		assertTrue(model.hasChanges());
+	}
+
+	@Test
+	public void testCategoryRemoved() throws Exception {
+
+		Category tempCat = modifyProgram(program, p -> {
+			Category tempCategory = pgmRootCat.createCategory("Temp");
+			tempCategory.moveDataType(complexStructure, DataTypeConflictHandler.DEFAULT_HANDLER);
+			return tempCategory;
+		});
+
+		init(complexStructure, tempCat);
+		int num = model.getNumComponents();
+		int len = model.getLength();
+		DataType dataType4 = getDataType(4);
+		assertEquals("simpleUnion", dataType4.getDisplayName());
+		assertEquals(8, getLength(4));
+
+		programDTM.getCategory(new CategoryPath("/aa")).removeCategory("bb", TaskMonitor.DUMMY);
+		waitForSwing();
+
+		// NOTE: No prompt when non-edited data types are removed - direct update imposed
+
+		assertEquals(num, model.getNumComponents());
+		assertEquals(len, model.getLength());
+		assertEquals("", model.getStatus());
+
+		// Verify pointer to edited composite remains valid within editor
+		dataType4 = getDataType(4);
+		assertEquals("-BAD-", dataType4.getDisplayName());
+		assertEquals(8, getLength(4));
+
+		assertFalse(model.hasChanges());
+	}
+
+	@Test
+	public void testModifiedCategoryRemoved() throws Exception {
+
+		Category tempCat = modifyProgram(program, p -> {
+			Category tempCategory = pgmRootCat.createCategory("Temp");
+			tempCategory.moveDataType(complexStructure, DataTypeConflictHandler.DEFAULT_HANDLER);
+			return tempCategory;
+		});
+
+		init(complexStructure, tempCat);
+
+		runSwingWithException(() -> {
+			model.insert(model.getNumComponents(), new ByteDataType(), 1);
+			model.insert(model.getNumComponents(), new PointerDataType(), 4);
+		});
+
+		waitForSwing();
+
+		int num = model.getNumComponents();
+		int len = model.getLength();
+		DataType dataType4 = getDataType(4);
+		assertEquals("simpleUnion", dataType4.getDisplayName());
+		assertEquals(8, getLength(4));
+
+		programDTM.getCategory(new CategoryPath("/aa")).removeCategory("bb", TaskMonitor.DUMMY);
+		waitForSwing();
+
+		DialogComponentProvider dlg = waitForDialogComponent("Reload Structure Editor?");
+		pressButton(dlg.getComponent(), "No");
+		waitForSwing();
+
+		assertEquals(num, model.getNumComponents());
+		assertEquals(len, model.getLength());
+		assertEquals("Removed sub-component data type \"/aa/bb/simpleUnion\"", model.getStatus());
+
+		// Verify pointer to edited composite remains valid within editor
+		dataType4 = getDataType(4);
+		assertEquals("-BAD-", dataType4.getDisplayName());
+		assertEquals(8, getLength(4));
+
+		assertTrue(model.hasChanges());
 	}
 
 	@Test
@@ -140,7 +189,7 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 
 		assertEquals("/aa/bb", getDataType(21).getCategoryPath().getPath());
 		pgmBbCat.setName("NewBB2");// Was /aa/bb
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertEquals("/aa/NewBB2", getDataType(21).getCategoryPath().getPath());
 	}
 
@@ -150,23 +199,14 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 
 		assertEquals(pgmBbCat.getCategoryPathName(), model.getOriginalCategoryPath().getPath());
 		pgmBbCat.setName("NewBB2");// Was /aa/bb
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertEquals("/aa/NewBB2", model.getOriginalCategoryPath().getPath());
-	}
-
-	@Test
-	public void testDataTypeAdded() {
-		// FUTURE (low priority)
-		// Try to add an archive data type to the editor, then add
-		// the same named data type to the original data type manager.
 	}
 
 	@Test
 	public void testComponentDataTypeChangedLocked() {
 		init(complexStructure, pgmTestCat);
 
-//		model.setLocked(true);
-//		assertTrue(model.isLocked());
 		int len = model.getLength();
 		int num = model.getNumComponents();
 		// Clone the data types we want to hold onto for comparison later, since reload can close the viewDTM.
@@ -176,9 +216,10 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 		int len16 = dt16.getLength();
 		int len19 = dt19.getLength();
 		int len21 = dt21.getLength();
+
 		// Change the struct.  simpleStructure was 29 bytes.
-		SwingUtilities.invokeLater(() -> simpleStructure.add(new DWordDataType()));
-		waitForPostedSwingRunnables();
+		runSwing(() -> simpleStructure.add(new DWordDataType()));
+
 		// Check that the viewer now has the modified struct.
 		// Components 16, 19, & 21 all change size.
 		int newLen16 = len16 + (3 * 4);
@@ -201,8 +242,6 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 	public void testComponentDataTypeChangedUnlocked() {
 		init(complexStructure, pgmTestCat);
 
-//		model.setLocked(false);
-//		assertTrue(!model.isLocked());
 		int len = model.getLength();
 		int num = model.getNumComponents();
 		// Clone the data types we want to hold onto for comparison later, since reload can close the viewDTM.
@@ -212,9 +251,10 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 		int len16 = dt16.getLength();
 		int len19 = dt19.getLength();
 		int len21 = dt21.getLength();
+
 		// Change the struct.  simpleStructure was 29 bytes.
-		SwingUtilities.invokeLater(() -> simpleStructure.add(new DWordDataType()));
-		waitForPostedSwingRunnables();
+		runSwing(() -> simpleStructure.add(new DWordDataType()));
+
 		// Check that the viewer now has the modified struct.
 		// Components 16, 19, & 21 all change size.
 		int newLen16 = len16 + (3 * 4);
@@ -235,20 +275,20 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 
 	@Test
 	public void testComponentDataTypeChangedBiggerConsumeSome() {
-		try {
-			final DataType dword = new DWordDataType();
-			final DataType ascii = new CharDataType();
-			final DataType undef = DataType.DEFAULT;
-			startTransaction("Modify Program");
+
+		tx(program, () -> {
+			DataType dword = new DWordDataType();
+			DataType ascii = new CharDataType();
+			DataType undef = DataType.DEFAULT;
 
 			// Change the struct.  simpleStructure was 29 bytes.
-			SwingUtilities.invokeLater(() -> {
+			runSwing(() -> {
 				emptyStructure.add(dword);
 				emptyStructure.add(simpleStructure);
 				emptyStructure.growStructure(6);
 				emptyStructure.add(ascii);
 			});
-			waitForPostedSwingRunnables();
+
 			emptyStructure = (Structure) programDTM.resolve(emptyStructure, null);
 			try {
 				emptyStructure.setCategoryPath(pgmTestCat.getCategoryPath());
@@ -260,18 +300,17 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 			runSwing(() -> {
 				installProvider(new StructureEditorProvider(plugin, emptyStructure, false));
 				model = provider.getModel();
-//					model.setLocked(true);
 			});
-//			assertTrue(model.isLocked());
+
 			int len = model.getLength();
 			int num = model.getNumComponents();
-
 			int origLen = simpleStructure.getLength();
-			// Change the struct.  simpleStructure was 29 bytes.
-			SwingUtilities.invokeLater(() -> simpleStructure.add(new DWordDataType()));
-			waitForPostedSwingRunnables();
-			int newLen = origLen + 4;
 
+			// Change the struct.  simpleStructure was 29 bytes.
+			runSwing(() -> simpleStructure.add(new DWordDataType()));
+			waitForSwing();
+
+			int newLen = origLen + 4;
 			assertEquals(len, model.getLength());
 			assertEquals(num - 4, model.getNumComponents());
 			assertTrue(dword.isEquivalent(getDataType(0)));
@@ -284,28 +323,25 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 			assertEquals(1, model.getComponent(2).getLength());
 			assertEquals(1, model.getComponent(3).getLength());
 			assertEquals(1, model.getComponent(4).getLength());
-			assertTrue(!getMnemonic(1).startsWith("TooBig:"));
-		}
-		finally {
-			endTransaction(false);
-		}
+			assertFalse(getMnemonic(1).startsWith("TooBig:"));
+		});
 	}
 
 	@Test
 	public void testComponentDataTypeChangedBiggerConsumeAll() {
-		try {
-			final DataType dword = new DWordDataType();
-			final DataType ascii = new CharDataType();
-			startTransaction("Modify Program");
+
+		tx(program, () -> {
+			DataType dword = new DWordDataType();
+			DataType ascii = new CharDataType();
 
 			// Change the struct.  simpleStructure was 29 bytes.
-			SwingUtilities.invokeLater(() -> {
+			runSwing(() -> {
 				emptyStructure.add(dword);
 				emptyStructure.add(simpleStructure);
 				emptyStructure.growStructure(4);
 				emptyStructure.add(ascii);
 			});
-			waitForPostedSwingRunnables();
+
 			emptyStructure = (Structure) programDTM.resolve(emptyStructure, null);
 			try {
 				emptyStructure.setCategoryPath(pgmTestCat.getCategoryPath());
@@ -317,18 +353,17 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 			runSwing(() -> {
 				installProvider(new StructureEditorProvider(plugin, emptyStructure, false));
 				model = provider.getModel();
-//					model.setLocked(true);
 			});
-//			assertTrue(model.isLocked());
+
 			int len = model.getLength();
 			int num = model.getNumComponents();
 
 			int origLen = simpleStructure.getLength();
 			// Change the struct.  simpleStructure was 29 bytes.
-			SwingUtilities.invokeLater(() -> simpleStructure.add(new DWordDataType()));
-			waitForPostedSwingRunnables();
-			int newLen = origLen + 4;
+			runSwing(() -> simpleStructure.add(new DWordDataType()));
+			waitForSwing();
 
+			int newLen = origLen + 4;
 			assertEquals(len, model.getLength());
 			assertEquals(num - 4, model.getNumComponents());
 			assertTrue(dword.isEquivalent(getDataType(0)));
@@ -339,27 +374,24 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 			assertEquals(newLen, model.getComponent(1).getLength());
 			assertEquals(1, model.getComponent(2).getLength());
 			assertTrue(!getMnemonic(1).startsWith("TooBig:"));
-		}
-		finally {
-			endTransaction(false);
-		}
+		});
 	}
 
 	@Test
 	public void testComponentDataTypeChangedBiggerNotEnough() {
-		try {
-			final DataType dword = new DWordDataType();
-			final DataType ascii = new CharDataType();
-			startTransaction("Modify Program");
+
+		tx(program, () -> {
+			DataType dword = new DWordDataType();
+			DataType ascii = new CharDataType();
 
 			// Change the struct.  simpleStructure was 29 bytes.
-			SwingUtilities.invokeLater(() -> {
+			runSwing(() -> {
 				emptyStructure.add(dword);
 				emptyStructure.add(simpleStructure);
 				emptyStructure.growStructure(2);
 				emptyStructure.add(ascii);
 			});
-			waitForPostedSwingRunnables();
+
 			emptyStructure = (Structure) programDTM.resolve(emptyStructure, null);
 			try {
 				emptyStructure.setCategoryPath(pgmTestCat.getCategoryPath());
@@ -370,19 +402,17 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 			runSwing(() -> {
 				installProvider(new StructureEditorProvider(plugin, emptyStructure, false));
 				model = provider.getModel();
-//					model.setLocked(true);
 			});
-//			assertTrue(model.isLocked());
 			int len = model.getLength();
 			int num = model.getNumComponents();
-
 			int origLen = simpleStructure.getLength();
+
 			// Change the struct.  simpleStructure was 29 bytes.
-			SwingUtilities.invokeLater(() -> simpleStructure.add(new DWordDataType()));
-			waitForPostedSwingRunnables();
+			runSwing(() -> simpleStructure.add(new DWordDataType()));
+			waitForSwing();
+
 			int newDtLen = origLen + 4;
 			int newCompLen = origLen + 2;
-
 			assertEquals(len, model.getLength());
 			assertEquals(num - 2, model.getNumComponents());
 			assertTrue(dword.isEquivalent(getDataType(0)));
@@ -393,27 +423,24 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 			assertEquals(newCompLen, model.getComponent(1).getLength());
 			assertEquals(1, model.getComponent(2).getLength());
 			assertTrue(getMnemonic(1).startsWith("TooBig:"));
-		}
-		finally {
-			endTransaction(false);
-		}
+		});
 	}
 
 	@Test
 	public void testComponentDataTypeChangedSmaller() {
-		try {
-			final DataType dword = new DWordDataType();
-			final DataType ascii = new CharDataType();
-			final DataType undef = DataType.DEFAULT;
-			startTransaction("Modify Program");
+
+		tx(program, () -> {
+			DataType dword = new DWordDataType();
+			DataType ascii = new CharDataType();
+			DataType undef = DataType.DEFAULT;
 
 			// Change the struct.  simpleStructure was 29 bytes.
-			SwingUtilities.invokeLater(() -> {
+			runSwing(() -> {
 				emptyStructure.add(dword);
 				emptyStructure.add(simpleStructure);
 				emptyStructure.add(ascii);
 			});
-			waitForPostedSwingRunnables();
+
 			emptyStructure = (Structure) programDTM.resolve(emptyStructure, null);
 			try {
 				emptyStructure.setCategoryPath(pgmTestCat.getCategoryPath());
@@ -424,18 +451,17 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 			runSwing(() -> {
 				installProvider(new StructureEditorProvider(plugin, emptyStructure, false));
 				model = provider.getModel();
-//					model.setLocked(true);
 			});
-//			assertTrue(model.isLocked());
+
 			int len = model.getLength();
 			int num = model.getNumComponents();
-
 			int origLen = simpleStructure.getLength();
-			// Change the struct.  simpleStructure was 29 bytes.
-			SwingUtilities.invokeLater(() -> simpleStructure.delete(2));
-			waitForPostedSwingRunnables();
-			int newLen = origLen - 2;
 
+			// Change the struct.  simpleStructure was 29 bytes.
+			runSwing(() -> simpleStructure.delete(2));
+			waitForSwing();
+
+			int newLen = origLen - 2;
 			assertEquals(len, model.getLength());
 			assertEquals(num + 2, model.getNumComponents());
 			assertTrue(dword.isEquivalent(getDataType(0)));
@@ -449,38 +475,31 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 			assertEquals(1, model.getComponent(2).getLength());
 			assertEquals(1, model.getComponent(3).getLength());
 			assertEquals(1, model.getComponent(4).getLength());
-			assertTrue(!getMnemonic(1).startsWith("TooBig:"));
-		}
-		finally {
-			endTransaction(false);
-		}
+			assertFalse(getMnemonic(1).startsWith("TooBig:"));
+		});
 	}
 
 	@Test
 	public void testModifiedEditedDataTypeChangedYes() throws Exception {
-		Window dialog;
+
 		init(complexStructure, pgmTestCat);
 
-		runSwing(() -> {
-			try {
-//					model.setLocked(false);
-				model.insert(model.getNumComponents(), new ByteDataType(), 1);
-				model.insert(model.getNumComponents(), new PointerDataType(), 4);
-			}
-			catch (UsrException e) {
-				Assert.fail(e.getMessage());
-			}
+		runSwingWithException(() -> {
+			model.insert(model.getNumComponents(), new ByteDataType(), 1);
+			model.insert(model.getNumComponents(), new PointerDataType(), 4);
 		});
-		SwingUtilities.invokeLater(() -> complexStructure.add(new CharDataType()));
-		waitForPostedSwingRunnables();
+
+		runSwing(() -> complexStructure.add(new CharDataType()), false);
+		waitForSwing();
 		DataType origCopy = complexStructure.clone(null);
 
 		// Verify the Reload Structure Editor? dialog is displayed.
-		dialog = env.waitForWindow("Reload Structure Editor?", 1000);
+		Window dialog = waitForWindow("Reload Structure Editor?");
 		assertNotNull(dialog);
 		pressButtonByText(dialog, "Yes");
 		dialog.dispose();
 		dialog = null;
+		waitForSwing();
 
 		assertEquals(((Structure) origCopy).getNumComponents(), model.getNumComponents());
 		assertTrue(origCopy.isEquivalent(model.viewComposite));
@@ -488,29 +507,25 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 
 	@Test
 	public void testModifiedEditedDataTypeChangedNo() throws Exception {
-		Window dialog;
+
 		init(complexStructure, pgmTestCat);
 
-		runSwing(() -> {
-			try {
-//					model.setLocked(false);
-				model.insert(model.getNumComponents(), new ByteDataType(), 1);
-				model.insert(model.getNumComponents(), new PointerDataType(), 4);
-			}
-			catch (UsrException e) {
-				Assert.fail(e.getMessage());
-			}
+		runSwingWithException(() -> {
+			model.insert(model.getNumComponents(), new ByteDataType(), 1);
+			model.insert(model.getNumComponents(), new PointerDataType(), 4);
 		});
+
 		DataType viewCopy = model.viewComposite.clone(null);
-		SwingUtilities.invokeLater(() -> complexStructure.add(new CharDataType()));
-		waitForPostedSwingRunnables();
+		Swing.runLater(() -> complexStructure.add(new CharDataType()));
+		waitForSwing();
 
 		// Verify the Reload Structure Editor? dialog is displayed.
-		dialog = env.waitForWindow("Reload Structure Editor?", 1000);
+		Window dialog = waitForWindow("Reload Structure Editor?");
 		assertNotNull(dialog);
 		pressButtonByText(dialog, "No");
 		dialog.dispose();
 		dialog = null;
+		waitForSwing();
 
 		assertEquals(((Structure) viewCopy).getNumComponents(), model.getNumComponents());
 		assertTrue(viewCopy.isEquivalent(model.viewComposite));
@@ -520,27 +535,22 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 	public void testUnmodifiedEditedDataTypeChanged() {
 		init(complexStructure, pgmTestCat);
 
-		SwingUtilities.invokeLater(() -> complexStructure.add(new CharDataType()));
-		waitForPostedSwingRunnables();
+		runSwing(() -> complexStructure.add(new CharDataType()));
+		waitForSwing();
 		assertTrue(complexStructure.isEquivalent(model.viewComposite));
 	}
 
 	@Test
-	public void testComponentDataTypeMoved() {
+	public void testComponentDataTypeMoved() throws Exception {
 		init(complexStructure, pgmTestCat);
 
 		assertEquals(23, model.getNumComponents());
 		assertTrue(simpleStructure.isEquivalent(getDataType(21)));
 		assertEquals(simpleStructure.getCategoryPath().getPath(),
 			pgmBbCat.getCategoryPath().getPath());
-		SwingUtilities.invokeLater(() -> {
-			try {
-				pgmAaCat.moveDataType(simpleStructure, DataTypeConflictHandler.DEFAULT_HANDLER);
-			}
-			catch (DataTypeDependencyException e) {
-			}
-		});
-		waitForPostedSwingRunnables();
+
+		runSwingWithException(
+			() -> pgmAaCat.moveDataType(simpleStructure, DataTypeConflictHandler.DEFAULT_HANDLER));
 		assertEquals(23, model.getNumComponents());
 		assertTrue(simpleStructure.isEquivalent(getDataType(21)));
 		assertEquals(simpleStructure.getCategoryPath().getPath(),
@@ -548,70 +558,68 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 	}
 
 	@Test
-	public void testEditedDataTypeMoved() {
+	public void testEditedDataTypeMoved() throws Exception {
 		init(complexStructure, pgmTestCat);
 
 		assertEquals(pgmTestCat.getCategoryPathName(), model.getOriginalCategoryPath().getPath());
-		SwingUtilities.invokeLater(() -> {
-			try {
-				pgmAaCat.moveDataType(complexStructure, DataTypeConflictHandler.DEFAULT_HANDLER);
-			}
-			catch (DataTypeDependencyException e) {
-			}
-		});
-		waitForPostedSwingRunnables();
+		runSwingWithException(
+			() -> pgmAaCat.moveDataType(complexStructure, DataTypeConflictHandler.DEFAULT_HANDLER));
+		waitForSwing();
 		assertEquals(pgmAaCat.getCategoryPathName(), model.getOriginalCategoryPath().getPath());
 	}
 
 	@Test
 	public void testComponentDataTypeRemoved() {
+
+		// Get the data types we want to hold onto for comparison later
+		DataType dt3 = getDataType(complexStructure, 3);
+		DataType dt5 = getDataType(complexStructure, 5);
+		DataType dt8 = getDataType(complexStructure, 8);
+		DataType dt10 = getDataType(complexStructure, 10);
+
 		init(complexStructure, pgmTestCat);
-		DataType undef = DataType.DEFAULT;
+
+		assertEquals(1, getLength(9)); // length start-off wierd - not sure why
 
 		assertEquals(23, model.getNumComponents());
-		// Clone the data types we want to hold onto for comparison later, since reload can close the viewDTM.
-		DataType dt3 = getDataType(3).clone(programDTM);
-		DataType dt5 = getDataType(5).clone(programDTM);
-		DataType dt8 = getDataType(8).clone(programDTM);
-		DataType dt10 = getDataType(10).clone(programDTM);
+		assertEquals(0x145, model.getLength());
 
-		SwingUtilities.invokeLater(() -> complexStructure.getDataTypeManager().remove(simpleUnion,
-			TaskMonitorAdapter.DUMMY_MONITOR));
-		waitForPostedSwingRunnables();
-
-		assertEquals(30, model.getNumComponents());
+		runSwing(() -> complexStructure.getDataTypeManager().remove(simpleUnion));
+		waitForSwing();
+		assertEquals(23, model.getNumComponents());
 		assertTrue(dt3.isEquivalent(getDataType(3)));
-		assertTrue(undef.isEquivalent(getDataType(4)));
-		assertTrue(undef.isEquivalent(getDataType(11)));
-		assertTrue(dt5.isEquivalent(getDataType(12)));
-		assertTrue(dt8.isEquivalent(getDataType(15)));
-		assertTrue(undef.isEquivalent(getDataType(16)));
-		assertTrue(dt10.isEquivalent(getDataType(17)));
 		assertEquals(4, getOffset(3));
-		assertEquals(16, getOffset(12));
-		assertEquals(24, getOffset(15));
-		assertEquals(33, getOffset(17));
+		assertEquals(0x8, getLength(4));
+		assertTrue(BadDataType.dataType.isEquivalent(getDataType(4)));
+		assertEquals("Type 'simpleUnion' was deleted", getComment(4));
+		assertTrue(dt5.isEquivalent(getDataType(5)));
+		assertTrue(dt8.isEquivalent(getDataType(8)));
+		assertEquals(0x20, getOffset(9));
+		assertEquals(1, getLength(9)); // length start-off wierd
+		assertTrue(BadDataType.dataType.isEquivalent(getDataType(9)));
+		assertEquals("Type 'simpleUnion *' was deleted", getComment(9));
+		assertEquals(0x21, getOffset(10));
+		assertEquals(0x4, getLength(10));
+		assertTrue(dt10.isEquivalent(getDataType(10)));
+		assertEquals(0x145, model.getLength());
 	}
 
 	@Test
 	public void testOnlyComponentDataTypeRemoved() throws Exception {
 		init(emptyStructure, pgmTestCat);
 
-		SwingUtilities.invokeLater(() -> {
-			try {
-				model.add(simpleStructure);
-			}
-			catch (UsrException e) {
-				Assert.fail();
-			}
-		});
-		waitForPostedSwingRunnables();
+		runSwingWithException(() -> model.add(simpleStructure));
+		waitForSwing();
+
+		assertEquals(1, model.getNumComponents());
 		assertTrue(simpleStructure.isEquivalent(getDataType(0)));
 
-		SwingUtilities.invokeLater(() -> simpleStructure.getDataTypeManager().remove(
-			simpleStructure, TaskMonitorAdapter.DUMMY_MONITOR));
-		waitForPostedSwingRunnables();
-		assertEquals(29, model.getNumComponents());// becomes undefined bytes
+		runSwing(() -> simpleStructure.getDataTypeManager().remove(simpleStructure));
+		waitForSwing();
+
+		assertEquals(1, model.getNumComponents());// component becomes BadDataType
+		assertTrue(BadDataType.dataType.isEquivalent(getDataType(0)));
+		assertEquals("Type 'simpleStructure' was deleted", getComment(0));
 	}
 
 	@Test
@@ -625,15 +633,9 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 		assertEquals("simpleStructure *[7]", getDataType(17).getDisplayName());
 		assertEquals("simpleStructure", getDataType(21).getDisplayName());
 		assertEquals(simpleStructure.getPathName(), getDataType(21).getPathName());
-		SwingUtilities.invokeLater(() -> {
-			try {
-				simpleStructure.setName("NewSimpleStructure");
-			}
-			catch (UsrException e) {
-				Assert.fail();
-			}
-		});
-		waitForPostedSwingRunnables();
+
+		runSwingWithException(() -> simpleStructure.setName("NewSimpleStructure"));
+		waitForSwing();
 		assertEquals("NewSimpleStructure *", getDataType(6).getDisplayName());
 		assertEquals("NewSimpleStructure[3]", getDataType(16).getDisplayName());
 		assertEquals("NewSimpleStructure *[7]", getDataType(17).getDisplayName());
@@ -647,15 +649,8 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 
 		assertEquals(complexStructure.getDataTypePath(), model.getOriginalDataTypePath());
 		assertEquals(complexStructure.getPathName(), model.viewComposite.getPathName());
-		SwingUtilities.invokeLater(() -> {
-			try {
-				complexStructure.setName("NewComplexStructure");
-			}
-			catch (UsrException e) {
-				Assert.fail();
-			}
-		});
-		waitForPostedSwingRunnables();
+		runSwingWithException(() -> complexStructure.setName("NewComplexStructure"));
+		waitForSwing();
 		assertEquals(complexStructure.getDataTypePath(), model.getOriginalDataTypePath());
 		assertEquals(complexStructure.getPathName(), model.viewComposite.getPathName());
 		assertEquals("NewComplexStructure", model.getCompositeName());
@@ -665,28 +660,14 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 	public void testNewNameEditedDataTypeRenamed() throws Exception {
 		init(complexStructure, pgmTestCat);
 
-		SwingUtilities.invokeLater(() -> {
-			try {
-				model.setName("EditedComplexStructure");
-			}
-			catch (UsrException e) {
-				Assert.fail();
-			}
-		});
-		waitForPostedSwingRunnables();
-		assertEquals(complexStructure.getDataTypePath(), model.getOriginalDataTypePath());
-		assertTrue(
-			!complexStructure.getDataTypePath().equals(model.viewComposite.getDataTypePath()));
+		runSwingWithException(() -> model.setName("EditedComplexStructure"));
 
-		SwingUtilities.invokeLater(() -> {
-			try {
-				complexStructure.setName("NewComplexStructure");
-			}
-			catch (UsrException e) {
-				Assert.fail();
-			}
-		});
-		waitForPostedSwingRunnables();
+		assertEquals(complexStructure.getDataTypePath(), model.getOriginalDataTypePath());
+		assertFalse(
+			complexStructure.getDataTypePath().equals(model.viewComposite.getDataTypePath()));
+
+		runSwingWithException(() -> complexStructure.setName("NewComplexStructure"));
+		waitForSwing();
 		assertEquals(complexStructure.getDataTypePath(), model.getOriginalDataTypePath());
 		assertTrue(!complexStructure.getPathName().equals(model.viewComposite.getPathName()));
 		assertEquals("EditedComplexStructure", model.getCompositeName());
@@ -694,18 +675,21 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 
 	@Test
 	public void testComponentDataTypeReplaced() throws Exception {
+
+		// Get the data types we want to hold onto for comparison later
+		DataType dt15 = getDataType(complexStructure, 15);
+		DataType dt16 = getDataType(complexStructure, 16);
+		DataType dt18 = getDataType(complexStructure, 18);
+		DataType dt19 = getDataType(complexStructure, 19);
+		DataType dt20 = getDataType(complexStructure, 20);
+		String dt21Name = getDataType(complexStructure, 21).getName();
+		DataType dt22 = getDataType(complexStructure, 22);
+
 		init(complexStructure, pgmTestCat);
 
 		int numComps = model.getNumComponents();
 		int len = model.getLength();
-		// Clone the data types we want to hold onto for comparison later, since reload can close the viewDTM.
-		DataType dt15 = getDataType(15).clone(programDTM);
-		DataType dt16 = getDataType(16).clone(programDTM);
-		DataType dt18 = getDataType(18).clone(programDTM);
-		DataType dt19 = getDataType(19).clone(programDTM);
-		DataType dt20 = getDataType(20).clone(programDTM);
-		String dt21Name = getDataType(21).getName();
-		DataType dt22 = getDataType(22).clone(programDTM);
+
 		assertEquals(87, complexStructure.getComponent(16).getDataType().getLength());
 		assertEquals(29, complexStructure.getComponent(19).getDataType().getLength());
 		assertEquals(24, complexStructure.getComponent(20).getDataType().getLength());
@@ -726,7 +710,7 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 		assertEquals(29, model.getComponent(21).getLength());
 		assertEquals(len, model.getLength());
 
-		final Structure newSimpleStructure =
+		Structure newSimpleStructure =
 			new StructureDataType(new CategoryPath("/aa/bb"), "simpleStructure", 10);
 		newSimpleStructure.add(new PointerDataType(), 8);
 		newSimpleStructure.replace(2, new CharDataType(), 1);
@@ -735,19 +719,12 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 			7, -1, model.viewDTM);
 
 		// Change the struct.  simpleStructure was 29 bytes, but now 18.
-		runSwing(() -> {
-			try {
-				programDTM.replaceDataType(simpleStructure, newSimpleStructure, true);
-			}
-			catch (DataTypeDependencyException e) {
-				Assert.fail(e.getMessage());
-			}
-		}, false);
-		Thread.sleep(2000);
-		waitForPostedSwingRunnables();
+		runSwingWithException(
+			() -> programDTM.replaceDataType(simpleStructure, newSimpleStructure, true));
+		waitForSwing();
 
 //		// Verify the Reload Structure Editor? dialog is displayed.
-//		Window dialog = env.waitForWindow("Reload Structure Editor?", 1000);
+//		Window dialog = waitForWindow("Reload Structure Editor?");
 //		assertNotNull(dialog);
 //		pressButtonByText(dialog, "No");
 //		dialog.dispose();
@@ -779,51 +756,36 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 		Window dialog;
 		init(complexStructure, pgmTestCat);
 
-		runSwing(() -> {
-			try {
-//					model.setLocked(false);
-				model.insert(model.getNumComponents(), new ByteDataType(), 1);
-				model.insert(model.getNumComponents(), new PointerDataType(), 4);
-			}
-			catch (UsrException e) {
-				Assert.fail(e.getMessage());
-			}
+		runSwingWithException(() -> {
+			model.insert(model.getNumComponents(), new ByteDataType(), 1);
+			model.insert(model.getNumComponents(), new PointerDataType(), 4);
 		});
 
-		final Structure newComplexStructure =
+		Structure newComplexStructure =
 			new StructureDataType(pgmTestCat.getCategoryPath(), complexStructure.getName(), 0);
 		newComplexStructure.add(new Pointer64DataType(), 8);
 		newComplexStructure.add(new CharDataType(), 1);
 
 		programDTM.replaceDataType(complexStructure, newComplexStructure, true);
-		waitForPostedSwingRunnables();
-		DataType origCopy = newComplexStructure.clone(null);
+		waitForSwing();
 
 		// Verify the Reload Structure Editor? dialog is displayed.
-		dialog = env.waitForWindow("Reload Structure Editor?", 1000);
+		dialog = waitForWindow("Close Structure Editor?");
 		assertNotNull(dialog);
 		pressButtonByText(dialog, "Yes");
-		dialog.dispose();
-		dialog = null;
+		waitForSwing();
 
-		assertEquals(((Structure) origCopy).getNumComponents(), model.getNumComponents());
-		assertTrue(origCopy.isEquivalent(model.viewComposite));
+		assertFalse(provider.isVisible());
 	}
 
 	@Test
 	public void testModifiedEditedDataTypeReplacedNo() throws Exception {
-		Window dialog;
+
 		init(complexStructure, pgmTestCat);
 
-		runSwing(() -> {
-			try {
-//					model.setLocked(false);
-				model.insert(model.getNumComponents(), new ByteDataType(), 1);
-				model.insert(model.getNumComponents(), new PointerDataType(), 4);
-			}
-			catch (UsrException e) {
-				Assert.fail(e.getMessage());
-			}
+		runSwingWithException(() -> {
+			model.insert(model.getNumComponents(), new ByteDataType(), 1);
+			model.insert(model.getNumComponents(), new PointerDataType(), 4);
 		});
 		DataType viewCopy = model.viewComposite.clone(null);
 
@@ -833,14 +795,15 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 		newComplexStructure.add(new CharDataType(), 1);
 
 		programDTM.replaceDataType(complexStructure, newComplexStructure, true);
-		waitForPostedSwingRunnables();
+		waitForSwing();
 
 		// Verify the Reload Structure Editor? dialog is displayed.
-		dialog = env.waitForWindow("Reload Structure Editor?", 1000);
+		Window dialog = waitForWindow("Close Structure Editor?");
 		assertNotNull(dialog);
 		pressButtonByText(dialog, "No");
-		dialog.dispose();
-		dialog = null;
+		waitForSwing();
+
+		assertTrue(provider.isVisible());
 
 		assertEquals(((Structure) viewCopy).getNumComponents(), model.getNumComponents());
 		assertTrue(viewCopy.isEquivalent(model.viewComposite));
@@ -857,8 +820,14 @@ public class StructureEditorNotifiedTest extends AbstractStructureEditorTest {
 
 		assertTrue(complexStructure.isEquivalent(model.viewComposite));
 		programDTM.replaceDataType(complexStructure, newComplexStructure, true);
-		waitForPostedSwingRunnables();
-		assertTrue(newComplexStructure.isEquivalent(model.viewComposite));
+
+		// Verify Structure Editor closes (we don't want two editors for the same type)
+		Window dialog = waitForWindow("Closing Structure Editor");
+		assertNotNull(dialog);
+		pressButtonByText(dialog, "OK");
+		waitForSwing();
+
+		assertFalse(provider.isVisible());
 	}
 
 }

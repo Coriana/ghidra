@@ -19,17 +19,17 @@ import java.awt.Component;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.swing.ImageIcon;
+import javax.swing.Icon;
 
 import docking.action.MenuData;
 import docking.action.ToolBarData;
+import generic.theme.GIcon;
 import ghidra.framework.main.datatable.DomainFileContext;
 import ghidra.framework.main.datatree.ChangedFilesDialog;
 import ghidra.framework.main.datatree.CheckInTask;
 import ghidra.framework.model.DomainFile;
 import ghidra.framework.plugintool.Plugin;
 import ghidra.util.Msg;
-import resources.ResourceManager;
 
 /**
  * Action to check-in domain files to the repository.
@@ -46,7 +46,7 @@ public class VersionControlCheckInAction extends VersionControlAction {
 	public VersionControlCheckInAction(Plugin plugin, Component parent) {
 		super("CheckIn", plugin.getName(), plugin.getTool());
 		this.parent = parent;
-		ImageIcon icon = ResourceManager.loadImage("images/vcCheckIn.png");
+		Icon icon = new GIcon("icon.version.control.check.in");
 		setPopupMenuData(new MenuData(new String[] { "Check In..." }, icon, GROUP));
 
 		setToolBarData(new ToolBarData(icon, GROUP));
@@ -61,15 +61,15 @@ public class VersionControlCheckInAction extends VersionControlAction {
 		doCheckIn(context.getSelectedFiles());
 	}
 
-	/**
-	 * Returns true if at least one of the provided domain files can have its changes 
-	 * checked into the repository.
-	 */
 	@Override
 	public boolean isEnabledForContext(DomainFileContext context) {
+		if (isFileSystemBusy()) {
+			return false; // don't block; we should get called again later
+		}
+
 		List<DomainFile> domainFiles = context.getSelectedFiles();
 		for (DomainFile domainFile : domainFiles) {
-			if (domainFile.isCheckedOut() && domainFile.modifiedSinceCheckout()) {
+			if (domainFile.modifiedSinceCheckout()) {
 				return true; // At least one checked out file selected.
 			}
 		}
@@ -83,7 +83,7 @@ public class VersionControlCheckInAction extends VersionControlAction {
 		if (!checkRepositoryConnected()) {
 			return;
 		}
-		List<DomainFile> checkedOut = new ArrayList<DomainFile>();
+		List<DomainFile> checkedOut = new ArrayList<>();
 		for (DomainFile domainFile : domainFiles) {
 			if (domainFile.isCheckedOut() && domainFile.modifiedSinceCheckout()) {
 				checkedOut.add(domainFile);
@@ -112,10 +112,9 @@ public class VersionControlCheckInAction extends VersionControlAction {
 			return;
 		}
 
-		ArrayList<DomainFile> changedList = new ArrayList<DomainFile>();
-		ArrayList<DomainFile> list = new ArrayList<DomainFile>();
-		for (int i = 0; i < fileList.size(); i++) {
-			DomainFile df = fileList.get(i);
+		ArrayList<DomainFile> changedList = new ArrayList<>();
+		ArrayList<DomainFile> list = new ArrayList<>();
+		for (DomainFile df : fileList) {
 			if (df != null && df.canCheckin()) {
 				if (!canCloseDomainFile(df)) {
 					continue;

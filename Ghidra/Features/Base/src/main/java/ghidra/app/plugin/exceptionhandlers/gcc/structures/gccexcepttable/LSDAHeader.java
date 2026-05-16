@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,14 +17,13 @@ package ghidra.app.plugin.exceptionhandlers.gcc.structures.gccexcepttable;
 
 import ghidra.app.cmd.comments.SetCommentCmd;
 import ghidra.app.plugin.exceptionhandlers.gcc.*;
-import ghidra.app.plugin.exceptionhandlers.gcc.datatype.*;
+import ghidra.app.plugin.exceptionhandlers.gcc.datatype.DwarfEncodingModeDataType;
+import ghidra.app.util.bin.LEB128Info;
 import ghidra.program.model.address.*;
-import ghidra.program.model.data.ByteDataType;
-import ghidra.program.model.data.DataType;
-import ghidra.program.model.listing.CodeUnit;
+import ghidra.program.model.data.*;
+import ghidra.program.model.listing.CommentType;
 import ghidra.program.model.listing.Program;
-import ghidra.program.model.mem.*;
-import ghidra.program.model.scalar.Scalar;
+import ghidra.program.model.mem.MemoryAccessException;
 import ghidra.program.model.symbol.SourceType;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.util.task.TaskMonitor;
@@ -84,7 +83,7 @@ public class LSDAHeader extends GccAnalysisClass {
 
 		String comment = "(LSDA) LPStart Encoding";
 		createAndCommentData(program, addr, new DwarfEncodingModeDataType(), comment,
-			CodeUnit.EOL_COMMENT);
+			CommentType.EOL);
 		lpStartEncoding = GccAnalysisUtils.readByte(program, addr);
 
 		curSize += BYTE_LEN;
@@ -122,7 +121,7 @@ public class LSDAHeader extends GccAnalysisClass {
 
 		DataType encodedDt = decoder.getDataType(program);
 
-		createAndCommentData(program, addr, encodedDt, comment, CodeUnit.EOL_COMMENT);
+		createAndCommentData(program, addr, encodedDt, comment, CommentType.EOL);
 
 		curSize += encodedLen;
 		return addr.add(encodedLen);
@@ -134,13 +133,13 @@ public class LSDAHeader extends GccAnalysisClass {
 		ttypeEncoding = GccAnalysisUtils.readByte(program, addr);
 
 		createAndCommentData(program, addr, new DwarfEncodingModeDataType(), comment,
-			CodeUnit.EOL_COMMENT);
+			CommentType.EOL);
 
 		curSize += BYTE_LEN;
 		return addr.add(BYTE_LEN);
 	}
 
-	private Address createTTypeOffset(Address addr) {
+	private Address createTTypeOffset(Address addr) throws MemoryAccessException {
 		String comment = "(LSDA) TType Offset";
 
 		DwarfEHDecoder decoder = DwarfDecoderFactory.getDecoder(ttypeEncoding);
@@ -149,19 +148,15 @@ public class LSDAHeader extends GccAnalysisClass {
 			return addr;
 		}
 
-		UnsignedLeb128DataType uleb = UnsignedLeb128DataType.dataType;
-		MemBuffer buf = new DumbMemBufferImpl(program.getMemory(), addr);
-
-		int encodedLen = uleb.getLength(buf, -1);
-
-		Object actionObj = uleb.getValue(buf, uleb.getDefaultSettings(), encodedLen);
+		LEB128Info uleb128 = GccAnalysisUtils.readULEB128Info(program, addr);
 
 		// this offset it based from *here*..
-		ttypeOffset = (int) ((Scalar) actionObj).getUnsignedValue() + curSize;
+		ttypeOffset = uleb128.asLong() + curSize;
 
-		createAndCommentData(program, addr, uleb, comment, CodeUnit.EOL_COMMENT);
+		createAndCommentData(program, addr, UnsignedLeb128DataType.dataType, comment,
+			CommentType.EOL);
 
-		return addr.add(encodedLen);
+		return addr.add(uleb128.getLength());
 	}
 
 	private Address createCallSiteTableEncoding(Address addr) throws MemoryAccessException {
@@ -169,30 +164,24 @@ public class LSDAHeader extends GccAnalysisClass {
 		callSiteTableEncoding = GccAnalysisUtils.readByte(program, addr);
 
 		createAndCommentData(program, addr, new DwarfEncodingModeDataType(), comment,
-			CodeUnit.EOL_COMMENT);
+			CommentType.EOL);
 
 		curSize += BYTE_LEN;
 		return addr.add(BYTE_LEN);
 	}
 
-	private Address createCallSiteTableLength(Address addr) {
+	private Address createCallSiteTableLength(Address addr) throws MemoryAccessException {
 		String comment = "(LSDA) Call Site Table Length";
 
-		UnsignedLeb128DataType uleb = UnsignedLeb128DataType.dataType;
+		LEB128Info uleb128 = GccAnalysisUtils.readULEB128Info(program, addr);
 
-		MemBuffer buf = new DumbMemBufferImpl(program.getMemory(), addr);
+		callSiteTableLength = (int) uleb128.asLong();
 
-		int encodedLen = uleb.getLength(buf, AbstractLeb128DataType.MAX_LEB128_ENCODED_VALUE_LEN);
+		createAndCommentData(program, addr, UnsignedLeb128DataType.dataType, comment,
+			CommentType.EOL);
 
-		Object lenObj = uleb.getValue(buf, uleb.getDefaultSettings(), encodedLen);
-
-		callSiteTableLength = (int) (((Scalar) lenObj).getUnsignedValue());
-
-		createAndCommentData(program, addr, uleb, comment, CodeUnit.EOL_COMMENT);
-
-		curSize += encodedLen;
-		return addr.add(encodedLen);
-
+		curSize += uleb128.getLength();
+		return addr.add(uleb128.getLength());
 	}
 
 	/**
@@ -253,7 +242,7 @@ public class LSDAHeader extends GccAnalysisClass {
 		}
 
 		SetCommentCmd commentCmd =
-			new SetCommentCmd(baseAddr, CodeUnit.PLATE_COMMENT, "(LSDA) Exception Table");
+			new SetCommentCmd(baseAddr, CommentType.PLATE, "(LSDA) Exception Table");
 		commentCmd.applyTo(program);
 
 		nextAddress = addr;

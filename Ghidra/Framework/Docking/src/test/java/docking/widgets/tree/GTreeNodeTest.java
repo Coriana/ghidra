@@ -55,6 +55,8 @@ public class GTreeNodeTest {
 	@Before
 	public void setUp() {
 		root = new TestNode("root");
+		root.setParent(new GTreeRootParentNode(null));
+
 		node0 = new TestNode("Node0");
 		node1 = new TestNode("Node1");
 		node2 = new TestNode("Node2");
@@ -354,7 +356,7 @@ public class GTreeNodeTest {
 		assertEquals(root, node0_1.getRoot());
 		assertEquals(root, root.getRoot());
 		TestNode testNode = new TestNode("test");
-		assertEquals(testNode, testNode.getRoot());
+		assertEquals(null, testNode.getRoot());
 	}
 
 	@Test
@@ -454,6 +456,24 @@ public class GTreeNodeTest {
 		assertNotEquals(nodeA, nodeB);
 		assertEquals(nodeA.hashCode(), nodeAA.hashCode());
 		assertNotEquals(nodeA.hashCode(), nodeB.hashCode());
+	}
+
+	@Test
+	public void testCantAddNodeTwice() {
+		node0 = new TestNode("No Dups");
+
+		int childCount = root.getChildCount();
+		root.addNode(node0);
+		assertEquals(childCount + 1, root.getChildCount());
+
+		// now make sure the count doesn't grow again
+		root.addNode(node0);
+		assertEquals(childCount + 1, root.getChildCount());
+
+		// try adding it with an index, still shouldn't get added
+		root.addNode(0, node0);
+		assertEquals(childCount + 1, root.getChildCount());
+
 	}
 
 	@Test

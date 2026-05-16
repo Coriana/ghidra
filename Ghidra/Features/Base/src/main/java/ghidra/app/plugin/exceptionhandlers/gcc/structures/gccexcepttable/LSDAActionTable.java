@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,8 +20,9 @@ import java.util.*;
 import ghidra.app.cmd.comments.SetCommentCmd;
 import ghidra.app.plugin.exceptionhandlers.gcc.RegionDescriptor;
 import ghidra.program.model.address.Address;
-import ghidra.program.model.listing.CodeUnit;
+import ghidra.program.model.listing.CommentType;
 import ghidra.program.model.listing.Program;
+import ghidra.program.model.mem.MemoryAccessException;
 import ghidra.util.task.TaskMonitor;
 
 /**
@@ -59,9 +59,10 @@ public class LSDAActionTable {
 	 * Create an LSDA Action Table from the bytes at <code>address</code>.
 	 * <br>Note: This method must get called before any of the "get..." methods.
 	 * @param address the start (minimum address) of this action table.
-	 * @param maxddress the end (maximum address) of this action table.
+	 * @param maxAddress the end (maximum address) of this action table.
+	 * @throws MemoryAccessException 
 	 */
-	public void create(Address address, Address maxAddress) {
+	public void create(Address address, Address maxAddress) throws MemoryAccessException {
 
 		if (address == null) {
 			throw new IllegalArgumentException("action record's address cannot be null.");
@@ -75,7 +76,7 @@ public class LSDAActionTable {
 		monitor.setMessage("Creating LSDA Action Table");
 
 		LSDAActionRecord rec = null;
-		
+
 		while (address.compareTo(maxAddress) <= 0) {
 			rec = new LSDAActionRecord(monitor, program, region, this);
 			rec.create(address);
@@ -88,7 +89,7 @@ public class LSDAActionTable {
 		nextAddress = address;
 
 		SetCommentCmd commentCmd =
-			new SetCommentCmd(tableAddress, CodeUnit.PLATE_COMMENT, "(LSDA) Action Table");
+			new SetCommentCmd(tableAddress, CommentType.PLATE, "(LSDA) Action Table");
 		commentCmd.applyTo(program);
 	}
 

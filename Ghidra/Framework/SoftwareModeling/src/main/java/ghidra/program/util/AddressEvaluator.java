@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,484 +15,270 @@
  */
 package ghidra.program.util;
 
-import java.util.*;
+import java.lang.ref.Reference;
+import java.lang.ref.WeakReference;
+import java.util.List;
 
+import generic.expressions.*;
+import ghidra.app.util.NamespaceUtils;
+import ghidra.app.util.SymbolPath;
 import ghidra.program.model.address.*;
 import ghidra.program.model.listing.Program;
-import ghidra.program.model.symbol.Symbol;
-import ghidra.program.model.symbol.SymbolTable;
-import ghidra.util.NumericUtilities;
+import ghidra.program.model.mem.Memory;
+import ghidra.program.model.mem.MemoryBlock;
+import ghidra.program.model.symbol.*;
 
 /**
- * The <CODE>AddressEvaluator</CODE> class provides a way to evaluate a string
- * that represents an address and resolve it to an address for a particular program.
+ * Class for evaluating expressions as an Address. See 
+ * {@link ExpressionOperator} for the full list of supported operators. All values are interpreted
+ * as longs or symbols that resolve to an address.
+ * <P>
+ * ExpressionEvaluators can operate in either decimal or hex mode. If in hex mode, all numbers are
+ * assumed to be hexadecimal values. In decimal mode, numbers are assumed to be decimal values, but
+ * hexadecimal values can still be specified by prefixing them with "0x".
+ * <P>
+ * There are also two convenience static methods that can be called to evaluate address expressions.
+ * These methods will either return an Address as the result or null if there was an error
+ * evaluating the expression. To get error messages related to parsing the expression, instantiate 
+ * an AddressEvaluator and call {@link #parseAsAddress(String)} which will throw a 
+ * {@link ExpressionException} when the expression can't be evaluated.
  */
-public class AddressEvaluator {
+public class AddressEvaluator extends ExpressionEvaluator {
 
-	private static final String TOKEN_CHARS = "+-*/()<>|^&~ ";
+	private Reference<Program> programReference;
+	private AddressFactory addressFactory;
+	private AddressSpace preferredSpace;
 
 	/**
-	 * Gets a legitimate address for the specified program as indicated by the string.
+	 * Gets a valid address for the specified program as indicated by the input expression. 
 	 * @param p the program to use for determining the address.
-	 * @param baseAddr the base address to use for relative addressing.
-	 * @param s string representation of the address desired.
+	 * @param inputExpression string representation of the address desired.
 	 * @return the address. Otherwise, return null if the string fails to evaluate
 	 * to a unique legitimate address.
 	 */
-	public static Address evaluate(Program p, Address baseAddr, String s) {
-		StringTokenizer parser = new StringTokenizer(s, TOKEN_CHARS, true);
-		AddressFactory af = p.getAddressFactory();
-		SymbolTable st = p.getSymbolTable();
-		List<Object> list = new ArrayList<Object>();
-		if (baseAddr != null) {
-			list.add(baseAddr);
-		}
-		while (parser.hasMoreTokens()) {
-			String tok = parser.nextToken();
-			if (tok.equals(" ")) {
-				continue;
-			}
-			Object obj = Operator.getOperator(tok);
-			if (obj == null) {
-				obj = getValueObject(st, af, tok);
-			}
-			if (obj == null) {
-				return null;
-			}
-			list.add(obj);
-		}
-		Object obj = eval(list);
-		if (obj instanceof Address) {
-			return (Address) obj;
-		}
-		else if (obj instanceof Long) {
-			try {
-				return af.getDefaultAddressSpace().getAddress(((Long) obj).longValue());
-			}
-			catch (Exception e) {
-
-			}
-		}
-		return null;
-	}
-
-	public static Long evaluateToLong(String s) {
-		StringTokenizer parser = new StringTokenizer(s, TOKEN_CHARS, true);
-		List<Object> list = new ArrayList<Object>();
-
-		while (parser.hasMoreTokens()) {
-			String tok = parser.nextToken();
-			if (tok.equals(" ")) {
-				continue;
-			}
-			Object obj = Operator.getOperator(tok);
-			if (obj == null) {
-				obj = getValueObject(tok);
-			}
-			if (obj == null) {
-				return null;
-			}
-			list.add(obj);
-		}
-		Object obj = eval(list);
-		if (obj instanceof Address) {
-			return new Long(((Address) obj).getOffset());
-		}
-		else if (obj instanceof Long) {
-			try {
-				return (Long) obj;
-			}
-			catch (Exception e) {
-
-			}
-		}
-		return null;
+	public static Address evaluate(Program p, String inputExpression) {
+		return evaluate(p, null, inputExpression);
 	}
 
 	/**
-	 * Gets a legitimate address for the specified program as indicated by the string.
+	 * Gets a valid address for the specified program as indicated by the input expression.
 	 * @param p the program to use for determining the address.
-	 * @param s string representation of the address desired.
+	 * @param baseAddr the base address to use for relative addressing.
+	 * @param inputExpression string representation of the address desired.
 	 * @return the address. Otherwise, return null if the string fails to evaluate
-	 * to a legitimate address.
+	 * to a unique legitimate address.
 	 */
-	public static Address evaluate(Program p, String s) {
-		return evaluate(p, null, s);
+	public static Address evaluate(Program p, Address baseAddr, String inputExpression) {
+		AddressEvaluator evaluator = new AddressEvaluator(p, true);
+		try {
+			return evaluator.parseAsRelativeAddress(inputExpression, baseAddr);
+		}
+		catch (ExpressionException e) {
+			return null;
+		}
 	}
 
 	/**
-	 * Utility method for creating an Address object from a byte array. The Address object may or may not
-	 * be a legitimate Address in the program's address space. This method is meant to provide a way of
-	 * creating an Address object from a sequence of bytes that can be used for additional tests and
-	 * comparisons.
-	 *
-	 * @param p - program being analyzed.
-	 * @param addrBytes - byte array to use containing the values the address will be constructed from.
-	 * @return - Address object constructed from the addrBytes array. Returns null if the program is null,
-	 * addrBytes is null, or the length of addrBytes does not match the default Pointer size or does not contain
-	 * a valid offset.
-	 *
+	 * Constructs an AddressEvalutor for the given program and in the specified hex/decimal mode.
+	 * @param program the program to use to evaluate expressions into valid addresses.
+	 * @param assumeHex if true, all numeric values are assumed to be hexadecimal numbers.
 	 */
-	public static Address evaluate(Program p, byte[] addrBytes) {
-
-		boolean isBigEndian = p.getMemory().isBigEndian();
-
-		int ptrSize = p.getDefaultPointerSize();
-		int index = 0;
-		long offset = 0;
-
-		// Make sure correct # of bytes were passed
-		if (addrBytes == null || addrBytes.length != ptrSize) {
-			return null;
-		}
-
-		/*
-		 * Make sure we account for endianess of the program.
-		 * Computing the number of bits to shift the current byte value
-		 * is different for Little vs. Big Endian. Need to multiply by
-		 * 8 to shift in 1-byte increments.
-		 */
-		if (isBigEndian) {
-			index = 0;
-			while (index < addrBytes.length) {
-				offset += (addrBytes[index] & 0xff) << ((addrBytes.length - index - 1) * 8);
-				index++;
-			}
-		}
-		else {
-			// Program is LittleEndian
-			index = addrBytes.length - 1;
-			while (index >= 0) {
-				offset += ((addrBytes[index] & 0xff) << (index * 8));
-				index--;
-			}
-		}
-
-		AddressSpace space = p.getAddressFactory().getDefaultAddressSpace();
-		try {
-			return space.getAddress(offset, true);
-		}
-		catch (AddressOutOfBoundsException e) {
-			return null;
-		}
+	public AddressEvaluator(Program program, boolean assumeHex) {
+		this(program, null, assumeHex);
 	}
 
-	private static Object getValueObject(SymbolTable st, AddressFactory af, String tok) {
+	/**
+	 * Constructs an AdddressEvaluator without a full program. This version will not be able to
+	 * evaluate symbol or memory block names. This is mostly for backwards compatibility.
+	 * @param factory the address factory for creating addresses
+	 * @param assumeHex if true, all numeric values are assumed to be hexadecimal numbers.
+	 */
+	public AddressEvaluator(AddressFactory factory, boolean assumeHex) {
+		this(factory, null, assumeHex);
+	}
 
-		try {
-			return new Long(NumericUtilities.parseHexLong(tok));
+	/**
+	 * Constructs an AddressEvalutor for the given program and in the specified hex/decimal mode.
+	 * @param program the program to use to evaluate expressions into valid addresses.
+	 * @param defaultSpace The address space to use when converting long values into addresses. If
+	 * this value is null, then the default address space will be used.
+	 * @param assumeHex if true, all numeric values are assumed to be hexadecimal numbers.
+	 */
+	public AddressEvaluator(Program program, AddressSpace defaultSpace, boolean assumeHex) {
+		this(program.getAddressFactory(), defaultSpace, assumeHex);
+		this.programReference = new WeakReference<>(program);
+	}
+
+	private AddressEvaluator(AddressFactory factory, AddressSpace defaultSpace, boolean assumeHex) {
+		super(assumeHex);
+		this.addressFactory = factory;
+		this.preferredSpace = defaultSpace;
+	}
+
+	/**
+	 * Evaluates the given input expression as an address.
+	 * @param input the expression to evaluate
+	 * @return the Address the expression evaluates to
+	 * @throws ExpressionException if the input expression can't be evaluated to a valid, unique
+	 * address.
+	 */
+	public Address parseAsAddress(String input) throws ExpressionException {
+		return this.parseAsRelativeAddress(input, null);
+	}
+
+	/**
+	 * Evaluates the given input expression as a relative offset that will be added to the given
+	 * base address.
+	 * @param input the expression to evaluate as an offset
+	 * @param baseAddress the base address the evaluted expression will be added to to get the 
+	 * resulting address.
+	 * @return the Address after the evaluated offset is added to the given base address.
+	 * @throws ExpressionException if the input expression can't be evaluated to a valid, unique
+	 * address.
+	 */
+	public Address parseAsRelativeAddress(String input, Address baseAddress)
+			throws ExpressionException {
+		ExpressionValue expressionValue = baseAddress == null ? parse(input)
+				: parse(input, new AddressExpressionValue(baseAddress));
+
+		if (expressionValue instanceof AddressExpressionValue addressValue) {
+			return validateAddressSpace(addressValue.getAddress());
 		}
-		catch (NumberFormatException e) {
-			// ignore
+		if (expressionValue instanceof LongExpressionValue longValue) {
+			long offset = longValue.getLongValue();
+			AddressSpace space = getAddressSpace();
+			try {
+				return space.getAddressInThisSpaceOnly(offset*space.getAddressableUnitSize());
+			}
+			catch (AddressOutOfBoundsException e) {
+				throw new ExpressionException(e.getMessage());
+			}
 		}
-		Address address = af.getAddress(tok);
-		if (address != null) {
+		throw new ExpressionException("Expression did not evalute to a long! Got a " +
+			expressionValue.getClass() + " instead.");
+
+	}
+
+	/**
+	 * Returns the {@link AddressFactory} being used by this address evaluator
+	 * @return the {@link AddressFactory} being used by this address evaluator
+	 */
+	public AddressFactory getAddressFactory() {
+		return addressFactory;
+	}
+
+	/**
+	 * Sets the {@link AddressSpace} to be used to convert long values into addresses. 
+	 * @param space the address space to convert long values into addresses
+	 */
+	public void setPreferredAddressSpace(AddressSpace space) {
+		this.preferredSpace = space;
+	}
+
+	// checks if the given address's address space is compatible with the preferred address space
+	private Address validateAddressSpace(Address address) throws ExpressionException {
+		if (preferredSpace == null) {
 			return address;
 		}
+		AddressSpace space = address.getAddressSpace();
+		if (space.equals(preferredSpace)) {
+			return address;
+		}
+		if (isOverlayRelated(space, preferredSpace)) {
+			return preferredSpace.getAddress(address.getOffset());
+		}
+		throw new ExpressionException("Selected address space is not compatible with expression!");
+	}
 
-		List<Symbol> globalSymbols = st.getLabelOrFunctionSymbols(tok, null);
-		if (globalSymbols.size() == 1) {
-			return globalSymbols.get(0).getAddress();
+	private boolean isOverlayRelated(AddressSpace space1, AddressSpace space2) {
+		AddressSpace base1 = getBaseSpace(space1);
+		AddressSpace base2 = getBaseSpace(space2);
+		return base1.equals(base2);
+	}
+
+	private AddressSpace getBaseSpace(AddressSpace space) {
+		if (space instanceof OverlayAddressSpace overlaySpace) {
+			return overlaySpace.getOverlayedSpace();
+		}
+		return space;
+	}
+
+	private AddressSpace getAddressSpace() {
+		if (preferredSpace != null) {
+			return preferredSpace;
+		}
+		return addressFactory.getDefaultAddressSpace();
+	}
+
+	@Override
+	protected ExpressionValue evaluateSymbol(String input) {
+		Address address = addressFactory.getAddress(input);
+		if (address != null) {
+			return new AddressExpressionValue(address);
+		}
+
+		Program program = getProgram();
+		if (program != null) {
+			return getAddressForProgram(program, input);
+		}
+
+		return null;
+	}
+
+	private ExpressionValue getAddressForProgram(Program program, String input) {
+		Address address = getAddressForSymbol(program, input);
+		if (address == null) {
+			address = getAddressFromMemoryMap(program, input);
+		}
+
+		return address == null ? null : new AddressExpressionValue(address);
+	}
+
+	private Address getAddressFromMemoryMap(Program program, String input) {
+		Memory memory = program.getMemory();
+		MemoryBlock block = memory.getBlock(input);
+		if (block != null) {
+			return block.getStart();
 		}
 		return null;
 	}
 
-	private static Object getValueObject(String strValue) {
-		try {
-			int start = 0;
-			int radix = 10;
-			if (strValue.indexOf("0x") == 0) {
-				start = 2;
-				radix = 16;
-			}
-			if (strValue.endsWith("UL")) {
-				strValue = strValue.substring(start, strValue.length() - 2);
-			}
-			else if (strValue.endsWith("L") || strValue.endsWith("l") || strValue.endsWith("U")) {
-				strValue = strValue.substring(start, strValue.length() - 1);
-			}
-			else {
-				strValue = strValue.substring(start);
-			}
+	private Address getAddressForSymbol(Program program, String input) {
+		SymbolPath symbolPath = new SymbolPath(input);
+		String symbolName = symbolPath.getName();
+		SymbolPath parent = symbolPath.getParent();
 
-			return (radix == 10) ? new Long(NumericUtilities.parseLong(strValue))
-					: new Long(NumericUtilities.parseHexLong(strValue));
+		Namespace namespace = null;
+
+		if (parent != null) {
+			namespace = getParentNamespace(program, parent);
+			if (namespace == null) {
+				// there was a namespace specified, but not uniquely found, so can't resolve.
+				return null;
+			}
 		}
-		catch (RuntimeException e) {
+		SymbolTable symbolTable = program.getSymbolTable();
+		List<Symbol> symbols = symbolTable.getLabelOrFunctionSymbols(symbolName, namespace);
+		if (symbols.size() == 1) {
+			return symbols.get(0).getAddress();
 		}
 		return null;
 	}
 
-	private static Object eval(List<Object> list) {
-
-		// first evaluate any grouped expressions
-		boolean done = false;
-		while (!done) {
-			done = true;
-			for (int i = 0; i < list.size(); i++) {
-				if (list.get(i) == Operator.LEFT_PAREN) {
-					done = false;
-					int end = findMatchingParen(list, i);
-					if (end < 0) {
-						return null;
-					}
-					Object obj = eval(list.subList(i + 1, end));
-					if (obj == null) {
-						return null;
-					}
-					list.subList(i, i + 2).clear();
-					list.set(i, obj);
-				}
-			}
-		}
-
-		//check for leading Minus
-		if (list.size() > 1 && list.get(0) == Operator.MINUS) {
-			Object obj = list.get(1);
-			if (obj instanceof Long) {
-				obj = new Long(-((Long) obj).longValue());
-				list.remove(0);
-				list.set(0, obj);
-			}
-		}
-
-		//check for leading ~
-		if (list.size() > 1 && list.get(0) == Operator.NOT) {
-			Object obj = list.get(1);
-			if (obj instanceof Long) {
-				obj = new Long(~((Long) obj).longValue());
-				list.remove(0);
-				list.set(0, obj);
-			}
-		}
-
-		//check for trailing leading ~
-		if (list.size() > 3 && list.get(2) == Operator.NOT) {
-			Object obj = list.get(3);
-			if (obj instanceof Long) {
-				obj = new Long(~((Long) obj).longValue());
-				list.remove(2);
-				list.set(2, obj);
-			}
-		}
-
-		// evaluate all SHIFT because they have precedence
-		done = false;
-		while (!done) {
-			done = true;
-			for (int i = 0; i < list.size() - 1; i++) {
-				if ((list.get(i) == Operator.LEFTSHIFT && list.get(i + 1) == Operator.LEFTSHIFT) ||
-					(list.get(i) == Operator.RIGHTSHIFT &&
-						list.get(i + 1) == Operator.RIGHTSHIFT)) {
-					done = false;
-					if (i == 0 || i == list.size() - 2) {
-						return null;
-					}
-					Object value =
-						computeValue(list.get(i - 1), (Operator) list.get(i), list.get(i + 2));
-					if (value == null) {
-						return null;
-					}
-					list.subList(i, i + 3).clear();
-					list.set(i - 1, value);
-				}
-			}
-		}
-
-		// evaluate all TIMES because they have precedence
-		if (!evaluateOperator(list, Operator.TIMES, Operator.DIVIDE)) {
+	private Namespace getParentNamespace(Program program, SymbolPath path) {
+		if (path == null) {
 			return null;
 		}
-
-		// evaluate Plus and Minus, same precedence, but do plus then minus
-		if (!evaluateOperator(list, Operator.PLUS, Operator.MINUS)) {
-			return null;
-		}
-
-		// evaluate & ^ |
-		if (!evaluateOperator(list, Operator.AND, null)) {
-			return null;
-		}
-		if (!evaluateOperator(list, Operator.XOR, null)) {
-			return null;
-		}
-		if (!evaluateOperator(list, Operator.OR, null)) {
-			return null;
-		}
-		if (list.size() != 1) {
-			return null;
-		}
-		return list.get(0);
-	}
-
-	private static boolean evaluateOperator(List<Object> list, Operator op1, Operator op2) {
-		boolean done;
-		done = false;
-		while (!done) {
-			done = true;
-			for (int i = 0; i < list.size(); i++) {
-				Object obj = list.get(i);
-				if (obj == op1 || obj == op2) {
-					done = false;
-					if (i == 0 || i == list.size() - 1) {
-						return false;
-					}
-					Object value = computeValue(list.get(i - 1), (Operator) obj, list.get(i + 1));
-					if (value == null) {
-						return false;
-					}
-					list.subList(i, i + 2).clear();
-					list.set(i - 1, value);
-				}
-			}
-		}
-		return true;
-	}
-
-	private static Object computeValue(Object v1, Operator op, Object v2) {
-		if (op == Operator.TIMES) {
-			if ((v1 instanceof Long) && (v2 instanceof Long)) {
-				return new Long(((Long) v1).longValue() * ((Long) v2).longValue());
-			}
-		}
-		if (op == Operator.DIVIDE) {
-			if ((v1 instanceof Long) && (v2 instanceof Long)) {
-				return new Long(((Long) v1).longValue() / ((Long) v2).longValue());
-			}
-		}
-		else if (op == Operator.AND) {
-			if ((v1 instanceof Long) && (v2 instanceof Long)) {
-				return new Long(((Long) v1).longValue() & ((Long) v2).longValue());
-			}
-		}
-		else if (op == Operator.XOR) {
-			if ((v1 instanceof Long) && (v2 instanceof Long)) {
-				return new Long(((Long) v1).longValue() ^ ((Long) v2).longValue());
-			}
-		}
-		else if (op == Operator.OR) {
-			if ((v1 instanceof Long) && (v2 instanceof Long)) {
-				return new Long(((Long) v1).longValue() | ((Long) v2).longValue());
-			}
-		}
-		else if (op == Operator.LEFTSHIFT) {
-			if ((v1 instanceof Long) && (v2 instanceof Long)) {
-				return new Long(((Long) v1).longValue() << ((Long) v2).longValue());
-			}
-		}
-		else if (op == Operator.RIGHTSHIFT) {
-			if ((v1 instanceof Long) && (v2 instanceof Long)) {
-				return new Long(((Long) v1).longValue() >> ((Long) v2).longValue());
-			}
-		}
-		else if (op == Operator.PLUS) {
-			if ((v1 instanceof Long) && (v2 instanceof Long)) {
-				return new Long(((Long) v1).longValue() + ((Long) v2).longValue());
-			}
-			else if ((v1 instanceof Address) && (v2 instanceof Long)) {
-				return ((Address) v1).addWrap(((Long) v2).longValue());
-			}
-			else if ((v1 instanceof Long) && (v2 instanceof Address)) {
-				return ((Address) v2).addWrap(((Long) v1).longValue());
-			}
-		}
-		else if (op == Operator.NOT) {
-			if (v2 instanceof Long) {
-				return new Long(~(((Long) v2).longValue()));
-			}
-			else if (v2 instanceof Address) {
-				return ((Address) v2).getNewAddress(~(((Long) v2).longValue()));
-			}
-		}
-		else if (op == Operator.MINUS) {
-			if ((v1 instanceof Long) && (v2 instanceof Long)) {
-				return new Long(((Long) v1).longValue() - ((Long) v2).longValue());
-			}
-			else if ((v1 instanceof Address) && (v2 instanceof Long)) {
-				return ((Address) v1).subtractWrap(((Long) v2).longValue());
-			}
-			else if ((v1 instanceof Address) && (v2 instanceof Address)) {
-				return new Long(((Address) v1).subtract((Address) v2));
-			}
+		List<Namespace> spaces = NamespaceUtils.getNamespaceByPath(program, null, path.getPath());
+		if (spaces.size() == 1) {
+			return spaces.get(0);
 		}
 		return null;
 	}
 
-	private static int findMatchingParen(List<Object> list, int index) {
-		int depth = 1;
-		for (int j = index + 1; j < list.size(); j++) {
-			Object obj = list.get(j);
-			if (obj == Operator.LEFT_PAREN) {
-				depth++;
-			}
-			else if (obj == Operator.RIGHT_PAREN) {
-				if (--depth == 0) {
-					return j;
-				}
-			}
-		}
-		return -1;
-	}
-}
-
-class Operator {
-	static Operator PLUS = new Operator();
-	static Operator MINUS = new Operator();
-	static Operator TIMES = new Operator();
-	static Operator DIVIDE = new Operator();
-	static Operator AND = new Operator();
-	static Operator OR = new Operator();
-	static Operator NOT = new Operator();
-	static Operator XOR = new Operator();
-	static Operator LEFTSHIFT = new Operator();
-	static Operator RIGHTSHIFT = new Operator();
-	static Operator LEFT_PAREN = new Operator();
-	static Operator RIGHT_PAREN = new Operator();
-
-	private Operator() {
-	}
-
-	/**
-	 * Gets the static object implementation of an operator.
-	 * @param tok token string for the operator
-	 * @return the static operator object.
-	 */
-	public static Operator getOperator(String tok) {
-		if (tok.equals("+")) {
-			return PLUS;
-		}
-		if (tok.equals("&")) {
-			return AND;
-		}
-		if (tok.equals("|")) {
-			return OR;
-		}
-		if (tok.equals("^")) {
-			return XOR;
-		}
-		else if (tok.equals("-")) {
-			return MINUS;
-		}
-		else if (tok.equals("~")) {
-			return NOT;
-		}
-		else if (tok.equals("*")) {
-			return TIMES;
-		}
-		else if (tok.equals("/")) {
-			return DIVIDE;
-		}
-		else if (tok.equals(")")) {
-			return RIGHT_PAREN;
-		}
-		else if (tok.equals("(")) {
-			return LEFT_PAREN;
-		}
-		else if (tok.equals("<")) {
-			return LEFTSHIFT;
-		}
-		else if (tok.equals(">")) {
-			return RIGHTSHIFT;
+	private Program getProgram() {
+		if (programReference != null) {
+			return programReference.get();
 		}
 		return null;
 	}

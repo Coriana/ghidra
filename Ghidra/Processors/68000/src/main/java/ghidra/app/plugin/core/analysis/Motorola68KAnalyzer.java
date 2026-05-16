@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -66,36 +66,31 @@ public class Motorola68KAnalyzer extends ConstantPropagationAnalyzer {
 		// follow all flows building up context
 		// use context to fill out addresses on certain instructions
 		ConstantPropagationContextEvaluator eval =
-			new ConstantPropagationContextEvaluator(trustWriteMemOption) {
+			new ConstantPropagationContextEvaluator(monitor, trustWriteMemOption) {
 				@Override
 				public boolean evaluateContext(VarnodeContext context, Instruction instr) {
 					String mnemonic = instr.getMnemonicString();
 
 					if (mnemonic.equals("pea")) {
 						// retrieve the value pushed onto the stack
-						try {
-							Varnode stackValue = context.getValue(context.getStackVarnode(), this);
-							Varnode value = context.getValue(stackValue, this);
-							if (value != null && value.isConstant()) {
-								long lval = value.getOffset();
-								Address refAddr = instr.getMinAddress().getNewAddress(lval);
-								if (lval <= 4096 || ((lval % 1024) == 0) || lval < 0 ||
-									lval == 0xffff || lval == 0xff00 || lval == 0xffffff ||
-									lval == 0xff0000 || lval == 0xff00ff || lval == 0xffffffff ||
-									lval == 0xffffff00 || lval == 0xffff0000 ||
-									lval == 0xff000000) {
-									return false;
-								}
-								if (program.getMemory().contains(refAddr)) {
-									if (instr.getOperandReferences(0).length == 0) {
-										instr.addOperandReference(0, refAddr, RefType.DATA,
-											SourceType.ANALYSIS);
-									}
+						Varnode stackValue = context.getValue(context.getStackVarnode(), this);
+						Varnode value = context.getValue(stackValue, this);
+						if (value != null && value.isConstant()) {
+							long lval = value.getOffset();
+							Address refAddr = instr.getMinAddress().getNewAddress(lval);
+							if (lval <= 4096 || ((lval % 1024) == 0) || lval < 0 ||
+								lval == 0xffff || lval == 0xff00 || lval == 0xffffff ||
+								lval == 0xff0000 || lval == 0xff00ff || lval == 0xffffffff ||
+								lval == 0xffffff00 || lval == 0xffff0000 ||
+								lval == 0xff000000) {
+								return false;
+							}
+							if (program.getMemory().contains(refAddr)) {
+								if (instr.getOperandReferences(0).length == 0) {
+									instr.addOperandReference(0, refAddr, RefType.DATA,
+										SourceType.ANALYSIS);
 								}
 							}
-						}
-						catch (NotFoundException e) {
-							// value not found doesn't matter
 						}
 					}
 					if (mnemonic.equals("lea")) {
@@ -124,7 +119,7 @@ public class Motorola68KAnalyzer extends ConstantPropagationAnalyzer {
 
 				@Override
 				public boolean evaluateReference(VarnodeContext context, Instruction instr,
-						int pcodeop, Address address, int size, RefType refType) {
+						int pcodeop, Address address, int size, DataType dataType, RefType refType) {
 					if (instr.getFlowType().isJump()) {
 						return false;
 					}
@@ -132,7 +127,7 @@ public class Motorola68KAnalyzer extends ConstantPropagationAnalyzer {
 						return false;
 					}
 
-					return super.evaluateReference(context, instr, pcodeop, address, size, refType);
+					return super.evaluateReference(context, instr, pcodeop, address, size, dataType, refType);
 				}
 
 				@Override
@@ -153,6 +148,12 @@ public class Motorola68KAnalyzer extends ConstantPropagationAnalyzer {
 					return false;
 				}
 			};
+			
+		eval.setTrustWritableMemory(trustWriteMemOption)
+		    .setMinSpeculativeOffset(minSpeculativeRefAddress)
+		    .setMaxSpeculativeOffset(maxSpeculativeRefAddress)
+		    .setMinStoreLoadOffset(minStoreLoadRefAddress)
+		    .setCreateComplexDataFromPointers(createComplexDataFromPointers);
 
 		AddressSet resultSet = symEval.flowConstants(flowStart, flowSet, eval, true, monitor);
 
@@ -234,13 +235,13 @@ public class Motorola68KAnalyzer extends ConstantPropagationAnalyzer {
 
 			@Override
 			public Address evaluateConstant(VarnodeContext context, Instruction instr, int pcodeop,
-					Address constant, int size, RefType refType) {
+					Address constant, int size, DataType dataType, RefType refType) {
 				return null;
 			}
 
 			@Override
 			public boolean evaluateReference(VarnodeContext context, Instruction instr, int pcodeop,
-					Address address, int size, RefType refType) {
+					Address address, int size, DataType dataType, RefType refType) {
 				if (targetList.contains(address)) {
 					return false;
 				}
@@ -305,6 +306,11 @@ public class Motorola68KAnalyzer extends ConstantPropagationAnalyzer {
 			}
 
 			@Override
+			public boolean evaluateReturn(Varnode retVN, VarnodeContext context, Instruction instruction) {
+				return false;
+			}
+			
+			@Override
 			public Long unknownValue(VarnodeContext context, Instruction instruction,
 					Varnode node) {
 				if (node.isRegister()) {
@@ -336,7 +342,7 @@ public class Motorola68KAnalyzer extends ConstantPropagationAnalyzer {
 		SwitchEvaluator switchEvaluator = new SwitchEvaluator();
 
 		// clear past constants.  This example doesn't seem to depend on them
-		symEval = new SymbolicPropogator(program);
+		symEval = new SymbolicPropogator(program,false);
 		// now flow with the simple block of this branch....
 
 		// for each unknown branch destination,
@@ -366,7 +372,7 @@ public class Motorola68KAnalyzer extends ConstantPropagationAnalyzer {
 
 			tableSizeMax = 64;
 			for (long assume = 0; assume < tableSizeMax; assume++) {
-				switchEvaluator.setAssume(new Long(assume));
+				switchEvaluator.setAssume(Long.valueOf(assume));
 				switchEvaluator.setGuard(false);
 				switchEvaluator.setTargetSwitchAddr(loc);
 

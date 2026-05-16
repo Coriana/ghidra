@@ -17,9 +17,7 @@ package ghidra.program.model.pcode;
 
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.DataType;
-import ghidra.util.xml.SpecXmlUtils;
-import ghidra.xml.XmlElement;
-import ghidra.xml.XmlPullParser;
+import ghidra.util.Msg;
 
 /**
  * 
@@ -49,19 +47,29 @@ public class HighGlobal extends HighVariable {
 	}
 
 	@Override
-	public void restoreXml(XmlPullParser parser) throws PcodeXMLException {
-		XmlElement el = parser.start("high");
-		long symref = SpecXmlUtils.decodeLong(el.getAttribute("symref"));
-		String attrString = el.getAttribute("offset");
+	public void decode(Decoder decoder) throws DecoderException {
+//		int el = decoder.openElement(ElementId.ELEM_HIGH);
+		long symref = 0;
 		offset = -1;
-		if (attrString != null) {
-			offset = SpecXmlUtils.decodeInt(attrString);
+		for (;;) {
+			int attribId = decoder.getNextAttributeId();
+			if (attribId == 0) {
+				break;
+			}
+			if (attribId == AttributeId.ATTRIB_OFFSET.id()) {
+				offset = (int) decoder.readSignedInteger();
+			}
+			else if (attribId == AttributeId.ATTRIB_SYMREF.id()) {
+				symref = decoder.readUnsignedInteger();
+			}
 		}
-		restoreInstances(parser, el);
-		if (symref == 0) {
-			throw new PcodeXMLException("Missing symref attribute in <high> tag");
+		decodeInstances(decoder);
+		if (symref != 0) {
+			symbol = function.getGlobalSymbolMap().getSymbol(symref);
 		}
-		symbol = function.getGlobalSymbolMap().getSymbol(symref);
+		else {
+			Msg.warn(this, "Missing symref attribute in <high> tag");
+		}
 		if (symbol == null) {	// If we don't already have symbol, synthesize it
 			DataType symbolType;
 			int symbolSize;
@@ -82,7 +90,7 @@ public class HighGlobal extends HighVariable {
 				}
 				symbol = globalMap.newSymbol(symref, addr, symbolType, symbolSize);
 				if (symbol == null) {
-					throw new PcodeXMLException("Bad global storage: " + addr.toString());
+					throw new DecoderException("Bad global storage: " + addr.toString());
 				}
 			}
 		}
@@ -91,6 +99,6 @@ public class HighGlobal extends HighVariable {
 		}
 		symbol.setHighVariable(this);
 
-		parser.end(el);
+//		decoder.closeElement(el);
 	}
 }

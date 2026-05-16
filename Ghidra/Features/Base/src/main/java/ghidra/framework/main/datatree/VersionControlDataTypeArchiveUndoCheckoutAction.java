@@ -19,9 +19,10 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.swing.ImageIcon;
+import javax.swing.Icon;
 
 import docking.action.MenuData;
+import generic.theme.GIcon;
 import ghidra.app.plugin.core.datamgr.DataTypeManagerPlugin;
 import ghidra.app.plugin.core.datamgr.archive.*;
 import ghidra.app.plugin.core.datamgr.editor.DataTypeEditorManager;
@@ -34,12 +35,14 @@ import ghidra.util.exception.AssertException;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.Task;
 import ghidra.util.task.TaskMonitor;
-import resources.ResourceManager;
 
 /**
  * Action to undo checkouts for domain files in the repository.
  */
 public class VersionControlDataTypeArchiveUndoCheckoutAction extends VersionControlAction {
+
+	private static final Icon ICON =
+		new GIcon("icon.base.util.datatree.version.control.archive.dt.checkout.undo");
 
 	private DataTypeManagerPlugin dtmPlugin;
 	private ArchiveProvider archiveProvider;
@@ -54,8 +57,8 @@ public class VersionControlDataTypeArchiveUndoCheckoutAction extends VersionCont
 		super("UndoCheckOut", plugin.getName(), plugin.getTool());
 		this.dtmPlugin = plugin;
 		this.archiveProvider = provider;
-		ImageIcon icon = ResourceManager.loadImage("images/vcUndoCheckOut.png");
-		setPopupMenuData(new MenuData(new String[] { "Undo Checkout" }, icon, GROUP));
+
+		setPopupMenuData(new MenuData(new String[] { "Undo Checkout" }, ICON, GROUP));
 		setDescription("Undo checkout");
 
 	}
@@ -65,11 +68,12 @@ public class VersionControlDataTypeArchiveUndoCheckoutAction extends VersionCont
 		undoCheckOut();
 	}
 
-	/**
-	 * Returns true if at least one of the provided domain files is checked out from the repository.
-	 */
 	@Override
 	public boolean isEnabledForContext(DomainFileContext context) {
+		if (isFileSystemBusy()) {
+			return false; // don't block; we should get called again later
+		}
+
 		List<DomainFile> domainFiles = context.getSelectedFiles();
 		for (DomainFile domainFile : domainFiles) {
 			if (domainFile.isCheckedOut()) {
@@ -91,8 +95,8 @@ public class VersionControlDataTypeArchiveUndoCheckoutAction extends VersionCont
 		closeEditorsForUndoCheckOut();
 
 		List<Archive> archiveList = archiveProvider.getArchives();
-		List<DomainFileArchive> unmodifiedCheckOutsList = new ArrayList<DomainFileArchive>();
-		List<DomainFileArchive> modifiedCheckOutsList = new ArrayList<DomainFileArchive>();
+		List<DomainFileArchive> unmodifiedCheckOutsList = new ArrayList<>();
+		List<DomainFileArchive> modifiedCheckOutsList = new ArrayList<>();
 		for (Archive archive2 : archiveList) {
 			ProjectArchive archive = (ProjectArchive) archive2;
 			DomainFile domainFile = archive.getDomainFile();
@@ -134,7 +138,7 @@ public class VersionControlDataTypeArchiveUndoCheckoutAction extends VersionCont
 	 * will be undone.
 	 * @param unmodifiedArchivesList the list of unmodified archives
 	 * @param modifiedArchivesList the list of archives that have been modified
-	 * @throws CancelledException 
+	 * @throws CancelledException if cancelled
 	 */
 	protected void undoCheckOuts(List<DomainFileArchive> unmodifiedArchivesList,
 			List<DomainFileArchive> modifiedArchivesList) throws CancelledException {
@@ -145,8 +149,7 @@ public class VersionControlDataTypeArchiveUndoCheckoutAction extends VersionCont
 		// Now confirm the modified ones and undo checkout for the ones the user indicates.
 		if (modifiedArchivesList.size() > 0) {
 			UndoActionDialog dialog = new UndoActionDialog("Confirm Undo Checkout",
-				resources.ResourceManager.loadImage("images/vcUndoCheckOut.png"), "UndoCheckOut",
-				"checkout", getDomainFileList(modifiedArchivesList));
+				ICON, "UndoCheckOut", "checkout", getDomainFileList(modifiedArchivesList));
 			int actionID = dialog.showDialog(tool);
 			if (actionID != UndoActionDialog.CANCEL) {
 				saveCopy = dialog.saveCopy();
@@ -169,7 +172,7 @@ public class VersionControlDataTypeArchiveUndoCheckoutAction extends VersionCont
 	private List<DomainFileArchive> getMatchingArchives(List<DomainFileArchive> archivesList,
 			DomainFile[] selectedFiles) {
 		List<DomainFileArchive> archiveList =
-			new ArrayList<DomainFileArchive>(selectedFiles.length);
+			new ArrayList<>(selectedFiles.length);
 		for (DomainFile domainFile : selectedFiles) {
 			DomainFileArchive archive = getArchiveForDomainFile(archivesList, domainFile);
 			if (archive != null) {
@@ -195,7 +198,7 @@ public class VersionControlDataTypeArchiveUndoCheckoutAction extends VersionCont
 	}
 
 	private List<DomainFile> getDomainFileList(List<DomainFileArchive> modifiedArchivesList) {
-		List<DomainFile> dfList = new ArrayList<DomainFile>(modifiedArchivesList.size());
+		List<DomainFile> dfList = new ArrayList<>(modifiedArchivesList.size());
 		for (DomainFileArchive dfArchive : modifiedArchivesList) {
 			dfList.add(dfArchive.getDomainFile());
 		}
@@ -205,6 +208,7 @@ public class VersionControlDataTypeArchiveUndoCheckoutAction extends VersionCont
 	/**
 	 * Saves all checked out changes.
 	 * @param changedList the list of changes
+	 * @throws CancelledException if cancelled
 	 */
 	protected void saveCheckOutChanges(List<DomainFile> changedList) throws CancelledException {
 		if (changedList.size() > 0) {
@@ -243,8 +247,7 @@ public class VersionControlDataTypeArchiveUndoCheckoutAction extends VersionCont
 		@Override
 		public void run(TaskMonitor monitor) {
 			try {
-				for (int i = 0; i < unmodifiedCheckOutsList.size(); i++) {
-					DomainFileArchive archive = unmodifiedCheckOutsList.get(i);
+				for (DomainFileArchive archive : unmodifiedCheckOutsList) {
 					DomainFile df = archive.getDomainFile();
 					if (df.isCheckedOut() && (dtmPlugin != null)) {
 						// TODO Need to close archive here if it is open.
@@ -258,7 +261,7 @@ public class VersionControlDataTypeArchiveUndoCheckoutAction extends VersionCont
 					}
 				}
 				for (DomainFileArchive currentArchive : modifiedCheckedOutFiles) {
-					monitor.checkCanceled();
+					monitor.checkCancelled();
 					DomainFile currentDF = currentArchive.getDomainFile();
 
 					if (saveCopy && currentDF.isChanged()) {

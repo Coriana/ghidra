@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,11 +17,18 @@ package ghidra.app.util.viewer.field;
 
 import static org.junit.Assert.*;
 
+import java.util.ArrayList;
+import java.util.List;
+
+import javax.swing.JTextField;
+
 import org.junit.*;
 
 import docking.ComponentProvider;
+import docking.DialogComponentProvider;
 import docking.action.DockingActionIf;
 import ghidra.app.cmd.data.CreateStructureCmd;
+import ghidra.app.context.ListingActionContext;
 import ghidra.app.events.ProgramLocationPluginEvent;
 import ghidra.app.plugin.core.codebrowser.CodeBrowserPlugin;
 import ghidra.app.plugin.core.table.TableComponentProvider;
@@ -34,12 +41,12 @@ import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressFactory;
 import ghidra.program.model.data.*;
 import ghidra.program.model.listing.Program;
-import ghidra.program.model.symbol.RefType;
-import ghidra.program.model.symbol.SourceType;
+import ghidra.program.model.symbol.*;
 import ghidra.program.util.XRefHeaderFieldLocation;
 import ghidra.test.AbstractGhidraHeadedIntegrationTest;
 import ghidra.test.TestEnv;
 import ghidra.util.table.GhidraProgramTableModel;
+import ghidra.util.table.GhidraTable;
 
 /**
  * Tests that references are displayed correctly when selecting the XRef field in
@@ -121,9 +128,190 @@ public class XrefViewerTest extends AbstractGhidraHeadedIntegrationTest {
 		assertTableXRefCount(2);
 	}
 
+	@Test
+	public void testViewReferencesShowThunkXrefs_FromNonThunk() {
+
+		//
+		// create thunk to 1001005 from 1001050
+		//
+
+		// thunk lives at 1001050
+		String thunkAddress = "1001050";
+		String baseFunctionAddress = "1001005";
+		createThunkFunction(thunkAddress, baseFunctionAddress);
+
+		/*
+		 	Direct References
+		
+		 	01001009	                    ?? LAB_01001007	READ
+			01001050	thunk_FUN_01001005	?? FUN_01001005	UNCONDITIONAL_CALL
+			01001050	thunk_FUN_01001005	?? FUN_01001005	THUNK
+		
+		
+			References to the Thunk Function
+		
+			01001046		?? thunk_FUN_01001005	UNCONDITIONAL_CALL	thunk
+		 */
+
+		doubleClickXRef(baseFunctionAddress, "XREF[2]: ");
+		ComponentProvider comp = waitForComponentProvider(TableComponentProvider.class);
+		TableComponentProvider<?> tableProvider = (TableComponentProvider<?>) comp;
+		GhidraProgramTableModel<?> model = tableProvider.getModel();
+		assertEquals(2, model.getRowCount());
+
+		DockingActionIf showThunksAction = getLocalAction(tableProvider, "Show Thunk Xrefs");
+		performAction(showThunksAction);
+		waitForTableModel(model);
+
+		assertEquals(3, model.getRowCount());
+	}
+
+	@Test
+	public void testDeleteReferencesFromTable() {
+
+		doubleClickXRef("1001005", "XREF[1]: ");
+		ComponentProvider comp = waitForComponentProvider(TableComponentProvider.class);
+		TableComponentProvider<?> table = (TableComponentProvider<?>) comp;
+		assertEquals(1, table.getModel().getRowCount());
+		assertReference("01001009", "01001005", true);
+
+		DockingActionIf deleteAction = getAction(tool, "TableServicePlugin", "Delete Reference");
+		assertFalse(runSwing(() -> deleteAction.isEnabled()));
+
+		selectRow(table, 0);
+		assertTrue(runSwing(() -> deleteAction.isEnabled()));
+
+		performAction(deleteAction, table, false);
+		DialogComponentProvider dialog = waitForDialogComponent("Delete Xrefs?");
+		pressButtonByText(dialog, "Delete");
+		waitForTableModel(table.getModel());
+
+		assertEquals(0, table.getModel().getRowCount());
+		assertReference("01001009", "01001005", false);
+	}
+
+	@Test
+	public void testViewReferencesShowThunkXrefs_FromThunk() {
+
+		//
+		// create thunk to 1001005 from 1001050
+		//
+
+		// thunk lives at 1001050
+		String thunkAddress = "1001050";
+		String baseFunctionAddress = "1001005";
+		createThunkFunction(thunkAddress, baseFunctionAddress);
+
+		/*
+		 	Direct References
+		
+		 	01001046		?? thunk_FUN_01001005	UNCONDITIONAL_CALL	thunk
+		
+		
+			References to the thunk and the end thunked function
+		
+			01001046		                ?? thunk_FUN_01001005	UNCONDITIONAL_CALL	thunk
+			01001009	                    ?? LAB_01001007	READ
+			01001050	thunk_FUN_01001005	?? FUN_01001005	UNCONDITIONAL_CALL
+			01001050	thunk_FUN_01001005	?? FUN_01001005	THUNK
+		 */
+
+		doubleClickXRef(thunkAddress, "XREF[1]: ");
+		ComponentProvider comp = waitForComponentProvider(TableComponentProvider.class);
+		TableComponentProvider<?> tableProvider = (TableComponentProvider<?>) comp;
+		GhidraProgramTableModel<?> model = tableProvider.getModel();
+		assertEquals(1, model.getRowCount());
+
+		DockingActionIf showThunksAction = getLocalAction(tableProvider, "Show Thunk Xrefs");
+		performAction(showThunksAction);
+		waitForTableModel(model);
+
+		assertEquals(3, model.getRowCount());
+	}
+
+	@Test
+	public void testViewReferencesFromNonFunctionDoesNotAddShowThunkXrefsAction() {
+
+		doubleClickXRef("0100100f", "XREF[2]: ");
+		ComponentProvider comp = waitForComponentProvider(TableComponentProvider.class);
+		TableComponentProvider<?> tableProvider = (TableComponentProvider<?>) comp;
+		GhidraProgramTableModel<?> model = tableProvider.getModel();
+		assertEquals(2, model.getRowCount());
+
+		DockingActionIf showThunksAction = getLocalAction(tableProvider, "Show Thunk Xrefs");
+		assertNull(showThunksAction);
+	}
+
 //==================================================================================================
 // Private Methods
 //==================================================================================================
+
+	private void assertReference(String fromString, String toString, boolean exists) {
+
+		Address from = addr(fromString);
+		Address to = addr(toString);
+		List<Reference> refs = getReferences(to);
+		if (exists) {
+			assertEquals(1, refs.size());
+			Reference ref = refs.get(0);
+			Address refFrom = ref.getFromAddress();
+			Address refTo = ref.getToAddress();
+			assertEquals(from, refFrom);
+			assertEquals(to, refTo);
+		}
+		else {
+			assertEquals(0, refs.size());
+		}
+	}
+
+	private List<Reference> getReferences(Address to) {
+		List<Reference> refs = new ArrayList<>();
+		ReferenceManager rm = program.getReferenceManager();
+		ReferenceIterator it = rm.getReferencesTo(to);
+		while (it.hasNext()) {
+			refs.add(it.next());
+		}
+		return refs;
+	}
+
+	private void selectRow(TableComponentProvider<?> provider, int row) {
+		runSwing(() -> {
+			GhidraTable gTable = provider.getTable();
+			gTable.selectRow(row);
+		});
+		waitForSwing();
+	}
+
+	private void createThunkFunction(String thunkAddressString, String thunkedAddressString) {
+
+		Address thunkAddress = addr(thunkAddressString);
+		goTo(tool, program, thunkAddress);
+
+		// go to new function
+		DockingActionIf thunkAction = getAction(tool, "Set Thunked Function");
+		performAction(thunkAction, new ListingActionContext(cb.getProvider(), cb.getProvider()),
+			false);
+
+		// get dialog
+		DialogComponentProvider dialog =
+			waitForDialogComponent("Thunk Destination Function/Address");
+		JTextField textField = findComponent(dialog, JTextField.class);
+		setText(textField, thunkedAddressString);
+		pressButtonByText(dialog, "OK");
+		waitForProgram(program);
+
+		// add a reference to the thunk function that will show up later when showing all refs
+		Address arbitraryAddress = addr(thunkAddressString).subtract(10);
+		createReference(arbitraryAddress, thunkAddress);
+	}
+
+	private void createReference(Address fromAddress, Address toAddress) {
+		tx(program, () -> {
+			ReferenceManager refManager = program.getReferenceManager();
+			refManager.addMemoryReference(fromAddress, toAddress, RefType.UNCONDITIONAL_CALL,
+				SourceType.ANALYSIS, 0);
+		});
+	}
 
 	private void assertTableXRefCount(int expectedRowCount) {
 		ComponentProvider comp = waitForComponentProvider(TableComponentProvider.class);
@@ -186,6 +374,8 @@ public class XrefViewerTest extends AbstractGhidraHeadedIntegrationTest {
 		builder.createMemory(".text", "0x1001000", 0x6600);
 		builder.createEntryPoint("1001000", "entrypoint");
 		builder.createEmptyFunction(null, "1001005", 40, null);
+		builder.createEmptyFunction(null, "1001050", 1, null);
+
 		builder.setBytes("1001005", "ff 74 24 04", true);
 		builder.setBytes("10010a0", "ff 15 d4 10 00 01", true);
 

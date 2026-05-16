@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -29,10 +29,10 @@ import javax.security.auth.spi.LoginModule;
 
 import com.sun.security.auth.UserPrincipal;
 
-import ghidra.server.RepositoryManager;
+import generic.concurrent.io.ProcessConsumer;
+import ghidra.server.remote.RemoteLoggingUtil;
 import ghidra.util.DateUtils;
 import ghidra.util.timer.Watchdog;
-import utilities.util.FileUtilities;
 
 /**
  * A JAAS {@link LoginModule} that executes an external program that decides if the username
@@ -208,11 +208,12 @@ public class ExternalProgramLoginModule implements LoginModule {
 			Process p = Runtime.getRuntime().exec(cmdArray);
 			process.set(p);
 
-			FileUtilities.asyncForEachLine(p.getInputStream(), (stdOutStr) -> {
-				RepositoryManager.log(null, null, extProgramName + " STDOUT: " + stdOutStr, null);
+			ProcessConsumer.consume(p.getInputStream(), stdOutStr -> {
+				RemoteLoggingUtil.log(extProgramName + " STDOUT: " + stdOutStr);
 			});
-			FileUtilities.asyncForEachLine(p.getErrorStream(), (errStr) -> {
-				RepositoryManager.log(null, null, extProgramName + " STDERR: " + errStr, null);
+
+			ProcessConsumer.consume(p.getErrorStream(), errStr -> {
+				RemoteLoggingUtil.log(extProgramName + " STDERR: " + errStr);
 			});
 
 			PrintWriter outputWriter = new PrintWriter(p.getOutputStream());
@@ -229,8 +230,8 @@ public class ExternalProgramLoginModule implements LoginModule {
 			}
 		}
 		catch (IOException | InterruptedException e) {
-			RepositoryManager.log(null, null,
-				"Exception when executing " + extProgramName + ":" + e.getMessage(), null);
+			RemoteLoggingUtil
+					.log("Exception when executing " + extProgramName + ": " + e.getMessage());
 			throw new LoginException("Error executing external program");
 		}
 		finally {
@@ -266,8 +267,12 @@ public class ExternalProgramLoginModule implements LoginModule {
 		}
 		extProgramName = extProFile.getName();
 
-		List<String> argKeys = options.keySet().stream().filter(
-			key -> key.startsWith(ARG_OPTION_NAME)).sorted().collect(Collectors.toList());
+		List<String> argKeys = options.keySet()
+				.stream()
+				.filter(
+					key -> key.startsWith(ARG_OPTION_NAME))
+				.sorted()
+				.collect(Collectors.toList());
 		List<String> cmdArrayValues = new ArrayList<>();
 		cmdArrayValues.add(externalProgram.toString());
 		for (String argKey : argKeys) {

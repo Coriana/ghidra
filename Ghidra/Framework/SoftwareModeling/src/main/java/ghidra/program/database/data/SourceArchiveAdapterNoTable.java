@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -25,14 +25,14 @@ import java.util.ArrayList;
 import java.util.List;
 
 import db.DBHandle;
-import db.Record;
+import db.DBRecord;
 
 /**
  * Adapter needed for a read-only version of data type manager that is not going
  * to be upgraded, and there is no Data Type Archive ID table in the data type manager.
  */
 class SourceArchiveAdapterNoTable extends SourceArchiveAdapter {
-	private static Record LOCAL_RECORD;
+	private static DBRecord LOCAL_RECORD;
 	static {
 
 		LOCAL_RECORD = SCHEMA.createRecord(DataTypeManager.LOCAL_ARCHIVE_KEY);
@@ -46,14 +46,14 @@ class SourceArchiveAdapterNoTable extends SourceArchiveAdapter {
 	/**
 	 * Gets a pre-table version of the adapter for the data type archive ID database table.
 	 * @param handle handle to the database which doesn't contain the table.
-	 * @throws VersionException if the the table's version does not match the expected version
+	 * @throws VersionException if the table's version does not match the expected version
 	 * for this adapter.
 	 */
 	public SourceArchiveAdapterNoTable(DBHandle handle) {
 	}
 
 	@Override
-	Record createRecord(SourceArchive sourceArchive) throws IOException {
+	DBRecord createRecord(SourceArchive sourceArchive) throws IOException {
 		throw new UnsupportedOperationException(
 			"Not allowed to update version prior to existence of the Data Type Archive ID table.");
 	}
@@ -63,7 +63,7 @@ class SourceArchiveAdapterNoTable extends SourceArchiveAdapter {
 	}
 
 	@Override
-	Record getRecord(long key) throws IOException {
+	DBRecord getRecord(long key) throws IOException {
 		if (key == DataTypeManager.LOCAL_ARCHIVE_KEY) {
 			return LOCAL_RECORD;
 		}
@@ -71,8 +71,8 @@ class SourceArchiveAdapterNoTable extends SourceArchiveAdapter {
 	}
 
 	@Override
-	List<Record> getRecords() {
-		List<Record> records = new ArrayList<Record>();
+	List<DBRecord> getRecords() {
+		List<DBRecord> records = new ArrayList<DBRecord>();
 		records.add(LOCAL_RECORD);
 		return records;
 	}
@@ -83,7 +83,7 @@ class SourceArchiveAdapterNoTable extends SourceArchiveAdapter {
 	}
 
 	@Override
-	void updateRecord(Record record) throws IOException {
+	void updateRecord(DBRecord record) throws IOException {
 		throw new UnsupportedOperationException("updateRecord not supported");
 	}
 

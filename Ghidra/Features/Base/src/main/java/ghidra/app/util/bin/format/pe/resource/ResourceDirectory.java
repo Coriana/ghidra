@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,20 +15,17 @@
  */
 package ghidra.app.util.bin.format.pe.resource;
 
-import ghidra.app.util.bin.BinaryReader;
-import ghidra.app.util.bin.StructConverter;
-import ghidra.app.util.bin.format.FactoryBundledWithBinaryReader;
-import ghidra.app.util.bin.format.pe.NTHeader;
-import ghidra.app.util.bin.format.pe.ResourceDataDirectory;
-import ghidra.program.model.data.CategoryPath;
-import ghidra.program.model.data.DataType;
-import ghidra.program.model.data.StructureDataType;
-import ghidra.util.Msg;
-import ghidra.util.exception.DuplicateNameException;
-
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+
+import ghidra.app.util.bin.BinaryReader;
+import ghidra.app.util.bin.StructConverter;
+import ghidra.app.util.bin.format.pe.NTHeader;
+import ghidra.app.util.bin.format.pe.ResourceDataDirectory;
+import ghidra.program.model.data.*;
+import ghidra.util.Msg;
+import ghidra.util.exception.DuplicateNameException;
 
 /**
  * <pre>
@@ -54,7 +51,7 @@ public class ResourceDirectory implements StructConverter {
     private short  numberOfIdEntries;
     private ArrayList<ResourceDirectoryEntry> entries = new ArrayList<ResourceDirectoryEntry>();
 
-    public ResourceDirectory(FactoryBundledWithBinaryReader reader, 
+	public ResourceDirectory(BinaryReader reader,
     						int index, 
     						int resourceBase, 
     						boolean isFirstLevel,
@@ -157,6 +154,7 @@ public class ResourceDirectory implements StructConverter {
 		return minorVersion;
 	}
 
+	@Override
 	public DataType toDataType() throws DuplicateNameException, IOException {
 		StructureDataType struct = new StructureDataType(NAME, 0);
 		struct.add(DWORD, "Characteristics",      null);

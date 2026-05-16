@@ -22,13 +22,16 @@ import ghidra.app.decompiler.ClangToken;
 import ghidra.app.decompiler.component.DecompilerPanel;
 import ghidra.app.decompiler.component.DecompilerUtils;
 import ghidra.app.plugin.core.decompile.DecompilerActionContext;
+import ghidra.app.util.HelpTopics;
 import ghidra.program.model.pcode.PcodeOp;
 import ghidra.program.model.pcode.Varnode;
+import ghidra.util.HelpLocation;
 
 public class HighlightDefinedUseAction extends AbstractDecompilerAction {
 
 	public HighlightDefinedUseAction() {
 		super("Highlight Defined Use");
+		setHelpLocation(new HelpLocation(HelpTopics.DECOMPILER, "ActionHighlight"));
 		setPopupMenuData(new MenuData(new String[] { "Highlight", "Def-use" }, "Decompile"));
 	}
 
@@ -54,7 +57,7 @@ public class HighlightDefinedUseAction extends AbstractDecompilerAction {
 		PcodeOp op = varnode.getDef();
 		SliceHighlightColorProvider colorProvider =
 			new SliceHighlightColorProvider(decompilerPanel, varnodes, varnode, op);
-		decompilerPanel.addVarnodeHighlights(varnodes, colorProvider);
+		decompilerPanel.addHighlights(varnodes, colorProvider);
 	}
 
 }

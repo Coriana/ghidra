@@ -17,19 +17,20 @@ package docking.widgets.fieldpanel.field;
 
 import java.awt.*;
 
-import javax.swing.ImageIcon;
-import javax.swing.JComponent;
+import javax.swing.*;
 
 import docking.widgets.fieldpanel.internal.FieldBackgroundColorManager;
 import docking.widgets.fieldpanel.internal.PaintContext;
+import docking.widgets.fieldpanel.support.DefaultRowColLocation;
 import docking.widgets.fieldpanel.support.RowColLocation;
+import resources.ResourceManager;
 
 /**
  * Field to display an image.
  */
 public class SimpleImageField implements Field {
 
-	protected ImageIcon icon;
+	protected ImageIcon imageIon;
 	protected FontMetrics metrics;
 	protected int startX;
 	protected int width;
@@ -46,7 +47,8 @@ public class SimpleImageField implements Field {
 	 * @param startY the starting y coordinate of the field.
 	 * @param width the width of the field.
 	 */
-	public SimpleImageField(ImageIcon icon, FontMetrics metrics, int startX, int startY, int width) {
+	public SimpleImageField(Icon icon, FontMetrics metrics, int startX, int startY,
+			int width) {
 		this(icon, metrics, startX, startY, width, false);
 	}
 
@@ -59,13 +61,13 @@ public class SimpleImageField implements Field {
 	 * @param width the width of the field.
 	 * @param center flag to center the image in the field.
 	 */
-	public SimpleImageField(ImageIcon icon, FontMetrics metrics, int startX, int startY, int width,
+	public SimpleImageField(Icon icon, FontMetrics metrics, int startX, int startY, int width,
 			boolean center) {
 
 		this.heightAbove = metrics.getMaxAscent() + metrics.getLeading();
 		this.height = heightAbove + metrics.getMaxDescent();
 
-		this.icon = icon;
+		this.imageIon = ResourceManager.getImageIcon(icon);
 		this.metrics = metrics;
 		this.startX = startX;
 		this.width = width;
@@ -116,6 +118,11 @@ public class SimpleImageField implements Field {
 	}
 
 	@Override
+	public int getNumDataRows() {
+		return 1;
+	}
+
+	@Override
 	public int getNumRows() {
 		return 1;
 	}
@@ -154,7 +161,7 @@ public class SimpleImageField implements Field {
 
 	@Override
 	public int getPreferredWidth() {
-		return icon.getIconWidth();
+		return imageIon.getIconWidth();
 	}
 
 	@Override
@@ -180,29 +187,30 @@ public class SimpleImageField implements Field {
 
 	@Override
 	public void paint(JComponent c, Graphics g, PaintContext context,
-			Rectangle clip, FieldBackgroundColorManager map, RowColLocation cursorLoc, int rowHeight) {
-		if (icon == null) {
+			Rectangle clip, FieldBackgroundColorManager map, RowColLocation cursorLoc,
+			int rowHeight) {
+		if (imageIon == null) {
 			return;
 		}
 
-		int tmpWidth = icon.getIconWidth();
-		int tmpHeight = icon.getIconHeight();
+		int tmpWidth = imageIon.getIconWidth();
+		int tmpHeight = imageIon.getIconHeight();
 		int xoffset = 0;
 		int yoffset = 0;
 
 		// if we are centering the image, then compute the offsets
 		//
 		if (center) {
-			if (width > icon.getIconWidth()) {
-				xoffset = width / 2 - icon.getIconWidth() / 2;
+			if (width > imageIon.getIconWidth()) {
+				xoffset = width / 2 - imageIon.getIconWidth() / 2;
 			}
-			if (height > icon.getIconHeight()) {
-				yoffset = height / 2 - icon.getIconHeight() / 2;
+			if (height > imageIon.getIconHeight()) {
+				yoffset = height / 2 - imageIon.getIconHeight() / 2;
 			}
 		}
 
 		// check to make sure that we are not going to draw outside the
-		// max rectagle
+		// max rectangle
 		//
 		if (tmpWidth > width) {
 			tmpWidth = width;
@@ -213,8 +221,10 @@ public class SimpleImageField implements Field {
 
 		// draw the image, scaling to fit inside specified rectangle
 		//
-		g.drawImage(icon.getImage(), startX + xoffset, -heightAbove + yoffset, tmpWidth, tmpHeight,
-			icon.getImageObserver());
+
+		g.drawImage(imageIon.getImage(), startX + xoffset, -heightAbove + yoffset, tmpWidth,
+			tmpHeight,
+			null);
 
 		if (cursorLoc != null) {
 			g.setColor(context.getCursorColor());
@@ -263,7 +273,7 @@ public class SimpleImageField implements Field {
 
 	@Override
 	public RowColLocation textOffsetToScreenLocation(int textOffset) {
-		return new RowColLocation(0, 0);
+		return new DefaultRowColLocation();
 	}
 
 	@Override

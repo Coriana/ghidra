@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,24 +20,24 @@ import java.awt.Color;
 
 import javax.swing.*;
 
+import generic.theme.GColor;
+
 public class DecoratorPanel extends JPanel {
-    
+
+	private static final Color DISCONNECTED = new GColor("color.border.provider.disconnected");
+
 	public DecoratorPanel(JComponent component, boolean isConnected) {
 		setLayout(new BorderLayout());
 		add(component);
-		setConnnected( isConnected );
-	}
-	
-	public void setConnnected( boolean isConnected ) {
-		if ( !isConnected ) {
-			setBorder( BorderFactory.createLineBorder( Color.ORANGE, 2 ) );
-		}
-		else {
-			setBorder( BorderFactory.createEmptyBorder() );
-		}
+		setConnected(isConnected);
 	}
 
-//	public void setNorthPanel(JComponent comp) {
-//		add(comp, BorderLayout.NORTH);
-//	}
+	public void setConnected(boolean isConnected) {
+		if (!isConnected) {
+			setBorder(BorderFactory.createLineBorder(DISCONNECTED, 2));
+		}
+		else {
+			setBorder(BorderFactory.createEmptyBorder());
+		}
+	}
 }

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,13 +15,11 @@
  */
 package ghidra.app.util.bin.format.pe.debug;
 
-import ghidra.app.util.bin.*;
-import ghidra.app.util.bin.format.*;
-import ghidra.program.model.data.*;
-import ghidra.util.*;
-import ghidra.util.exception.*;
+import java.io.IOException;
 
-import java.io.*;
+import ghidra.app.util.bin.*;
+import ghidra.program.model.data.*;
+import ghidra.util.exception.DuplicateNameException;
 
 /**
  * A class to represent the COFF symbol data structure.
@@ -129,31 +127,18 @@ public class DebugCOFFSymbol implements StructConverter {
     private byte numberOfAuxSymbols;
     private DebugCOFFSymbolAux [] auxSymbols;
 
-    public static DebugCOFFSymbol createDebugCOFFSymbol(
-            FactoryBundledWithBinaryReader reader, int index,
-            DebugCOFFSymbolTable symbolTable) throws IOException {
-        return createDebugCOFFSymbol(reader, index, symbolTable.getStringTableIndex());
+	public DebugCOFFSymbol(BinaryReader reader, int index, DebugCOFFSymbolTable symbolTable)
+			throws IOException {
+		this(reader, index, symbolTable.getStringTableIndex());
     }
 
-    public static DebugCOFFSymbol createDebugCOFFSymbol(
-            FactoryBundledWithBinaryReader reader, int index,
-            int stringTableIndex) throws IOException {
-        DebugCOFFSymbol debugCOFFSymbol = (DebugCOFFSymbol) reader.getFactory().create(DebugCOFFSymbol.class);
-        debugCOFFSymbol.initDebugCOFFSymbol(reader, index, stringTableIndex);
-        return debugCOFFSymbol;
-    }
-
-    /**
-     * DO NOT USE THIS CONSTRUCTOR, USE create*(GenericFactory ...) FACTORY METHODS INSTEAD.
-     */
-    public DebugCOFFSymbol() {}
-
-    private void initDebugCOFFSymbol(FactoryBundledWithBinaryReader reader, int index, int stringTableIndex) throws IOException {
+	public DebugCOFFSymbol(BinaryReader reader, int index, long stringTableIndex)
+			throws IOException {
         // read the union first...
         //
         int shortVal = reader.readInt(index);
         if (shortVal != 0) {
-            name = reader.readAsciiString(index, NAME_LENGTH);
+			name = reader.readAsciiString(index, NAME_LENGTH).trim();
             index += 8;
         }
         else {
@@ -172,11 +157,11 @@ public class DebugCOFFSymbol implements StructConverter {
         numberOfAuxSymbols = reader.readByte (index); index += BinaryReader.SIZEOF_BYTE;
 
         // process auxiliary symbols...
-        auxSymbols = new DebugCOFFSymbolAux[Conv.byteToInt(numberOfAuxSymbols)];
+		auxSymbols = new DebugCOFFSymbolAux[Byte.toUnsignedInt(numberOfAuxSymbols)];
 
         for (int i = 0 ; i < numberOfAuxSymbols ; ++i) {
 
-            auxSymbols[i] = DebugCOFFSymbolAux.createDebugCOFFSymbolAux(reader, index, this);
+			auxSymbols[i] = new DebugCOFFSymbolAux(reader, index, this);
             index += DebugCOFFSymbolAux.IMAGE_SIZEOF_AUX_SYMBOL;
         }
     }
@@ -295,7 +280,8 @@ public class DebugCOFFSymbol implements StructConverter {
         return numberOfAuxSymbols;
     }
 
-    public DataType toDataType() throws DuplicateNameException, IOException {
+    @Override
+	public DataType toDataType() throws DuplicateNameException, IOException {
     	String structureName = StructConverterUtil.parseName(DebugCOFFSymbol.class);
     	
     	Structure structure = new StructureDataType(structureName + "_" +numberOfAuxSymbols, 0);
@@ -312,4 +298,9 @@ public class DebugCOFFSymbol implements StructConverter {
     	return structure;
     }
 
+	@Override
+	public String toString() {
+		return String.format("%s section=%d value=0x%x type=0x%x class=0x%x aux=%d", name,
+			sectionNumber, value, type, storageClass, numberOfAuxSymbols);
+	}
 }

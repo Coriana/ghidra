@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,6 +21,7 @@ import java.util.*;
 
 import db.*;
 import db.util.ErrorHandler;
+import ghidra.framework.data.OpenMode;
 import ghidra.program.database.ManagerDB;
 import ghidra.program.database.ProgramDB;
 import ghidra.program.database.map.AddressMap;
@@ -32,6 +33,7 @@ import ghidra.program.model.listing.ProgramContext;
 import ghidra.program.util.RangeMapAdapter;
 import ghidra.program.util.RegisterValueStore;
 import ghidra.util.Lock;
+import ghidra.util.Lock.Closeable;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
 
@@ -86,11 +88,6 @@ public class OldProgramContextDB implements ProgramContext, DefaultProgramContex
 		valueMaps = new HashMap<>();
 
 		baseContextRegister = language.getContextBaseRegister();
-		if (baseContextRegister == null) {
-			baseContextRegister =
-				new Register("DEFAULT_CONTEXT", "DEFAULT_CONTEXT",
-					addrMap.getAddressFactory().getRegisterSpace().getAddress(0x0), 4, true, 0);
-		}
 		defaultDisassemblyContext = new RegisterValue(baseContextRegister);
 
 		initializeDefaultValues(language);
@@ -212,10 +209,8 @@ public class OldProgramContextDB implements ProgramContext, DefaultProgramContex
 
 		ArrayList<RegisterValueRange> ranges = new ArrayList<RegisterValueRange>();
 
-		Iterator<Address> it = changePoints.iterator();
 		Address currentAddress = start;
-		while (it.hasNext()) {
-			Address nextChange = it.next();
+		for (Address nextChange : changePoints) {
 			addRange(reg, ranges, currentAddress, nextChange.previous());
 			currentAddress = nextChange;
 		}
@@ -298,9 +293,8 @@ public class OldProgramContextDB implements ProgramContext, DefaultProgramContex
 		RegisterValueStore store = defaultRegisterValueMap.get(baseRegister);
 		if (store == null) {
 			RangeMapAdapter adapter = new InMemoryRangeMapAdapter();
-			store =
-				new RegisterValueStore(registerValue.getRegister().getBaseRegister(), adapter,
-					false);
+			store = new RegisterValueStore(registerValue.getRegister().getBaseRegister(), adapter,
+				false);
 			defaultRegisterValueMap.put(baseRegister, store);
 		}
 		store.setValue(start, end, registerValue);
@@ -318,12 +312,8 @@ public class OldProgramContextDB implements ProgramContext, DefaultProgramContex
 
 	@Override
 	public void invalidateCache(boolean all) throws IOException {
-		lock.acquire();
-		try {
+		try (Closeable c = lock.write()) {
 			valueMaps.clear();
-		}
-		finally {
-			lock.release();
 		}
 	}
 
@@ -333,7 +323,7 @@ public class OldProgramContextDB implements ProgramContext, DefaultProgramContex
 	}
 
 	@Override
-	public void programReady(int openMode, int currentRevision, TaskMonitor monitor)
+	public void programReady(OpenMode openMode, int currentRevision, TaskMonitor monitor)
 			throws IOException, CancelledException {
 	}
 
@@ -371,16 +361,11 @@ public class OldProgramContextDB implements ProgramContext, DefaultProgramContex
 	}
 
 	private AddressRangeMapDB createMap(int offset) {
-		lock.acquire();
-		try {
-			AddressRangeMapDB map =
-				new AddressRangeMapDB(dbHandle, addrMap, lock, "ProgContext" + offset, errHandler,
-					ByteField.class, false);
+		try (Closeable c = lock.write()) {
+			AddressRangeMapDB map = new AddressRangeMapDB(dbHandle, addrMap, lock,
+				"ProgContext" + offset, errHandler, ByteField.INSTANCE, false);
 			valueMaps.put(offset, map);
 			return map;
-		}
-		finally {
-			lock.release();
 		}
 	}
 

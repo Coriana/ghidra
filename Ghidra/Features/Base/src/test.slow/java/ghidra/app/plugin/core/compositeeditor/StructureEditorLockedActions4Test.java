@@ -22,7 +22,7 @@ import org.junit.Test;
 import docking.widgets.dialogs.NumberInputDialog;
 import ghidra.program.model.data.*;
 
-public class StructureEditorLockedActions4Test extends AbstractStructureEditorLockedActionsTest {
+public class StructureEditorLockedActions4Test extends AbstractStructureEditorTest {
 
 	@Test
 	public void testArrayBeforeUndefineds() throws Exception {
@@ -36,7 +36,7 @@ public class StructureEditorLockedActions4Test extends AbstractStructureEditorLo
 		DataType dt8 = getDataType(8);
 
 		// Make array of 7 bytes
-		invoke(arrayAction);
+		invoke(arrayAction, false);
 		dialog = waitForDialogComponent(NumberInputDialog.class);
 		assertNotNull(dialog);
 		assertEquals("Enter Number", dialog.getTitle());
@@ -65,8 +65,8 @@ public class StructureEditorLockedActions4Test extends AbstractStructureEditorLo
 		checkSelection(new int[] { 1 });
 
 		// Make array of 5 quadwords
-		invoke(arrayAction);
-		waitForPostedSwingRunnables();
+		invoke(arrayAction, false);
+		waitForSwing();
 		dialog = waitForDialogComponent(NumberInputDialog.class);
 		assertNotNull(dialog);
 		assertEquals("Enter Number", dialog.getTitle());
@@ -109,7 +109,7 @@ public class StructureEditorLockedActions4Test extends AbstractStructureEditorLo
 		assertEquals(getLength(16), dt16Len);
 		assertEquals(getDataType(16), dt16);
 
-		invoke(action);
+		invoke(action, false);
 		dialog = waitForDialogComponent(NumberInputDialog.class);
 		assertNotNull(dialog);
 		badInput(dialog, 20);
@@ -126,7 +126,7 @@ public class StructureEditorLockedActions4Test extends AbstractStructureEditorLo
 		assertEquals(getLength(2), dt16Len);
 		assertEquals(getDataType(2), dt16);
 
-		invoke(action);
+		invoke(action, false);
 		dialog = waitForDialogComponent(NumberInputDialog.class);
 		assertNotNull(dialog);
 		okInput(dialog, 10);
@@ -180,7 +180,7 @@ public class StructureEditorLockedActions4Test extends AbstractStructureEditorLo
 		assertEquals(getLength(8), dt8Len);
 		assertEquals(getDataType(8), dt8);
 
-		invoke(action);
+		invoke(action, false);
 		dialog = waitForDialogComponent(NumberInputDialog.class);
 		assertNotNull(dialog);
 		okInput(dialog, 7);
@@ -194,7 +194,7 @@ public class StructureEditorLockedActions4Test extends AbstractStructureEditorLo
 		assertEquals(getLength(2), dt8Len);
 		assertEquals(getDataType(2), dt8);
 
-		invoke(action);
+		invoke(action, false);
 		dialog = waitForDialogComponent(NumberInputDialog.class);
 		assertNotNull(dialog);
 		okInput(dialog, 6);
@@ -241,7 +241,7 @@ public class StructureEditorLockedActions4Test extends AbstractStructureEditorLo
 		assertEquals(1, getLength(1));
 		assertEquals(getDataType(1), dt1);
 
-		invoke(action);
+		invoke(action, false);
 		dialog = waitForDialogComponent(NumberInputDialog.class);
 		assertNotNull(dialog);
 		badInput(dialog, 7);
@@ -255,7 +255,7 @@ public class StructureEditorLockedActions4Test extends AbstractStructureEditorLo
 		assertEquals(1, getLength(1));
 		assertEquals(getDataType(1), dt1);
 
-		invoke(action);
+		invoke(action, false);
 		dialog = waitForDialogComponent(NumberInputDialog.class);
 		assertNotNull(dialog);
 		badInput(dialog, 10);

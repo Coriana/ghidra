@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -26,18 +26,17 @@ import ghidra.util.exception.DuplicateNameException;
 /**
  * <code>AlignedStructureInspector</code> provides a simple instance of a structure 
  * member container used to perform alignment operations without forcing modification
- * of the actual structure.  A wrapper is not used for the flexible array component
- * which will not be modified by packer.
+ * of the actual structure.
  */
 public class AlignedStructureInspector extends AlignedStructurePacker {
 
-	private AlignedStructureInspector(Structure structure) {
+	private AlignedStructureInspector(StructureInternal structure) {
 		super(structure, getComponentWrappers(structure));
 	}
 
 	private static List<ReadOnlyComponentWrapper> getComponentWrappers(Structure structure) {
 		List<ReadOnlyComponentWrapper> list = new ArrayList<>();
-		for (DataTypeComponent c : structure.getComponents()) {
+		for (DataTypeComponent c : structure.getDefinedComponents()) {
 			list.add(new ReadOnlyComponentWrapper(c));
 		}
 		return list;
@@ -75,11 +74,6 @@ public class AlignedStructureInspector extends AlignedStructurePacker {
 		@Override
 		public DataType getParent() {
 			return component.getParent();
-		}
-
-		@Override
-		public boolean isFlexibleArrayComponent() {
-			return component.isFlexibleArrayComponent();
 		}
 
 		@Override
@@ -123,12 +117,7 @@ public class AlignedStructureInspector extends AlignedStructurePacker {
 		}
 
 		@Override
-		public void setDefaultSettings(Settings settings) {
-			throw new UnsupportedOperationException();
-		}
-
-		@Override
-		public void setComment(String comment) {
+		public DataTypeComponent setComment(String comment) {
 			throw new UnsupportedOperationException();
 		}
 
@@ -138,16 +127,13 @@ public class AlignedStructureInspector extends AlignedStructurePacker {
 		}
 
 		@Override
-		public void setFieldName(String fieldName) throws DuplicateNameException {
+		public DataTypeComponent setFieldName(String fieldName) {
 			throw new UnsupportedOperationException();
 		}
 
 		@Override
 		public String getDefaultFieldName() {
-			if (isZeroBitFieldComponent()) {
-				return "";
-			}
-			return DEFAULT_FIELD_NAME_PREFIX + "_0x" + Integer.toHexString(getOffset());
+			return component.getDefaultFieldName();
 		}
 
 		@Override
@@ -160,6 +146,11 @@ public class AlignedStructureInspector extends AlignedStructurePacker {
 			this.dataType = dataType;
 		}
 
+		@Override
+		public boolean isUndefined() {
+			return component.isUndefined();
+		}
+
 	}
 
 	/**
@@ -168,7 +159,7 @@ public class AlignedStructureInspector extends AlignedStructurePacker {
 	 * @param structure
 	 * @return aligned packing result
 	 */
-	public static StructurePackResult packComponents(Structure structure) {
+	public static StructurePackResult packComponents(StructureInternal structure) {
 		AlignedStructureInspector packer = new AlignedStructureInspector(structure);
 		return packer.pack();
 	}

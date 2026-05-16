@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,14 +21,14 @@ import java.util.List;
 import docking.widgets.OptionDialog;
 import ghidra.app.cmd.memory.DeleteBlockCmd;
 import ghidra.framework.cmd.Command;
-import ghidra.framework.model.DomainObject;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.framework.store.LockException;
 import ghidra.program.model.address.*;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.mem.*;
 import ghidra.util.Msg;
-import ghidra.util.exception.*;
+import ghidra.util.exception.DuplicateNameException;
+import ghidra.util.exception.RollbackException;
 
 /**
  * Helper class to make changes to memory blocks.
@@ -77,7 +77,7 @@ class MemoryMapManager {
 		}
 	}
 
-	private void renameFragment(Address start, String name) {
+	private static void renameFragment(Program program, Address start, String name) {
 
 		Listing listing = program.getListing();
 		String[] treeNames = listing.getTreeNames();
@@ -121,9 +121,10 @@ class MemoryMapManager {
 			// make sure that the block after the first block is the second block
 			Address nextStart = blockA.getEnd();
 			AddressSpace space = nextStart.getAddressSpace();
-			if (space.isOverlaySpace()) {
+			if (space.isOverlaySpace() && space.isNonLoadedMemorySpace()) {
+				// impose convention-based restriction
 				Msg.showError(this, plugin.getMemoryMapProvider().getComponent(),
-					"Merge Blocks Failed", "Can't merge overlay blocks");
+					"Merge Blocks Failed", "Cannot merge OTHER overlay blocks");
 				return false;
 			}
 
@@ -176,17 +177,13 @@ class MemoryMapManager {
 		return true;
 	}
 
-	boolean isDuplicateName(String name) {
-		// block names may not duplicate existing address spaces (includes overlay blocks)
-		return program.getAddressFactory().getAddressSpace(name) != null;
-	}
-
 	void setProgram(Program program) {
 		this.program = program;
 	}
 
 	/**
 	 * Delete the list of memory blocks.
+	 * @param blocks list of memory blocks to be removed
 	 */
 	void deleteBlocks(final List<MemoryBlock> blocks) {
 
@@ -240,7 +237,7 @@ class MemoryMapManager {
 		tool.executeBackgroundCommand(cmd, program);
 	}
 
-	private class SplitBlockCmd implements Command {
+	private static class SplitBlockCmd implements Command<Program> {
 
 		private MemoryBlock block;
 		private Address newStart;
@@ -254,11 +251,11 @@ class MemoryMapManager {
 		}
 
 		@Override
-		public boolean applyTo(DomainObject obj) {
-			Program p = (Program) obj;
-			Memory memory = p.getMemory();
+		public boolean applyTo(Program program) {
 
-			if (!p.hasExclusiveAccess()) {
+			Memory memory = program.getMemory();
+
+			if (!program.hasExclusiveAccess()) {
 				msg = "Exclusive access required";
 				return false;
 			}
@@ -274,21 +271,15 @@ class MemoryMapManager {
 				msg = e.getMessage();
 				return false;
 			}
-			catch (NotFoundException e) {
+			catch (LockException e) {
 				msg = e.getMessage();
 				return false;
-			}
-			catch (LockException e) {
 			}
 			MemoryBlock newBlock = memory.getBlock(newStart);
 			try {
 				newBlock.setName(newBlockName);
 			}
 			catch (LockException e) {
-				msg = e.getMessage();
-				return false;
-			}
-			catch (DuplicateNameException e) {
 				msg = e.getMessage();
 				return false;
 			}
@@ -306,7 +297,7 @@ class MemoryMapManager {
 		}
 	}
 
-	private class MergeBlocksCmd implements Command {
+	private static class MergeBlocksCmd implements Command<Program> {
 
 		private String msg;
 		private List<MemoryBlock> blocks;
@@ -316,9 +307,9 @@ class MemoryMapManager {
 		}
 
 		@Override
-		public boolean applyTo(DomainObject obj) {
-			Program p = (Program) obj;
-			Memory mem = p.getMemory();
+		public boolean applyTo(Program program) {
+
+			Memory mem = program.getMemory();
 			Address min = null;
 			Address max = null;
 
@@ -369,6 +360,7 @@ class MemoryMapManager {
 							newBlock.setWrite(bigBlock.isWrite());
 							newBlock.setExecute(bigBlock.isExecute());
 							newBlock.setVolatile(bigBlock.isVolatile());
+							newBlock.setArtificial(bigBlock.isArtificial());
 							newBlock.setSourceName("Resized Memory Block");
 						}
 						else {
@@ -381,7 +373,7 @@ class MemoryMapManager {
 					}
 
 					//  Rename the fragment based on the first block
-					renameFragment(start, bigBlock.getName());
+					renameFragment(program, start, bigBlock.getName());
 
 					//   join block with block after
 					bigBlock = mem.join(bigBlock, nextBlock);

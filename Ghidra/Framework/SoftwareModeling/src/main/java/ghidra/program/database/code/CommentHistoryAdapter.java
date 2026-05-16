@@ -18,6 +18,7 @@ package ghidra.program.database.code;
 import java.io.IOException;
 
 import db.*;
+import ghidra.framework.data.OpenMode;
 import ghidra.program.database.map.AddressMap;
 import ghidra.program.model.address.Address;
 import ghidra.util.exception.CancelledException;
@@ -32,8 +33,8 @@ abstract class CommentHistoryAdapter {
 	static final String COMMENT_HISTORY_TABLE_NAME = "Comment History";
 
 	static final Schema COMMENT_HISTORY_SCHEMA = new Schema(0, "Key",
-		new Class[] { LongField.class, ByteField.class, IntField.class, IntField.class,
-			StringField.class, StringField.class, LongField.class },
+		new Field[] { LongField.INSTANCE, ByteField.INSTANCE, IntField.INSTANCE, IntField.INSTANCE,
+			StringField.INSTANCE, StringField.INSTANCE, LongField.INSTANCE },
 		new String[] { "Address", "Comment Type", "Pos1", "Pos2", "String Data", "User", "Date" });
 
 	static final int HISTORY_ADDRESS_COL = 0;
@@ -44,10 +45,11 @@ abstract class CommentHistoryAdapter {
 	static final int HISTORY_USER_COL = 5;
 	static final int HISTORY_DATE_COL = 6;
 
-	static CommentHistoryAdapter getAdapter(DBHandle dbHandle, int openMode, AddressMap addrMap,
-			TaskMonitor monitor) throws VersionException, CancelledException, IOException {
+	static CommentHistoryAdapter getAdapter(DBHandle dbHandle, OpenMode openMode,
+			AddressMap addrMap, TaskMonitor monitor)
+			throws VersionException, CancelledException, IOException {
 
-		if (openMode == DBConstants.CREATE) {
+		if (openMode == OpenMode.CREATE) {
 			return new CommentHistoryAdapterV0(dbHandle, addrMap, true);
 		}
 
@@ -59,11 +61,11 @@ abstract class CommentHistoryAdapter {
 			return adapter;
 		}
 		catch (VersionException e) {
-			if (!e.isUpgradable() || openMode == DBConstants.UPDATE) {
+			if (!e.isUpgradable() || openMode == OpenMode.UPDATE) {
 				throw e;
 			}
 			CommentHistoryAdapter adapter = findReadOnlyAdapter(dbHandle, addrMap);
-			if (openMode == DBConstants.UPGRADE) {
+			if (openMode == OpenMode.UPGRADE) {
 				adapter = upgrade(dbHandle, addrMap, adapter, monitor);
 			}
 			return adapter;
@@ -101,8 +103,8 @@ abstract class CommentHistoryAdapter {
 				new CommentHistoryAdapterV0(tmpHandle, addrMap, true);
 			RecordIterator iter = oldAdapter.getAllRecords();
 			while (iter.hasNext()) {
-				monitor.checkCanceled();
-				Record rec = iter.next();
+				monitor.checkCancelled();
+				DBRecord rec = iter.next();
 				Address addr = oldAddrMap.decodeAddress(rec.getLongValue(HISTORY_ADDRESS_COL));
 				rec.setLongValue(HISTORY_ADDRESS_COL, addrMap.getKey(addr, true));
 				tmpAdapter.updateRecord(rec);
@@ -114,8 +116,8 @@ abstract class CommentHistoryAdapter {
 
 			iter = tmpAdapter.getAllRecords();
 			while (iter.hasNext()) {
-				monitor.checkCanceled();
-				Record rec = iter.next();
+				monitor.checkCancelled();
+				DBRecord rec = iter.next();
 				newAdapter.updateRecord(rec);
 				monitor.setProgress(++count);
 			}
@@ -150,7 +152,7 @@ abstract class CommentHistoryAdapter {
 	 * @param rec the record to update
 	 * @throws IOException if there was a problem accessing the database
 	 */
-	abstract void updateRecord(Record rec) throws IOException;
+	abstract void updateRecord(DBRecord rec) throws IOException;
 
 	/**
 	 * Delete the records in the given range.

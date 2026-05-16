@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,15 +15,17 @@
  */
 package ghidra.app.cmd.data;
 
+import ghidra.app.cmd.data.rtti.RttiUtil;
 import ghidra.app.util.datatype.microsoft.DataApplyOptions;
 import ghidra.app.util.datatype.microsoft.DataValidationOptions;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.*;
 import ghidra.program.model.listing.*;
+import ghidra.program.model.symbol.Namespace;
+import ghidra.program.model.symbol.SourceType;
 import ghidra.program.model.util.CodeUnitInsertionException;
 import ghidra.util.Msg;
-import ghidra.util.exception.CancelledException;
-import ghidra.util.exception.InvalidInputException;
+import ghidra.util.exception.*;
 
 /**
  * This command will create a TypeDescriptor data type. Since unsized arrays are not properly
@@ -35,7 +37,7 @@ public class CreateTypeDescriptorBackgroundCmd
 	private static final String RTTI_0_NAME = "RTTI Type Descriptor";
 
 	/**
-	 * Constructs a command for applying a TypeDescriptor data type at an address using the 
+	 * Constructs a command for applying a TypeDescriptor data type at an address using the
 	 * default validation and apply options.
 	 * @param address the address where the data should be created using the data type.
 	 */
@@ -44,13 +46,13 @@ public class CreateTypeDescriptorBackgroundCmd
 	}
 
 	/**
-	 * Constructs a command for applying a TypeDescriptor data type at an address using the 
+	 * Constructs a command for applying a TypeDescriptor data type at an address using the
 	 * indicated options.
 	 * @param address the address where the data should be created using the data type.
-	 * @param validationOptions the options for controlling how validation is performed when 
+	 * @param validationOptions the options for controlling how validation is performed when
 	 * determining whether or not to create the data structure at the indicated address.
 	 * @param applyOptions the options for creating the new data structure and its associated
-	 * markup in the program as well as whether to follow other data references and create their 
+	 * markup in the program as well as whether to follow other data references and create their
 	 * data too.
 	 */
 	public CreateTypeDescriptorBackgroundCmd(Address address,
@@ -63,7 +65,7 @@ public class CreateTypeDescriptorBackgroundCmd
 	 * by the model and using the indicated options.
 	 * @param model the model indicating the TypeDescriptor data to be created by this command.
 	 * @param applyOptions the options for creating the new data structure and its associated
-	 * markup in the program as well as whether to follow other data references and create their 
+	 * markup in the program as well as whether to follow other data references and create their
 	 * data too.
 	 */
 	public CreateTypeDescriptorBackgroundCmd(TypeDescriptorModel model,
@@ -90,12 +92,15 @@ public class CreateTypeDescriptorBackgroundCmd
 	 * as its last component ( char[0]  name ).  The string data associated with this flexible char array will
 	 * be applied as a sized character array immediately following the structure whose size does not include
 	 * the char array bytes.
-	 * @throws CodeUnitInsertionException
-	 * @throws CancelledException
+	 * @return false if the data type was not created because it already exists, true otherwise
+	 * @throws CodeUnitInsertionException if creating data throws exception
+	 * @throws CancelledException if cancelled
 	 */
 	@Override
-	protected void createData() throws CodeUnitInsertionException, CancelledException {
-		super.createData(); // create the TypeDesciptor structure
+	protected boolean createData() throws CodeUnitInsertionException, CancelledException {
+		if (!super.createData()) { // create the TypeDesciptor structure 
+			return false;
+		}
 
 		// Determine the size of the flexible char array storage and create  properly sized array
 		DataType dataType = model.getDataType();
@@ -107,15 +112,11 @@ public class CreateTypeDescriptorBackgroundCmd
 		// Create 'name' char[0] data at the address immediately following structure
 		Program program = model.getProgram();
 		Data nameData = DataUtilities.createData(program, arrayAddr, charArray,
-			charArray.getLength(), false, getClearDataMode());
+			charArray.getLength(), getClearDataMode());
 
-		if (nameData != null) {
-			nameData.setComment(CodeUnit.EOL_COMMENT, "TypeDescriptor.name");
-		}
-		else {
-			Msg.error(this, "Failed to create TypeDescriptor name at " + arrayAddr);
-		}
+		nameData.setComment(CommentType.EOL, "TypeDescriptor.name");
 
+		return true;
 	}
 
 	@Override
@@ -128,24 +129,62 @@ public class CreateTypeDescriptorBackgroundCmd
 	@Override
 	protected boolean createMarkup() throws CancelledException, InvalidInputException {
 
-		monitor.checkCanceled();
+		monitor.checkCancelled();
 
 		Program program = model.getProgram();
 		String demangledName = model.getDemangledTypeDescriptor();
+
+		// if cannot demangle then use the mangled name
 		if (demangledName == null) {
-			return false;
+			demangledName = model.getOriginalTypename();
 		}
 		String prefix = demangledName + " ";
 
 		// Plate Comment
-		EHDataTypeUtilities.createPlateCommentIfNeeded(program, prefix, RTTI_0_NAME, null, getDataAddress(),
-			applyOptions);
+		EHDataTypeUtilities.createPlateCommentIfNeeded(program, prefix, RTTI_0_NAME, null,
+			getDataAddress(), applyOptions);
 
-		monitor.checkCanceled();
+		monitor.checkCancelled();
 
 		// Label
-		EHDataTypeUtilities.createSymbolIfNeeded(program, prefix, RTTI_0_NAME, null, getDataAddress(),
-			applyOptions);
+		Namespace classNamespace = model.getDescriptorAsNamespace();
+
+		// if cannot demangle then use the mangled name as the namespace
+		if (classNamespace == null || classNamespace.isGlobal()) {
+			Msg.error(RttiUtil.class, "Cannot get demangled namespace from model " +
+				model.getAddress() + " so will use the mangled name for the namespace");
+			try {
+				classNamespace = program.getSymbolTable()
+						.getOrCreateNameSpace(program.getGlobalNamespace(), demangledName,
+							SourceType.IMPORTED);
+			}
+			catch (DuplicateNameException e) {
+				// ok if it is duplicate as it was likely created in another rtti handling method
+			}
+			catch (InvalidInputException e) {
+				Msg.error(TypeDescriptorModel.class,
+					"Failed to create mangled namespace: " + e.getMessage());
+				classNamespace = null;
+				return false;
+			}
+
+		}
+
+		// If PDB had been run, then the namespace here might already have been promoted to
+		//  a class type.  At this point in processing, we know that the model only has a type
+		//  with a "class" or "struct" tag (see TypeDescriptorModel).
+		// <br>Note: For now this assumes all classes and structs with RTTI data must
+		// actually be classes. In the future this might need additional checking before
+		// promoting some "struct" ref types to being a class, if we can better determine
+		// whether or not they are actually classes.
+		if (!(classNamespace instanceof GhidraClass)) {
+			classNamespace = RttiUtil.promoteToClassNamespace(program, classNamespace);
+		}
+
+		// Make the symbol even if the namespace couldn't be promoted
+		// the method to promote spits out debug error if it cannot be promoted
+		EHDataTypeUtilities.createSymbolIfNeeded(program, classNamespace, RTTI_0_NAME,
+			getDataAddress(), applyOptions);
 
 		return true;
 	}

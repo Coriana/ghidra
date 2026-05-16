@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,7 +19,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-import ghidra.app.util.bin.format.FactoryBundledWithBinaryReader;
+import ghidra.app.util.bin.BinaryReader;
 import ghidra.app.util.bin.format.macho.MachConstants;
 import ghidra.app.util.bin.format.macho.MachHeader;
 import ghidra.app.util.importer.MessageLog;
@@ -32,39 +32,22 @@ import ghidra.util.exception.DuplicateNameException;
 import ghidra.util.task.TaskMonitor;
 
 /**
- * Represents a twolevel_hints_command structure.
- * 
- * @see <a href="https://opensource.apple.com/source/xnu/xnu-4570.71.2/EXTERNAL_HEADERS/mach-o/loader.h.auto.html">mach-o/loader.h</a> 
+ * Represents a twolevel_hints_command structure 
  */
 public class TwoLevelHintsCommand extends LoadCommand {
-	private int offset;
-	private int nhints;
-	private List<TwoLevelHint> hints = new ArrayList<TwoLevelHint>();
+	private long offset;
+	private long nhints;
+	private List<TwoLevelHint> hints = new ArrayList<>();
 
-	static TwoLevelHintsCommand createTwoLevelHintsCommand(FactoryBundledWithBinaryReader reader)
-			throws IOException {
-		TwoLevelHintsCommand command =
-			(TwoLevelHintsCommand) reader.getFactory().create(TwoLevelHintsCommand.class);
-		command.initTwoLevelHintsCommand(reader);
-		return command;
-	}
-
-	/**
-	 * DO NOT USE THIS CONSTRUCTOR, USE create*(GenericFactory ...) FACTORY METHODS INSTEAD.
-	 */
-	public TwoLevelHintsCommand() {
-	}
-
-	private void initTwoLevelHintsCommand(FactoryBundledWithBinaryReader reader)
-			throws IOException {
-		initLoadCommand(reader);
-		offset = reader.readNextInt();
-		nhints = reader.readNextInt();
+	TwoLevelHintsCommand(BinaryReader reader) throws IOException {
+		super(reader);
+		offset = reader.readNextUnsignedInt();
+		nhints = checkCount(reader.readNextUnsignedInt());
 
 		long index = reader.getPointerIndex();
 		reader.setPointerIndex(offset);
-		for (int i = 0; i < nhints; ++i) {
-			hints.add(TwoLevelHint.createTwoLevelHint(reader));
+		for (long i = 0; i < nhints; ++i) {
+			hints.add(new TwoLevelHint(reader));
 		}
 		reader.setPointerIndex(index);
 	}
@@ -77,7 +60,7 @@ public class TwoLevelHintsCommand extends LoadCommand {
 	 * Returns the offset to the hint table.
 	 * @return the offset to the hint table
 	 */
-	public int getOffset() {
+	public long getOffset() {
 		return offset;
 	}
 
@@ -85,7 +68,7 @@ public class TwoLevelHintsCommand extends LoadCommand {
 	 * Returns the number of hints in the hint table.
 	 * @return the number of hints in the hint table
 	 */
-	public int getNumberOfHints() {
+	public long getNumberOfHints() {
 		return nhints;
 	}
 
@@ -106,31 +89,29 @@ public class TwoLevelHintsCommand extends LoadCommand {
 	}
 
 	@Override
-	public void markup(MachHeader header, FlatProgramAPI api, Address baseAddress, boolean isBinary,
+	public void markupRawBinary(MachHeader header, FlatProgramAPI api, Address baseAddress,
 			ProgramModule parentModule, TaskMonitor monitor, MessageLog log) {
 		updateMonitor(monitor);
 		try {
-			if (isBinary) {
-				ProgramFragment fragment = createFragment(api, baseAddress, parentModule);
-				Address addr = baseAddress.getNewAddress(getStartIndex());
-				api.createData(addr, toDataType());
+			ProgramFragment fragment = createFragment(api, baseAddress, parentModule);
+			Address addr = baseAddress.getNewAddress(getStartIndex());
+			api.createData(addr, toDataType());
 
-				Address hintStartAddress = baseAddress.add(getOffset());
-				Address hintAddress = hintStartAddress;
-				for (TwoLevelHint hint : hints) {
-					if (monitor.isCancelled()) {
-						return;
-					}
-					DataType hintDT = hint.toDataType();
-					api.createData(hintAddress, hintDT);
-					api.setPlateComment(hintAddress,
-						"Sub-image Index: 0x" + Integer.toHexString(hint.getSubImageIndex()) +
-							'\n' + "      TOC Index: 0x" +
-							Integer.toHexString(hint.getTableOfContentsIndex()));
-					hintAddress = hintAddress.add(hintDT.getLength());
+			Address hintStartAddress = baseAddress.add(getOffset());
+			Address hintAddress = hintStartAddress;
+			for (TwoLevelHint hint : hints) {
+				if (monitor.isCancelled()) {
+					return;
 				}
-				fragment.move(hintStartAddress, hintAddress.subtract(1));
+				DataType hintDT = hint.toDataType();
+				api.createData(hintAddress, hintDT);
+				api.setPlateComment(hintAddress,
+					"Sub-image Index: 0x" + Integer.toHexString(hint.getSubImageIndex()) +
+						'\n' + "      TOC Index: 0x" +
+						Integer.toHexString(hint.getTableOfContentsIndex()));
+				hintAddress = hintAddress.add(hintDT.getLength());
 			}
+			fragment.move(hintStartAddress, hintAddress.subtract(1));
 		}
 		catch (Exception e) {
 			log.appendMsg("Unable to create " + getCommandName() + " - " + e.getMessage());

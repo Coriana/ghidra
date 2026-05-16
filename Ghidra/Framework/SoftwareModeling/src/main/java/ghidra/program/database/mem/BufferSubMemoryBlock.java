@@ -18,7 +18,7 @@ package ghidra.program.database.mem;
 import java.io.IOException;
 
 import db.DBBuffer;
-import db.Record;
+import db.DBRecord;
 import ghidra.program.model.mem.Memory;
 
 /**
@@ -28,7 +28,7 @@ import ghidra.program.model.mem.Memory;
 class BufferSubMemoryBlock extends SubMemoryBlock {
 	final DBBuffer buf;
 
-	BufferSubMemoryBlock(MemoryMapDBAdapter adapter, Record record) throws IOException {
+	BufferSubMemoryBlock(MemoryMapDBAdapter adapter, DBRecord record) throws IOException {
 		super(adapter, record);
 		int bufferID = record.getIntValue(MemoryMapDBAdapter.SUB_INT_DATA1_COL);
 		buf = adapter.getBuffer(bufferID);
@@ -40,13 +40,14 @@ class BufferSubMemoryBlock extends SubMemoryBlock {
 	}
 
 	@Override
-	public byte getByte(long offsetInMemBlock) throws IOException {
+	public byte getByte(long offsetInMemBlock) throws IndexOutOfBoundsException, IOException {
 		long offsetInSubBlock = offsetInMemBlock - subBlockOffset;
 		return buf.getByte((int) offsetInSubBlock);
 	}
 
 	@Override
-	public int getBytes(long offsetInMemBlock, byte[] b, int off, int len) throws IOException {
+	public int getBytes(long offsetInMemBlock, byte[] b, int off, int len)
+			throws IndexOutOfBoundsException, IOException {
 		long offsetInSubBlock = offsetInMemBlock - subBlockOffset;
 		long available = subBlockLength - offsetInSubBlock;
 		len = (int) Math.min(len, available);
@@ -55,13 +56,15 @@ class BufferSubMemoryBlock extends SubMemoryBlock {
 	}
 
 	@Override
-	public void putByte(long offsetInMemBlock, byte b) throws IOException {
+	public void putByte(long offsetInMemBlock, byte b)
+			throws IndexOutOfBoundsException, IOException {
 		long offsetInSubBlock = offsetInMemBlock - subBlockOffset;
 		buf.putByte((int) offsetInSubBlock, b);
 	}
 
 	@Override
-	public int putBytes(long offsetInMemBlock, byte[] b, int off, int len) throws IOException {
+	public int putBytes(long offsetInMemBlock, byte[] b, int off, int len)
+			throws IndexOutOfBoundsException, IOException {
 		long offsetInSubBlock = offsetInMemBlock - subBlockOffset;
 		long available = subBlockLength - offsetInSubBlock;
 		len = (int) Math.min(len, available);
@@ -95,7 +98,8 @@ class BufferSubMemoryBlock extends SubMemoryBlock {
 	}
 
 	@Override
-	protected SubMemoryBlock split(long memBlockOffset) throws IOException {
+	protected SubMemoryBlock split(long memBlockOffset)
+			throws IndexOutOfBoundsException, IOException {
 		// convert from offset in block to offset in this sub block
 		int offset = (int) (memBlockOffset - subBlockOffset);
 		long newLength = subBlockLength - offset;
@@ -105,7 +109,7 @@ class BufferSubMemoryBlock extends SubMemoryBlock {
 
 		DBBuffer split = buf.split(offset);
 
-		Record newSubRecord = adapter.createSubBlockRecord(0, 0, newLength,
+		DBRecord newSubRecord = adapter.createSubBlockRecord(0, 0, newLength,
 			MemoryMapDBAdapter.SUB_TYPE_BUFFER, split.getId(), 0);
 
 		return new BufferSubMemoryBlock(adapter, newSubRecord);
@@ -113,6 +117,6 @@ class BufferSubMemoryBlock extends SubMemoryBlock {
 
 	@Override
 	protected String getDescription() {
-		return "";
+		return "init[0x%x]".formatted(subBlockLength);
 	}
 }

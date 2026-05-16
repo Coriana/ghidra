@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,7 +22,6 @@ import ghidra.program.util.ProgramLocation;
 import ghidra.util.exception.DuplicateNameException;
 import ghidra.util.exception.InvalidInputException;
 import ghidra.util.task.TaskMonitor;
-import ghidra.util.task.TaskMonitorAdapter;
 
 /**
  * Interface for a symbol, which associates a string value with
@@ -41,21 +40,15 @@ public interface Symbol {
 	public String getName();
 
 	/**
-	 * Check whether this symbol is still valid (i.e., deleted).
-	 * @return true if valid or false if deleted.
-	 */
-	public boolean checkIsValid();
-
-	/**
 	 * Gets the full path name for this symbol as an ordered array of strings ending
-	 * with the symbol name. The global symbol will return an empty array.
+	 * with the symbol name. 
 	 * @return the array indicating the full path name for this symbol.
 	 */
 	public String[] getPath();
 
 	/**
+	 * Get the program associated with this symbol
 	 * @return the program associated with this symbol.
-	 * Null may be returned for global symbols.
 	 */
 	public Program getProgram();
 
@@ -67,12 +60,14 @@ public interface Symbol {
 	public String getName(boolean includeNamespace);
 
 	/**
-	 * @return the namespace that contains this symbol
+	 * Return the parent namespace for this symbol.
+	 * @return the namespace that contains this symbol.
 	 */
 	public Namespace getParentNamespace();
 
 	/**
 	 * Returns namespace symbol of the namespace containing this symbol
+	 * @return parent namespace symbol
 	 */
 	public Symbol getParentSymbol();
 
@@ -84,35 +79,44 @@ public interface Symbol {
 	public boolean isDescendant(Namespace namespace);
 
 	/**
-	 * Returns whether the given parent is valid for this Symbol.
-	 * @param parent
+	 * Determines if the given parent is valid for this Symbol.  Specified namespace 
+	 * must belong to the same symbol table as this symbol.
+	 * @param parent prospective parent namespace for this symbol
 	 * @return true if parent is valid
 	 */
 	public boolean isValidParent(Namespace parent);
 
 	/**
-	 * Returns the symbol type
+	 * Returns this symbol's type
+	 * @return symbol type
 	 */
 	public SymbolType getSymbolType();
 
 	/**
-	 * @return the number of References to this symbol.
+	 * Get the number of References to this symbol or its address.
+	 * <P>
+	 * NOTE: this method differ from {@link #hasReferences()} behavior for memory symbols since this 
+	 * method will return {@link ReferenceManager#getReferenceCountTo(Address)} if this is the only 
+	 * symbol at its address.
+	 * 
+	 * @return the number of References to this symbol or its address.
 	 */
-	public int getReferenceCount();
-
-	/**
-	 * @return true if this symbol has more than one reference to it.
-	 */
-	public boolean hasMultipleReferences();
+	public default int getReferenceCount() {
+		return 0;
+	}
 
 	/**
 	 * @return true if this symbol has at least one reference to it.
+	 * Explicit references to other symbols at the same address are not considered 
+	 * (see {@link Reference#getSymbolID()} which indicates a specific symbol reference).
 	 */
-	public boolean hasReferences();
+	public default boolean hasReferences() {
+		return false;
+	}
 
 	/**
 	 * Returns all memory references to the address of this symbol.  If you do not have a
-	 * {@link TaskMonitor} instance, then you can pass {@link TaskMonitorAdapter#DUMMY_MONITOR} or
+	 * {@link TaskMonitor} instance, then you can pass {@link TaskMonitor#DUMMY} or
 	 * <code>null</code>.
 	 *
 	 * @return all memory references to the address of this symbol.
@@ -120,7 +124,9 @@ public interface Symbol {
 	 * @param monitor the monitor that is used to report progress and to cancel this
 	 *        potentially long-running call
 	 */
-	public Reference[] getReferences(TaskMonitor monitor);
+	public default Reference[] getReferences(TaskMonitor monitor) {
+		return new Reference[0];
+	}
 
 	/**
 	 * Returns all memory references to the address of this symbol.
@@ -128,12 +134,19 @@ public interface Symbol {
 	 * @return all memory references to the address of this symbol
 	 * @see #getReferences(TaskMonitor)
 	 */
-	public Reference[] getReferences();
+	public default Reference[] getReferences() {
+		return getReferences(TaskMonitor.DUMMY);
+	}
 
 	/**
-	 * @return a program location corresponding to this symbol
+	 * Returns a program location for this symbol; may be null.  This allows implementations to 
+	 * return a more specific program location than what is typically used by the system.  
+	 * 
+	 * @return the location
 	 */
-	public ProgramLocation getProgramLocation();
+	public default ProgramLocation getProgramLocation() {
+		return null;
+	}
 
 	/**
 	 * Sets the name this symbol.
@@ -143,10 +156,9 @@ public interface Symbol {
 	 * @param source the source of this symbol
 	 * <br>Some symbol types, such as function symbols, can set the source to Symbol.DEFAULT.
 	 *
-	 * @throws DuplicateNameException
-	 * 		if name already exists as the name of another symbol or alias.
-	 * @throws InvalidInputException
-	 * 		if alias contains blank characters, is zero length, or is null
+	 * @throws DuplicateNameException if name conflicts with another symbol.
+	 * @throws InvalidInputException if an invalid or null name specified (see 
+	 * {@link SymbolUtilities#validateName}).
 	 * @throws IllegalArgumentException if you try to set the source to DEFAULT for a symbol type
 	 * that doesn't allow it.
 	 */
@@ -185,7 +197,8 @@ public interface Symbol {
 			throws DuplicateNameException, InvalidInputException, CircularDependencyException;
 
 	/**
-	 * Delete the symbol and its associated resources.
+	 * Delete the symbol and its associated resources.  Any references symbol associations
+	 * will be discarded.
 	 * @return true if successful
 	 */
 	public boolean delete();
@@ -196,7 +209,9 @@ public interface Symbol {
 	 *
 	 * @return true if the symbol is pinned to its current address.
 	 */
-	public boolean isPinned();
+	public default boolean isPinned() {
+		return false; //most symbols can't be pinned.
+	}
 
 	/**
 	 * <p>Sets whether or not this symbol is pinned to its associated address.</p>
@@ -212,7 +227,9 @@ public interface Symbol {
 	 * @param pinned true indicates this symbol is anchored to its address.
 	 * 		false indicates this symbol is not anchored to its address.
 	 */
-	public void setPinned(boolean pinned);
+	public default void setPinned(boolean pinned) {
+		throw new UnsupportedOperationException("Only Code and Function Symbols may be pinned.");
+	}
 
 	/**
 	 * @return true if this symbol is a dynamic symbol (not actually defined in the database).
@@ -243,7 +260,9 @@ public interface Symbol {
 	 * @return true if the symbol is at an address
 	 * set as a external entry point.
 	 */
-	public boolean isExternalEntryPoint();
+	public default boolean isExternalEntryPoint() {
+		return false;
+	}
 
 	/**
 	 * @return this symbol's ID.
@@ -256,7 +275,7 @@ public interface Symbol {
 	public Object getObject();
 
 	/**
-	 * @return true if the symbol is global
+	 * @return true if the symbol is contained within the global namespace
 	 */
 	public boolean isGlobal();
 
@@ -273,4 +292,11 @@ public interface Symbol {
 	 * @return the source of this symbol
 	 */
 	public SourceType getSource();
+
+	/**
+	 * Determine if this symbol object has been deleted.  NOTE: the symbol could be
+	 * deleted at anytime due to asynchronous activity.  
+	 * @return true if symbol has been deleted, false if not.
+	 */
+	public boolean isDeleted();
 }

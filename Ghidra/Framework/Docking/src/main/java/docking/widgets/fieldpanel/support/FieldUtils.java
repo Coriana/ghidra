@@ -25,15 +25,19 @@ import docking.widgets.fieldpanel.field.FieldElement;
  */
 public class FieldUtils {
 
-	private static final char[] WHITE_SPACE = new char[] { '\t', '\n', '\r', '\f' };
+	public static final String WORD_WRAP_OPTION_NAME = "Enable Word Wrapping";
+	public static final String WORD_WRAP_OPTION_DESCRIPTION =
+		"Enables word wrapping.  When on, each line of text is wrapped as needed to fit within " +
+			"the current width.  When off, comments are displayed as entered by the user.  Lines " +
+			"that are too long for the field are truncated.";
 
 	private FieldUtils() { // utility class
 	}
 
 	public static List<FieldElement> wrap(List<FieldElement> fieldElements, int width) {
-		List<FieldElement> wrappedElements = new ArrayList<FieldElement>();
+		List<FieldElement> wrappedElements = new ArrayList<>();
 		for (FieldElement fieldElement : fieldElements) {
-			wrappedElements.addAll(wordWrapList(fieldElement, width));
+			wrappedElements.addAll(wrap(fieldElement, width));
 		}
 		return wrappedElements;
 	}
@@ -42,69 +46,78 @@ public class FieldUtils {
 	 * Splits the given FieldElement into sub-elements by wrapping the element on whitespace.
 	 * 
 	 * @param fieldElement The element to wrap
-	 * @param width The maximum width to allow before wrapping 
+	 * @param width The maximum width to allow before wrapping
 	 * @return The wrapped elements
 	 */
-	public static FieldElement[] wrap(FieldElement fieldElement, int width) {
-
-		FieldElement originalFieldElement = fieldElement.replaceAll(WHITE_SPACE, ' ');
-		if (originalFieldElement.getStringWidth() <= width) {
-			return new FieldElement[] { originalFieldElement };
-		}
-
-		List<FieldElement> lines = new ArrayList<FieldElement>();
-		int wordWrapPos = findWordWrapPosition(originalFieldElement, width);
-		while (wordWrapPos > 0) {
-			lines.add(originalFieldElement.substring(0, wordWrapPos));
-			if (originalFieldElement.charAt(wordWrapPos) == ' ') {
-				wordWrapPos++; 	// skip white space char
-			}
-			originalFieldElement = originalFieldElement.substring(wordWrapPos);
-			wordWrapPos = findWordWrapPosition(originalFieldElement, width);
-		}
-		lines.add(originalFieldElement);
-		return lines.toArray(new FieldElement[lines.size()]);
-	}
-
-	/**
-	 * Splits the given FieldElement into sub-elements by wrapping the element on whitespace.
-	 * 
-	 * @param fieldElement The element to wrap
-	 * @param width The maximum width to allow before wrapping 
-	 * @return The wrapped elements
-	 */
-	public static List<FieldElement> wordWrapList(FieldElement fieldElement, int width) {
-		List<FieldElement> lines = new ArrayList<FieldElement>();
-
-		FieldElement originalFieldElement = fieldElement.replaceAll(WHITE_SPACE, ' ');
-		if (originalFieldElement.getStringWidth() <= width) {
-			lines.add(originalFieldElement);
+	public static List<FieldElement> wrap(FieldElement fieldElement, int width) {
+		List<FieldElement> lines = new ArrayList<>();
+		if (fieldElement.getStringWidth() <= width) {
+			lines.add(fieldElement);
 			return lines;
 		}
 
-		int wordWrapPos = findWordWrapPosition(originalFieldElement, width);
+		FieldElement element = fieldElement;
+		int wordWrapPos = findWordWrapPosition(element, width);
 		while (wordWrapPos > 0) {
-			lines.add(originalFieldElement.substring(0, wordWrapPos));
-			if (originalFieldElement.charAt(wordWrapPos) == ' ') {
-				wordWrapPos++; 	// skip white space char
-			}
-			originalFieldElement = originalFieldElement.substring(wordWrapPos);
-			wordWrapPos = findWordWrapPosition(originalFieldElement, width);
+			lines.add(element.substring(0, wordWrapPos));
+			element = element.substring(wordWrapPos);
+			wordWrapPos = findWordWrapPosition(element, width);
 		}
-		lines.add(originalFieldElement);
+		lines.add(element);
+		return lines;
+	}
+
+	/**
+	 * Splits the given FieldElement into sub-elements by wrapping the element in some fashion.
+	 * If breakOnWhiteSpace is indicated, wrapping will break lines on a white space character
+	 * if possible, otherwise wrapping occurs on the last possible character.
+	 * @param fieldElement is the element to wrap
+	 * @param width is the maximum width to allow before wrapping
+	 * @param breakOnWhiteSpace determines whether line breaks should happen at white space chars
+	 * @return the wrapped elements
+	 */
+	public static List<FieldElement> wrap(FieldElement fieldElement, int width,
+			boolean breakOnWhiteSpace) {
+
+		if (breakOnWhiteSpace) {
+			return wrap(fieldElement, width);
+		}
+
+		List<FieldElement> lines = new ArrayList<>();
+		if (fieldElement.getStringWidth() <= width) {
+			lines.add(fieldElement);
+			return lines;
+		}
+
+		FieldElement element = fieldElement;
+		int wordWrapPos = element.getMaxCharactersForWidth(width);
+		if (wordWrapPos == element.length()) {
+			wordWrapPos = 0;
+		}
+
+		while (wordWrapPos > 0) {
+			lines.add(element.substring(0, wordWrapPos));
+			element = element.substring(wordWrapPos);
+			wordWrapPos = element.getMaxCharactersForWidth(width);
+			if (wordWrapPos == element.length()) {
+				wordWrapPos = 0;
+			}
+		}
+		lines.add(element);
 		return lines;
 	}
 
 	/**
 	 * Finds the position within the given element at which to split the line for word wrapping.
-	 * This method only breaks on whitespace characters. It finds the last whitespace character
-	 * that completely fits within the given width.  If there is no whitespace character before
-	 * the width break point, it finds the first whitespace character after the width.  If the
-	 * element cannot be split at all, it returns 0.
+	 * This method finds the last whitespace character that completely fits within the given width.
+	 * If there is no whitespace character before the width break point, it finds the first
+	 * whitespace character after the width.  If no whitespace can be found, then 0 will be returned
+	 * to signal that there is no spot to break the line.
+	 * 
 	 * @param element the element to split
 	 * @param width the max width to allow before looking for a word wrap positions
 	 * @return 0 if the element cannot be split, else the character position of the string
-	 * to be split off.
+	 * to be split, exclusive
 	 */
 	private static int findWordWrapPosition(FieldElement element, int width) {
 
@@ -114,36 +127,26 @@ public class FieldUtils {
 			return 0;
 		}
 
+		// inclusive
 		int whiteSpacePosition = text.lastIndexOf(" ", wrapPosition - 1);
 		if (whiteSpacePosition >= 0) {
-			return whiteSpacePosition;
+			return whiteSpacePosition + 1; // exclusive
 		}
 
 		return wrapPosition;
-		// The following code was replace with the return just above.  This has the effect
-		// of splitting contiguous words at the field width instead of at the next white 
-		// space beyond.
-//		whiteSpacePosition = text.indexOf(" ", wrapPosition);
-//		if (whiteSpacePosition >= 0) {
-//			if (whiteSpacePosition + 1 >= element.length()) {  // if whitespace at end, no split
-//				return 0;
-//			}
-//			return whiteSpacePosition;
-//		}
-//		return 0;
 	}
 
 	/**
-	 * Trims "goofy" characters off of the given label, like spaces, '[',']', etc.
+	 * Trims unwanted characters off of the given label, like spaces, '[',']', etc.
 	 * @param string The string to be trimmed
 	 * @return The trimmed string.
 	 */
 	public static String trimString(String string) {
 		// short-circuit case where the given string starts normally, but contains invalid
 		// characters (e.g., param_1[EAX])
-		StringBuffer buffer = new StringBuffer(string);
+		StringBuilder buffer = new StringBuilder(string);
 		if (Character.isJavaIdentifierPart(buffer.charAt(0))) {
-			// in this case just take all valid characters and then exit            
+			// in this case just take all valid characters and then exit
 			for (int index = 1; index < buffer.length(); index++) {
 				int charAt = buffer.charAt(index);
 				if (!Character.isJavaIdentifierPart(charAt)) {
@@ -153,7 +156,7 @@ public class FieldUtils {
 			return buffer.toString();
 		}
 
-		// the following case is when the given string is surrounded by "goofy" characters        
+		// the following case is when the given string is surrounded by "goofy" characters
 		int index = 0;
 		int charAt = buffer.charAt(index);
 		while (!Character.isJavaIdentifierPart(charAt) && buffer.length() > 0) {

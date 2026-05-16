@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,7 +19,6 @@ import ghidra.docking.settings.Settings;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressOverflowException;
 import ghidra.program.model.mem.*;
-import ghidra.util.Conv;
 import ghidra.util.Msg;
 
 /**
@@ -79,7 +78,7 @@ public abstract class CountedDynamicDataType extends DynamicDataType {
 		int n = (int) getCount(memory, start.add(counterOffset));
 
 		DataTypeComponent[] comps = new DataTypeComponent[n + 1];
-		DataTypeInstance dti = DataTypeInstance.getDataTypeInstance(header, buf);
+		DataTypeInstance dti = DataTypeInstance.getDataTypeInstance(header, buf, false);
 
 		if (dti == null) {
 			Msg.error(this, "ERROR: problem with data at " + buf.getAddress());
@@ -94,7 +93,7 @@ public abstract class CountedDynamicDataType extends DynamicDataType {
 		try {
 			newBuf.advance(countSize);
 			for (int i = 1; i <= n; i++) {
-				dti = DataTypeInstance.getDataTypeInstance(baseStruct, buf);
+				dti = DataTypeInstance.getDataTypeInstance(baseStruct, buf, false);
 				if (dti == null) {
 					Msg.error(this, "ERROR: problem with data at " + buf.getAddress());
 					return null;
@@ -157,13 +156,13 @@ public abstract class CountedDynamicDataType extends DynamicDataType {
 		try {
 			switch (counterSize) {
 				case 1:
-					test = Conv.byteToLong(memory.getByte(loc));
+					test = Byte.toUnsignedLong(memory.getByte(loc));
 					break;
 				case 2:
-					test = Conv.shortToLong(memory.getShort(loc));
+					test = Short.toUnsignedLong(memory.getShort(loc));
 					break;
 				case 4:
-					test = Conv.intToLong(memory.getInt(loc));
+					test = Integer.toUnsignedLong(memory.getInt(loc));
 					break;
 				case 8:
 					test = memory.getLong(loc);

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,51 +17,52 @@ package ghidra.program.model.address;
 
 import java.math.BigInteger;
 
-import org.apache.commons.lang3.StringUtils;
-
-import generic.util.UnsignedDataUtils;
-import ghidra.util.MathUtilities;
-import ghidra.util.NumericUtilities;
+import ghidra.util.*;
 import ghidra.util.exception.AssertException;
 
 abstract class AbstractAddressSpace implements AddressSpace {
 
-	protected String name;
-	protected int size; // number of address bits
-	protected int unitSize = 1; // number of data bytes at each location
-	protected int type;
-	protected long spaceSize = 0; // number of address locations (2^size * unitSize) - is always even number (spaceSize=0 when all 64-bits of address offset are used)
-	protected boolean signed;
-	protected long minOffset;
+	private final int size; // number of address bits
+	private final int unitSize; // number of data bytes at each location
+	private final int type;
+	private final boolean signed;
+
+	protected final long minOffset;
 	protected long maxOffset;
-	protected Address minAddress;
+	protected final Address minAddress;
 	protected Address maxAddress;
-	private int hashcode;
-	protected int spaceID;
+	private final long wordAddressMask;
+	protected long spaceSize; // number of address locations (2^size * unitSize) - is always even number (spaceSize=0 when all 64-bits of address offset are used)
+	protected final int spaceID;
+
+	private Integer hashcode;
 	private boolean showSpaceName; // show space name when displaying an address	
 	private boolean hasMemoryMappedRegisters = false;
 
-	private long wordAddressMask = -1;
-
 	/**
 	 * Constructs a new address space with the given name, bit size, type and unique value.
-	 * @param name the name of the space.
 	 * @param size the number of bits required to represent the largest address 
 	 * the space.
 	 * @param unitSize number of bytes contained at each addressable location (i.e., word-size in bytes)
 	 * @param type the type of the space
 	 * @param unique the unique id for this space.
 	 */
-	protected AbstractAddressSpace(String name, int size, int unitSize, int type, int unique) {
+	protected AbstractAddressSpace(int size, int unitSize, int type, int unique) {
+
+		this.size = size;
+		this.unitSize = unitSize;
+		this.type = type;
 
 		showSpaceName = (type != TYPE_RAM) || isOverlaySpace();
 
 		if (type == TYPE_NONE) {
-			this.name = name;
-			this.type = TYPE_NONE;
+			// Intended for special purpose non-physical address space and single address
+			minOffset = maxOffset = 0; // single address at offset-0
 			minAddress = maxAddress = getUncheckedAddress(0);
+			signed = false;
+			spaceSize = 0; // (spaceSize=0 for 64-bit space)
+			wordAddressMask = -1;
 			spaceID = -1;
-			hashcode = name.hashCode() + type;
 			return;
 		}
 
@@ -69,17 +70,17 @@ abstract class AbstractAddressSpace implements AddressSpace {
 			throw new IllegalArgumentException(
 				"Unique space id must be between 0 and " + Short.MAX_VALUE + " inclusive");
 		}
-		this.name = name;
-		this.size = size;
-		this.unitSize = unitSize;
-		this.type = type;
 
-		if ((bitsConsumedByUnitSize(unitSize) + size) > 64) {
+		if ((bitsConsumedByUnitSize() + size) > 64) {
 			throw new IllegalArgumentException(
 				"Unsupport address space size (2^size * wordsize > 2^64)");
 		}
-		if (size != 64) {
-			spaceSize = ((long) unitSize) << size; // (spaceSize=0 for 64-bit space)
+		if (size == 64) {
+			spaceSize = 0; // (spaceSize=0 for 64-bit space)
+			wordAddressMask = -1;
+		}
+		else {
+			spaceSize = ((long) unitSize) << size;
 			wordAddressMask = (1L << size) - 1;
 		}
 		signed = (type == AddressSpace.TYPE_CONSTANT || type == AddressSpace.TYPE_STACK);
@@ -114,11 +115,9 @@ abstract class AbstractAddressSpace implements AddressSpace {
 
 		// space id includes space and size info.
 		this.spaceID = (unique << ID_UNIQUE_SHIFT) | (logsize << ID_SIZE_SHIFT) | type;
-
-		hashcode = name.hashCode() + type;
 	}
 
-	private int bitsConsumedByUnitSize(int unitSize) {
+	private int bitsConsumedByUnitSize() {
 		if (unitSize < 1 || unitSize > 8) {
 			throw new IllegalArgumentException("Unsupported unit size: " + unitSize);
 		}
@@ -135,11 +134,6 @@ abstract class AbstractAddressSpace implements AddressSpace {
 	}
 
 	@Override
-	public String getName() {
-		return name;
-	}
-
-	@Override
 	public int getSize() {
 		return size;
 	}
@@ -151,14 +145,6 @@ abstract class AbstractAddressSpace implements AddressSpace {
 
 	@Override
 	public long getAddressableWordOffset(long byteOffset) {
-
-//		if (!isValidOffset(byteOffset)) {
-//			String max = Long.toHexString(maxOffset);
-//			String min = Long.toHexString(minOffset);
-//			throw new AddressOutOfBoundsException("Invalid byte offset 0x" +
-//				Long.toHexString(byteOffset) + ", must be between 0x" + min + " and 0x" + max);
-//		}
-
 		boolean isNegative = false;
 		if (signed && byteOffset < 0) {
 			byteOffset = -byteOffset;
@@ -209,7 +195,7 @@ abstract class AbstractAddressSpace implements AddressSpace {
 	}
 
 	@Override
-	public Address getAddress(String addrString) throws AddressFormatException {
+	public final Address getAddress(String addrString) throws AddressFormatException {
 		return getAddress(addrString, true);
 	}
 
@@ -218,11 +204,10 @@ abstract class AbstractAddressSpace implements AddressSpace {
 			throws AddressFormatException {
 		String offStr = addrString;
 
-		int colonPos = addrString.lastIndexOf(':');
-
+		int colonPos = addrString.lastIndexOf(Address.SEPARATOR);
 		if (colonPos >= 0) {
 			String addrSpaceStr = addrString.substring(0, colonPos);
-			if (!StringUtils.equals(name, addrSpaceStr)) {
+			if (!StringUtilities.equals(getName(), addrSpaceStr, caseSensitive)) {
 				return null;
 			}
 			offStr = addrString.substring(colonPos + 1);
@@ -230,18 +215,17 @@ abstract class AbstractAddressSpace implements AddressSpace {
 
 		try {
 			long off = parseString(offStr);
-			return getAddress(off);
+			return getAddressInThisSpaceOnly(off);
 		}
 		catch (NumberFormatException e) {
-			throw new AddressFormatException(
-				addrString + ": Cannot parse (" + offStr + ") as a number.");
+			throw new AddressFormatException(addrString + " contains invalid address hex offset");
 		}
 		catch (AddressOutOfBoundsException e) {
 			throw new AddressFormatException(e.getMessage());
 		}
 	}
 
-	private long parseString(String addr) {
+	private long parseString(String addr) throws NumberFormatException, AddressFormatException {
 		if (addr.startsWith("0x") || addr.startsWith("0X")) {
 			addr = addr.substring(2);
 		}
@@ -250,12 +234,20 @@ abstract class AbstractAddressSpace implements AddressSpace {
 		if (unitSize > 1) {
 			int ix = addr.indexOf('.');
 			if (ix > 0) {
-				mod = (new BigInteger(addr.substring(ix + 1), 16)).longValue();
+				String unitOffset = addr.substring(ix + 1);
+				BigInteger bi = new BigInteger(unitOffset, 16);
+				mod = bi.longValue();
+				if (bi.bitLength() > 8 || mod >= unitSize) {
+					throw new AddressFormatException("invalid address unit offset: ." + unitOffset);
+				}
 				addr = addr.substring(0, ix);
 			}
 		}
 
 		BigInteger bi = new BigInteger(addr, 16);
+		if (bi.bitLength() > 64) {
+			throw new AddressFormatException("unsupported address offset: " + addr);
+		}
 		return (unitSize * bi.longValue()) + mod;
 	}
 
@@ -323,25 +315,21 @@ abstract class AbstractAddressSpace implements AddressSpace {
 				"Address Overflow in subtract: " + addr + " - 0x" + Long.toHexString(displacement));
 		}
 		long addrOff = addr.getOffset();
-		long maxOff = maxAddress.getOffset();
-		long minOff = minAddress.getOffset();
 		long result = addrOff - displacement;
-		if (maxOff < 0) { // 64 bit unsigned
-			if (addrOff >= 0 && result < 0) {
-				throw new AddressOverflowException("Address Overflow in subtract: " + addr +
-					" - 0x" + Long.toHexString(displacement));
-			}
-			else if ((addrOff < 0 && result < 0) || (addrOff >= 0 && result >= 0)) {
-				if (result > addrOff) {
-					throw new AddressOverflowException("Address Overflow in subtract: " + addr +
-						" - 0x" + Long.toHexString(displacement));
-				}
+
+		// An integer underflow occurred if:
+		//   1) the result is less than the address space's min address, or
+		//   2) if the result is greater than the starting addr
+		if (signed) {
+			if (result < minAddress.getOffset() || result > addrOff) {
+				throw new AddressOverflowException(
+					String.format("Address Overflow in subtract: %s - 0x%x", addr, displacement));
 			}
 		}
 		else {
-			if (result > addrOff || result < minOff) {
-				throw new AddressOverflowException("Address Overflow in subtract: " + addr +
-					" - 0x" + Long.toHexString(displacement));
+			if (Long.compareUnsigned(addrOff, result) < 0) {
+				throw new AddressOverflowException(
+					String.format("Address Overflow in subtract: %s - 0x%x", addr, displacement));
 			}
 		}
 		return getUncheckedAddress(result);
@@ -384,27 +372,25 @@ abstract class AbstractAddressSpace implements AddressSpace {
 				"Address Overflow in add: " + addr + " + 0x" + Long.toHexString(displacement));
 		}
 		long addrOff = addr.getOffset();
-		long maxOff = maxAddress.getOffset();
 		long result = addrOff + displacement;
-		if (maxOff < 0) { // 64 bit unsigned
-			if (addrOff < 0 && result >= 0) {
+
+		// An integer overflow occurred if:
+		//   1) the result is larger than the address space's max address (a no-op when unsigned && maxaddr=MAX_UINT64)
+		// or
+		//   2) if the result is less than the starting addr (because result exceeded MAX_UINT64)
+		if (signed) {
+			if (result < addrOff || result > maxAddress.getOffset()) {
 				throw new AddressOverflowException(
-					"Address Overflow in add: " + addr + " + 0x" + Long.toHexString(displacement));
-			}
-			else if ((addrOff < 0 && result < 0) || (addrOff >= 0 && result >= 0)) {
-				if (result < addrOff) {
-					throw new AddressOverflowException("Address Overflow in add: " + addr +
-						" + 0x" + Long.toHexString(displacement));
-				}
+					String.format("Address Overflow in add: %s 0x%x", addr, displacement));
 			}
 		}
 		else {
-			if (result < addrOff || result > maxOff) {
+			if (Long.compareUnsigned(maxAddress.getOffset(), result) < 0 ||
+				Long.compareUnsigned(result, addrOff) < 0) {
 				throw new AddressOverflowException(
-					"Address Overflow in add: " + addr + " + 0x" + Long.toHexString(displacement));
+					String.format("Address Overflow in add: %s 0x%x", addr, displacement));
 			}
 		}
-
 		return getUncheckedAddress(result);
 	}
 
@@ -420,6 +406,26 @@ abstract class AbstractAddressSpace implements AddressSpace {
 		BigInteger maxOff = maxAddress.getOffsetAsBigInteger();
 		BigInteger minOff = minAddress.getOffsetAsBigInteger();
 		BigInteger newOffset = addrOff.add(displacement);
+		if (newOffset.compareTo(minOff) < 0 || newOffset.compareTo(maxOff) > 0) {
+			throw new AddressOverflowException(
+				"Address Overflow in add: " + addr + " + " + displacement);
+		}
+
+		long resultOffset = NumericUtilities.bigIntegerToUnsignedLong(newOffset);
+		return getUncheckedAddress(resultOffset);
+	}
+	@Override
+	public Address subtractNoWrap(GenericAddress addr, BigInteger displacement)
+			throws AddressOverflowException {
+
+		if (displacement.equals(BigInteger.ZERO)) {
+			return addr;
+		}
+		testAddressSpace(addr);
+		BigInteger addrOff = addr.getOffsetAsBigInteger();
+		BigInteger maxOff = maxAddress.getOffsetAsBigInteger();
+		BigInteger minOff = minAddress.getOffsetAsBigInteger();
+		BigInteger newOffset = addrOff.subtract(displacement);
 		if (newOffset.compareTo(minOff) < 0 || newOffset.compareTo(maxOff) > 0) {
 			throw new AddressOverflowException(
 				"Address Overflow in add: " + addr + " + " + displacement);
@@ -482,48 +488,37 @@ abstract class AbstractAddressSpace implements AddressSpace {
 		return minAddress;
 	}
 
-	private int compareAsOverlaySpace(AddressSpace overlaySpace) {
-		int baseCompare = ((OverlayAddressSpace) this).getBaseSpaceID() -
-			((OverlayAddressSpace) overlaySpace).getBaseSpaceID();
-		if (baseCompare == 0) {
-			long otherMinOffset = overlaySpace.getMinAddress().getOffset();
-			if (minOffset == otherMinOffset) {
-				return name.compareTo(overlaySpace.getName());
-			}
-			return (minOffset < otherMinOffset) ? -1 : 1;
-		}
-		return baseCompare;
-	}
-
 	@Override
 	public int compareTo(AddressSpace space) {
 		if (space == this) {
 			return 0;
 		}
-		if (isOverlaySpace()) {
-			if (space.isOverlaySpace()) {
+
+		if (this instanceof OverlayAddressSpace thisOverlaySpace) {
+			if (space instanceof OverlayAddressSpace otherOverlaySpace) {
 				// Both spaces are overlay spaces
-				return compareAsOverlaySpace(space);
+				return thisOverlaySpace.compareOverlay(otherOverlaySpace);
 			}
 			// I'm an overlay, other space is NOT an overlay
 			return 1;
 		}
-		else if (space.isOverlaySpace()) {
+
+		if (space instanceof OverlayAddressSpace) {
 			// I'm NOT an overlay, other space is an overlay
 			return -1;
 		}
-		if (hashcode == space.hashCode() &&
+
+		if (hashCode() == space.hashCode() &&
 			// hashcode factors name and type
-			type == space.getType() && name.equals(space.getName()) &&
+			type == space.getType() && getName().equals(space.getName()) &&
 			getClass().equals(space.getClass())) {
-// TODO: This could be bad - should really only be 0 if same instance - although this could have other implications
-// Does not seem to be good way of factoring ID-based ordering with equality
 			// This is not intended to handle complete mixing of address spaces
 			// from multiple sources (i.e., language provider / address factory).
 			// It is intended to handle searching for a single address from one
 			// source within a list/set of addresses from a second source.
 			return 0;
 		}
+
 		int c = getSpaceID() - space.getSpaceID();
 		if (c == 0) {
 			c = getClass().getName().compareTo(space.getClass().getName());
@@ -542,22 +537,29 @@ abstract class AbstractAddressSpace implements AddressSpace {
 		if (getClass() != obj.getClass()) {
 			return false;
 		}
-		if (hashcode != obj.hashCode()) {
+		if (hashCode() != obj.hashCode()) {
 			return false;
 		}
 
 		AddressSpace s = (AddressSpace) obj;
+		if (type != s.getType() || size != s.getSize() || !getName().equals(s.getName())) {
+			return false;
+		}
 
-//        return spaceID == s.getUniqueSpaceID() && 
-//			   type == s.getType() &&
-////        	   name.equals(s.getName) &&  // does the name really matter?
-//        	   size == s.getSize();		
-
-		return type == s.getType() && name.equals(s.getName()) && size == s.getSize();
+		return true;
 	}
 
+	/**
+	 * Compute the fixed hashcode for this address space.
+	 * @return computed hash code
+	 */
+	abstract int computeHashCode();
+
 	@Override
-	public int hashCode() {
+	public final int hashCode() {
+		if (hashcode == null) {
+			hashcode = computeHashCode();
+		}
 		return hashcode;
 	}
 
@@ -569,13 +571,13 @@ abstract class AbstractAddressSpace implements AddressSpace {
 	protected void testAddressSpace(Address addr) {
 		if (!this.equals(addr.getAddressSpace())) {
 			throw new IllegalArgumentException("Address space for " + addr + " (" +
-				addr.getAddressSpace().getName() + ") does not match " + name);
+				addr.getAddressSpace().getName() + ") does not match " + getName());
 		}
 	}
 
 	@Override
 	public String toString() {
-		return name + ":";
+		return getName() + Address.SEPARATOR;
 	}
 
 	@Override
@@ -586,7 +588,8 @@ abstract class AbstractAddressSpace implements AddressSpace {
 	/**
 	 * Instantiates an address within this space.
 	 * No offset validation should be performed.
-	 * @param offset
+	 * @param offset address offset
+	 * @return requested unchecked address
 	 */
 	protected abstract Address getUncheckedAddress(long offset);
 
@@ -603,8 +606,10 @@ abstract class AbstractAddressSpace implements AddressSpace {
 
 	@Override
 	public long makeValidOffset(long offset) throws AddressOutOfBoundsException {
-		// TODO: Verify that this handle all cases - seems like it would not
-		if ((offset >= minOffset && offset <= maxOffset) || spaceSize == 0) {
+		if (size == 64 || spaceSize == 0) {
+			return offset;
+		}
+		if ((offset >= minOffset && offset <= maxOffset)) {
 			return offset;
 		}
 		if (signed) {
@@ -613,22 +618,16 @@ abstract class AbstractAddressSpace implements AddressSpace {
 				return offset - spaceSize;
 			}
 		}
-		else if (offset < 0 && offset >= -maxOffset - 1) {
-			// recover from accidental sign extension
-			return offset + spaceSize;
+		else {
+			if (offset < 0 && offset >= -maxOffset - 1) {
+				// recover from accidental sign extension
+				return offset + spaceSize;
+			}
 		}
 		String max = Long.toHexString(maxOffset);
 		String min = Long.toHexString(minOffset);
 		throw new AddressOutOfBoundsException("Offset must be between 0x" + min + " and 0x" + max +
 			", got 0x" + Long.toHexString(offset) + " instead!");
-	}
-
-	private boolean isValidOffset(long offset) {
-		if (signed) {
-			return (offset >= minOffset) && (offset <= maxOffset);
-		}
-		return UnsignedDataUtils.unsignedGreaterThanOrEqual(offset, minOffset) &&
-			UnsignedDataUtils.unsignedLessThanOrEqual(offset, maxOffset);
 	}
 
 	@Override
@@ -658,7 +657,7 @@ abstract class AbstractAddressSpace implements AddressSpace {
 
 	@Override
 	public boolean isMemorySpace() {
-		return type == TYPE_RAM || type == TYPE_CODE || type == TYPE_OTHER;
+		return type == TYPE_RAM || type == TYPE_CODE || type == TYPE_OTHER || type == TYPE_DELETED;
 	}
 
 	@Override

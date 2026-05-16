@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,9 +17,8 @@ package ghidra.app.util.bin.format.ne;
 
 import java.io.IOException;
 
-import generic.continues.GenericFactory;
+import ghidra.app.util.bin.BinaryReader;
 import ghidra.app.util.bin.ByteProvider;
-import ghidra.app.util.bin.format.FactoryBundledWithBinaryReader;
 import ghidra.app.util.bin.format.mz.DOSHeader;
 import ghidra.program.model.address.SegmentedAddress;
 
@@ -29,25 +28,23 @@ import ghidra.program.model.address.SegmentedAddress;
  * 
  */
 public class NewExecutable {
-    private FactoryBundledWithBinaryReader reader;
+	private BinaryReader reader;
     private DOSHeader dosHeader;
     private WindowsHeader winHeader;
 
     /**
 	 * Constructs a new instance of an new executable.
-	 * @param factory is the object factory to bundle with the reader
 	 * @param bp the byte provider
 	 * @param baseAddr the image base of the executable
 	 * @throws IOException if an I/O error occurs.
 	 */
-	public NewExecutable(GenericFactory factory, ByteProvider bp, SegmentedAddress baseAddr)
-			throws IOException {
-        reader = new FactoryBundledWithBinaryReader(factory, bp, true);
-        dosHeader = DOSHeader.createDOSHeader(reader);
+	public NewExecutable(ByteProvider bp, SegmentedAddress baseAddr) throws IOException {
+		reader = new BinaryReader(bp, true);
+		dosHeader = new DOSHeader(reader);
 
         if (dosHeader.isDosSignature()) {
             try {
-				winHeader = new WindowsHeader(reader, baseAddr, (short) dosHeader.e_lfanew());
+				winHeader = new WindowsHeader(reader, baseAddr, dosHeader.e_lfanew());
             }
             catch (InvalidWindowsHeaderException e) {
             }
@@ -57,7 +54,7 @@ public class NewExecutable {
      * Returns the underlying binary reader.
      * @return the underlying binary reader
      */
-    public FactoryBundledWithBinaryReader getBinaryReader() {
+	public BinaryReader getBinaryReader() {
         return reader;
     }
     /**

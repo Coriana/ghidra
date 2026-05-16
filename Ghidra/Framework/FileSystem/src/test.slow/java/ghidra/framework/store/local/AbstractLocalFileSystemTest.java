@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,15 +18,14 @@ package ghidra.framework.store.local;
 import static org.junit.Assert.*;
 
 import java.io.*;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.*;
 
 import db.*;
 import db.buffers.BufferFile;
-import generic.test.AbstractGenericTest;
-import generic.test.TestUtils;
+import generic.test.*;
 import ghidra.framework.store.*;
 import ghidra.util.InvalidNameException;
 import ghidra.util.PropertyFile;
@@ -41,21 +40,25 @@ public abstract class AbstractLocalFileSystemTest extends AbstractGenericTest {
 	LocalFileSystem fs;
 	File projectDir;
 
-	ArrayList<MyEvent> events = new ArrayList<>();
+	List<MyEvent> events = new ArrayList<>();
 
 	public AbstractLocalFileSystemTest(boolean useIndexedFileSystem) {
 		super();
 		this.useIndexedFileSystem = useIndexedFileSystem;
 	}
 
+	protected File createEmptyProjectDir() {
+		File tempDir = new File(AbstractGTest.getTestDirectoryPath());
+		File dir = new File(tempDir, "testproject");
+		FileUtilities.deleteDir(dir);
+		dir.mkdir();
+		return dir;
+	}
+
 	@Before
 	public void setUp() throws Exception {
 
-		File tempDir = new File(AbstractGenericTest.getTestDirectoryPath());
-		projectDir = new File(tempDir, "testproject");
-		FileUtilities.deleteDir(projectDir);
-		projectDir.mkdir();
-
+		projectDir = createEmptyProjectDir();
 		System.out.println(projectDir.getAbsolutePath());
 
 		fs = LocalFileSystem.getLocalFileSystem(projectDir.getAbsolutePath(), useIndexedFileSystem,
@@ -114,6 +117,7 @@ public abstract class AbstractLocalFileSystemTest extends AbstractGenericTest {
 			Assert.fail();
 		}
 		catch (IOException e) {
+			// expected
 		}
 
 		try {
@@ -121,6 +125,7 @@ public abstract class AbstractLocalFileSystemTest extends AbstractGenericTest {
 			Assert.fail();
 		}
 		catch (IOException e) {
+			// expected
 		}
 
 	}
@@ -161,78 +166,6 @@ public abstract class AbstractLocalFileSystemTest extends AbstractGenericTest {
 		checkEvent("Folder Created", "/a1/a2/a3", "a4", null, null, events.get(3));
 	}
 
-//	@Test
-//	public void testFolderPathTooLong() throws Exception {
-//
-//		StringBuffer sb = new StringBuffer();
-//		int projectDirLength = projectDir.getAbsolutePath().length();
-//		int i = 0;
-//		while (sb.length() + projectDirLength < 248) {
-//			sb.append("/a" + i);
-//			++i;
-//		}
-//		try {
-//			fs.createFolder(sb.toString(), "aaaa");
-//			Assert.fail("Should have gotten IO exception on too long of a filename!");
-//		}
-//		catch (IOException e) {
-//		}
-//	}
-//
-//	@Test
-//	public void testDataFilePathTooLong() throws Exception {
-//		fs.createFolder("/", "abc");
-//		String data = "This is a test";
-//		byte[] dataBytes = data.getBytes();
-//
-//		StringBuffer sb = new StringBuffer();
-//		int projectDirLength = projectDir.getAbsolutePath().length();
-//		int i = 0;
-//		while (sb.length() + projectDirLength < 248) {
-//			sb.append("/a" + i);
-//			++i;
-//		}
-//		try {
-//			fs.createDataFile(sb.toString(), "freddxxxx", new ByteArrayInputStream(dataBytes), null,
-//				"Data", null);
-//			Assert.fail("Should have gotten IO Exception!");
-//		}
-//		catch (IOException e) {
-//		}
-//
-//	}
-//
-//	public void testDataBasePathTooLong() throws Exception {
-//		fs.createFolder("/", "abc");
-//		DBHandle dbh = new DBHandle();
-//		long id = dbh.startTransaction();
-//		dbh.createTable("test", new Schema(0, "key", new Class[] { IntField.class },
-//			new String[] { "dummy" }));
-//		dbh.endTransaction(id, true);
-//		int projectDirLength = projectDir.getAbsolutePath().length();
-//		StringBuffer sb = new StringBuffer();
-//		int i = 0;
-//		while (sb.length() + projectDirLength < 248) {
-//			sb.append("/a" + i);
-//			++i;
-//		}
-//		try {
-//			fs.createDatabase(sb.toString(), "freddxxxx", null, "Database", dbh.getBufferSize(),
-//				"bob", null);
-//			Assert.fail("Should have gotten IO Exception!");
-//		}
-//		catch (IOException e) {
-//		}
-//	}
-
-	/**
-	 * @param string
-	 * @param string2
-	 * @param string3
-	 * @param object
-	 * @param object2
-	 * @param object3
-	 */
 	private void checkEvent(String op, String path, String name, String newPath, String newName,
 			Object evObj) {
 		MyEvent event = (MyEvent) evObj;
@@ -262,6 +195,7 @@ public abstract class AbstractLocalFileSystemTest extends AbstractGenericTest {
 			Assert.fail();
 		}
 		catch (FolderNotEmptyException e) {
+			// expected
 		}
 	}
 
@@ -302,8 +236,9 @@ public abstract class AbstractLocalFileSystemTest extends AbstractGenericTest {
 
 		// Get storage name based upon data dir name ~<storage-name>.db
 		String storageName = dataDir.getName();
-		storageName = storageName.substring(0,
-			storageName.length() - LocalFolderItem.DATA_DIR_EXTENSION.length()).substring(1);
+		storageName = storageName
+				.substring(0, storageName.length() - LocalFolderItem.DATA_DIR_EXTENSION.length())
+				.substring(1);
 		File propertyFile =
 			new File(dataDir.getParentFile(), storageName + PropertyFile.PROPERTY_EXT);
 		assertTrue(propertyFile.isFile());
@@ -337,12 +272,14 @@ public abstract class AbstractLocalFileSystemTest extends AbstractGenericTest {
 			Assert.fail();
 		}
 		catch (FileNotFoundException e) {
+			// expected
 		}
 		fs.createFolder("/b", "def");
 		try {
 			fs.moveFolder("/mno/abc", "def", "/b");
 		}
 		catch (DuplicateFileException e) {
+			// expected
 		}
 	}
 
@@ -364,6 +301,20 @@ public abstract class AbstractLocalFileSystemTest extends AbstractGenericTest {
 		assertEquals(2, events.size());
 		checkEvent("Item Created", "/abc", "fred", null, null, events.get(1));
 
+	}
+
+	@Test
+	public void testCreateTextData() throws Exception {
+		fs.createFolder("/", "abc");
+
+		String data = "This is a test";
+		LocalTextDataItem textItem =
+			fs.createTextDataItem("/abc", "fred", "MyID", "Text", data, null, null);
+		assertEquals(data, textItem.getTextData());
+
+		flushFileSystemEvents();
+		assertEquals(2, events.size());
+		checkEvent("Item Created", "/abc", "fred", null, null, events.get(1));
 	}
 
 	@Test
@@ -464,6 +415,12 @@ public abstract class AbstractLocalFileSystemTest extends AbstractGenericTest {
 		byte[] dataBytes = data.getBytes();
 
 		fs.createFolder("/", "aaa");
+
+		// item's name and folder name may replicate each other
+		DataFileItem file = createItem(dataBytes, "/", "aaa");
+		assertNotNull(file);
+		assertTrue(fs.folderExists("/aaa"));
+		assertTrue(fs.fileExists("/", "aaa"));
 
 		createItem(dataBytes, "/aaa", "~)(%$#@!JGJ");
 
@@ -600,7 +557,7 @@ public abstract class AbstractLocalFileSystemTest extends AbstractGenericTest {
 		DBHandle dbh = new DBHandle();
 		long id = dbh.startTransaction();
 		dbh.createTable("test",
-			new Schema(0, "key", new Class[] { IntField.class }, new String[] { "dummy" }));
+			new Schema(0, "key", new Field[] { IntField.INSTANCE }, new String[] { "dummy" }));
 		dbh.endTransaction(id, true);
 		BufferFile bf =
 			fs.createDatabase("/abc", "fred", null, "Database", dbh.getBufferSize(), "bob", null);
@@ -652,8 +609,9 @@ public abstract class AbstractLocalFileSystemTest extends AbstractGenericTest {
 
 		// Get storage name based upon data dir name ~<storage-name>.db
 		String storageName = dataDir.getName();
-		storageName = storageName.substring(0,
-			storageName.length() - LocalFolderItem.DATA_DIR_EXTENSION.length()).substring(1);
+		storageName = storageName
+				.substring(0, storageName.length() - LocalFolderItem.DATA_DIR_EXTENSION.length())
+				.substring(1);
 		File propertyFile =
 			new File(dataDir.getParentFile(), storageName + PropertyFile.PROPERTY_EXT);
 		assertTrue(propertyFile.isFile());
@@ -675,19 +633,23 @@ public abstract class AbstractLocalFileSystemTest extends AbstractGenericTest {
 
 		DataFileItem df = fs.createDataFile("/abc", "fred", new ByteArrayInputStream(dataBytes),
 			null, "Data", null);
-		DataFileItem df2 = fs.createDataFile("/abc", "bob", new ByteArrayInputStream(dataBytes),
-			null, "Data", null);
+		LocalTextDataItem textItem =
+			fs.createTextDataItem("/abc", "ted", "MyID", "Text", data, null, null);
+		assertEquals(data, textItem.getTextData());
+
 		createDatabase("/abc", "greg", "123");
 
 		String[] items = fs.getItemNames("/abc");
-		assertEquals(3, items.length);
+		assertEquals(4, items.length);
 		assertEquals("bob", items[0]);
 		assertEquals("fred", items[1]);
 		assertEquals("greg", items[2]);
+		assertEquals("ted", items[3]);
 
-		assertEquals(LocalDataFile.class, fs.getItem("/abc", items[0]).getClass());
-		assertEquals(LocalDataFile.class, fs.getItem("/abc", items[1]).getClass());
+		assertEquals(LocalDataFileItem.class, fs.getItem("/abc", items[0]).getClass());
+		assertEquals(LocalDataFileItem.class, fs.getItem("/abc", items[1]).getClass());
 		assertEquals(LocalDatabaseItem.class, fs.getItem("/abc", items[2]).getClass());
+		assertEquals(LocalTextDataItem.class, fs.getItem("/abc", items[3]).getClass());
 
 		df = (DataFileItem) fs.getItem("/abc", items[0]);
 		InputStream is = df.getInputStream();
@@ -704,6 +666,9 @@ public abstract class AbstractLocalFileSystemTest extends AbstractGenericTest {
 		assertNotNull(dbh.getTable("test"));
 		dbh.close();
 
+		textItem = (LocalTextDataItem) fs.getItem("/abc", items[3]);
+		assertEquals(data, textItem.getTextData());
+
 	}
 
 	@Test
@@ -719,7 +684,7 @@ public abstract class AbstractLocalFileSystemTest extends AbstractGenericTest {
 		fs.moveItem("/abc", "fred", "/xyz", "bob");
 
 		assertNull(fs.getItem("/abc", "fred"));
-		LocalDataFile df = (LocalDataFile) fs.getItem("/xyz", "bob");
+		LocalDataFileItem df = (LocalDataFileItem) fs.getItem("/xyz", "bob");
 		assertNotNull(df);
 
 		try (InputStream in = df.getInputStream()) {
@@ -736,12 +701,38 @@ public abstract class AbstractLocalFileSystemTest extends AbstractGenericTest {
 	}
 
 	@Test
+	public void testMoveTextDataFile() throws Exception {
+		fs.createFolder("/", "abc");
+		String data = "This is a test";
+		LocalTextDataItem textItem =
+			fs.createTextDataItem("/abc", "fred", "MyID", "Text", data, null, null);
+		assertEquals(data, textItem.getTextData());
+		flushFileSystemEvents();
+		events.clear();
+
+		FolderItem item = fs.getItem("/abc", "fred");
+		assertNotNull(item);
+
+		fs.moveItem("/abc", "fred", "/xyz", "bob");
+
+		assertNull(fs.getItem("/abc", "fred"));
+		LocalTextDataItem df = (LocalTextDataItem) fs.getItem("/xyz", "bob");
+		assertNotNull(df);
+		assertEquals(data, df.getTextData());
+
+		flushFileSystemEvents();
+		assertEquals(2, events.size());
+		checkEvent("Folder Created", "/", "xyz", null, null, events.get(0));
+		checkEvent("Item Moved", "/abc", "fred", "/xyz", "bob", events.get(1));
+	}
+
+	@Test
 	public void testMoveDatabase() throws Exception {
 		fs.createFolder("/", "abc");
 		DBHandle dbh = new DBHandle();
 		long id = dbh.startTransaction();
 		dbh.createTable("test",
-			new Schema(0, "key", new Class[] { IntField.class }, new String[] { "dummy" }));
+			new Schema(0, "key", new Field[] { IntField.INSTANCE }, new String[] { "dummy" }));
 		dbh.endTransaction(id, true);
 		BufferFile bf =
 			fs.createDatabase("/abc", "greg", "123", "Database", dbh.getBufferSize(), "test", null);
@@ -789,7 +780,7 @@ public abstract class AbstractLocalFileSystemTest extends AbstractGenericTest {
 		DBHandle dbh = new DBHandle();
 		long id = dbh.startTransaction();
 		dbh.createTable("test",
-			new Schema(0, "key", new Class[] { IntField.class }, new String[] { "dummy" }));
+			new Schema(0, "key", new Field[] { IntField.INSTANCE }, new String[] { "dummy" }));
 		dbh.endTransaction(id, true);
 		BufferFile bf =
 			fs.createDatabase("/abc", "greg", "123", "Database", dbh.getBufferSize(), "test", null);
@@ -933,7 +924,7 @@ public abstract class AbstractLocalFileSystemTest extends AbstractGenericTest {
 		DBHandle dbh = new DBHandle();
 		long id = dbh.startTransaction();
 		dbh.createTable("test",
-			new Schema(0, "key", new Class[] { IntField.class }, new String[] { "dummy" }));
+			new Schema(0, "key", new Field[] { IntField.INSTANCE }, new String[] { "dummy" }));
 		dbh.endTransaction(id, true);
 		BufferFile bf = fs.createDatabase(folderPath, itemName, fileId, "Database",
 			dbh.getBufferSize(), "test", null);
@@ -991,25 +982,38 @@ public abstract class AbstractLocalFileSystemTest extends AbstractGenericTest {
 
 		@Override
 		public void syncronize() {
+			// not tracked
 		}
 	}
 
 	private void flushFileSystemEvents() {
-		FileSystemListenerList listenerList =
-			(FileSystemListenerList) TestUtils.getInstanceField("listeners", fs);
-		while (listenerList.isProcessingEvents()) {
-			// give the event tread some time to send events
-			try {
-				Thread.sleep(100);
-			}
-			catch (InterruptedException e) {
-				// don't care, we will try again
-			}
-		}
+		FileSystemEventManager eventManager =
+			(FileSystemEventManager) TestUtils.getInstanceField("eventManager", fs);
+
+		eventManager.flushEvents(DEFAULT_WAIT_TIMEOUT, TimeUnit.MILLISECONDS);
 	}
 }
 
 class MyEvent {
+	@Override
+	public int hashCode() {
+		final int prime = 31;
+		int result = 1;
+		result = prime * result + ((name == null) ? 0 : name.hashCode());
+		result = prime * result + ((newName == null) ? 0 : newName.hashCode());
+		result = prime * result + ((newParentPath == null) ? 0 : newParentPath.hashCode());
+		result = prime * result + ((op == null) ? 0 : op.hashCode());
+		result = prime * result + ((parentPath == null) ? 0 : parentPath.hashCode());
+		return result;
+	}
+
+	@Override
+	public boolean equals(Object obj) {
+		MyEvent other = (MyEvent) obj;
+		return eq(op, other.op) && eq(parentPath, other.parentPath) && eq(name, other.name) &&
+			eq(newParentPath, other.newParentPath) && eq(newName, other.newName);
+	}
+
 	String op;
 	String parentPath;
 	String name;
@@ -1024,18 +1028,8 @@ class MyEvent {
 		this.newName = newName;
 	}
 
-	@Override
-	public boolean equals(Object obj) {
-		MyEvent other = (MyEvent) obj;
-		return eq(op, other.op) && eq(parentPath, other.parentPath) && eq(name, other.name) &&
-			eq(newParentPath, other.newParentPath) && eq(newName, other.newName);
-	}
-
 	private boolean eq(String s1, String s2) {
-		if (s1 == null) {
-			return s2 == null;
-		}
-		return s1.equals(s2);
+		return Objects.equals(s1, s2);
 	}
 
 	@Override

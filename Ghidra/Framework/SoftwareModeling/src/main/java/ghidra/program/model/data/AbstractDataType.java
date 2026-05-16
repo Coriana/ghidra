@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,23 +15,26 @@
  */
 package ghidra.program.model.data;
 
-import java.net.URL;
+import java.util.Collection;
+import java.util.Collections;
 
 import ghidra.docking.settings.Settings;
 import ghidra.program.model.mem.MemBuffer;
 import ghidra.util.InvalidNameException;
 import ghidra.util.UniversalID;
-import ghidra.util.exception.DuplicateNameException;
 
 /**
  * Base class for DataType classes. Many of the DataType methods are stubbed out so simple datatype
  * classes can be created without implementing too many methods.
  */
 public abstract class AbstractDataType implements DataType {
+
+	protected final static TypeDefSettingsDefinition[] EMPTY_TYPEDEF_DEFINITIONS =
+		new TypeDefSettingsDefinition[0];
+
 	protected String name;
 	protected CategoryPath categoryPath;
 	protected final DataTypeManager dataMgr;
-	private DataOrganization dataOrganization;
 
 	protected AbstractDataType(CategoryPath path, String name, DataTypeManager dataTypeManager) {
 		if (path == null) {
@@ -51,13 +54,15 @@ public abstract class AbstractDataType implements DataType {
 	}
 
 	@Override
+	public TypeDefSettingsDefinition[] getTypeDefSettingsDefinitions() {
+		return EMPTY_TYPEDEF_DEFINITIONS;
+	}
+
+	@Override
 	public CategoryPath getCategoryPath() {
 		return categoryPath;
 	}
 
-	/**
-	 * @see ghidra.program.model.data.DataType#getDataTypeManager()
-	 */
 	@Override
 	public final DataTypeManager getDataTypeManager() {
 		return dataMgr;
@@ -65,9 +70,20 @@ public abstract class AbstractDataType implements DataType {
 
 	@Override
 	public final DataOrganization getDataOrganization() {
-		if (dataOrganization != null) {
-			return dataOrganization;
-		}
+		return dataMgr != null ? dataMgr.getDataOrganization()
+				: DataOrganizationImpl.getDefaultOrganization();
+	}
+
+	/**
+	 * Get the {@link DataOrganization} which should be used by a {@link AbstractDataType} when 
+	 * associated with a specified {@link DataTypeManager dataMgr}.  If a null 
+	 * {@code dataMgr} is specified the default {@link DataOrganization} will be returned.
+	 * @param dataMgr datatype manager
+	 * @return the {@link DataOrganization} which should be used by a {@link AbstractDataType}
+	 * instance.
+	 */
+	protected static DataOrganization getDataOrganization(DataTypeManager dataMgr) {
+		DataOrganization dataOrganization = null;
 		if (dataMgr != null) {
 			dataOrganization = dataMgr.getDataOrganization();
 		}
@@ -79,12 +95,8 @@ public abstract class AbstractDataType implements DataType {
 
 	@Override
 	public DataTypePath getDataTypePath() {
-		return new DataTypePath(categoryPath, name);
-	}
-
-	@Override
-	public URL getDocs() {
-		return null;
+		// use methods instead of fields since they mey be overriden
+		return new DataTypePath(getCategoryPath(), getName());
 	}
 
 	@Override
@@ -93,7 +105,7 @@ public abstract class AbstractDataType implements DataType {
 	}
 
 	@Override
-	public String getPathName() {
+	public final String getPathName() {
 		return getDataTypePath().getPath();
 	}
 
@@ -113,12 +125,18 @@ public abstract class AbstractDataType implements DataType {
 	}
 
 	@Override
+	public boolean isZeroLength() {
+		return false;
+	}
+
+	@Override
 	public String toString() {
 		return getDisplayName();
 	}
 
 	@Override
 	public boolean isDeleted() {
+		// NOTE: Support for this concept outside of DataTypeDB should not be relied upon
 		return false;
 	}
 
@@ -128,13 +146,17 @@ public abstract class AbstractDataType implements DataType {
 	}
 
 	@Override
-	public void setNameAndCategory(CategoryPath path, String name)
-			throws InvalidNameException, DuplicateNameException {
+	public void setNameAndCategory(CategoryPath path, String name) throws InvalidNameException {
 		// default is immutable
 	}
 
 	@Override
 	public void dataTypeSizeChanged(DataType dt) {
+		// do nothing
+	}
+
+	@Override
+	public void dataTypeAlignmentChanged(DataType dt) {
 		// do nothing
 	}
 
@@ -159,9 +181,9 @@ public abstract class AbstractDataType implements DataType {
 	}
 
 	@Override
-	public DataType[] getParents() {
+	public Collection<DataType> getParents() {
 		// not-applicable
-		return null;
+		return Collections.emptyList();
 	}
 
 	@Override
@@ -222,7 +244,7 @@ public abstract class AbstractDataType implements DataType {
 	}
 
 	@Override
-	public boolean isDynamicallySized() {
+	public boolean hasLanguageDependantLength() {
 		return false; // not applicable
 	}
 
@@ -237,7 +259,7 @@ public abstract class AbstractDataType implements DataType {
 	}
 
 	@Override
-	public void setCategoryPath(CategoryPath path) throws DuplicateNameException {
+	public void setCategoryPath(CategoryPath path) {
 		// not-applicable
 	}
 
@@ -252,5 +274,22 @@ public abstract class AbstractDataType implements DataType {
 			DataTypeDisplayOptions options, int offcutLength) {
 		// By default we will do nothing different for offcut values
 		return getDefaultLabelPrefix(buf, settings, len, options);
+	}
+
+	@Override
+	public boolean isEncodable() {
+		return false;
+	}
+
+	@Override
+	public byte[] encodeValue(Object value, MemBuffer buf, Settings settings, int length)
+			throws DataTypeEncodeException {
+		throw new DataTypeEncodeException("Encoding not supported", value, this);
+	}
+
+	@Override
+	public byte[] encodeRepresentation(String repr, MemBuffer buf, Settings settings, int length)
+			throws DataTypeEncodeException {
+		throw new DataTypeEncodeException("Encoding not supported", repr, this);
 	}
 }

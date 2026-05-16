@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,14 +15,12 @@
  */
 package ghidra.app.util.viewer.field;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.swing.SwingUtilities;
-
+import org.apache.commons.lang3.StringUtils;
 import org.junit.*;
 
 import docking.widgets.table.GTable;
@@ -37,6 +35,8 @@ import ghidra.app.plugin.core.navigation.NextPrevAddressPlugin;
 import ghidra.app.plugin.core.table.TableComponentProvider;
 import ghidra.app.plugin.core.table.TableServicePlugin;
 import ghidra.app.services.GoToService;
+import ghidra.app.util.viewer.field.PlateFieldFactory.PlateFieldTextField;
+import ghidra.app.util.viewer.field.PlateFieldFactory.PlateListingTextField;
 import ghidra.framework.options.Options;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.database.ProgramDB;
@@ -45,7 +45,6 @@ import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.symbol.*;
 import ghidra.test.*;
-import ghidra.util.exception.AssertException;
 import ghidra.util.table.GhidraProgramTableModel;
 
 public class PlateFieldFactoryTest extends AbstractGhidraHeadedIntegrationTest {
@@ -56,10 +55,6 @@ public class PlateFieldFactoryTest extends AbstractGhidraHeadedIntegrationTest {
 	private Options fieldOptions;
 	private Program program;
 	private GoToService goToService;
-
-	public PlateFieldFactoryTest() {
-		super();
-	}
 
 	@Before
 	public void setUp() throws Exception {
@@ -80,7 +75,7 @@ public class PlateFieldFactoryTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	private ProgramDB buildProgram() throws Exception {
-		ToyProgramBuilder builder = new ToyProgramBuilder("notepad", true);
+		ToyProgramBuilder builder = new ToyProgramBuilder();
 
 		builder.createMemory(".text", "0x1001000", 0x6600);
 		builder.createEntryPoint("0x1001100", "entry");
@@ -101,7 +96,7 @@ public class PlateFieldFactoryTest extends AbstractGhidraHeadedIntegrationTest {
 		builder.createFunction("1001300");
 
 		builder.createLabel("1001400", "bob");
-		builder.createComment("1001400", "my comment", CodeUnit.PLATE_COMMENT);
+		builder.createComment("1001400", "my comment", CommentType.PLATE);
 
 		builder.addBytesReturn("1001500");
 		builder.disassemble("1001500", 4);
@@ -121,15 +116,8 @@ public class PlateFieldFactoryTest extends AbstractGhidraHeadedIntegrationTest {
 		Address addr = symbol.getAddress();
 		Function function = program.getFunctionManager().getFunctionAt(addr);
 		CodeUnit cu = program.getListing().getCodeUnitAt(function.getEntryPoint());
-		int transactionID = program.startTransaction("test");
-		try {
-			cu.setComment(CodeUnit.PLATE_COMMENT, null);
-		}
-		finally {
-			program.endTransaction(transactionID, true);
-		}
-		program.flushEvents();
-		waitForPostedSwingRunnables();
+
+		tx(program, () -> cu.setComment(CommentType.PLATE, null));
 
 		goToService.goTo(addr);
 
@@ -145,25 +133,21 @@ public class PlateFieldFactoryTest extends AbstractGhidraHeadedIntegrationTest {
 	public void testExistingPlateComment() throws Exception {
 		Symbol symbol = getUniqueSymbol(program, "entry");
 		Address addr = symbol.getAddress();
-		int transactionID = program.startTransaction("test");
-		try {
+
+		tx(program, () -> {
 			CodeUnit cu = program.getListing().getCodeUnitAt(addr);
-			cu.setCommentAsArray(CodeUnit.PLATE_COMMENT,
-				new String[] { "this is", "a plate comment" });
+			cu.setCommentAsArray(CommentType.PLATE, new String[] { "this is", "a plate comment" });
 			// create a reference to addr
-			program.getReferenceManager().addMemoryReference(getAddr(0x010023ee), addr,
-				RefType.DATA, SourceType.USER_DEFINED, 0);
-		}
-		finally {
-			program.endTransaction(transactionID, true);
-		}
-		program.flushEvents();
-		waitForPostedSwingRunnables();
+			ReferenceManager rm = program.getReferenceManager();
+			rm.addMemoryReference(getAddr(0x010023ee), addr, RefType.DATA, SourceType.USER_DEFINED,
+				0);
+		});
+
 		cb.updateNow();
 
 		Function function = program.getFunctionManager().getFunctionAt(addr);
 		CodeUnit cu = program.getListing().getCodeUnitAt(function.getEntryPoint());
-		String[] plateComments = cu.getCommentAsArray(CodeUnit.PLATE_COMMENT);
+		String[] plateComments = cu.getCommentAsArray(CommentType.PLATE);
 
 		goToService.goTo(addr);
 
@@ -184,20 +168,16 @@ public class PlateFieldFactoryTest extends AbstractGhidraHeadedIntegrationTest {
 		String originalText =
 			"this is a plate comment that is meant to be longer than the available " +
 				"width, as to trigger clipping";
-		int transactionID = program.startTransaction("test");
-		try {
-			CodeUnit cu = program.getListing().getCodeUnitAt(addr);
-			cu.setCommentAsArray(CodeUnit.PLATE_COMMENT, new String[] { originalText });
-			// create a reference to addr
-			program.getReferenceManager().addMemoryReference(getAddr(0x010023ee), addr,
-				RefType.DATA, SourceType.USER_DEFINED, 0);
-		}
-		finally {
-			program.endTransaction(transactionID, true);
-		}
 
-		program.flushEvents();
-		waitForPostedSwingRunnables();
+		tx(program, () -> {
+			CodeUnit cu = program.getListing().getCodeUnitAt(addr);
+			cu.setCommentAsArray(CommentType.PLATE, new String[] { originalText });
+			// create a reference to addr
+			program.getReferenceManager()
+					.addMemoryReference(getAddr(0x010023ee), addr, RefType.DATA,
+						SourceType.USER_DEFINED, 0);
+		});
+
 		cb.updateNow();
 
 		goToService.goTo(addr);
@@ -220,17 +200,13 @@ public class PlateFieldFactoryTest extends AbstractGhidraHeadedIntegrationTest {
 		Symbol symbol = getUniqueSymbol(program, "entry");
 		Address addr = symbol.getAddress();
 		CodeUnit cu = program.getListing().getCodeUnitAt(addr);
-		int transactionID = program.startTransaction("test");
-		try {
+
+		tx(program, () -> {
 			CreateFunctionCmd cmd = new CreateFunctionCmd(addr);
 			cmd.applyTo(program);
-			cu.setComment(CodeUnit.PLATE_COMMENT, null);
-		}
-		finally {
-			program.endTransaction(transactionID, true);
-		}
-		program.flushEvents();
-		waitForPostedSwingRunnables();
+			cu.setComment(CommentType.PLATE, null);
+		});
+
 		cb.updateNow();
 
 		goToService.goTo(addr);
@@ -247,7 +223,7 @@ public class PlateFieldFactoryTest extends AbstractGhidraHeadedIntegrationTest {
 	public void testShowTransitionPlates() throws Exception {
 
 		// no plate comment
-		assertTrue(!cb.goToField(getAddr(0x1001100), PlateFieldFactory.FIELD_NAME, 1, 1));
+		assertFalse(cb.goToField(getAddr(0x1001100), PlateFieldFactory.FIELD_NAME, 1, 1));
 
 		setBooleanOption(PlateFieldFactory.SHOW_TRANSITION_PLATES_OPTION, true);
 
@@ -266,7 +242,7 @@ public class PlateFieldFactoryTest extends AbstractGhidraHeadedIntegrationTest {
 			new DisassembleCommand(addr, new AddressSet(addr, getAddr(0x01004e39)), true);
 		tool.execute(cmd, program);
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 
 		setBooleanOption(PlateFieldFactory.SHOW_TRANSITION_PLATES_OPTION, true);
 		assertTrue(cb.goToField(addr, PlateFieldFactory.FIELD_NAME, 1, 1));
@@ -282,7 +258,7 @@ public class PlateFieldFactoryTest extends AbstractGhidraHeadedIntegrationTest {
 	public void testShowSubroutinePlates() throws Exception {
 
 		// no subroutine plate comment
-		assertTrue(!cb.goToField(getAddr(0x1001200), PlateFieldFactory.FIELD_NAME, 1, 1));
+		assertFalse(cb.goToField(getAddr(0x1001200), PlateFieldFactory.FIELD_NAME, 1, 1));
 
 		setBooleanOption(PlateFieldFactory.SHOW_SUBROUTINE_PLATES_OPTION, true);
 
@@ -295,30 +271,44 @@ public class PlateFieldFactoryTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	@Test
-	public void testLinesBeforeFunction() throws Exception {
+	public void testLinesBeforeFunction_WithoutPlateComment() throws Exception {
 
-		assertTrue(!cb.goToField(getAddr(0x1001300), PlateFieldFactory.FIELD_NAME, 1, 1));
+		assertFalse(cb.goToField(getAddr(0x1001300), PlateFieldFactory.FIELD_NAME, 1, 1));
 
 		setIntOption(PlateFieldFactory.LINES_BEFORE_FUNCTIONS_OPTION, 2);
 
 		assertTrue(cb.goToField(getAddr(0x1001300), PlateFieldFactory.FIELD_NAME, 1, 1));
 		ListingTextField tf = (ListingTextField) cb.getCurrentField();
 		assertEquals(2, tf.getNumRows());
-//		list.add(cu.getMinAddress());
-//
-//		ArrayList<Address> list = new ArrayList<Address>();
-//		Listing listing = program.getListing();
-//
-//		FunctionIterator iter = listing.getFunctions(true);
-//		while (iter.hasNext()) {
-//			Function f = iter.next();
-//			CodeUnit cu = listing.getCodeUnitAt(f.getEntryPoint());
-//			assertTrue(cbPlugin.goToField(cu.getMinAddress(), PlateFieldFactory.FIELD_NAME, 1, 1));
-//			ListingTextField tf = (ListingTextField) cbPlugin.getCurrentField();
-//			assertEquals(5, tf.getNumRows());
-//			list.add(cu.getMinAddress());
-//		}
-//		assertEquals(66, list.size());
+	}
+
+	@Test
+	public void testLinesBeforeFunction_WithPlateComment() throws Exception {
+
+		setBooleanOption(PlateFieldFactory.SHOW_FUNCTION_PLATES_OPTION, true);
+		setIntOption(PlateFieldFactory.LINES_BEFORE_FUNCTIONS_OPTION, 2);
+		assertTrue(cb.goToField(getAddr(0x1001300), PlateFieldFactory.FIELD_NAME, 1, 1));
+		ListingTextField tf = (ListingTextField) cb.getCurrentField();
+		assertEquals(5, tf.getNumRows());
+
+		assertPrecedingBlankLines((PlateListingTextField) tf, 2);
+		int textRow = 3;
+		assertCentered((PlateListingTextField) tf, textRow,
+			PlateFieldFactory.FUNCTION_PLATE_COMMENT);
+	}
+
+	@Test
+	public void testDefaultPlateCommentGetsCentered_Function() throws Exception {
+
+		setBooleanOption(PlateFieldFactory.SHOW_FUNCTION_PLATES_OPTION, true);
+		assertTrue(cb.goToField(getAddr(0x1001300), PlateFieldFactory.FIELD_NAME, 1, 1));
+		ListingTextField tf = (ListingTextField) cb.getCurrentField();
+		assertTrue(tf.getText().indexOf(PlateFieldFactory.FUNCTION_PLATE_COMMENT) >= 0);
+		assertEquals(3, tf.getNumRows());
+
+		int textRow = 1;
+		assertCentered((PlateListingTextField) tf, textRow,
+			PlateFieldFactory.FUNCTION_PLATE_COMMENT);
 	}
 
 	@Test
@@ -335,7 +325,7 @@ public class PlateFieldFactoryTest extends AbstractGhidraHeadedIntegrationTest {
 			}
 
 			CodeUnit cu = listing.getCodeUnitAt(addr);
-			String[] plates = cu.getCommentAsArray(CodeUnit.PLATE_COMMENT);
+			String[] plates = cu.getCommentAsArray(CommentType.PLATE);
 			assertTrue("Failed to navigate to plate field at address: " + cu.getMinAddress(),
 				cb.goToField(cu.getMinAddress(), PlateFieldFactory.FIELD_NAME, 1, 1));
 			ListingTextField tf = (ListingTextField) cb.getCurrentField();
@@ -350,11 +340,11 @@ public class PlateFieldFactoryTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	@Test
-	public void testLinesBeforePlates() throws Exception {
+	public void testLinesBeforePlates_NonDefaultComment() throws Exception {
 		Listing listing = program.getListing();
 
 		CodeUnit cu = listing.getCodeUnitAt(getAddr(0x1001500));
-		assertTrue(!cb.goToField(cu.getMinAddress(), PlateFieldFactory.FIELD_NAME, 1, 1));
+		assertFalse(cb.goToField(cu.getMinAddress(), PlateFieldFactory.FIELD_NAME, 1, 1));
 
 		createPlateComment(cu, "This is a plate comment");
 
@@ -367,20 +357,27 @@ public class PlateFieldFactoryTest extends AbstractGhidraHeadedIntegrationTest {
 		assertTrue(cb.goToField(cu.getMinAddress(), PlateFieldFactory.FIELD_NAME, 1, 1));
 		tf = (ListingTextField) cb.getCurrentField();
 		assertEquals(5, tf.getNumRows());
-
+		assertPrecedingBlankLines((PlateListingTextField) tf, 2);
 	}
 
-	private void createPlateComment(CodeUnit cu, String text) {
-		int transactionID = program.startTransaction("test");
-		try {
-			cu.setComment(CodeUnit.PLATE_COMMENT, text);
-		}
-		finally {
-			program.endTransaction(transactionID, true);
-		}
-		program.flushEvents();
-		waitForPostedSwingRunnables();
-		cb.updateNow();
+	@Test
+	public void testLinesBeforePlates_DefaultPlateComment() throws Exception {
+		Listing listing = program.getListing();
+
+		CodeUnit cu = listing.getCodeUnitAt(getAddr(0x1001500));
+
+		setBooleanOption(PlateFieldFactory.SHOW_FUNCTION_PLATES_OPTION, true);
+
+		assertTrue(cb.goToField(cu.getMinAddress(), PlateFieldFactory.FIELD_NAME, 1, 1));
+		ListingTextField tf = (ListingTextField) cb.getCurrentField();
+		assertEquals(3, tf.getNumRows());
+
+		setIntOption(PlateFieldFactory.LINES_BEFORE_PLATES_OPTION, 2);
+
+		assertTrue(cb.goToField(cu.getMinAddress(), PlateFieldFactory.FIELD_NAME, 1, 1));
+		tf = (ListingTextField) cb.getCurrentField();
+		assertEquals(5, tf.getNumRows());
+		assertPrecedingBlankLines((PlateListingTextField) tf, 2);
 	}
 
 	@Test
@@ -437,15 +434,10 @@ public class PlateFieldFactoryTest extends AbstractGhidraHeadedIntegrationTest {
 		// add a plate comment that has an address in it
 		Address addr = getAddr(0x01002911);
 
-		int transactionID = program.startTransaction("test");
 		CodeUnit cu = program.getListing().getCodeUnitAt(addr);
-		try {
-			cu.setComment(CodeUnit.PLATE_COMMENT,
-				"this is a comment\ngo to the address 0x010028de");
-		}
-		finally {
-			program.endTransaction(transactionID, true);
-		}
+		tx(program, () -> {
+			cu.setComment(CommentType.PLATE, "this is a comment\ngo to the address 0x010028de");
+		});
 		assertTrue(cb.goToField(cu.getMinAddress(), PlateFieldFactory.FIELD_NAME, 2, 23));
 		click(cb, 2);
 
@@ -462,17 +454,12 @@ public class PlateFieldFactoryTest extends AbstractGhidraHeadedIntegrationTest {
 		// add a plate comment that has an address in it
 		Address addr = getAddr(0x01002911);
 
-		int transactionID = program.startTransaction("test");
 		CodeUnit cu = program.getListing().getCodeUnitAt(addr);
-		try {
-			program.getSymbolTable().createLabel(addr, testName.getMethodName(),
-				SourceType.USER_DEFINED);
-			cu.setComment(CodeUnit.PLATE_COMMENT,
-				"this is a comment\ngo to the address 0x010028de");
-		}
-		finally {
-			program.endTransaction(transactionID, true);
-		}
+		tx(program, () -> {
+			program.getSymbolTable()
+					.createLabel(addr, testName.getMethodName(), SourceType.USER_DEFINED);
+			cu.setComment(CommentType.PLATE, "this is a comment\ngo to the address 0x010028de");
+		});
 
 		int nonCommentHeader = precedingBlankLines + 1; // +1 for the '***' line
 		int row = nonCommentHeader + 1; // 1 is the second comment row
@@ -486,14 +473,9 @@ public class PlateFieldFactoryTest extends AbstractGhidraHeadedIntegrationTest {
 	@Test
 	public void testNavigationOnLabel() throws Exception {
 		// add a plate comment that has "entry" in it
-		int transactionID = program.startTransaction("test");
 		CodeUnit cu = program.getListing().getCodeUnitAt(getAddr(0x0100292b));
-		try {
-			cu.setComment(CodeUnit.PLATE_COMMENT, "go to entry");
-		}
-		finally {
-			program.endTransaction(transactionID, true);
-		}
+		tx(program, () -> cu.setComment(CommentType.PLATE, "go to entry"));
+
 		assertTrue(cb.goToField(cu.getMinAddress(), PlateFieldFactory.FIELD_NAME, 1, 8));
 		click(cb, 2);
 
@@ -504,42 +486,90 @@ public class PlateFieldFactoryTest extends AbstractGhidraHeadedIntegrationTest {
 	@Test
 	public void testNavigationOnLabelWildcard() throws Exception {
 		// add a plate comment that has "entry" in it
-		int transactionID = program.startTransaction("test");
+
 		CodeUnit cu = program.getListing().getCodeUnitAt(getAddr(0x01001100));
-		try {
-			cu.setComment(CodeUnit.PLATE_COMMENT, "go to FUN*");
-		}
-		finally {
-			program.endTransaction(transactionID, true);
-		}
+		tx(program, () -> {
+			cu.setComment(CommentType.PLATE, "go to FUN*");
+		});
 		assertTrue(cb.goToField(cu.getMinAddress(), PlateFieldFactory.FIELD_NAME, 1, 8));
 		click(cb, 2);
 		waitForSwing();
 
 		// should get the query results dialog that shows all the default function labels.
-		List<TableComponentProvider<?>> providers = waitForResultsTable();
+		List<TableComponentProvider<?>> providers = waitFor(() -> {
+
+			List<TableComponentProvider<?>> currentProviders = getNavigationResultsTables();
+			if (!currentProviders.isEmpty()) {
+				return currentProviders;
+			}
+			return null;
+		});
+
 		assertEquals(1, providers.size());
 		GhidraProgramTableModel<?> model = waitForModel(providers.get(0));
 		assertEquals("01001300", model.getValueAt(0, 0).toString());
 		assertEquals("01001500", model.getValueAt(1, 0).toString());
 	}
 
-	private List<TableComponentProvider<?>> waitForResultsTable() {
-
-		List<TableComponentProvider<?>> providers = getNavigationResultsTables();
-
-		waitForSwing();
-		int nWaits = 0;
-		while (providers.isEmpty() && nWaits < 200) {
-			sleep(DEFAULT_WAIT_DELAY);
-			providers = getNavigationResultsTables();
+	@Test
+	public void testClickOnAsterisks() throws Exception {
+		// click on first row of asterisks in the plate comment
+		int transactionID = program.startTransaction("test");
+		CodeUnit cu = program.getListing().getCodeUnitAt(getAddr(0x0100292b));
+		try {
+			cu.setComment(CommentType.PLATE, "go to FUN*");
 		}
-
-		if (nWaits >= 200) {
-			throw new AssertException("Timed out waiting for table model to load");
+		finally {
+			program.endTransaction(transactionID, true);
 		}
+		assertTrue(cb.goToField(cu.getMinAddress(), PlateFieldFactory.FIELD_NAME, 0, 8));
+		ListingTextField tf = (ListingTextField) cb.getCurrentField();
+		assertTrue(tf.getText().startsWith("*****"));
+	}
 
-		return providers;
+	private void assertPrecedingBlankLines(PlateListingTextField tf, int n) {
+
+		/*
+		 	Example: (this may have blank lines before the plate comment)
+		 
+		 
+		 	***************************************************************
+		 	*                         FUNCTION                            *
+		 	***************************************************************
+		
+		 */
+		PlateFieldTextField plateTextField = tf.getPlateTextField();
+		List<String> lines = plateTextField.getLines();
+		for (int i = 0; i < n; i++) {
+			String line = lines.get(i);
+			assertTrue(StringUtils.isBlank(line));
+		}
+	}
+
+	private void assertCentered(PlateListingTextField tf, int textRow, String commentText) {
+
+		/*
+		 	Example: (this may have blank lines before the plate comment)
+		 
+		 
+		 	***************************************************************
+		 	*                         FUNCTION                            *
+		 	***************************************************************
+		 
+		 */
+		PlateFieldTextField plateTextField = tf.getPlateTextField();
+		List<String> lines = plateTextField.getLines();
+
+		String lineText = lines.get(textRow);
+		lineText = lineText.replaceAll("\\*", "");
+		int textIndex = lineText.indexOf(commentText);
+		int textEnd = textIndex + commentText.length();
+		String pre = lineText.substring(0, textIndex);
+		String post = lineText.substring(textEnd + 1);
+		int spacesBefore = StringUtils.countMatches(pre, ' ');
+		int spacesAfter = StringUtils.countMatches(post, ' ');
+		int diff = Math.abs(spacesBefore - spacesAfter);
+		assertTrue(diff < 2);
 	}
 
 	private List<TableComponentProvider<?>> getNavigationResultsTables() {
@@ -555,20 +585,11 @@ public class PlateFieldFactoryTest extends AbstractGhidraHeadedIntegrationTest {
 		return providers;
 	}
 
-	@Test
-	public void testClickOnAsterisks() throws Exception {
-		// click on first row of asterisks in the plate comment
-		int transactionID = program.startTransaction("test");
-		CodeUnit cu = program.getListing().getCodeUnitAt(getAddr(0x0100292b));
-		try {
-			cu.setComment(CodeUnit.PLATE_COMMENT, "go to FUN*");
-		}
-		finally {
-			program.endTransaction(transactionID, true);
-		}
-		assertTrue(cb.goToField(cu.getMinAddress(), PlateFieldFactory.FIELD_NAME, 0, 8));
-		ListingTextField tf = (ListingTextField) cb.getCurrentField();
-		assertTrue(tf.getText().startsWith("*****"));
+	private void createPlateComment(CodeUnit cu, String text) {
+		tx(program, () -> {
+			cu.setComment(CommentType.PLATE, text);
+		});
+		cb.updateNow();
 	}
 
 	private GhidraProgramTableModel<?> waitForModel(TableComponentProvider<?> provider)
@@ -587,21 +608,20 @@ public class PlateFieldFactoryTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	private void setBooleanOption(final String name, final boolean value) throws Exception {
-		SwingUtilities.invokeAndWait(() -> fieldOptions.setBoolean(name, value));
-		waitForPostedSwingRunnables();
+		runSwing(() -> fieldOptions.setBoolean(name, value));
+		waitForSwing();
 		cb.updateNow();
 	}
 
 	private void setIntOption(final String name, final int value) throws Exception {
-		SwingUtilities.invokeAndWait(() -> fieldOptions.setInt(name, value));
-		waitForPostedSwingRunnables();
+		runSwing(() -> fieldOptions.setInt(name, value));
+		waitForSwing();
 		cb.updateNow();
 	}
 
 	private void resetOptions() {
 		List<String> names = fieldOptions.getOptionNames();
-		for (int i = 0; i < names.size(); i++) {
-			String name = names.get(i);
+		for (String name : names) {
 			if (!name.startsWith("Format Code")) {
 				continue;
 			}
@@ -612,7 +632,7 @@ public class PlateFieldFactoryTest extends AbstractGhidraHeadedIntegrationTest {
 				fieldOptions.setInt(name, 0);
 			}
 		}
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		cb.updateNow();
 	}
 

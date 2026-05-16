@@ -21,6 +21,8 @@
 #include "ext/stdio_filebuf.h"
 #endif
 
+namespace ghidra {
+
 vector<IfaceCapability *> IfaceCapability::thelist;
 
 void IfaceCapability::initialize(void)
@@ -29,9 +31,12 @@ void IfaceCapability::initialize(void)
   thelist.push_back(this);
 }
 
+/// Allow each capability to register its own commands
+///
+/// \param status is the command line interface to register commands with
 void IfaceCapability::registerAllCommands(IfaceStatus *status)
 
-{ // Allow each capability to register its own commands
+{
   for(uint4 i=0;i<thelist.size();++i)
     thelist[i]->registerCommands(status);
 }
@@ -114,10 +119,12 @@ bool RemoteSocket::isSocketOpen(void)
 
 #endif
 
-IfaceStatus::IfaceStatus(const string &prmpt,istream &is,ostream &os,int4 mxhist)
+/// \param prmpt is the base command line prompt
+/// \param os is the base stream to write output to
+/// \param mxhist is the maximum number of lines to store in history
+IfaceStatus::IfaceStatus(const string &prmpt,ostream &os,int4 mxhist)
 
 {
-  sptr = &is;
   optr = &os;
   fileoptr = optr;		// Bulk out, defaults to command line output
   sorted = false;
@@ -129,28 +136,45 @@ IfaceStatus::IfaceStatus(const string &prmpt,istream &is,ostream &os,int4 mxhist
   curhistory = 0;
 }
 
+/// \brief Push a new file on the script stack
+///
+/// Attempt to open the file, and if we succeed put the open stream onto the script stack.
+/// \param filename is the name of the script file
+/// \param newprompt is the command line prompt to associate with the file
 void IfaceStatus::pushScript(const string &filename,const string &newprompt)
 
-{ // Push new input stream on stack (with new prompt)
+{
   ifstream *s = new ifstream(filename.c_str());
   if (!*s)
-    throw IfaceParseError("Unable to open script file");
-  inputstack.push_back(sptr);
+    throw IfaceParseError("Unable to open script file: "+filename);
+  pushScript(s,newprompt);
+}
+
+/// \brief Provide a new input stream to execute, with an associated command prompt
+///
+/// The new stream is added to a stack and becomes the primary source for parsing new commands.
+/// Once commands from the stream are exhausted, parsing will resume in the previous stream.
+/// \param iptr is the new input stream
+/// \param newprompt is the command line prompt to associate with the new stream
+void IfaceStatus::pushScript(istream *iptr,const string &newprompt)
+
+{
   promptstack.push_back(prompt);
   uint4 flags = 0;
   if (errorisdone)
     flags |= 1;
   flagstack.push_back(flags);
-  sptr = s;
+  errorisdone = true;		// Abort on first exception in a script
   prompt = newprompt;
 }
 
+/// \brief Return to processing the parent stream
+///
+/// The current input stream, as established by a script, is popped from the stack,
+/// along with its command prompt, and processing continues with the previous stream.
 void IfaceStatus::popScript(void)
 
-{ // Pop the current input stream (and current prompt)
-  delete sptr;
-  sptr = inputstack.back();
-  inputstack.pop_back();
+{
   prompt = promptstack.back();
   promptstack.pop_back();
   uint4 flags = flagstack.back();
@@ -162,15 +186,17 @@ void IfaceStatus::popScript(void)
 void IfaceStatus::reset(void)
 
 {
-  while(!inputstack.empty())
+  while(!promptstack.empty())
     popScript();
   errorisdone = false;
   done = false;
 }
 
+/// The line is saved in a circular history buffer
+/// \param line is the command line to save
 void IfaceStatus::saveHistory(const string &line)
 
-{				// Save line in circular history buffer
+{
   if (history.size() < maxhistory)
     history.push_back(line);
   else
@@ -180,6 +206,10 @@ void IfaceStatus::saveHistory(const string &line)
     curhistory = 0;
 }
 
+/// A command line is selected by specifying how many steps in time
+/// to go back through the list of successful command lines.
+/// \param line will hold the selected command line from history
+/// \param i is the number of steps back to go
 void IfaceStatus::getHistory(string &line,int4 i) const
 
 {
@@ -191,9 +221,10 @@ void IfaceStatus::getHistory(string &line,int4 i) const
   line = history[i];
 }
 
+// The last command has failed, decide if we are completely abandoning this stream
 void IfaceStatus::evaluateError(void)
 
-{ // The last command has failed, decide if we are completely abandoning this stream
+{
   if (errorisdone) {
     *optr << "Aborting process" << endl;
     inerror = true;
@@ -208,6 +239,7 @@ void IfaceStatus::evaluateError(void)
   inerror = false;
 }
 
+/// Concatenate a list of tokens into a single string, separated by a space character
 void IfaceStatus::wordsToString(string &res,const vector<string> &list)
 
 {
@@ -228,7 +260,7 @@ IfaceStatus::~IfaceStatus(void)
     ((ofstream *)fileoptr)->close();
     delete fileoptr;
   }
-  while(!inputstack.empty())
+  while(!promptstack.empty())
     popScript();
   for(int4 i=0;i<comlist.size();++i)
     delete comlist[i];
@@ -238,13 +270,24 @@ IfaceStatus::~IfaceStatus(void)
       delete (*iter).second;
 }
 
+/// \brief Register a command with this interface
+///
+/// A command object is associated with one or more tokens on the command line.
+/// A string containing up to 5 tokens can be associated with the command.
+///
+/// \param fptr is the IfaceCommand object
+/// \param nm1 is the first token representing the command
+/// \param nm2 is the second token (or null)
+/// \param nm3 is the third token (or null)
+/// \param nm4 is the fourth token (or null)
+/// \param nm5 is the fifth token (or null)
 void IfaceStatus::registerCom(IfaceCommand *fptr,const char *nm1,
 			      const char *nm2,
 			      const char *nm3,
 			      const char *nm4,
 			      const char *nm5)
 
-{				// Register an interface command
+{
   fptr->addWord(nm1);
   if (nm2 != (const char *)0)
     fptr->addWord(nm2);
@@ -270,15 +313,24 @@ void IfaceStatus::registerCom(IfaceCommand *fptr,const char *nm1,
   fptr->setData(this,data);	// Inform command of its data
 }
 
+/// Commands (IfaceCommand) are associated with a particular module that has
+/// a formal name and a data object associated with it.  This method
+/// retrieves the module specific data object by name.
+/// \param nm is the name of the module
+/// \return the IfaceData object or null
 IfaceData *IfaceStatus::getData(const string &nm) const
 
-{				// Get data corresponding to the named module
+{
   map<string,IfaceData *>::const_iterator iter = datamap.find(nm);
   if (iter == datamap.end())
     return (IfaceData *)0;
   return (*iter).second;
 }
 
+/// A single command line is read (via readLine) and executed.
+/// If the command is successfully executed, the command line is
+/// committed to history and \b true is returned.
+/// \return \b true if a command successfully executes
 bool IfaceStatus::runCommand(void)
 
 {
@@ -318,9 +370,16 @@ bool IfaceStatus::runCommand(void)
   return true;			// Indicate a command was executed
 }
 
-void IfaceStatus::restrict(vector<IfaceCommand *>::const_iterator &first,
-			   vector<IfaceCommand *>::const_iterator &last,
-			   vector<string> &input)
+/// \brief Restrict range of possible commands given a list of command line tokens
+///
+/// Given a set of tokens partially describing a command, provide the most narrow
+/// range of IfaceCommand objects that could be referred to.
+/// \param first will hold an iterator to the first command in the range
+/// \param last will hold an iterator (one after) the last command in the range
+/// \param input is the list of command tokens to match on
+void IfaceStatus::restrictCom(vector<IfaceCommand *>::const_iterator &first,
+			      vector<IfaceCommand *>::const_iterator &last,
+			      vector<string> &input)
 
 {
   vector<IfaceCommand *>::const_iterator newfirst,newlast;
@@ -343,16 +402,8 @@ static bool maxmatch(string &res,const string &op1,const string &op2)
 {				// Set res to maximum characters in common
 				// at the beginning of op1 and op2
   int4 len;
-  bool equal;
 
-  if (op1.size() == op2.size()) {
-    len = op1.size();
-    equal = true;
-  }
-  else {
-    equal = false;
-    len = ( op1.size() < op2.size() ) ? op1.size() : op2.size();
-  }
+  len = ( op1.size() < op2.size() ) ? op1.size() : op2.size();
 
   res.erase();
   for(int4 i=0;i<len;++i) {
@@ -361,19 +412,25 @@ static bool maxmatch(string &res,const string &op1,const string &op2)
     else
       return false;
   }
-  return equal;
+  return true;
 }
 
+/// \brief Expand tokens from the given input stream to a full command
+///
+/// A range of possible commands is returned. Processing of the stream
+/// stops as soon as at least one complete command is recognized.
+/// Tokens partially matching a command are expanded to the full command
+/// and passed back.
+/// \param expand will hold the list of expanded tokens
+/// \param s is the input stream tokens are read from
+/// \param first will hold the beginning of the matching range of commands
+/// \param last will hold the end of the matching range of commands
+/// \return the number of matching commands
 int4 IfaceStatus::expandCom(vector<string> &expand,istream &s,
 			   vector<IfaceCommand *>::const_iterator &first,
 			   vector<IfaceCommand *>::const_iterator &last)
 
-{				// Expand tokens on stream to full command
-				// Return range of possible commands
-				// If command is complete with extra arguments
-				//  return (dont process) remaining args
-				// Return number of matching commands
-
+{
   int4 pos;			// Which word are we currently expanding
   string tok;
   bool res;
@@ -403,7 +460,7 @@ int4 IfaceStatus::expandCom(vector<string> &expand,istream &s,
     }
     s >> tok;			// Get next token
     expand.push_back(tok);
-    restrict(first,last,expand);
+    restrictCom(first,last,expand);
     if (first == last)		// If subrange is empty, return 0
       return 0;
     res = maxmatch(tok, (*first)->getCommandWord(pos), (*(last-1))->getCommandWord(pos));
@@ -420,9 +477,13 @@ void IfaceCommand::addWords(const vector<string> &wordlist)
     com.push_back( *iter );
 }
 
+/// The commands are ordered lexicographically and alphabetically by
+/// the comparing tokens in their respective command line strings
+/// \param op2 is the other command to compare with \b this
+/// \return -1, 0, 1 if \b this is earlier, equal to, or after to the other command
 int4 IfaceCommand::compare(const IfaceCommand &op2) const
 
-{				// Sort command based on names
+{
   int4 res;
   vector<string>::const_iterator iter1,iter2;
 
@@ -441,12 +502,15 @@ int4 IfaceCommand::compare(const IfaceCommand &op2) const
   return 0;			// Never reaches here
 }
 
+/// \param res is overwritten with the full command line string
 void IfaceCommand::commandString(string &res) const
 
 {
   IfaceStatus::wordsToString(res,com);
 }
 
+/// \class IfcQuit
+/// \brief Quit command to terminate processing from the given interface
 void IfcQuit::execute(istream &s)
 
 {				// Generic quit call back
@@ -456,6 +520,8 @@ void IfcQuit::execute(istream &s)
   status->done = true;		// Set flag to drop out of mainloop
 }
 
+/// \class IfcHistory
+/// \brief History command to list the most recent successful commands
 void IfcHistory::execute(istream &s)
 
 {				// List most recent command lines
@@ -479,6 +545,8 @@ void IfcHistory::execute(istream &s)
   }
 }
 
+/// \class IfcOpenfile
+/// \brief Open file command to redirect bulk output to a specific file stream
 void IfcOpenfile::execute(istream &s)
 
 {
@@ -499,6 +567,8 @@ void IfcOpenfile::execute(istream &s)
   }
 }
 
+/// \class IfcOpenfileAppend
+/// \brief Open file command directing bulk output to be appended to a specific file
 void IfcOpenfileAppend::execute(istream &s)
 
 {
@@ -519,6 +589,10 @@ void IfcOpenfileAppend::execute(istream &s)
   }
 }
 
+/// \class IfcClosefile
+/// \brief Close command, closing the current bulk output file.
+///
+/// Subsequent bulk output is redirected to the basic interface output stream
 void IfcClosefile::execute(istream &s)
 
 {
@@ -529,6 +603,8 @@ void IfcClosefile::execute(istream &s)
   status->fileoptr = status->optr;
 }
 
+/// \class IfcEcho
+/// \brief Echo command to echo the current command line to the bulk output stream
 void IfcEcho::execute(istream &s)
 
 {				// Echo command line to fileoptr
@@ -538,3 +614,5 @@ void IfcEcho::execute(istream &s)
     status->fileoptr->put(c);
   *status->fileoptr << endl;
 }
+
+} // End namespace ghidra

@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,24 +15,23 @@
  */
 package ghidra.app.plugin.core.symboltree.actions;
 
-import ghidra.app.plugin.core.symboltree.SymbolTreeActionContext;
-import ghidra.app.plugin.core.symboltree.SymbolTreePlugin;
-import ghidra.app.plugin.core.symboltree.nodes.SymbolNode;
-import ghidra.program.model.listing.Program;
-import ghidra.program.model.symbol.Symbol;
-
 import java.awt.event.KeyEvent;
 
 import javax.swing.Icon;
 import javax.swing.tree.TreePath;
 
-import resources.ResourceManager;
 import docking.action.KeyBindingData;
 import docking.action.MenuData;
+import ghidra.app.plugin.core.symboltree.SymbolTreeActionContext;
+import ghidra.app.plugin.core.symboltree.SymbolTreePlugin;
+import ghidra.app.plugin.core.symboltree.nodes.SymbolNode;
+import ghidra.program.model.listing.Program;
+import ghidra.program.model.symbol.Symbol;
+import resources.Icons;
 
 public class DeleteAction extends SymbolTreeContextAction {
 
-	private final static Icon DELETE_ICON = ResourceManager.loadImage("images/edit-delete.png");
+	private final static Icon DELETE_ICON = Icons.DELETE_ICON;
 
 	private final SymbolTreePlugin plugin;
 
@@ -60,7 +58,6 @@ public class DeleteAction extends SymbolTreeContextAction {
 			}
 		}
 
-		setEnabled(true);
 		return true;
 	}
 

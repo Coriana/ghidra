@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,7 +18,8 @@ package ghidra.app.util.viewer.field;
 import static org.junit.Assert.*;
 
 import java.math.BigInteger;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.junit.*;
 
@@ -39,10 +40,6 @@ public class RegisterFieldFactoryTest extends AbstractGhidraHeadedIntegrationTes
 	private CodeBrowserPlugin cb;
 	private Program program;
 
-	public RegisterFieldFactoryTest() {
-		super();
-	}
-
 	@Before
 	public void setUp() throws Exception {
 
@@ -56,7 +53,7 @@ public class RegisterFieldFactoryTest extends AbstractGhidraHeadedIntegrationTes
 	}
 
 	private ProgramDB buildProgram() throws Exception {
-		ToyProgramBuilder builder = new ToyProgramBuilder("notepad", true);
+		ToyProgramBuilder builder = new ToyProgramBuilder();
 		builder.createMemory(".text", "0x1001000", 0x6600);
 		builder.createEmptyFunction(null, "1001000", 40, null);
 		builder.createReturnInstruction("1001000");
@@ -79,15 +76,19 @@ public class RegisterFieldFactoryTest extends AbstractGhidraHeadedIntegrationTes
 		Address end = function.getBody().getMaxAddress();
 
 		ProgramContext pc = program.getProgramContext();
-		List<Register> nonContextRegs = getNonContextRegisters(pc);
+		List<Register> nonContextRegs = getNonContextLeafRegisters(pc);
 
 		int transactionID = program.startTransaction("test");
-		int count = 0;
+		int subRegCount = 0;
+		int flagRegCount = 0;
 		try {
 			for (Register register : nonContextRegs) {
 				pc.setValue(register, entry, end, BigInteger.valueOf(5));
 				if (register.getParentRegister() == null) {
-					++count;
+					++flagRegCount; // e.g., C
+				}
+				else {
+					++subRegCount; // e.g., r0l,r0h (consolidate into r0)
 				}
 			}
 		}
@@ -95,21 +96,22 @@ public class RegisterFieldFactoryTest extends AbstractGhidraHeadedIntegrationTes
 			program.endTransaction(transactionID, true);
 		}
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		cb.updateNow();
 
 		assertTrue(cb.goToField(entry, RegisterFieldFactory.FIELD_NAME, 0, 0, 0));
 
 		ListingTextField tf = (ListingTextField) cb.getCurrentField();
-		assertEquals(count, tf.getNumRows());
+		assertEquals(flagRegCount + (subRegCount / 2), tf.getNumRows());
 	}
 
-	private List<Register> getNonContextRegisters(ProgramContext pc) {
+	private List<Register> getNonContextLeafRegisters(ProgramContext pc) {
 		List<Register> nonContextRegs = new ArrayList<Register>();
 		for (Register reg : pc.getRegisters()) {
-			if (!reg.isProcessorContext()) {
-				nonContextRegs.add(reg);
+			if (reg.isProcessorContext() || reg.hasChildren()) {
+				continue;
 			}
+			nonContextRegs.add(reg);
 		}
 		return nonContextRegs;
 	}
@@ -122,7 +124,7 @@ public class RegisterFieldFactoryTest extends AbstractGhidraHeadedIntegrationTes
 		Address entry = function.getEntryPoint();
 
 		ProgramContext pc = program.getProgramContext();
-		List<Register> regs = getNonContextRegisters(pc);
+		List<Register> regs = getNonContextLeafRegisters(pc);
 
 		int count = 0;
 		int transactionID = program.startTransaction("test");
@@ -132,8 +134,7 @@ public class RegisterFieldFactoryTest extends AbstractGhidraHeadedIntegrationTes
 					pc.setValue(regs.get(i), entry, entry, BigInteger.valueOf(i));
 				}
 			}
-			for (int i = 0; i < regs.size(); i++) {
-				Register reg = regs.get(i);
+			for (Register reg : regs) {
 				RegisterValue value = pc.getNonDefaultValue(reg, entry);
 				Register parent = reg.getParentRegister();
 				if (value != null && value.getSignedValue() != null &&
@@ -146,7 +147,7 @@ public class RegisterFieldFactoryTest extends AbstractGhidraHeadedIntegrationTes
 			program.endTransaction(transactionID, true);
 		}
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		cb.updateNow();
 
 		assertTrue(cb.goToField(entry, RegisterFieldFactory.FIELD_NAME, 0, 0, 0));
@@ -164,19 +165,19 @@ public class RegisterFieldFactoryTest extends AbstractGhidraHeadedIntegrationTes
 		Address entry = function.getEntryPoint();
 
 		ProgramContext pc = program.getProgramContext();
-		List<Register> regs = getNonContextRegisters(pc);
-		Collections.sort(regs, new RegComparator());
 		int transactionID = program.startTransaction("test");
 		try {
-			for (int i = 0; i < 3; i++) {
-				pc.setValue(regs.get(i), entry, entry, BigInteger.valueOf(i));
-			}
+			pc.setValue(program.getRegister("C"), entry, entry, BigInteger.valueOf(1));
+			pc.setValue(program.getRegister("lrh"), entry, entry, BigInteger.valueOf(2));
+			pc.setValue(program.getRegister("lrl"), entry, entry, BigInteger.valueOf(3));
+			pc.setValue(program.getRegister("r0"), entry, entry, BigInteger.valueOf(4));
+			pc.setValue(program.getRegister("r1l"), entry, entry, BigInteger.valueOf(5));
 		}
 		finally {
 			program.endTransaction(transactionID, true);
 		}
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		cb.updateNow();
 
 		assertTrue(cb.goToField(entry, RegisterFieldFactory.FIELD_NAME, 0, 0, 0));
@@ -184,17 +185,12 @@ public class RegisterFieldFactoryTest extends AbstractGhidraHeadedIntegrationTes
 		assertTrue(cb.getCurrentLocation() instanceof RegisterFieldLocation);
 
 		RegisterFieldLocation loc = (RegisterFieldLocation) cb.getCurrentLocation();
-		assertTrue(loc.getRegisterStrings()[0].indexOf(regs.get(0).getName()) > 0);
-		assertTrue(loc.getRegisterStrings()[1].indexOf(regs.get(1).getName()) > 0);
-		assertTrue(loc.getRegisterStrings()[2].indexOf(regs.get(2).getName()) > 0);
-	}
-
-	private class RegComparator implements Comparator<Register> {
-		@Override
-		public int compare(Register r1, Register r2) {
-			return r1.getName().compareToIgnoreCase(r2.getName());
-		}
-
+		String[] regAssumes = loc.getRegisterStrings();
+		assertEquals(4, regAssumes.length);
+		assertEquals("assume C = 0x1", regAssumes[0]);
+		assertEquals("assume lr = 0x20003", regAssumes[1]);
+		assertEquals("assume r0 = 0x4", regAssumes[2]);
+		assertEquals("assume r1l = 0x5", regAssumes[3]);
 	}
 
 }

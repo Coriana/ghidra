@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,24 +18,21 @@ package ghidra.app.cmd.formats;
 import java.io.IOException;
 import java.util.List;
 
-import generic.continues.RethrowContinuesFactory;
 import ghidra.app.plugin.core.analysis.AnalysisWorker;
 import ghidra.app.plugin.core.analysis.AutoAnalysisManager;
-import ghidra.app.util.bin.ByteProvider;
-import ghidra.app.util.bin.MemoryByteProvider;
-import ghidra.app.util.bin.format.FactoryBundledWithBinaryReader;
+import ghidra.app.util.bin.*;
 import ghidra.app.util.bin.format.mz.DOSHeader;
 import ghidra.app.util.bin.format.pe.*;
 import ghidra.app.util.bin.format.pe.PortableExecutable.SectionLayout;
 import ghidra.app.util.bin.format.pe.debug.DebugCOFFSymbol;
 import ghidra.app.util.importer.MessageLog;
+import ghidra.app.util.opinion.BinaryLoader;
 import ghidra.framework.cmd.BinaryAnalysisCommand;
 import ghidra.program.flatapi.FlatProgramAPI;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.listing.Data;
 import ghidra.program.model.listing.Program;
-import ghidra.program.model.mem.Memory;
 import ghidra.program.model.symbol.SourceType;
 import ghidra.util.exception.*;
 import ghidra.util.task.TaskMonitor;
@@ -50,27 +47,24 @@ public class PortableExecutableBinaryAnalysisCommand extends FlatProgramAPI
 
 	@Override
 	public boolean canApply(Program program) {
+		if (!BinaryLoader.BINARY_NAME.equals(program.getExecutableFormat())) {
+			return false;
+		}
 		try {
-			Memory memory = program.getMemory();
+			ByteProvider provider =
+				MemoryByteProvider.createDefaultAddressSpaceByteProvider(program, false);
+			BinaryReader reader = new BinaryReader(provider, !program.getLanguage().isBigEndian());
 
-			ByteProvider provider = new MemoryByteProvider(memory,
-				program.getAddressFactory().getDefaultAddressSpace());
-
-			FactoryBundledWithBinaryReader reader = new FactoryBundledWithBinaryReader(
-				RethrowContinuesFactory.INSTANCE, provider, !program.getLanguage().isBigEndian());
-
-			DOSHeader dosHeader = DOSHeader.createDOSHeader(reader);
+			DOSHeader dosHeader = new DOSHeader(reader);
 
 			if (dosHeader.isDosSignature()) {
-
-				reader.setPointerIndex( dosHeader.e_lfanew( ) );
-
-				short peMagic = reader.readNextShort();//we should be pointing at the PE magic value!
-
-				return ( peMagic & 0x0000ffff ) == Constants.IMAGE_NT_SIGNATURE;
+				reader.setPointerIndex(dosHeader.e_lfanew());
+				short peMagic = reader.readNextShort(); //we should be pointing at the PE magic value!
+				return (peMagic & 0x0000ffff) == Constants.IMAGE_NT_SIGNATURE;
 			}
 		}
 		catch (Exception e) {
+			// safe to assume it's not a PE
 		}
 		return false;
 	}
@@ -79,12 +73,10 @@ public class PortableExecutableBinaryAnalysisCommand extends FlatProgramAPI
 	public boolean analysisWorkerCallback(Program program, Object workerContext,
 			TaskMonitor monitor) throws Exception, CancelledException {
 
-		ByteProvider provider = new MemoryByteProvider(currentProgram.getMemory(),
-			program.getAddressFactory().getDefaultAddressSpace());
+		ByteProvider provider =
+			MemoryByteProvider.createDefaultAddressSpaceByteProvider(program, false);
 
-		PortableExecutable pe =
-			PortableExecutable.createPortableExecutable(RethrowContinuesFactory.INSTANCE, provider,
-				SectionLayout.FILE);
+		PortableExecutable pe = new PortableExecutable(provider, SectionLayout.FILE);
 
 		DOSHeader dos = pe.getDOSHeader();
 		if (dos == null || dos.e_magic() != DOSHeader.IMAGE_DOS_SIGNATURE) {

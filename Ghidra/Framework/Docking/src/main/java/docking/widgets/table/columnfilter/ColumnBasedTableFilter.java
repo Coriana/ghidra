@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,11 +18,13 @@ package docking.widgets.table.columnfilter;
 import java.util.*;
 import java.util.stream.Collectors;
 
-import org.jdom.Element;
+import org.jdom2.Element;
 
 import docking.widgets.table.*;
 import docking.widgets.table.constraint.ColumnConstraint;
 import docking.widgets.table.constraint.TableFilterContext;
+import generic.theme.GColor;
+import generic.theme.GThemeDefaults.Colors.Palette;
 import ghidra.framework.options.SaveState;
 
 /**
@@ -230,16 +232,19 @@ public class ColumnBasedTableFilter<R> implements TableFilter<R> {
 	//
 	private String getHtmlRepresentation(List<ColumnConstraintSet<R, ?>> filters) {
 		StringBuilder buf = new StringBuilder();
-		buf.append("<table valign=top cellspacing=5 cellpadding=0 >");
+		buf.append("<table valign=top cellspacing=5 cellpadding=0>");
 		buf.append("<tr>");
 		// The first row has an empty first column
 		// so that additional rows can display an "AND"
 		buf.append("<td></td><td>");
 		buf.append(filters.get(0).getHtmlRepresentation());
 		buf.append("</td></tr>");
+		GColor gray = Palette.GRAY;
+		String grayHex = gray.toHexString();
 		for (int i = 1; i < filters.size(); i++) {
-			buf.append("<tr><td style=\"color:gray\"> " + filters.get(i).getLogicOperation() +
-				"&nbsp;</td><td>");
+			buf.append("<tr><td style=\"color:").append(grayHex).append("\"> ");
+			buf.append(filters.get(i).getLogicOperation());
+			buf.append("&nbsp;</td><td>");
 			buf.append(filters.get(i).getHtmlRepresentation());
 			buf.append("</td></tr>");
 		}

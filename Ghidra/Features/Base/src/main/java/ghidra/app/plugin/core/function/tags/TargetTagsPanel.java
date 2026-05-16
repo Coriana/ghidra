@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,18 +15,15 @@
  */
 package ghidra.app.plugin.core.function.tags;
 
-import java.util.Collections;
-import java.util.List;
+import java.util.Set;
 
 import ghidra.app.cmd.function.RemoveFunctionTagCmd;
 import ghidra.framework.cmd.Command;
 import ghidra.framework.plugintool.PluginTool;
-import ghidra.program.model.listing.Function;
-import ghidra.program.model.listing.FunctionTag;
+import ghidra.program.model.listing.*;
 
 /**
- * Displays a list of tags that have been assigned to the currently-selected
- * function in the listing
+ * Displays a list of tags that have been assigned to the current function
  */
 public class TargetTagsPanel extends TagListPanel {
 
@@ -35,12 +32,10 @@ public class TargetTagsPanel extends TagListPanel {
 	 * 
 	 * @param provider the component provider
 	 * @param tool the plugin tool
-	 * @param title the panel title
 	 */
-	public TargetTagsPanel(FunctionTagsComponentProvider provider,
-			PluginTool tool, String title) {
-		super(provider, tool, title);
-		
+	public TargetTagsPanel(FunctionTagProvider provider, PluginTool tool) {
+		super(provider, tool, "Function Tags Assigned");
+
 		table.setDisabled(false);
 	}
 
@@ -49,37 +44,36 @@ public class TargetTagsPanel extends TagListPanel {
 	 ******************************************************************************/
 
 	@Override
-	public void refresh(Function function) {
-		
+	public void refresh(Function newFunction) {
+
 		model.clear();
-		
-		this.function = function;
-		
+
+		this.function = newFunction;
+
 		if (function == null) {
 			setTitle("No Function Selected");
 		}
 		else {
-			setTitle(function.getName() + " " + "(" + function.getEntryPoint().toString() + ")");
+			setTitle(function.getName() + " (" + function.getEntryPoint().toString() + ')');
 		}
 
-		List<FunctionTag> assignedTags = getAssignedTags(function);
-		Collections.sort(assignedTags);
-		for (FunctionTag tag : assignedTags) {
-			model.addTag(tag);
-		}
-		
-		model.reload();
-		applyFilter();
 		table.setFunction(function);
+		model.reload();
+	}
+
+	@Override
+	protected Set<FunctionTag> backgroundLoadTags() {
+		return getAssignedTags(function);
 	}
 
 	/**
 	 * Removes selected tags from the currently-selected function.
 	 */
 	public void removeSelectedTags() {
-		List<FunctionTag> selectedTags = getSelectedTags();
+		Set<FunctionTag> selectedTags = getSelectedTags();
 		for (FunctionTag tag : selectedTags) {
-			Command cmd = new RemoveFunctionTagCmd(tag.getName(), function.getEntryPoint());
+			Command<Program> cmd =
+				new RemoveFunctionTagCmd(tag.getName(), function.getEntryPoint());
 			tool.execute(cmd, program);
 		}
 	}

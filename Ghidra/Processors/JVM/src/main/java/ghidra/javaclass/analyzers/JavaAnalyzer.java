@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -36,10 +36,10 @@ import ghidra.javaclass.flags.MethodsInfoAccessFlags;
 import ghidra.javaclass.format.*;
 import ghidra.javaclass.format.attributes.*;
 import ghidra.javaclass.format.constantpool.*;
+import ghidra.program.database.ProgramCompilerSpec;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSetView;
 import ghidra.program.model.data.*;
-import ghidra.program.model.lang.BasicCompilerSpec;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.listing.Function.FunctionUpdateType;
 import ghidra.program.model.mem.MemoryAccessException;
@@ -138,7 +138,7 @@ public class JavaAnalyzer extends AbstractJavaAnalyzer implements AnalysisWorker
 		disassembleMethods(program, classFile, monitor);
 		processInstructions(program, constantPoolData, classFile, monitor);
 		recordJavaVersionInfo(program, classFile);
-		BasicCompilerSpec.enableJavaLanguageDecompilation(program);
+		ProgramCompilerSpec.enableJavaLanguageDecompilation(program);
 		return true;
 	}
 
@@ -417,7 +417,7 @@ public class JavaAnalyzer extends AbstractJavaAnalyzer implements AnalysisWorker
 			getBootStrapMethodAttribute(classFile, constantPool, indexMap);
 
 		for (Instruction instruction : instructionIt) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 
 			if (!hasConstantPoolReference(instruction.getMnemonicString())) {
 				continue;
@@ -433,7 +433,7 @@ public class JavaAnalyzer extends AbstractJavaAnalyzer implements AnalysisWorker
 			Data referredData = constantPoolData.getComponent(indexMap.get(index));
 			instruction.addOperandReference(0, referredData.getAddress(), RefType.DATA,
 				SourceType.ANALYSIS);
-			CompoundCmd cmd = new CompoundCmd("Add constant pool reference");
+			CompoundCmd<Program> cmd = new CompoundCmd<>("Add constant pool reference");
 			String constantPoolLabel = "CPOOL[" + index + "]";
 			cmd.add(
 				new AddLabelCmd(referredData.getAddress(), constantPoolLabel, SourceType.ANALYSIS));
@@ -468,7 +468,7 @@ public class JavaAnalyzer extends AbstractJavaAnalyzer implements AnalysisWorker
 				sb.append("\n");
 			}
 		}
-		program.getListing().setComment(addr, CodeUnit.PLATE_COMMENT, sb.toString());
+		program.getListing().setComment(addr, CommentType.PLATE, sb.toString());
 	}
 
 	private void appendMethodHandleInfo(StringBuffer sb,
@@ -661,7 +661,7 @@ public class JavaAnalyzer extends AbstractJavaAnalyzer implements AnalysisWorker
 		if (address.getAddressSpace() != program.getAddressFactory().getDefaultAddressSpace()) {
 			return false;
 		}
-		SetCommentCmd cmd = new SetCommentCmd(address, CodeUnit.EOL_COMMENT, comment);
+		SetCommentCmd cmd = new SetCommentCmd(address, CommentType.EOL, comment);
 		return cmd.applyTo(program);
 	}
 
@@ -720,6 +720,26 @@ public class JavaAnalyzer extends AbstractJavaAnalyzer implements AnalysisWorker
 				explicitParams.get(i), function.getProgram());
 			params.add(currentParam);
 		}
+		MethodParametersAttribute methodParamsAttr = methodInfo.getMethodParameters();
+		if (methodParamsAttr != null) {
+			MethodParameters[] methodParams = methodParamsAttr.getMethodParameters();
+			int indexAdjust = methodInfo.isStatic() ? 0 : 1;
+			if (methodParams.length == (params.size() - indexAdjust)) {
+				for (int i = 0; i < methodParams.length; ++i) {
+					int nameIndex = methodParams[i].getNameIndex();
+					if (nameIndex == 0) {
+						continue;  // no name
+					}
+					String name = ((ConstantPoolUtf8Info) constantPool[nameIndex]).getString();
+					params.get(i + indexAdjust).setName(name, SourceType.ANALYSIS);
+				}
+			}
+			else {
+				Msg.warn(this, "methodParams/params size mismatch for " + function.getName());
+				Msg.warn(this,
+					"methodParams: " + methodParams.length + "; params: " + params.size());
+			}
+		}
 		function.replaceParameters(params, FunctionUpdateType.DYNAMIC_STORAGE_ALL_PARAMS, true,
 			SourceType.ANALYSIS);
 
@@ -750,7 +770,7 @@ public class JavaAnalyzer extends AbstractJavaAnalyzer implements AnalysisWorker
 		Listing listing = function.getProgram().getListing();
 		Address entryPoint = function.getEntryPoint();
 
-		listing.setComment(entryPoint, CodeUnit.PLATE_COMMENT, sb.toString());
+		listing.setComment(entryPoint, CommentType.PLATE, sb.toString());
 	}
 
 	private boolean hasConstantPoolReference(String mnemonic) {

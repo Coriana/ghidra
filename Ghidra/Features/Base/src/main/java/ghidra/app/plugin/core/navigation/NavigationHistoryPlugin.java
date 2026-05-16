@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,7 +17,7 @@ package ghidra.app.plugin.core.navigation;
 
 import java.util.*;
 
-import org.jdom.Element;
+import org.jdom2.Element;
 
 import docking.ComponentProvider;
 import docking.DockingWindowManager;
@@ -37,21 +37,19 @@ import ghidra.util.Msg;
 import ghidra.util.bean.opteditor.OptionsVetoException;
 
 /**
- * <CODE>NavigationHistoryPlugin</CODE> is used in conjunction with other
- * plugins to cause program viewer plugins to change their focus to a certain
- * address. As viewer plugins are directed to one or more addresses it maintains
- * information about where the viewers have been to support ability for the
- * viewers to go back to a previous "focus" point.
- * 
- * Services Provided: NavigationHistoryService
- * Events Consumed: ProgramLocationPluginEvent, ProgramPluginEvent 
- * Event Produced: HistoryChangePluginEvent Actions: None.
+ * <CODE>NavigationHistoryPlugin</CODE> is used in conjunction with other plugins to cause program
+ * viewer plugins to change their focus to a certain address. As viewer plugins are directed to one
+ * or more addresses it maintains information about where the viewers have been to support ability
+ * for the viewers to go back to a previous "focus" point.
+ *
+ * Services Provided: NavigationHistoryService Events Consumed: ProgramLocationPluginEvent,
+ * ProgramPluginEvent Event Produced: HistoryChangePluginEvent Actions: None.
  */
 //@formatter:off
 @PluginInfo(
 	status = PluginStatus.RELEASED,
 	packageName = CorePluginPackage.NAME,
-	category = PluginCategoryNames.SUPPORT,
+	category = PluginCategoryNames.COMMON,
 	shortDescription = "Tool State History",
 	description = "This plugin maintains a history of tool states. "
 			+ "It is used in conjunction with other plugins "
@@ -78,7 +76,7 @@ public class NavigationHistoryPlugin extends Plugin
 	private static final String MEMENTO_CLASS = "MEMENTO_CLASS";
 
 	private Map<Navigatable, HistoryList> historyListMap = new HashMap<>();
-	private static final int ABSOLUTE_MAX_HISTORY_SIZE = 100;
+	private static final int ABSOLUTE_MAX_HISTORY_SIZE = 400;
 	private static final int ABSOLUTE_MIN_HISTORY_SIZE = 10;
 	final static int MAX_HISTORY_SIZE = 30;
 	private int maxHistorySize = MAX_HISTORY_SIZE;
@@ -350,7 +348,8 @@ public class NavigationHistoryPlugin extends Plugin
 		notifyHistoryChange();
 	}
 
-	private void clear(Program program) {
+	@Override
+	public void clear(Program program) {
 		for (HistoryList historyList : historyListMap.values()) {
 			clear(historyList, program);
 		}
@@ -367,7 +366,15 @@ public class NavigationHistoryPlugin extends Plugin
 	}
 
 	private void notifyHistoryChange() {
-		tool.contextChanged(null);
+		/*
+		 * During tool disposal, Plugins having providers that extend
+		 * NavigatableComponentProviderAdapter may get disposed after we do. Those providers remove
+		 * themselves from us via NavigatableRemovalListener, which eventually calls into here. If
+		 * that is the case, our tool will already be set to null, so we'll just ignore the event.
+		 */
+		if (tool != null) {
+			tool.contextChanged(null);
+		}
 	}
 
 	@Override
@@ -441,7 +448,7 @@ public class NavigationHistoryPlugin extends Plugin
 
 //==================================================================================================
 // Inner Classes
-//==================================================================================================    
+//==================================================================================================
 
 	private static class HistoryList {
 		private List<LocationMemento> list = new ArrayList<>();
@@ -543,12 +550,12 @@ public class NavigationHistoryPlugin extends Plugin
 		}
 
 		/**
-		 * Find the next history LocationMemento that contains a different function.  If no such
+		 * Find the next history LocationMemento that contains a different function. If no such
 		 * LocationMemento is found, null is returned.
-		 * 
+		 *
 		 * @param navigatable the navigatable being navigated
-		 * @param moveTo true means after finding, get current location to it. false to just find 
-		 * 			and do nothing
+		 * @param moveTo true means after finding, get current location to it. false to just find
+		 *            and do nothing
 		 * @return next LocationMemento, or null if no next function
 		 */
 		private LocationMemento nextFunction(Navigatable navigatable, boolean moveTo) {
@@ -589,10 +596,10 @@ public class NavigationHistoryPlugin extends Plugin
 		/**
 		 * Find the previous history LocationMemento that contains a different function. If no such
 		 * LocationMemento is found, null is returned.
-		 * 
+		 *
 		 * @param navigatable the navigatable being navigated
-		 * @param moveTo true means after finding, get current location to it. false to just find 
-		 * 		   and do nothing
+		 * @param moveTo true means after finding, get current location to it. false to just find
+		 *            and do nothing
 		 * @return previous LocationMemento, or null if no previous function found
 		 */
 		private LocationMemento previousFunction(Navigatable navigatable, boolean moveTo) {
@@ -621,35 +628,73 @@ public class NavigationHistoryPlugin extends Plugin
 		}
 
 		private Function getPreviousStartFunction(Navigatable navigatable) {
-			ProgramLocation location = navigatable.getLocation();
+			ProgramLocation location = getProgramLocation(navigatable);
 			if (location == null) {
 				return null;
 			}
 
 			Address currentAddress = location.getAddress();
+			Program program = location.getProgram();
+			FunctionManager functionManager = program.getFunctionManager();
+			return functionManager.getFunctionContaining(currentAddress);
+		}
+
+		private ProgramLocation getProgramLocation(Navigatable navigatable) {
 
 			//
 			// The active component may still be showing the previously loaded function, instead
-			// of the current location when that location is not in a function.  In that case, 
+			// of the current location when that location is not in a function.  In that case,
 			// when that provider is focused, prefer its notion of the current function so that
 			// users navigating from that view will go to the function before the one that is
 			// on the history stack.  This should feel more intuitive to the user, with the risk
 			// that the navigation actions will sometimes feel inconsistent, depending upon
 			// what view is focused.
 			//
-			DockingWindowManager manager = DockingWindowManager.getActiveInstance();
-			ComponentProvider provider = manager.getActiveComponentProvider();
-			if (provider instanceof Navigatable) {
-				LocationMemento memento = ((Navigatable) provider).getMemento();
-				ProgramLocation otherLocation = memento.getProgramLocation();
-				if (otherLocation != null) {
-					currentAddress = otherLocation.getAddress();
+			DockingWindowManager dwm = DockingWindowManager.getActiveInstance();
+			ComponentProvider activeProvider = dwm.getActiveComponentProvider();
+			if (activeProvider instanceof Navigatable) {
+				Navigatable activeNavigatable = (Navigatable) activeProvider;
+				LocationMemento memento = activeNavigatable.getMemento();
+				ProgramLocation location =
+					validateProgramLocation(activeNavigatable, memento.getProgramLocation());
+				if (location != null) {
+					// prefer the active navigatable's location
+					return location;
 				}
 			}
 
+			ProgramLocation location = navigatable.getLocation();
+			return validateProgramLocation(navigatable, location);
+		}
+
+		private ProgramLocation validateProgramLocation(Navigatable navigatable,
+				ProgramLocation location) {
+			if (location == null) {
+				return null;
+			}
+			if (isClosedProgram(navigatable, location)) {
+				return null;
+			}
+			return location;
+		}
+
+		// TODO debug code that can go away if we find the source of the lingering program location
+		// being used that causes the program closed exception
+		private boolean isClosedProgram(Navigatable navigatable, ProgramLocation location) {
 			Program program = location.getProgram();
-			FunctionManager functionManager = program.getFunctionManager();
-			return functionManager.getFunctionContaining(currentAddress);
+			if (program.isClosed()) {
+
+				Msg.showError(this, null, "Closed Program", """
+						The Navigation History Plugin is using a closed program.
+						Program: %s
+						Navigatable: %s
+						Location: %s @ %s"""
+						.formatted(program.getName(), navigatable.getClass().getSimpleName(),
+							location.getClass().getSimpleName(), location.getAddress()));
+				return true;
+			}
+
+			return false;
 		}
 
 		void remove(LocationMemento location) {

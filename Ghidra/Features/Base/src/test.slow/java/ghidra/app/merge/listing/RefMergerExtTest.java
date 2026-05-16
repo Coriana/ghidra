@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -88,50 +88,28 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 
 		mtf.initialize("NotepadMergeListingTest", new ProgramModifierListener() {
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
-				try {
-					ReferenceManager refMgr = program.getReferenceManager();
-					Reference[] refs;
-					refs = refMgr.getReferencesFrom(addr(program, "0x1001000"), 0);
-					assertEquals(1, refs.length);
-					refMgr.delete(refs[0]);
-					refs = refMgr.getReferencesFrom(addr(program, "0x1001004"), 0);
-					assertEquals(1, refs.length);
-					refMgr.delete(refs[0]);
-					commit = true;
-				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
+				ReferenceManager refMgr = program.getReferenceManager();
+				Reference[] refs;
+				refs = refMgr.getReferencesFrom(addr(program, "0x1001000"), 0);
+				assertEquals(1, refs.length);
+				refMgr.delete(refs[0]);
+				refs = refMgr.getReferencesFrom(addr(program, "0x1001004"), 0);
+				assertEquals(1, refs.length);
+				refMgr.delete(refs[0]);
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
-				try {
-					ReferenceManager refMgr = program.getReferenceManager();
-					Reference[] refs;
-					refs = refMgr.getReferencesFrom(addr(program, "0x1001000"), 0);
-					assertEquals(1, refs.length);
-					refMgr.delete(refs[0]);
-					refs = refMgr.getReferencesFrom(addr(program, "0x10010c0"), 0);
-					assertEquals(1, refs.length);
-					refMgr.delete(refs[0]);
-					commit = true;
-				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
+				ReferenceManager refMgr = program.getReferenceManager();
+				Reference[] refs;
+				refs = refMgr.getReferencesFrom(addr(program, "0x1001000"), 0);
+				assertEquals(1, refs.length);
+				refMgr.delete(refs[0]);
+				refs = refMgr.getReferencesFrom(addr(program, "0x10010c0"), 0);
+				assertEquals(1, refs.length);
+				refMgr.delete(refs[0]);
 			}
 		});
 
@@ -169,13 +147,8 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 
 		mtf.initialize("NotepadMergeListingTest", new ProgramModifierListener() {
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
 					Reference[] refs;
@@ -192,24 +165,14 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 					refMgr.addExternalReference(addr(program, "0x1001004"), extLoc.getLibraryName(),
 						"test" + extLoc.getLabel(), extLoc.getAddress(), SourceType.USER_DEFINED, 0,
 						RefType.COMPUTED_CALL);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
 					Reference[] refs;
@@ -226,14 +189,9 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 					assertEquals(1, refs.length);
 					// Remove the ref.
 					refMgr.delete(refs[0]);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -276,13 +234,8 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 
 		mtf.initialize("NotepadMergeListingTest", new ProgramModifierListener() {
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
 					Reference[] refs;
@@ -299,24 +252,14 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 					refMgr.addExternalReference(addr(program, "0x1001004"), extLoc.getLibraryName(),
 						"test" + extLoc.getLabel(), extLoc.getAddress(), SourceType.IMPORTED, 0,
 						refs[0].getReferenceType());
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
 					Reference[] refs;
@@ -333,14 +276,9 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 					assertEquals(1, refs.length);
 					// Remove the ref.
 					refMgr.delete(refs[0]);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -382,13 +320,8 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 
 		mtf.initialize("NotepadMergeListingTest", new OriginalProgramModifierListener() {
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
 					createExternalLabel(program, new String[] { "Library", "Namespace", "Label1" },
 						addr(program, "77db1020"), SourceType.ANALYSIS);
@@ -401,24 +334,14 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 
 					createExternalLabel(program, new String[] { "Library", "Namespace", "Bar" },
 						addr(program, "77db1130"), SourceType.ANALYSIS);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
 					Reference[] refs;
@@ -445,24 +368,14 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 					refMgr.delete(refs[0]);
 					refMgr.addExternalReference(fromAddress, operandIndex, extLoc2,
 						extLoc2.getSource(), referenceType);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
 					Reference[] refs;
@@ -489,14 +402,9 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 					refMgr.delete(refs[0]);
 					refMgr.addExternalReference(fromAddress, operandIndex, extLoc2,
 						extLoc2.getSource(), referenceType);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -538,13 +446,8 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 
 		mtf.initialize("NotepadMergeListingTest", new OriginalProgramModifierListener() {
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
 					createExternalLabel(program, new String[] { "Library", "Namespace", "Label1" },
 						addr(program, "77db1020"), SourceType.ANALYSIS);
@@ -557,24 +460,14 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 
 					createExternalLabel(program, new String[] { "Library", "Namespace", "Bar" },
 						addr(program, "77db1130"), SourceType.ANALYSIS);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
 					Reference[] refs;
@@ -601,24 +494,14 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 					refMgr.delete(refs[0]);
 					refMgr.addExternalReference(fromAddress, operandIndex, extLoc2,
 						extLoc2.getSource(), referenceType);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
 					Reference[] refs;
@@ -645,14 +528,9 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 					refMgr.delete(refs[0]);
 					refMgr.addExternalReference(fromAddress, operandIndex, extLoc2,
 						extLoc2.getSource(), referenceType);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -674,93 +552,64 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 		assertEquals("Bar", ((ExternalReference) refs[0]).getExternalLocation().getLabel());
 		assertTrue(refs[0].getSource() == SourceType.ANALYSIS);
 	}
-	
+
 	@Test
 	public void testExtRefChangeRefTypeConflictPickMy() throws Exception {
 
 		mtf.initialize("NotepadMergeListingTest", new OriginalProgramModifierListener() {
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
-					ExternalLocation extLoc = createExternalLabel(program, new String[] { "Library", "Namespace", "Label1" },
+					ExternalLocation extLoc = createExternalLabel(program,
+						new String[] { "Library", "Namespace", "Label1" },
 						addr(program, "77db1020"), SourceType.ANALYSIS);
-					
+
 					ReferenceManager refMgr = program.getReferenceManager();
-					
+
 					Reference[] refs = refMgr.getReferencesFrom(addr(program, "0x1001000"), 0);
 					assertEquals(1, refs.length);
 					Address fromAddress = refs[0].getFromAddress();
 					int operandIndex = refs[0].getOperandIndex();
 					refMgr.delete(refs[0]);
-					
-					refMgr.addExternalReference(fromAddress, operandIndex, extLoc,
-							extLoc.getSource(), RefType.DATA);
 
-					commit = true;
+					refMgr.addExternalReference(fromAddress, operandIndex, extLoc,
+						extLoc.getSource(), RefType.DATA);
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
-					
-					ExternalLocation extLoc = getExternalLocation(program,
-							new String[] { "Library", "Namespace", "Label1" });
-					
-					refMgr.addExternalReference(addr(program, "0x1001000"), 0, extLoc,
-							extLoc.getSource(), RefType.COMPUTED_CALL);
 
-					commit = true;
+					ExternalLocation extLoc = getExternalLocation(program,
+						new String[] { "Library", "Namespace", "Label1" });
+
+					refMgr.addExternalReference(addr(program, "0x1001000"), 0, extLoc,
+						extLoc.getSource(), RefType.COMPUTED_CALL);
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
-					
-					ExternalLocation extLoc = getExternalLocation(program,
-							new String[] { "Library", "Namespace", "Label1" });
-					
-					refMgr.addExternalReference(addr(program, "0x1001000"), 0, extLoc,
-							extLoc.getSource(), RefType.COMPUTED_CALL_TERMINATOR);
 
-					commit = true;
+					ExternalLocation extLoc = getExternalLocation(program,
+						new String[] { "Library", "Namespace", "Label1" });
+
+					refMgr.addExternalReference(addr(program, "0x1001000"), 0, extLoc,
+						extLoc.getSource(), RefType.COMPUTED_CALL_TERMINATOR);
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -797,13 +646,8 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 
 		mtf.initialize("NotepadMergeListingTest", new ProgramModifierListener() {
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
 					Reference[] refs;
@@ -811,31 +655,20 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 					refs = refMgr.getReferencesFrom(addr(program, "0x10013cc"), 0);
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013cc"), "USER32.DLL", "printf",
-						addr(program, "0x01234567"), SourceType.USER_DEFINED, 0,
-						RefType.DATA);
+						addr(program, "0x01234567"), SourceType.USER_DEFINED, 0, RefType.DATA);
 
 					refs = refMgr.getReferencesFrom(addr(program, "0x10013d8"), 0);
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013d8"), "ADVAPI32.DLL",
 						"getName", null, SourceType.IMPORTED, -1, RefType.DATA);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
 					Reference[] refs;
@@ -843,21 +676,15 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 					refs = refMgr.getReferencesFrom(addr(program, "0x10013cc"), 0);
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013cc"), "USER32.DLL", "printf",
-						addr(program, "0x01234567"), SourceType.USER_DEFINED, 0,
-						RefType.DATA);
+						addr(program, "0x01234567"), SourceType.USER_DEFINED, 0, RefType.DATA);
 
 					refs = refMgr.getReferencesFrom(addr(program, "0x10013d8"), 0);
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013d8"), "ADVAPI32.DLL",
 						"getName", null, SourceType.IMPORTED, -1, RefType.DATA);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -904,8 +731,6 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
 					Reference[] refs;
@@ -913,29 +738,21 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 					refs = refMgr.getReferencesFrom(addr(program, "0x10013cc"), 0);
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013cc"), "USER32.DLL", "printf",
-						addr(program, "0x01234567"), SourceType.USER_DEFINED, 0,
-						RefType.DATA);
+						addr(program, "0x01234567"), SourceType.USER_DEFINED, 0, RefType.DATA);
 
 					refs = refMgr.getReferencesFrom(addr(program, "0x10013d8"), 0);
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013d8"), "ADVAPI32.DLL", null,
 						addr(program, "77db82ac"), SourceType.DEFAULT, -1, RefType.DATA);
 					// There is already an external ref called "ADVAPI32.DLL::RegOpenKeyExA" for 77db82ac.
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
 					Reference[] refs;
@@ -949,14 +766,9 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013d8"), "USER32.DLL", "getName",
 						null, SourceType.USER_DEFINED, -1, RefType.DATA);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -1005,8 +817,6 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
 					Reference[] refs;
@@ -1014,28 +824,20 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 					refs = refMgr.getReferencesFrom(addr(program, "0x10013cc"), 0);
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013cc"), "USER32.DLL", "printf",
-						addr(program, "0x01234567"), SourceType.USER_DEFINED, 0,
-						RefType.DATA);
+						addr(program, "0x01234567"), SourceType.USER_DEFINED, 0, RefType.DATA);
 
 					refs = refMgr.getReferencesFrom(addr(program, "0x10013d8"), 0);
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013d8"), "ADVAPI32.DLL", null,
 						addr(program, "77db82ac"), SourceType.DEFAULT, -1, RefType.DATA);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
 					Reference[] refs;
@@ -1049,14 +851,9 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013d8"), "USER32.DLL", "getName",
 						null, SourceType.USER_DEFINED, -1, RefType.DATA);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -1104,8 +901,6 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
 					Reference[] refs;
@@ -1113,28 +908,20 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 					refs = refMgr.getReferencesFrom(addr(program, "0x10013cc"), 0);
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013cc"), "USER32.DLL", "printf",
-						addr(program, "0x01234567"), SourceType.USER_DEFINED, 0,
-						RefType.DATA);
+						addr(program, "0x01234567"), SourceType.USER_DEFINED, 0, RefType.DATA);
 
 					refs = refMgr.getReferencesFrom(addr(program, "0x10013d8"), 0);
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013d8"), "ADVAPI32.DLL", null,
 						addr(program, "77db2233"), SourceType.DEFAULT, -1, RefType.DATA);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
 					Reference[] refs;
@@ -1148,20 +935,16 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013d8"), "USER32.DLL", "getName",
 						null, SourceType.USER_DEFINED, -1, RefType.DATA);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
 
 		executeMerge(ASK_USER);
-		chooseButtonAndApply("Resolve External Add Conflict", LATEST_BUTTON);
+		// The two external locations are not in conflict and can both exist
+		chooseButtonAndApply("Resolve Reference Conflict", LATEST_BUTTON);
 		waitForMergeCompletion();
 
 		ReferenceManager refMgr = resultProgram.getReferenceManager();
@@ -1204,8 +987,6 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
 					Reference[] refs;
@@ -1213,28 +994,20 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 					refs = refMgr.getReferencesFrom(addr(program, "0x10013cc"), 0);
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013cc"), "USER32.DLL", "printf",
-						addr(program, "0x01234567"), SourceType.USER_DEFINED, 0,
-						RefType.DATA);
+						addr(program, "0x01234567"), SourceType.USER_DEFINED, 0, RefType.DATA);
 
 					refs = refMgr.getReferencesFrom(addr(program, "0x10013d8"), 0);
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013d8"), "ADVAPI32.DLL", null,
 						addr(program, "77db2233"), SourceType.DEFAULT, -1, RefType.DATA);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
 					Reference[] refs;
@@ -1248,20 +1021,15 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013d8"), "USER32.DLL", "getName",
 						null, SourceType.USER_DEFINED, -1, RefType.DATA);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
 
 		executeMerge(ASK_USER);
-		chooseButtonAndApply("Resolve External Add Conflict", MY_BUTTON);
+		chooseButtonAndApply("Resolve Reference Conflict", MY_BUTTON);
 		waitForMergeCompletion();
 
 		ReferenceManager refMgr = resultProgram.getReferenceManager();
@@ -1303,8 +1071,6 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
 					Reference[] refs;
@@ -1312,29 +1078,17 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 					refs = refMgr.getReferencesFrom(addr(program, "0x10013cc"), 0);
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013cc"), "USER32.DLL", "printf",
-						addr(program, "0x01234567"), SourceType.USER_DEFINED, 0,
-						RefType.DATA);
+						addr(program, "0x01234567"), SourceType.USER_DEFINED, 0, RefType.DATA);
 
 					refs = refMgr.getReferencesFrom(addr(program, "0x10013d8"), 0);
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013d8"), "ADVAPI32.DLL", null,
 						addr(program, "77db2233"), SourceType.DEFAULT, -1, RefType.DATA);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
-				ExternalManager externalManager = program.getExternalManager();
-				ExternalLocationIterator externalLocations =
-					externalManager.getExternalLocations("ADVAPI32.DLL");
-				while (externalLocations.hasNext()) {
-					ExternalLocation next = externalLocations.next();
-					System.out.println("Location=" + next.getSymbol().getName(true));
-				}
+
 				ExternalLocation externalLocation1 =
 					getExternalLocation(program, new String[] { "USER32.DLL", "printf" });
 				assertNotNull(externalLocation1);
@@ -1345,8 +1099,6 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
 					Reference[] refs;
@@ -1360,14 +1112,9 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013d8"), "USER32.DLL", "getName",
 						null, SourceType.USER_DEFINED, -1, RefType.DATA);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 				ExternalLocation externalLocation2 =
 					getExternalLocation(program, new String[] { "USER32.DLL", "getName" });
@@ -1376,7 +1123,6 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 		});
 
 		executeMerge(ASK_USER);
-		chooseButtonAndApply("Resolve External Add Conflict", KEEP_BOTH_BUTTON);
 		chooseRadioButton("Resolve Reference Conflict", LATEST_BUTTON);// Since kept both, now choose reference conflict.
 		waitForMergeCompletion();
 
@@ -1427,8 +1173,6 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
 					Reference[] refs;
@@ -1436,29 +1180,17 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 					refs = refMgr.getReferencesFrom(addr(program, "0x10013cc"), 0);
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013cc"), "USER32.DLL", "printf",
-						addr(program, "0x01234567"), SourceType.USER_DEFINED, 0,
-						RefType.DATA);
+						addr(program, "0x01234567"), SourceType.USER_DEFINED, 0, RefType.DATA);
 
 					refs = refMgr.getReferencesFrom(addr(program, "0x10013d8"), 0);
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013d8"), "ADVAPI32.DLL", null,
 						addr(program, "77db2233"), SourceType.DEFAULT, -1, RefType.DATA);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
-				ExternalManager externalManager = program.getExternalManager();
-				ExternalLocationIterator externalLocations =
-					externalManager.getExternalLocations("ADVAPI32.DLL");
-				while (externalLocations.hasNext()) {
-					ExternalLocation next = externalLocations.next();
-					System.out.println("Location=" + next.getSymbol().getName(true));
-				}
+
 				ExternalLocation externalLocation1 =
 					getExternalLocation(program, new String[] { "USER32.DLL", "printf" });
 				assertNotNull(externalLocation1);
@@ -1469,8 +1201,6 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
 					Reference[] refs;
@@ -1484,14 +1214,9 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013d8"), "USER32.DLL", "getName",
 						null, SourceType.USER_DEFINED, -1, RefType.DATA);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 				ExternalLocation externalLocation2 =
 					getExternalLocation(program, new String[] { "USER32.DLL", "getName" });
@@ -1500,7 +1225,6 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 		});
 
 		executeMerge(ASK_USER);
-		chooseButtonAndApply("Resolve External Add Conflict", KEEP_BOTH_BUTTON);
 		chooseRadioButton("Resolve Reference Conflict", MY_BUTTON);// Since kept both, now choose reference conflict.
 		waitForMergeCompletion();
 
@@ -1539,8 +1263,6 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
 					Reference[] refs;
@@ -1548,28 +1270,20 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 					refs = refMgr.getReferencesFrom(addr(program, "0x10013cc"), 0);
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013cc"), "USER32.DLL", "printf",
-						addr(program, "0x01234567"), SourceType.USER_DEFINED, 0,
-						RefType.DATA);
+						addr(program, "0x01234567"), SourceType.USER_DEFINED, 0, RefType.DATA);
 
 					refs = refMgr.getReferencesFrom(addr(program, "0x10013d8"), 0);
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013d8"), "ADVAPI32.DLL", null,
 						addr(program, "77db2233"), SourceType.DEFAULT, -1, RefType.DATA);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
 					Reference[] refs;
@@ -1583,22 +1297,18 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013d8"), "USER32.DLL", "getName",
 						null, SourceType.USER_DEFINED, -1, RefType.DATA);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
 
 		executeMerge(ASK_USER);
-		chooseButtonAndApply("Resolve External Add Conflict", MERGE_BOTH_BUTTON);
-		chooseVariousOptionsForConflictType("Resolve External Detail Conflict",
-			new int[] { INFO_ROW, KEEP_LATEST, KEEP_MY });// Namespace, Name
+		chooseButtonAndApply("Resolve Reference Conflict", MY_BUTTON);
+		// NOTE: Locations are not considered conflicts since both get added
+//		chooseVariousOptionsForConflictType("Resolve External Detail Conflict",
+//			new int[] { INFO_ROW, KEEP_LATEST, KEEP_MY });// Namespace, Name
 		waitForMergeCompletion();
 
 		ReferenceManager refMgr = resultProgram.getReferenceManager();
@@ -1613,11 +1323,10 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 
 		refs = refMgr.getReferencesFrom(addr("0x10013d8"), -1);
 		assertEquals(1, refs.length);
-		assertEquals("ADVAPI32.DLL::getName",
+		assertEquals("USER32.DLL::getName",
 			((ExternalReference) refs[0]).getExternalLocation().toString());
-		assertEquals("77db2233",
-			((ExternalReference) refs[0]).getExternalLocation().getAddress().toString());
-		assertEquals(SourceType.DEFAULT, refs[0].getSource());
+		assertNull(((ExternalReference) refs[0]).getExternalLocation().getAddress());
+		assertEquals(SourceType.USER_DEFINED, refs[0].getSource());
 	}
 
 	@Test
@@ -1630,8 +1339,6 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
 					Reference[] refs;
@@ -1639,28 +1346,20 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 					refs = refMgr.getReferencesFrom(addr(program, "0x10013cc"), 0);
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013cc"), "USER32.DLL", "printf",
-						addr(program, "0x01234567"), SourceType.USER_DEFINED, 0,
-						RefType.DATA);
+						addr(program, "0x01234567"), SourceType.USER_DEFINED, 0, RefType.DATA);
 
 					refs = refMgr.getReferencesFrom(addr(program, "0x10013d8"), 0);
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013d8"), "ADVAPI32.DLL", null,
 						addr(program, "77db2233"), SourceType.DEFAULT, -1, RefType.DATA);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					ReferenceManager refMgr = program.getReferenceManager();
 					Reference[] refs;
@@ -1674,22 +1373,18 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 					assertEquals(0, refs.length);
 					refMgr.addExternalReference(addr(program, "0x10013d8"), "USER32.DLL", "getName",
 						null, SourceType.USER_DEFINED, -1, RefType.DATA);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
 
 		executeMerge(ASK_USER);
-		chooseButtonAndApply("Resolve External Add Conflict", MERGE_BOTH_BUTTON);
-		chooseVariousOptionsForConflictType("Resolve External Detail Conflict",
-			new int[] { INFO_ROW, KEEP_MY, KEEP_LATEST });// Namespace, Name
+		// NOTE: Locations are not considered conflicts since both get added
+		chooseButtonAndApply("Resolve Reference Conflict", LATEST_BUTTON);
+//		chooseVariousOptionsForConflictType("Resolve External Detail Conflict",
+//			new int[] { INFO_ROW, KEEP_MY, KEEP_LATEST });// Namespace, Name
 		waitForMergeCompletion();
 
 		ReferenceManager refMgr = resultProgram.getReferenceManager();
@@ -1704,7 +1399,7 @@ public class RefMergerExtTest extends AbstractExternalMergerTest {
 
 		refs = refMgr.getReferencesFrom(addr("0x10013d8"), -1);
 		assertEquals(1, refs.length);
-		assertEquals("USER32.DLL::EXT_77db2233",
+		assertEquals("ADVAPI32.DLL::EXT_77db2233",
 			((ExternalReference) refs[0]).getExternalLocation().toString());
 		assertEquals("77db2233",
 			((ExternalReference) refs[0]).getExternalLocation().getAddress().toString());

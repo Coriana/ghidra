@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,14 +17,17 @@ package ghidra.app.script;
 
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.regex.Pattern;
 
 import generic.jar.ResourceFile;
 import ghidra.util.classfinder.ExtensionPoint;
 
 /**
- * NOTE:  ALL GhidraScriptProvider CLASSES MUST END IN "ScriptProvider".  If not,
- * the ClassSearcher will not find them.
- *
+ * A provider that can compile, interpret, load, etc., Ghidra Scripts from a given language.
+ * 
+ * <p>
+ * <b>NOTE:</b> ALL GhidraScriptProvider CLASSES MUST END IN "ScriptProvider". If not, the
+ * ClassSearcher will not find them.
  */
 public abstract class GhidraScriptProvider
 		implements ExtensionPoint, Comparable<GhidraScriptProvider> {
@@ -55,6 +58,7 @@ public abstract class GhidraScriptProvider
 
 	/**
 	 * Deletes the script file and unloads the script from the script manager.
+	 * 
 	 * @param scriptSource the script source file
 	 * @return true if the script was completely deleted and cleaned up
 	 */
@@ -64,28 +68,36 @@ public abstract class GhidraScriptProvider
 
 	/**
 	 * Returns a description for this type of script.
+	 * 
 	 * @return a description for this type of script
 	 */
 	public abstract String getDescription();
 
 	/**
 	 * Returns the file extension for this type of script.
+	 * 
+	 * <p>
 	 * For example, ".java" or ".py".
+	 * 
 	 * @return the file extension for this type of script
 	 */
 	public abstract String getExtension();
 
 	/**
 	 * Returns a GhidraScript instance for the specified source file.
+	 * 
 	 * @param sourceFile the source file
-	 * @param writer the print writer to write warning/error messages
+	 * @param errorWriter the print writer to write warning/error messages. If the error prevents
+	 *            success, throw an exception instead. The caller will print the error.
 	 * @return a GhidraScript instance for the specified source file
+	 * @throws GhidraScriptLoadException when the script instance cannot be created
 	 */
-	public abstract GhidraScript getScriptInstance(ResourceFile sourceFile, PrintWriter writer)
-			throws ClassNotFoundException, InstantiationException, IllegalAccessException;
+	public abstract GhidraScript getScriptInstance(ResourceFile sourceFile, PrintWriter errorWriter)
+			throws GhidraScriptLoadException;
 
 	/**
 	 * Creates a new script using the specified file.
+	 * 
 	 * @param newScript the new script file
 	 * @param category the script category
 	 * @throws IOException if an error occurs writing the file
@@ -94,15 +106,58 @@ public abstract class GhidraScriptProvider
 			throws IOException;
 
 	/**
+	 * Returns an optional runtime environment name of a {@link GhidraScriptProvider} that scripts
+	 * can specify they require to run under. Useful for when more than one
+	 * {@link GhidraScriptProvider} uses the same file extension.
+	 * 
+	 * @return an optional runtime environment name of a {@link GhidraScriptProvider} that scripts
+	 * can specify they require to run under (could be null if there is no requirement)
+	 * @see ScriptInfo#AT_RUNTIME
+	 */
+	public String getRuntimeEnvironmentName() {
+		return null;
+	}
+
+	/**
+	 * Returns a Pattern that matches block comment openings.
+	 * 
+	 * <p>
+	 * If block comments are not supported by this provider, then this returns null.
+	 * 
+	 * @return the Pattern for block comment openings, null if block comments are not supported
+	 */
+	public Pattern getBlockCommentStart() {
+		return null;
+	}
+
+	/**
+	 * Returns a Pattern that matches block comment closings.
+	 * 
+	 * <p>
+	 * If block comments are not supported by this provider, then this returns null.
+	 * 
+	 * @return the Pattern for block comment closings, null if block comments are not supported
+	 */
+	public Pattern getBlockCommentEnd() {
+		return null;
+	}
+
+	/**
 	 * Returns the comment character.
+	 * 
+	 * <p>
 	 * For example, "//" or "#".
+	 * 
 	 * @return the comment character
 	 */
 	public abstract String getCommentCharacter();
 
 	/**
-	 * Writes the script header. 
+	 * Writes the script header.
+	 * 
+	 * <p>
 	 * Include a place holder for each meta-data item.
+	 * 
 	 * @param writer the print writer
 	 * @param category the default category
 	 */
@@ -119,6 +174,9 @@ public abstract class GhidraScriptProvider
 			if (metadataItem.equals(ScriptInfo.AT_CATEGORY)) {
 				writer.print(category);
 			}
+			else if (metadataItem.equals(ScriptInfo.AT_RUNTIME)) {
+				writer.print(getRuntimeEnvironmentName());
+			}
 
 			writer.println("");
 		}
@@ -128,9 +186,53 @@ public abstract class GhidraScriptProvider
 
 	/**
 	 * Writes the script body template.
+	 * 
 	 * @param writer the print writer
 	 */
 	protected void writeBody(PrintWriter writer) {
 		writer.println(getCommentCharacter() + "TODO Add User Code Here");
+	}
+
+	/**
+	 * Fixup a script name for searching in script directories.
+	 *
+	 * <p>
+	 * This method is part of a poorly specified behavior that is due for future amendment, see
+	 * {@link GhidraScriptUtil#fixupName(String)}.
+	 * 
+	 * @param scriptName the name of the script, must end with this provider's extension
+	 * @return a (relative) file path to the corresponding script
+	 */
+	@Deprecated
+	protected String fixupName(String scriptName) {
+		return scriptName;
+	}
+
+	/**
+	 * Return the start of certification header line if this file type is subject to certification.
+	 * 
+	 * @return start of certification header or null if not supported
+	 */
+	protected String getCertifyHeaderStart() {
+		return null;
+	}
+
+	/**
+	 * Return the prefix for each certification header body line if this file is subject to
+	 * certification.
+	 * 
+	 * @return certification header body prefix or null if not supported
+	 */
+	protected String getCertificationBodyPrefix() {
+		return null;
+	}
+
+	/**
+	 * Return the end of certification header line if this file type is subject to certification.
+	 * 
+	 * @return end of certification header or null if not supported
+	 */
+	protected String getCertifyHeaderEnd() {
+		return null;
 	}
 }

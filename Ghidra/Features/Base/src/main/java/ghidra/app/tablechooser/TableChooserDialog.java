@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,24 +20,25 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 import javax.swing.*;
 import javax.swing.table.TableCellRenderer;
 
-import docking.*;
+import docking.DialogComponentProvider;
 import docking.action.DockingAction;
 import docking.widgets.table.*;
 import docking.widgets.table.threaded.ThreadedTableModel;
+import generic.theme.GThemeDefaults.Colors;
+import generic.theme.GThemeDefaults.Colors.Palette;
 import ghidra.app.nav.Navigatable;
 import ghidra.app.nav.NavigatableRemovalListener;
 import ghidra.app.services.GoToService;
 import ghidra.app.util.HelpTopics;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.Program;
-import ghidra.program.util.ProgramLocation;
-import ghidra.program.util.ProgramSelection;
 import ghidra.util.HelpLocation;
-import ghidra.util.SystemUtilities;
+import ghidra.util.Swing;
 import ghidra.util.datastruct.WeakDataStructureFactory;
 import ghidra.util.datastruct.WeakSet;
 import ghidra.util.table.*;
@@ -46,13 +47,13 @@ import ghidra.util.task.TaskMonitor;
 import utility.function.Callback;
 
 /**
- * Dialog to show a table of items.  If the dialog is constructed with a non-null 
+ * Dialog to show a table of items.  If the dialog is constructed with a non-null
  * {@link TableChooserExecutor}, then a button will be placed in the dialog, allowing the user
  * to perform the action defined by the executor.
- * 
- * <p>Each button press will use the selected items as the items to be processed.  While the 
- * items are scheduled to be processed, they will still be in the table, painted light gray.  
- * Attempting to reschedule any of these pending items will have no effect.   Each time the 
+ *
+ * <p>Each button press will use the selected items as the items to be processed.  While the
+ * items are scheduled to be processed, they will still be in the table, painted light gray.
+ * Attempting to reschedule any of these pending items will have no effect.   Each time the
  * button is pressed, a new {@link SwingWorker} is created, which will put the processing into
  * a background thread.   Further, by using multiple workers, the work will be performed in
  * parallel.
@@ -103,21 +104,27 @@ public class TableChooserDialog extends DialogComponentProvider
 		JPanel panel = new JPanel(new BorderLayout());
 		createTableModel();
 		TableChooserDialogPanel tablePanel = new TableChooserDialogPanel(model);
+		tablePanel.getAccessibleContext().setAccessibleName("Table Dialog");
 
 		table = tablePanel.getTable();
+		table.setAccessibleNamePrefix("Chooser");
+		table.setToolTipText("Table of choices for " + getTitle());
+
 		GoToService goToService = tool.getService(GoToService.class);
 		if (goToService != null) {
 			navigatable = navigatable == null ? goToService.getDefaultNavigatable() : navigatable;
 			navigatable.addNavigatableListener(this);
-			table.installNavigation(goToService, navigatable);
+			table.installNavigation(tool, navigatable);
 		}
-		table.getSelectionModel().addListSelectionListener(
-			e -> setOkEnabled(table.getSelectedRowCount() > 0));
+		table.getSelectionModel()
+				.addListSelectionListener(e -> setOkEnabled(table.getSelectedRowCount() > 0));
 
 		GhidraTableFilterPanel<AddressableRowObject> filterPanel =
 			new GhidraTableFilterPanel<>(table, model);
+		filterPanel.getAccessibleContext().setAccessibleName("Dialog");
 		panel.add(tablePanel, BorderLayout.CENTER);
 		panel.add(filterPanel, BorderLayout.SOUTH);
+		panel.getAccessibleContext().setAccessibleName("Table Chooser");
 		return panel;
 	}
 
@@ -126,12 +133,12 @@ public class TableChooserDialog extends DialogComponentProvider
 	 * @param callback the callback to notify
 	 */
 	public void setClosedListener(Callback callback) {
-		this.closedCallback = Callback.dummyIfNull(callback);
+		Swing.runNow(() -> closedCallback = Callback.dummyIfNull(callback));
 	}
 
 	/**
 	 * Adds the given object to this dialog.  This method can be called from any thread.
-	 * 
+	 *
 	 * @param rowObject the object to add
 	 */
 	public void add(AddressableRowObject rowObject) {
@@ -139,50 +146,46 @@ public class TableChooserDialog extends DialogComponentProvider
 	}
 
 	/**
-	 * Removes the given object from this dialog.  Nothing will happen if the given item is not 
+	 * Removes the given object from this dialog.  Nothing will happen if the given item is not
 	 * in this dialog.  This method can be called from any thread.
-	 * 
+	 *
 	 * @param rowObject the object to remove
 	 */
 	public void remove(AddressableRowObject rowObject) {
 		model.removeObject(rowObject);
 	}
 
+	/**
+	 * Returns true if the given object is still in the dialog.  Clients can use this method to see
+	 * if the user has already processed the given item.
+	 * @param rowObject the row object
+	 * @return true if the object is still in the dialog
+	 */
+	public boolean contains(AddressableRowObject rowObject) {
+		return model.containsObject(rowObject);
+	}
+
 	private void createTableModel() {
 
 		// note: the task monitor is installed later when this model is added to the threaded panel
-		SystemUtilities.runSwingNow(
-			() -> model = new TableChooserTableModel("Test", tool, program, null));
+		Swing.runNow(() -> model = new TableChooserTableModel("Test", tool, program, null));
 	}
 
 	private void createActions() {
 		String owner = getClass().getSimpleName();
 
-		DockingAction selectAction = new MakeProgramSelectionAction(owner, table) {
-			@Override
-			protected ProgramSelection makeSelection(ActionContext context) {
-				ProgramSelection selection = table.getProgramSelection();
-				if (navigatable != null) {
-					navigatable.goTo(program,
-						new ProgramLocation(program, selection.getMinAddress()));
-					navigatable.setSelection(selection);
-					navigatable.requestFocus();
-				}
-				return selection;
-			}
-		};
+		DockingAction selectAction = new MakeProgramSelectionAction(navigatable, owner, table);
 
 		DockingAction selectionNavigationAction = new SelectionNavigationAction(owner, table);
-		selectionNavigationAction.setHelpLocation(
-			new HelpLocation(HelpTopics.SEARCH, "Selection_Navigation"));
+		selectionNavigationAction
+				.setHelpLocation(new HelpLocation(HelpTopics.SEARCH, "Selection_Navigation"));
 
 		addAction(selectAction);
 		addAction(selectionNavigationAction);
 	}
 
 	public void show() {
-		DockingWindowManager manager = DockingWindowManager.getActiveInstance();
-		tool.showDialog(this, manager.getMainWindow());
+		tool.showDialog(this);
 	}
 
 	@Override
@@ -241,7 +244,11 @@ public class TableChooserDialog extends DialogComponentProvider
 		monitor.initialize(rowObjects.size());
 
 		try {
-			List<AddressableRowObject> deleted = doProcessRowObjects(rowObjects, monitor);
+			List<AddressableRowObject> deleted = doProcessRowsInTransaction(rowObjects, monitor);
+			if (monitor.isCancelled()) {
+				return;
+			}
+
 			for (AddressableRowObject rowObject : deleted) {
 				model.removeObject(rowObject);
 			}
@@ -254,9 +261,14 @@ public class TableChooserDialog extends DialogComponentProvider
 		}
 	}
 
-	private List<AddressableRowObject> doProcessRowObjects(List<AddressableRowObject> rowObjects,
+	private List<AddressableRowObject> doProcessRows(List<AddressableRowObject> rowObjects,
 			TaskMonitor monitor) {
+
 		List<AddressableRowObject> deleted = new ArrayList<>();
+		if (executor.executeInBulk(rowObjects, deleted, monitor)) {
+			return deleted;
+		}
+
 		for (AddressableRowObject rowObject : rowObjects) {
 			if (monitor.isCancelled()) {
 				break;
@@ -280,8 +292,62 @@ public class TableChooserDialog extends DialogComponentProvider
 		return deleted;
 	}
 
+	private List<AddressableRowObject> doProcessRowsInTransaction(
+			List<AddressableRowObject> rowObjects, TaskMonitor monitor) {
+
+		int tx = program.startTransaction("Table Chooser: " + getTitle());
+		try {
+			return doProcessRows(rowObjects, monitor);
+		}
+		finally {
+			program.endTransaction(tx, true);
+		}
+	}
+
 	public void addCustomColumn(ColumnDisplay<?> columnDisplay) {
-		model.addCustomColumn(columnDisplay);
+		Swing.runNow(() -> model.addCustomColumn(columnDisplay));
+	}
+
+	/**
+	 * Sets the default sorted column for this dialog.
+	 *
+	 * <P>This method should be called after all custom columns have been added via
+	 * {@link #addCustomColumn(ColumnDisplay)}.
+	 *
+	 * @param index the view's 0-based column index
+	 * @see #setSortState(TableSortState)
+	 * @throws IllegalArgumentException if an invalid column is requested for sorting
+	 */
+	public void setSortColumn(int index) {
+		setSortState(TableSortState.createDefaultSortState(index));
+	}
+
+	/**
+	 * Sets the column sort state for this dialog.   The {@link TableSortState} allows for
+	 * combinations of sorted columns in ascending or descending order.
+	 *
+	 * <P>This method should be called after all custom columns have been added via
+	 * {@link #addCustomColumn(ColumnDisplay)}.
+	 *
+	 * @param state the sort state
+	 * @see #setSortColumn(int)
+	 * @throws IllegalArgumentException if an invalid column is requested for sorting
+	 */
+	public void setSortState(TableSortState state) {
+		AtomicReference<IllegalArgumentException> ref = new AtomicReference<>();
+		Swing.runNow(() -> {
+			try {
+				model.setTableSortState(state);
+			}
+			catch (IllegalArgumentException e) {
+				ref.set(e);
+			}
+		});
+		IllegalArgumentException exception = ref.get();
+		if (exception != null) {
+			// use a new exception so the stack trace points to this class, not the runnable above
+			throw new IllegalArgumentException(exception);
+		}
 	}
 
 	@Override
@@ -293,20 +359,26 @@ public class TableChooserDialog extends DialogComponentProvider
 		setStatusText(message);
 	}
 
+	public GhidraTable getTable() {
+		return table;
+	}
+
 	public int getRowCount() {
 		return model.getRowCount();
 	}
 
 	public void clearSelection() {
-		table.clearSelection();
+		Swing.runNow(() -> table.clearSelection());
 	}
 
 	public void selectRows(int... rows) {
 
-		ListSelectionModel selectionModel = table.getSelectionModel();
-		for (int row : rows) {
-			selectionModel.addSelectionInterval(row, row);
-		}
+		Swing.runNow(() -> {
+			ListSelectionModel selectionModel = table.getSelectionModel();
+			for (int row : rows) {
+				selectionModel.addSelectionInterval(row, row);
+			}
+		});
 	}
 
 	public int[] getSelectedRows() {
@@ -320,9 +392,11 @@ public class TableChooserDialog extends DialogComponentProvider
 		return rowObjects;
 	}
 
+	@Override
 	public void dispose() {
 		table.dispose();
 		workers.forEach(w -> w.cancel(true));
+		super.dispose();
 	}
 
 //==================================================================================================
@@ -357,30 +431,35 @@ public class TableChooserDialog extends DialogComponentProvider
 
 	private class WrappingCellRenderer extends GhidraTableCellRenderer {
 
-		private Color pendingColor = new Color(192, 192, 192, 75);
+		private Color pendingColor = Palette.LIGHT_GRAY;
 		private TableCellRenderer delegate;
 
 		@Override
 		public Component getTableCellRendererComponent(GTableCellRenderingData data) {
 
-			Component superRenderer;
-			if (delegate instanceof GTableCellRenderer) {
-				superRenderer = super.getTableCellRendererComponent(data);
+			Component renderer;
+			if (delegate == null) {
+				renderer = super.getTableCellRendererComponent(data);
 			}
 			else {
-				superRenderer = super.getTableCellRendererComponent(data.getTable(),
-					data.getValue(), data.isSelected(), data.hasFocus(), data.getRowViewIndex(),
-					data.getColumnViewIndex());
+				if (delegate instanceof GTableCellRenderer) {
+					renderer = ((GTableCellRenderer) delegate).getTableCellRendererComponent(data);
+				}
+				else {
+					renderer = delegate.getTableCellRendererComponent(data.getTable(),
+						data.getValue(), data.isSelected(), data.hasFocus(), data.getRowViewIndex(),
+						data.getColumnViewIndex());
+				}
 			}
 
 			AddressableRowObject ro = (AddressableRowObject) data.getRowObject();
 			if (sharedPending.contains(ro)) {
-				superRenderer.setBackground(pendingColor);
-				superRenderer.setForeground(data.getTable().getSelectionForeground());
-				superRenderer.setForeground(Color.BLACK);
+				renderer.setBackground(pendingColor);
+				renderer.setForeground(data.getTable().getSelectionForeground());
+				renderer.setForeground(Colors.FOREGROUND);
 			}
 
-			return superRenderer;
+			return renderer;
 		}
 
 		void setDelegate(TableCellRenderer delegate) {

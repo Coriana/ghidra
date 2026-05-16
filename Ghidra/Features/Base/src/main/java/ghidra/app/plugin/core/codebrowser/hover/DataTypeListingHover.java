@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,10 +19,11 @@ import javax.swing.JComponent;
 
 import docking.widgets.fieldpanel.field.Field;
 import docking.widgets.fieldpanel.support.FieldLocation;
+import generic.theme.GThemeDefaults.Colors.Messages;
 import ghidra.GhidraOptions;
-import ghidra.app.plugin.core.hover.AbstractDataTypeHover;
+import ghidra.app.plugin.core.hover.AbstractConfigurableHover;
 import ghidra.app.util.ToolTipUtils;
-import ghidra.framework.options.Options;
+import ghidra.app.util.viewer.field.ResourceFieldLocation;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.*;
@@ -30,10 +31,9 @@ import ghidra.program.model.data.Enum;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.symbol.Equate;
 import ghidra.program.util.*;
-import ghidra.util.HTMLUtilities;
-import ghidra.util.UniversalID;
+import ghidra.util.*;
 
-public class DataTypeListingHover extends AbstractDataTypeHover implements ListingHoverService {
+public class DataTypeListingHover extends AbstractConfigurableHover implements ListingHoverService {
 
 	private static final String NAME = "Data Type Display";
 	private static final String DESCRIPTION =
@@ -41,23 +41,23 @@ public class DataTypeListingHover extends AbstractDataTypeHover implements Listi
 			"when the mouse hovers over a data type.";
 	private static final int PRIORITY = 20;
 
-	///////////////////////////////////////////////////////////
-
 	public DataTypeListingHover(PluginTool tool) {
 		super(tool, PRIORITY);
 	}
 
 	@Override
-	public void initializeOptions() {
-		options = tool.getOptions(GhidraOptions.CATEGORY_BROWSER_POPUPS);
-		options.registerOption(NAME, true, null, DESCRIPTION);
-		setOptions(options, NAME);
-		options.addOptionsChangeListener(this);
+	protected String getName() {
+		return NAME;
 	}
 
 	@Override
-	public void setOptions(Options options, String name) {
-		enabled = options.getBoolean(NAME, true);
+	protected String getDescription() {
+		return DESCRIPTION;
+	}
+
+	@Override
+	protected String getOptionsCategory() {
+		return GhidraOptions.CATEGORY_BROWSER_POPUPS;
 	}
 
 	@Override
@@ -103,17 +103,17 @@ public class DataTypeListingHover extends AbstractDataTypeHover implements Listi
 				toolTipText = toolTipText.replace("Unsized", Integer.toString(dataLen));
 			}
 			if (dataInstance != null) {
-				toolTipText = toolTipText.replace("</HTML>",
-					getLocationSupplimentalToolTipText(dt, dataInstance) + "</HTML>");
+				toolTipText = toolTipText.replace("</html>",
+					getLocationSupplimentalToolTipText(dt, dataInstance) + "</html>");
 			}
 			String warningMsg = "";
 			if (hasInvalidStorage) {
 				warningMsg += "WARNING! Invalid Storage";
 			}
 			if (warningMsg.length() != 0) {
-				String errorText =
-					"<HTML><center><font color=\"red\">" + warningMsg + "!</font></center><BR>";
-				toolTipText = toolTipText.replace("<HTML>", errorText);
+				String errorText = "<html><center><font color=\"" + Messages.ERROR.toHexString() +
+					"\">" + warningMsg + "!</font></center><BR>";
+				toolTipText = toolTipText.replace("<html>", errorText);
 			}
 			return createTooltipComponent(toolTipText);
 		}
@@ -126,8 +126,50 @@ public class DataTypeListingHover extends AbstractDataTypeHover implements Listi
 				(EquateOperandFieldLocation) programLocation;
 			return createEquateToolTipComponent(program, equateLocation.getEquate());
 		}
+		if (programLocation instanceof ResourceFieldLocation resourceLoc) {
+			Data data = resourceLoc.getResourceData();
+			dt = data.getDataType();
+			return createTooltipComponent(dt.getRepresentation(data, data, data.getLength()));
+		}
+		if (programLocation instanceof FieldNameFieldLocation nameLoc) {
+			Data data = nameLoc.getDataComponent();
+			Data parent = data == null ? null : data.getParent();
+			if (parent == null) {
+				return createTooltipComponent("Field Name: " + nameLoc.getFieldName());
+			}
+			StringBuilder sb = new StringBuilder(HTMLUtilities.HTML);
+			sb.append("<TABLE>");
+			DataType parentType = parent.getDataType();
+			sb.append(row("Parent: ", parentType.getDataTypePath()));
+			int offset = (int) data.getAddress().subtract(parent.getAddress());
+			sb.append(row("Offset: ", NumericUtilities.toHexString(offset)));
+			sb.append(row("Field Name: ", nameLoc.getFieldName()));
+			if (parentType instanceof Structure pst) {
+				DataTypeComponent dtc = pst.getComponentAt(offset);
+				String comment = dtc == null ? null : dtc.getComment();
+				if (comment != null) {
+					sb.append(row("Comment: ", comment));
+				}
+			}
+			sb.append("</TABLE>");
+			return createTooltipComponent(sb.toString());
+		}
 
 		return null;
+	}
+
+	private String row(Object... cols) {
+		StringBuilder sb = new StringBuilder("<TR>");
+		for (Object col : cols) {
+			String escaped = escapeHtml(col);
+			sb.append("<TD>").append(escaped).append("</TD>");
+		}
+		sb.append("</TR>");
+		return sb.toString();
+	}
+
+	private String escapeHtml(Object obj) {
+		return obj == null ? "" : HTMLUtilities.friendlyEncodeHTML(obj.toString());
 	}
 
 	private String getLocationSupplimentalToolTipText(DataType dt, Data dataInstance) {
@@ -139,18 +181,19 @@ public class DataTypeListingHover extends AbstractDataTypeHover implements Listi
 		if (StringDataInstance.isString(dataInstance)) {
 			StringDataInstance sdi = StringDataInstance.getStringDataInstance(dataInstance);
 			if (sdi.isShowTranslation()) {
-				result += String.format("<br>Original value: %s",
-					HTMLUtilities.friendlyEncodeHTML(sdi.getStringValue()));
+				String escaped = escapeHtml(sdi.getStringValue());
+				result += String.format("<br>Original value: %s", escaped);
 			}
 			if (!sdi.isShowTranslation() && sdi.getTranslatedValue() != null) {
-				result += String.format("<br>Translated value: %s",
-					HTMLUtilities.friendlyEncodeHTML(sdi.getTranslatedValue()));
+				String escaped = escapeHtml(sdi.getTranslatedValue());
+				result += String.format("<br>Translated value: %s", escaped);
 			}
 			if (sdi.isMissingNullTerminator()) {
 				result += "<br>Missing NULL terminator.";
 			}
 			if (sdi.getStringLength() > dataInstance.getLength()) {
-				result += "<br><font color=\"red\">String exceeds data field.</font>";
+				result += "<br><font color=\"" + Messages.ERROR.toHexString() +
+					"\">String exceeds data field.</font>";
 			}
 		}
 		return result;

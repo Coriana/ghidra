@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -24,10 +24,13 @@ import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 
 import docking.widgets.EmptyBorderButton;
+import docking.widgets.TitledPanel;
 import docking.widgets.checkbox.GCheckBox;
 import docking.widgets.fieldpanel.FieldPanel;
-import docking.widgets.fieldpanel.internal.FieldPanelCoordinator;
+import docking.widgets.fieldpanel.internal.FieldPanelScrollCoordinator;
 import docking.widgets.fieldpanel.support.BackgroundColorModel;
+import generic.theme.GIcon;
+import ghidra.GhidraOptions;
 import ghidra.app.merge.MergeConstants;
 import ghidra.app.nav.Navigatable;
 import ghidra.app.plugin.core.codebrowser.hover.*;
@@ -39,7 +42,6 @@ import ghidra.app.util.viewer.listingpanel.*;
 import ghidra.app.util.viewer.multilisting.AddressTranslator;
 import ghidra.app.util.viewer.multilisting.MultiListingLayoutModel;
 import ghidra.app.util.viewer.util.AddressIndexMap;
-import ghidra.app.util.viewer.util.TitledPanel;
 import ghidra.framework.model.DomainObjectListener;
 import ghidra.framework.options.ToolOptions;
 import ghidra.framework.plugintool.PluginTool;
@@ -54,18 +56,17 @@ import ghidra.util.datastruct.WeakDataStructureFactory;
 import ghidra.util.datastruct.WeakSet;
 import ghidra.util.exception.NotYetImplementedException;
 import ghidra.util.task.TaskMonitor;
-import resources.ResourceManager;
 
 public class ListingMergePanel extends JPanel
 		implements MergeConstants, FocusListener, CodeFormatService {
-	private static Icon hideIcon = ResourceManager.loadImage("images/collapse.gif");
-	private static Icon showIcon = ResourceManager.loadImage("images/expand.gif");
+	private static final Icon HIDE_ICON = new GIcon("icon.plugin.merge.conflict.collapse");
+	private static final Icon SHOW_ICON = new GIcon("icon.plugin.merge.conflict.expand");
 
 	private JComponent topComp;
 	private JComponent bottomComp;
 	protected TitledPanel[] titlePanels;
 	private ListingPanel[] listingPanels;
-	private FieldPanelCoordinator coordinator;
+	private FieldPanelScrollCoordinator coordinator;
 	private FormatManager formatMgr;
 	private MultiListingLayoutModel multiModel;
 	private Program[] programs = new Program[4];
@@ -83,7 +84,7 @@ public class ListingMergePanel extends JPanel
 	private ReferenceListingHover referenceHoverService;
 	private DataTypeListingHover dataTypeHoverService;
 	private TruncatedTextListingHover truncatedTextHoverService;
-	private FunctionNameListingHover functionNameHoverService;
+	private LabelListingHover labelListingHoverService;
 
 	public ListingMergePanel(PluginTool tool, Program original, Program result, Program myChanges,
 			Program latest, boolean showListings) {
@@ -119,7 +120,7 @@ public class ListingMergePanel extends JPanel
 		}
 
 		backgroundColorModel.addChangeListener(backgroundChangeListener);
-		coordinator = new FieldPanelCoordinator(fieldPanels);
+		coordinator = new FieldPanelScrollCoordinator(fieldPanels);
 
 		titlePanels[RESULT].addTitleComponent(new ShowHeaderButton());
 
@@ -132,7 +133,7 @@ public class ListingMergePanel extends JPanel
 		referenceHoverService = new ReferenceListingHover(tool, this);
 		dataTypeHoverService = new DataTypeListingHover(tool);
 		truncatedTextHoverService = new TruncatedTextListingHover(tool);
-		functionNameHoverService = new FunctionNameListingHover(tool);
+		labelListingHoverService = new LabelListingHover(tool);
 
 		initializeListingHoverService(listingPanels[RESULT]);
 		initializeListingHoverService(listingPanels[LATEST]);
@@ -144,12 +145,12 @@ public class ListingMergePanel extends JPanel
 		listingPanel.addHoverService(referenceHoverService);
 		listingPanel.addHoverService(dataTypeHoverService);
 		listingPanel.addHoverService(truncatedTextHoverService);
-		listingPanel.addHoverService(functionNameHoverService);
+		listingPanel.addHoverService(labelListingHoverService);
 		listingPanel.setHoverMode(true);
 	}
 
 	private ToolOptions getFieldOptions() {
-		ToolOptions fieldOptions = new ToolOptions("field");
+		ToolOptions fieldOptions = new ToolOptions(GhidraOptions.CATEGORY_BROWSER_FIELDS);
 		fieldOptions.setBoolean(RegisterFieldFactory.DISPLAY_HIDDEN_REGISTERS_OPTION_NAME, true);
 		return fieldOptions;
 	}
@@ -297,9 +298,9 @@ public class ListingMergePanel extends JPanel
 	}
 
 	/**
-	 * Color the background of all 4 listings to the indicated color for 
-	 * the indicated addresses.
-	 * @param addrSet
+	 * Color the background of all 4 listings to the indicated color for the indicated addresses.
+	 * 
+	 * @param addrSet the addresses
 	 */
 	public void paintAllBackgrounds(AddressSetView addrSet) {
 		backgroundColorModel.setAddressSet(addrSet);
@@ -365,6 +366,7 @@ public class ListingMergePanel extends JPanel
 
 	/**
 	 * Adds a button press listener.
+	 * 
 	 * @param listener the listener to add.
 	 */
 	public void addButtonPressedListener(ButtonPressedListener listener) {
@@ -375,6 +377,7 @@ public class ListingMergePanel extends JPanel
 
 	/**
 	 * Get the indicated program version.
+	 * 
 	 * @param version LATEST, CHECKED_OUT, ORIGINAL, RESULT from MergeConstants
 	 * @return the program
 	 */
@@ -383,8 +386,8 @@ public class ListingMergePanel extends JPanel
 	}
 
 	/**
-	 * Add the result program's listing model as a listener to the result program 
-	 * for domain object events.
+	 * Add the result program's listing model as a listener to the result program for domain object
+	 * events.
 	 */
 	public void addDomainObjectListener() {
 		DomainObjectListener listingModel = (DomainObjectListener) multiModel.getModel(RESULT);
@@ -392,8 +395,8 @@ public class ListingMergePanel extends JPanel
 	}
 
 	/**
-	 * Remove the result program's listing model as a listener to the result program 
-	 * for domain object events.
+	 * Remove the result program's listing model as a listener to the result program for domain
+	 * object events.
 	 */
 	public void removeDomainObjectListener() {
 		DomainObjectListener listingModel = (DomainObjectListener) multiModel.getModel(RESULT);
@@ -509,18 +512,18 @@ public class ListingMergePanel extends JPanel
 
 	private class ShowHeaderButton extends EmptyBorderButton {
 		ShowHeaderButton() {
-			super(showIcon);
+			super(SHOW_ICON);
 			setFocusable(false);
 			setToolTipText("Toggle Format Header");
 			addActionListener(e -> {
 				if (isSelected()) {
 					setSelected(false);
-					setIcon(showIcon);
+					setIcon(SHOW_ICON);
 					listingPanels[RESULT].showHeader(false);
 				}
 				else {
 					setSelected(true);
-					setIcon(hideIcon);
+					setIcon(HIDE_ICON);
 					listingPanels[RESULT].showHeader(true);
 				}
 			});
@@ -616,14 +619,12 @@ public class ListingMergePanel extends JPanel
 }
 
 class LockComponent extends GCheckBox {
-	private static final Icon lock = ResourceManager.loadImage("images/lock.gif");
-	private static final Icon unlock = ResourceManager.loadImage("images/unlock.gif");
 
 	LockComponent() {
-		super(unlock);
+		super(new GIcon("icon.plugin.merge.conflict.unlock"));
 		setToolTipText("Lock/Unlock with other views");
 		setBorder(BorderFactory.createEmptyBorder(0, 2, 0, 0));
-		setSelectedIcon(lock);
+		setSelectedIcon(new GIcon("icon.plugin.merge.conflict.lock"));
 		setSelected(true);
 	}
 
@@ -635,26 +636,3 @@ class LockComponent extends GCheckBox {
 		setSelected(lock);
 	}
 }
-/***
-// class LockComponent extends ToolbarButton {
-//	private static final Icon lock = ResourceManager.loadImage("images/lock.gif");
-//	private static final Icon unlock = ResourceManager.loadImage("images/unlock.gif");
-//	LockComponent() {
-//		super(unlock);
-//		setBorder(BorderFactory.createEmptyBorder(0,2,0,2));
-//		setSelectedIcon(lock);		
-//		setSelected(true);
-//		addActionListener(new ActionListener() {
-//			public void actionPerformed(ActionEvent e) {
-//				setSelected(!isSelected());
-//			}
-//		});
-//	}
-//	boolean isLocked() {
-//		return isSelected();
-//	}
-//	void setLocked(boolean lock) {
-//		setSelected(lock);
-//	}
-// }
- ***/

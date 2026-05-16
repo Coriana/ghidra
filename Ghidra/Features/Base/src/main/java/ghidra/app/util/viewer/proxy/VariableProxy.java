@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 package ghidra.app.util.viewer.proxy;
+
+import java.util.Objects;
 
 import ghidra.app.util.viewer.listingpanel.ListingModel;
 import ghidra.program.model.address.Address;
@@ -23,7 +25,7 @@ import ghidra.program.model.pcode.Varnode;
 import ghidra.program.model.symbol.Reference;
 
 /**
- * Stores information about a variable in a program such that the variable can 
+ * Stores information about a variable in a program such that the variable can
  * be retrieved when needed.
  */
 public class VariableProxy extends ProxyObj<Variable> {
@@ -35,6 +37,7 @@ public class VariableProxy extends ProxyObj<Variable> {
 	private int firstUseOffset;
 	private Variable var;
 	private int ordinal = -1;
+	private boolean isFirst;
 
 	/**
 	 * Constructs a proxy for a variable.
@@ -43,25 +46,27 @@ public class VariableProxy extends ProxyObj<Variable> {
 	 * @param locationAddr the listing address at which the function exists or was inferred via reference
 	 * @param fun the function containing the variable.
 	 * @param var the variable to proxy.
+	 * @param isFirst true if this is the first parameter or variable
 	 */
 	public VariableProxy(ListingModel model, Program program, Address locationAddr, Function fun,
-			Variable var) {
+			Variable var, boolean isFirst) {
 		super(model);
 		this.program = program;
 		this.locationAddr = locationAddr;
 		this.var = var;
+		this.isFirst = isFirst;
 		this.functionAddr = fun.getEntryPoint();
-		if (var instanceof Parameter) {
-			ordinal = ((Parameter) var).getOrdinal();
+		if (var != null) {
+			if (var instanceof Parameter) {
+				ordinal = ((Parameter) var).getOrdinal();
+			}
+
+			Varnode firstVarnode = var.getFirstStorageVarnode();
+			storageAddr = firstVarnode != null ? firstVarnode.getAddress() : null;
+			firstUseOffset = var.getFirstUseOffset();
 		}
-		Varnode firstVarnode = var.getFirstStorageVarnode();
-		storageAddr = firstVarnode != null ? firstVarnode.getAddress() : null;
-		firstUseOffset = var.getFirstUseOffset();
 	}
 
-	/**
-	 * @see ghidra.app.util.viewer.proxy.ProxyObj#getObject()
-	 */
 	@Override
 	public Variable getObject() {
 
@@ -107,12 +112,12 @@ public class VariableProxy extends ProxyObj<Variable> {
 		}
 
 		Variable[] vars = function.getLocalVariables();
-		for (int i = 0; i < vars.length; i++) {
-			if (firstUseOffset != vars[i].getFirstUseOffset()) {
+		for (Variable var2 : vars) {
+			if (firstUseOffset != var2.getFirstUseOffset()) {
 				continue;
 			}
-			if (storageAddr.equals(vars[i].getMinAddress())) {
-				var = vars[i];
+			if (storageAddr.equals(var2.getMinAddress())) {
+				var = var2;
 				return var;
 			}
 		}
@@ -127,4 +132,20 @@ public class VariableProxy extends ProxyObj<Variable> {
 		return functionAddr;
 	}
 
+	public Program getProgram() {
+		return program;
+	}
+
+	@Override
+	public boolean contains(Address a) {
+		Variable v = getObject();
+		if (v == null) {
+			return false;
+		}
+		return Objects.equals(v.getMinAddress(), a);
+	}
+
+	public boolean isFirst() {
+		return isFirst;
+	}
 }

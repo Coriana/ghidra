@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -26,6 +26,7 @@ import java.text.DecimalFormat;
 import java.text.NumberFormat;
 import java.util.*;
 import java.util.function.Consumer;
+import java.util.stream.Stream;
 
 import generic.jar.ResourceFile;
 import ghidra.util.*;
@@ -95,6 +96,8 @@ public final class FileUtilities {
 
 	/**
 	 * Return an array of bytes read from the given file.
+	 * @param sourceFile the source file
+	 * @return the bytes
 	 * @throws IOException if the file could not be accessed
 	 */
 	public final static byte[] getBytesFromFile(File sourceFile) throws IOException {
@@ -118,6 +121,8 @@ public final class FileUtilities {
 
 	/**
 	 * Return an array of bytes read from the given file.
+	 * @param sourceFile the source file
+	 * @return the bytes
 	 * @throws IOException if the file could not be accessed
 	 */
 	public final static byte[] getBytesFromFile(ResourceFile sourceFile) throws IOException {
@@ -160,7 +165,6 @@ public final class FileUtilities {
 				"offset[" + offset + "] and length[" + length + "] must be greater than 0");
 		}
 		byte[] data = new byte[(int) length];
-
 
 		try (InputStream fis = sourceFile.getInputStream()) {
 			if (fis.skip(offset) != offset) {
@@ -294,7 +298,6 @@ public final class FileUtilities {
 	 * <p>
 	 * Takes into account race conditions with external threads/processes
 	 * creating the same directory at the same time.
-	 * <p>
 	 *
 	 * @param dir The directory to create.
 	 * @return True If the directory exists when this method completes; otherwise, false.
@@ -343,7 +346,7 @@ public final class FileUtilities {
 	 * <p>
 	 * Takes into account race conditions with external threads/processes
 	 * creating the same directory at the same time.
-	 * <p>
+	 * 
 	 * @param dir The directory to create.
 	 * @return a reference to the same {@link File} instance that was passed in.
 	 * @throws IOException if there was a failure when creating the directory (ie. the
@@ -364,7 +367,6 @@ public final class FileUtilities {
 	 * <p>
 	 * Uses {@link #createDir(File)} to create new directories (which handles
 	 * race conditions if other processes are also trying to create the same directory).
-	 * <p>
 	 *
 	 * @param dir directory path to be created
 	 * @return a reference to the same {@link File} instance that was passed in.
@@ -383,9 +385,20 @@ public final class FileUtilities {
 	}
 
 	/**
-	 * Delete a directory and all of its contents.
+	 * Delete a file or directory and all of its contents
+	 * 
+	 * @param dir the directory to delete
+	 * @return true if delete was successful. If false is returned, a partial
+	 *         delete may have occurred.
+	 */
+	public static boolean deleteDir(Path dir) {
+		return deleteDir(dir.toFile());
+	}
+
+	/**
+	 * Delete a file or directory and all of its contents
 	 *
-	 * @param dir
+	 * @param dir the dir to delete
 	 * @return true if delete was successful. If false is returned, a partial
 	 *         delete may have occurred.
 	 */
@@ -400,11 +413,13 @@ public final class FileUtilities {
 	}
 
 	/**
-	 * Delete a directory and all of its contents.
+	 * Delete a directory and all of its contents
 	 *
-	 * @param dir
+	 * @param dir the dir to delete
+	 * @param monitor the task monitor
 	 * @return true if delete was successful. If false is returned, a partial
 	 *         delete may have occurred.
+	 * @throws CancelledException if the operation is cancelled
 	 */
 	public final static boolean deleteDir(File dir, TaskMonitor monitor) throws CancelledException {
 		File[] files = dir.listFiles();
@@ -415,7 +430,7 @@ public final class FileUtilities {
 		monitor.initialize(files.length);
 
 		for (int i = 0; i < files.length; i++) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			if (files[i].isDirectory()) {
 				// use a dummy monitor as not to ruin our progress
 				if (!doDeleteDir(files[i], monitor)) {
@@ -450,7 +465,7 @@ public final class FileUtilities {
 		}
 
 		for (File file : files) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			if (file.isDirectory()) {
 				// use a dummy monitor as not to ruin our progress
 				if (!doDeleteDir(file, monitor)) {
@@ -472,6 +487,12 @@ public final class FileUtilities {
 	/**
 	 * This is the same as calling {@link #copyDir(File, File, FileFilter, TaskMonitor)} with
 	 * a {@link FileFilter} that accepts all files.
+	 * @param originalDir the source dir
+	 * @param copyDir the destination dir
+	 * @param monitor the task monitor
+	 * @return the number of filed copied
+	 * @throws IOException if there is an issue copying the files
+	 * @throws CancelledException if the operation is cancelled
 	 */
 	public final static int copyDir(File originalDir, File copyDir, TaskMonitor monitor)
 			throws IOException, CancelledException {
@@ -487,6 +508,7 @@ public final class FileUtilities {
 	 * @param copyDir The directory in which the extracted contents will be placed
 	 * @param filter a filter to apply against the directory's contents
 	 * @param monitor the task monitor
+	 * @return the number of filed copied
 	 * @throws IOException if there was a problem accessing the files
 	 * @throws CancelledException if the copy is cancelled
 	 */
@@ -510,7 +532,7 @@ public final class FileUtilities {
 		monitor.initialize(originalDirFiles.length);
 
 		for (File file : originalDirFiles) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			monitor.setMessage("Copying " + file.getAbsolutePath());
 			File destinationFile = new File(copyDir, file.getName());
 			if (file.isDirectory()) {
@@ -547,7 +569,7 @@ public final class FileUtilities {
 
 		int copiedFilesCount = 0;
 		for (File file : originalDirFiles) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			monitor.setMessage("Copying " + file.getAbsolutePath());
 			File destinationFile = new File(copyDir, file.getName());
 			if (file.isDirectory()) {
@@ -572,7 +594,7 @@ public final class FileUtilities {
 			return;// squash during production mode
 		}
 
-		Msg.debug(SystemUtilities.class, text);
+		Msg.debug(FileUtilities.class, text);
 	}
 
 	/**
@@ -644,10 +666,10 @@ public final class FileUtilities {
 	}
 
 	/**
-	 * Returns all of the lines in the file without any newline characters.
+	 * Returns all of the lines in the file without any newline characters
 	 * @param file The file to read in
 	 * @return a list of file lines
-	 * @throws IOException
+	 * @throws IOException if an error occurs reading the file
 	 */
 	public static List<String> getLines(File file) throws IOException {
 		return getLines(new ResourceFile(file));
@@ -657,10 +679,10 @@ public final class FileUtilities {
 	 * Returns all of the lines in the file without any newline characters.
 	 * <p>
 	 * The file is treated as UTF-8 encoded.
-	 * <p>
+	 * 
 	 * @param file The text file to read in
 	 * @return a list of file lines
-	 * @throws IOException if an error occurs trying to read the file.
+	 * @throws IOException if an error occurs reading the file
 	 */
 	public static List<String> getLines(ResourceFile file) throws IOException {
 		try (InputStream is = file.getInputStream()) {
@@ -693,7 +715,7 @@ public final class FileUtilities {
 	 * Returns all of the lines in the BufferedReader without any newline characters.
 	 * <p>
 	 * The file is treated as UTF-8 encoded.
-	 * <p>
+	 * 
 	 * @param url the input stream from which to read
 	 * @return a list of file lines
 	 * @throws IOException thrown if there was a problem accessing the files
@@ -707,7 +729,6 @@ public final class FileUtilities {
 
 	/**
 	 * Returns all of the lines in the given {@link InputStream} without any newline characters.
-	 * <p>
 	 *
 	 * @param is the input stream from which to read
 	 * @return a {@link List} of strings representing the text lines of the file
@@ -721,7 +742,7 @@ public final class FileUtilities {
 	 * Returns all of the text in the given {@link InputStream}.
 	 * <p>
 	 * EOL characters are normalized to simple '\n's.
-	 * <p>
+	 * 
 	 * @param is the input stream from which to read
 	 * @return the content as a String
 	 * @throws IOException if there are any issues reading the file
@@ -740,7 +761,7 @@ public final class FileUtilities {
 	 * Returns all of the text in the given {@link File}.
 	 * <p>
 	 * See {@link #getText(InputStream)}
-	 * <p>
+	 * 
 	 * @param f the file to read
 	 * @return the content as a String
 	 * @throws IOException if there are any issues reading the file or file is too large.
@@ -821,12 +842,50 @@ public final class FileUtilities {
 	}
 
 	/**
-	 * Returns true if the given <code>potentialParentFile</code> is the parent path of
-	 * the given <code>otherFile</code>, or if the two file paths point to the same path.
+	 * Tests if {@code otherPath} starts with {@code potentialParentPath}. The paths are
+	 * {@link Path#normalize() normalized} before comparing.
+	 *
+	 * @param potentialParentPath The path that may be the parent
+	 * @param otherPath The path that may be the child
+	 * @return true if the normalized {@code otherPath} starts with the normalized 
+	 *   {@code potentialParentPath} and the paths are {@link Paths#get valid}; otherwise false
+	 */
+	public static boolean startsWith(String potentialParentPath, String otherPath) {
+		try {
+			return Paths.get(otherPath)
+					.normalize()
+					.startsWith(Paths.get(potentialParentPath).normalize());
+		}
+		catch (InvalidPathException e) {
+			return false;
+		}
+	}
+
+	/**
+	 * Tests if {@code otherPath} starts with any of the given {@code potentialParents}. The paths 
+	 * are {@link Path#normalize() normalized} before comparing.
+	 *
+	 * @param potentialParents The paths that may be the parent
+	 * @param otherPath The path that may be the child
+	 * @return boolean true if the normalized {@code otherPath} starts with any of the given
+	 *   normalized {@code potentialParents}s and the paths are {@link Paths#get valid}; otherwise
+	 *   false
+	 */
+	public static boolean startsWith(Collection<ResourceFile> potentialParents, String otherPath) {
+		return potentialParents.stream().anyMatch(p -> startsWith(p.getAbsolutePath(), otherPath));
+	}
+
+	/**
+	 * Returns true if the given {@code potentialParentFile} is the parent path of
+	 * the given {@code otherFile}, or if the two file paths point to the same path.
+	 * <p>
+	 * NOTE: Both files are converted to their {@link File#getCanonicalPath() canonical form} prior
+	 * to comparing their paths, which may have performance implications, particularly on Windows.
 	 *
 	 * @param potentialParentFile The file that may be the parent
 	 * @param otherFile The file that may be the child
-	 * @return boolean true if otherFile's path is within potentialParentFile's path.
+	 * @return boolean true if {@code otherFile}'s canonical path is within 
+	 *   {@code potentialParentFile}'s canonical path
 	 */
 	public static boolean isPathContainedWithin(File potentialParentFile, File otherFile) {
 		try {
@@ -848,6 +907,24 @@ public final class FileUtilities {
 	}
 
 	/**
+	 * Returns true if any of the given {@code potentialParents} is the parent path of or has
+	 * the same path as the given {@code otherFile}.
+	 * <p>
+	 * NOTE: All files are converted to their {@link File#getCanonicalPath() canonical form} prior
+	 * to comparing their paths, which may have performance implications, particularly on Windows.
+	 *
+	 * @param potentialParents The files that may be the parent
+	 * @param otherFile The file that may be the child
+	 * @return boolean true if {@code otherFile}'s canonical path is within any of the 
+	 *   {@code potentialParents}' canonical paths 
+	 */
+	public static boolean isPathContainedWithin(Collection<ResourceFile> potentialParents,
+			ResourceFile otherFile) {
+		File f = otherFile.getFile(false);
+		return potentialParents.stream().anyMatch(p -> isPathContainedWithin(p.getFile(false), f));
+	}
+
+	/**
 	 * Returns the portion of the second file that trails the full path of the first file.  If
 	 * the paths are the same or unrelated, then null is returned.
 	 *
@@ -856,8 +933,9 @@ public final class FileUtilities {
 	 *
 	 * @param f1 the parent file
 	 * @param f2 the child file
-	 * @return the portion of the second file that trails the full path of the first file.
-	 * @throws IOException
+	 * @return the portion of the second file that trails the full path of the first file; null as
+	 * described above
+	 * @throws IOException if there is an error canonicalizing the path
 	 */
 	public static String relativizePath(File f1, File f2) throws IOException {
 		String parentPath = f1.getCanonicalPath().replace('\\', '/');
@@ -876,6 +954,33 @@ public final class FileUtilities {
 
 		String childPath = otherPath.substring(parentPath.length());
 		return childPath;
+	}
+
+	/**
+	 * Return the relative path string of one resource file in another. If no path can be 
+	 * constructed or the files are the same, then null is returned.
+	 * 
+	 * Note: unlike {@link #relativizePath(File, File)}, this function does not resolve symbolic 
+	 * links.
+	 *
+	 * <P>For example, given, in this order, two files with these paths
+	 *  <code>/a/b</code> and <code>/a/b/c</code>, this method will return 'c'.
+	 *
+	 * @param f1 the parent resource file
+	 * @param f2 the child resource file
+	 * @return the relative path of {@code f2} in {@code f1}; null if f1 is not a parent of f2
+	 */
+	public static String relativizePath(ResourceFile f1, ResourceFile f2) {
+		StringBuilder sb = new StringBuilder(f2.getName());
+		f2 = f2.getParentFile();
+		while (f2 != null) {
+			if (f1.equals(f2)) {
+				return sb.toString();
+			}
+			sb.insert(0, f2.getName() + File.separator);
+			f2 = f2.getParentFile();
+		}
+		return null;
 	}
 
 	public static boolean exists(URI uri) {
@@ -1009,7 +1114,7 @@ public final class FileUtilities {
 	 * <p>
 	 * Querying a filepath that does not exist will result in a 'success' and the caller will
 	 * receive the non-existent File instance back.
-	 * <p>
+	 * 
 	 * @param caseSensitiveFile {@link File} to enforce case-sensitive-ness of the name portion
 	 * @return the same {@link File} instance if it points to a file on the filesystem with
 	 * the same case, or a NULL if the case does not match.
@@ -1048,7 +1153,7 @@ public final class FileUtilities {
 	 * If no file is found that matches, the original File instance is returned.
 	 * <p>
 	 * See also {@link #existsAndIsCaseDependent(ResourceFile)}.
-	 * <p>
+	 * 
 	 * @param f File instance
 	 * @return File instance pointing to a case-insensitive match of the File parameter
 	 */
@@ -1092,7 +1197,6 @@ public final class FileUtilities {
 	 * Returns the size of the given file as a human readable String.
 	 * <p>
 	 * See {@link #formatLength(long)}
-	 * <p>
 	 *
 	 * @param file the file for which to get size
 	 * @return the pretty string
@@ -1108,7 +1212,7 @@ public final class FileUtilities {
 	 * <p>
 	 * TODO: why is the method using 1000 vs. 1024 for K?
 	 *
-	 * @param length
+	 * @param length the length to format
 	 * @return pretty string - "1.1KB", "5.0MB"
 	 */
 	public static String formatLength(long length) {
@@ -1121,24 +1225,6 @@ public final class FileUtilities {
 		}
 
 		return formatter.format((length / 1000000f)) + "MB";
-	}
-
-	public static File createTempDirectory(String prefix) {
-		try {
-			File temp = File.createTempFile(prefix, Long.toString(System.currentTimeMillis()));
-			if (!temp.delete()) {
-				throw new IOException("Could not delete temp file: " + temp.getAbsolutePath());
-			}
-			if (!createDir(temp)) {
-				throw new IOException("Could not create temp directory: " + temp.getAbsolutePath());
-			}
-			return temp;
-		}
-		catch (IOException e) {
-			Msg.error(FileUtilities.class, "Error creating temporary directory", e);
-		}
-
-		return null;
 	}
 
 	/**
@@ -1175,51 +1261,74 @@ public final class FileUtilities {
 	public static void openNative(File file) throws IOException {
 		if (!Desktop.isDesktopSupported()) {
 			Msg.showError(FileUtilities.class, null, "Native Desktop Unsupported",
-				"Access to the user's native desktop is not supported in the current environment.");
+				"Access to the user's native desktop is not supported in the current environment." +
+					"\nUnable to open file: " + file);
 			return;
 		}
 		Desktop.getDesktop().open(file);
 	}
 
 	/**
-	 * Processes each text line in a text file, in a separate thread.
-	 * <p>
-	 * Thread exits when EOF is reached.
-	 *
-	 * @param is {@link InputStream} to read
-	 * @param consumer code that will process each text of the text file.
+	 * A convenience method to list the contents of the given directory path and pass each to the
+	 * given consumer.  If the given path does not represent a directory, nothing will happen.
+	 * 
+	 * <p>This method handles closing resources by using the try-with-resources construct on 
+	 * {@link Files#list(Path)}
+	 * 
+	 * @param path the directory
+	 * @param consumer the consumer of each child in the given directory
+	 * @throws IOException if there is any problem reading the directory contents
 	 */
-	public static void asyncForEachLine(InputStream is, Consumer<String> consumer) {
-		asyncForEachLine(new BufferedReader(new InputStreamReader(is)), consumer);
+	public static void forEachFile(Path path, Consumer<Path> consumer) throws IOException {
+		if (!Files.isDirectory(path)) {
+			return;
+		}
+
+		try (Stream<Path> pathStream = Files.list(path)) {
+			pathStream.forEach(consumer);
+		}
 	}
 
 	/**
-	 * Processes each text line in a text file, in a separate thread.
-	 * <p>
-	 * Thread exits when EOF is reached.
-	 *
-	 * @param reader {@link BufferedReader} to read
-	 * @param consumer code that will process each text of the text file.
+	 * A convenience method to list the contents of the given directory path and pass each to the
+	 * given consumer.  If the given path does not represent a directory, nothing will happen.
+	 * 
+	 * @param resourceFile the directory
+	 * @param consumer the consumer of each child in the given directory
 	 */
-	public static void asyncForEachLine(BufferedReader reader, Consumer<String> consumer) {
-		new Thread(() -> {
-			try {
-				while (true) {
-					String line = reader.readLine();
-					if (line == null) {
-						break;
-					}
-					consumer.accept(line);
-				}
-			}
-			catch (IOException ioe) {
-				// ignore io errors while reading because thats normal when hitting EOF
-			}
-			catch (Exception e) {
-				Msg.error(FileUtilities.class, "Exception while reading", e);
-			}
+	public static void forEachFile(File resourceFile, Consumer<File> consumer) {
+		if (!resourceFile.isDirectory()) {
+			return;
+		}
 
-		}, "Threaded Stream Reader Thread").start();
+		File[] files = resourceFile.listFiles();
+		if (files == null) {
+			return;
+		}
+		for (File child : files) {
+			consumer.accept(child);
+		}
+	}
+
+	/**
+	 * A convenience method to list the contents of the given directory path and pass each to the
+	 * given consumer.  If the given path does not represent a directory, nothing will happen.
+	 * 
+	 * @param resourceFile the directory
+	 * @param consumer the consumer of each child in the given directory
+	 */
+	public static void forEachFile(ResourceFile resourceFile, Consumer<ResourceFile> consumer) {
+		if (!resourceFile.isDirectory()) {
+			return;
+		}
+
+		ResourceFile[] files = resourceFile.listFiles();
+		if (files == null) {
+			return;
+		}
+		for (ResourceFile child : files) {
+			consumer.accept(child);
+		}
 	}
 
 }

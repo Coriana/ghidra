@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,14 +15,21 @@
  */
 package ghidra.framework.project.tool;
 
-import java.util.*;
+import java.util.Iterator;
+import java.util.Set;
+import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
-import org.jdom.Element;
+import org.jdom2.Element;
 
 import ghidra.framework.model.ToolTemplate;
 import ghidra.framework.model.Workspace;
 import ghidra.framework.plugintool.PluginTool;
+import ghidra.framework.plugintool.PluginToolAccessUtils;
+import ghidra.util.Swing;
 import ghidra.util.exception.DuplicateNameException;
+import ghidra.util.task.*;
 
 /**
  * WorkspaceImpl
@@ -31,11 +38,10 @@ import ghidra.util.exception.DuplicateNameException;
  * 
  */
 class WorkspaceImpl implements Workspace {
-	private final static int TYPICAL_NUM_RUNNING_TOOLS = 5;
 
 	private String name;
 	private ToolManagerImpl toolManager;
-	private Set<PluginTool> runningTools = new HashSet<PluginTool>(TYPICAL_NUM_RUNNING_TOOLS);
+	private Set<PluginTool> runningTools = new CopyOnWriteArraySet<>();
 	private boolean isActive;
 
 	WorkspaceImpl(String name, ToolManagerImpl toolManager) {
@@ -74,21 +80,42 @@ class WorkspaceImpl implements Workspace {
 	@Override
 	public PluginTool runTool(ToolTemplate template) {
 
-		PluginTool tool = toolManager.getTool(this, template);
-		if (tool != null) {
-			tool.setVisible(true);
+		//
+		// Clients that launch a tool would like to have it ready to use when returned from this
+		// method.  For the tool to be ready, it must be created, made visible and fully 
+		// initialized.  That process needs to happen on the Swing thread and can be slow.  Since 
+		// we may be called on the Swing thread, we use a TaskLauncher, which will show a modal 
+		// dialog.  This allows any pending Swing events, including any buffered events (like 
+		// painting and attaching to a parent hierarchy) to be processed by the dialog's secondary
+		// Swing queue before returning control back to the caller of this method.
+		//
+		return launchSwing("Launching Tool", () -> {
+			PluginTool tool = toolManager.getTool(this, template);
+			if (tool != null) {
+				tool.setVisible(true);
+				runningTools.add(tool);
 
-			if (tool instanceof GhidraTool) {
-				GhidraTool gTool = (GhidraTool) tool;
-				gTool.checkForNewExtensions();
+				toolManager.setWorkspaceChanged(this);
+				toolManager.fireToolAddedEvent(this, tool);
 			}
-			runningTools.add(tool);
+			return tool;
+		});
+	}
 
-			// alert the tool manager that we changed
-			toolManager.setWorkspaceChanged(this);
-			toolManager.fireToolAddedEvent(this, tool);
-		}
-		return tool;
+	// This method could instead become TaskLauncher.launchSwing().  It seems too niche for general
+	// use though.
+	private <T> T launchSwing(String title, Supplier<T> supplier) {
+		AtomicReference<T> ref = new AtomicReference<>();
+		Task t = new Task(title, false, false, true) {
+			@Override
+			public void run(TaskMonitor monitor) {
+				ref.set(Swing.runNow(supplier));
+			}
+		};
+
+		int delay = 0;
+		new TaskLauncher(t, null, delay);
+		return ref.get();
 	}
 
 	@Override
@@ -159,6 +186,7 @@ class WorkspaceImpl implements Workspace {
 		String defaultTool = System.getProperty("ghidra.defaulttool");
 		if (defaultTool != null && !defaultTool.equals("")) {
 			PluginTool tool = toolManager.getTool(defaultTool);
+			tool.setVisible(isActive);
 			runningTools.add(tool);
 			toolManager.fireToolAddedEvent(this, tool);
 			return;
@@ -166,37 +194,30 @@ class WorkspaceImpl implements Workspace {
 
 		Iterator<?> iter = root.getChildren("RUNNING_TOOL").iterator();
 		while (iter.hasNext()) {
-			Element elememnt = (Element) iter.next();
-			String toolName = elememnt.getAttributeValue(ToolTemplate.TOOL_NAME_XML_NAME);
+			Element element = (Element) iter.next();
+			String toolName = element.getAttributeValue(ToolTemplate.TOOL_NAME_XML_NAME);
 			if (toolName == null) {
 				continue;
 			}
 
 			PluginTool tool = toolManager.getTool(toolName);
-			if (tool != null) {
-				tool.setVisible(isActive);
-
-				if (tool instanceof GhidraTool) {
-					GhidraTool gTool = (GhidraTool) tool;
-					gTool.checkForNewExtensions();
-				}
-
-				boolean hadChanges = tool.hasConfigChanged();
-				Element windowData = elememnt.getChild("ROOT_NODE");
-				if (windowData != null) {  // backward compatibility
-					tool.restoreWindowingDataFromXml(windowData);
-				}
-
-				Element toolDataElem = elememnt.getChild("DATA_STATE");
-				tool.restoreDataStateFromXml(toolDataElem);
-				if (hadChanges) {
-					// restore the dirty state, which is cleared by the restoreDataState call
-					tool.setConfigChanged(true);
-				}
-
-				runningTools.add(tool);
-				toolManager.fireToolAddedEvent(this, tool);
+			if (tool == null) {
+				continue;
 			}
+
+			tool.setVisible(isActive);
+			boolean hadChanges = tool.hasConfigChanged();
+			tool.restoreWindowingDataFromXml(element);
+
+			Element toolDataElem = element.getChild("DATA_STATE");
+			tool.restoreDataStateFromXml(toolDataElem);
+			if (hadChanges) {
+				// restore the dirty state, which is cleared by the restoreDataState call
+				tool.setConfigChanged(true);
+			}
+
+			runningTools.add(tool);
+			toolManager.fireToolAddedEvent(this, tool);
 		}
 	}
 
@@ -226,14 +247,9 @@ class WorkspaceImpl implements Workspace {
 	 * Close all running tools; called from the close() method in
 	 * ToolManagerImpl which is called from the Project's close()
 	 */
-	void close() {
+	void dispose() {
 		for (PluginTool tool : runningTools) {
-			try {
-				tool.exit();
-			}
-			finally {
-				toolManager.toolRemoved(this, tool);
-			}
+			PluginToolAccessUtils.dispose(tool);
 		}
 		runningTools.clear();
 	}

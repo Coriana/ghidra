@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,12 +17,13 @@ package ghidra.util.table;
 
 import java.awt.Color;
 import java.awt.Component;
-import java.util.List;
-import java.util.stream.Collectors;
+import java.util.Collection;
+import java.util.function.Supplier;
 
 import javax.swing.JLabel;
 
 import docking.widgets.table.GTableCellRenderingData;
+import generic.theme.GColor;
 import ghidra.app.plugin.core.navigation.locationreferences.ReferenceUtils;
 import ghidra.docking.settings.Settings;
 import ghidra.framework.plugintool.ServiceProvider;
@@ -39,19 +40,25 @@ import ghidra.util.table.field.*;
 import ghidra.util.task.TaskMonitor;
 
 /**
- * Table model for showing the 'from' side of passed-in references. 
+ * Table model for showing the 'from' side of passed-in references.
  */
 public class ReferencesFromTableModel extends AddressBasedTableModel<ReferenceEndpoint> {
 
-	private List<IncomingReferenceEndpoint> refs;
+	private Supplier<Collection<Reference>> refsSupplier;
 
-	public ReferencesFromTableModel(List<Reference> refs, ServiceProvider sp, Program program) {
+	public ReferencesFromTableModel(Collection<Reference> refs, ServiceProvider sp,
+			Program program) {
 		super("References", sp, program, null);
 
-		this.refs = refs.stream().map(r -> {
-			boolean offcut = ReferenceUtils.isOffcut(program, r.getToAddress());
-			return new IncomingReferenceEndpoint(r, offcut);
-		}).collect(Collectors.toList());
+		this.refsSupplier = () -> refs;
+
+		addTableColumn(new ReferenceTypeTableColumn());
+	}
+
+	public ReferencesFromTableModel(Supplier<Collection<Reference>> refsSupplier,
+			ServiceProvider sp, Program program) {
+		super("References", sp, program, null);
+		this.refsSupplier = refsSupplier;
 
 		addTableColumn(new ReferenceTypeTableColumn());
 	}
@@ -59,7 +66,13 @@ public class ReferencesFromTableModel extends AddressBasedTableModel<ReferenceEn
 	@Override
 	protected void doLoad(Accumulator<ReferenceEndpoint> accumulator, TaskMonitor monitor)
 			throws CancelledException {
-		refs.forEach(r -> accumulator.add(r));
+
+		Collection<Reference> xrefs = refsSupplier.get();
+		for (Reference xref : xrefs) {
+			boolean offcut = ReferenceUtils.isOffcut(program, xref.getToAddress());
+			IncomingReferenceEndpoint endpoint = new IncomingReferenceEndpoint(xref, offcut);
+			accumulator.add(endpoint);
+		}
 	}
 
 	@Override
@@ -94,7 +107,9 @@ public class ReferencesFromTableModel extends AddressBasedTableModel<ReferenceEn
 			extends AbstractGColumnRenderer<ReferenceEndpoint> {
 
 		// " << OFFCUT >>"
-		private static final String OFFCUT_STRING = " &lt;&lt; OFFCUT &gt;&gt;";
+		private static final String PLAIN_OFFCUT_TEXT = "<< OFFCUT >>";
+		private static final String HTML_OFFCUT_TEXT = " &lt;&lt; OFFCUT &gt;&gt;";
+		private static final Color OFFCUT_COLOR = new GColor("color.fg.table.offcut.unselected");
 
 		ReferenceTypeTableCellRenderer() {
 			setHTMLRenderingEnabled(true);
@@ -109,25 +124,28 @@ public class ReferencesFromTableModel extends AddressBasedTableModel<ReferenceEn
 			ReferenceEndpoint rowObject = (ReferenceEndpoint) data.getValue();
 			String text = asString(rowObject);
 			label.setText(text);
+			label.setToolTipText(rowObject.getReferenceType().getName());
 
 			return label;
 		}
 
-		private String asString(ReferenceEndpoint rowObject) {
-			RefType refType = rowObject.getReferenceType();
-			String text = refType.getName();
-			if (rowObject.isOffcut()) {
-				text = "<html>" + HTMLUtilities.colorString(Color.RED, text + OFFCUT_STRING);
+		private String asString(ReferenceEndpoint t) {
+			RefType refType = t.getReferenceType();
+			String text = refType.getDisplayString();
+			if (t.isOffcut()) {
+				text = "<html>" + HTMLUtilities.colorString(OFFCUT_COLOR, text + HTML_OFFCUT_TEXT);
 			}
 			return text;
 		}
 
 		@Override
 		public String getFilterString(ReferenceEndpoint t, Settings settings) {
-			String htmlString = asString(t);
-
-			// TODO verify this returns '<' instead of entity refs
-			return HTMLUtilities.fromHTML(htmlString);
+			RefType refType = t.getReferenceType();
+			String text = refType.getDisplayString();
+			if (t.isOffcut()) {
+				return text + PLAIN_OFFCUT_TEXT;
+			}
+			return text;
 		}
 	}
 }

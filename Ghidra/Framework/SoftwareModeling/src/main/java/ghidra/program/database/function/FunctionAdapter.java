@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,15 +15,15 @@
  */
 package ghidra.program.database.function;
 
+import java.io.IOException;
+
+import db.*;
+import ghidra.framework.data.OpenMode;
 import ghidra.program.database.map.AddressMap;
 import ghidra.program.model.symbol.SourceType;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.exception.VersionException;
 import ghidra.util.task.TaskMonitor;
-
-import java.io.IOException;
-
-import db.*;
 
 /**
  * Database adapter for functions.
@@ -47,22 +46,24 @@ abstract class FunctionAdapter {
 	static final byte FUNCTION_INLINE_FLAG = (byte) 0x2; // Bit 1 is flag for "is inline".
 	static final byte FUNCTION_NO_RETURN_FLAG = (byte) 0x4; // Bit 2 is flag for "has no return".
 	static final byte FUNCTION_CUSTOM_PARAM_STORAGE_FLAG = (byte) 0x8; // Bit 3 is flag for "has custom storage"
-	static final byte FUNCTION_SIGNATURE_SOURCE = (byte) 0x30; // Bits 4-5 are storage for "signature SourceType"
+	static final byte FUNCTION_SIGNATURE_SOURCE = (byte) 0x70; // Bits 4-6 are storage for "signature SourceType"
 
 	static final int FUNCTION_SIGNATURE_SOURCE_SHIFT = 4; // bit shift for flag storage of "signature SourceType"
 
-	final static Schema FUNCTION_SCHEMA =
-		new Schema(CURRENT_VERSION, "ID", new Class[] { LongField.class, IntField.class,
-			IntField.class, IntField.class, ByteField.class, ByteField.class, StringField.class },
-			new String[] { "Return DataType ID", "StackPurge", "StackReturnOffset",
-				"StackLocalSize", "Flags", "Calling Convention ID", "Return Storage" });
+	private static final int MAX_SOURCE_VALUE = 7; // value limit based upon 3-bit storage capacity
+
+	final static Schema FUNCTION_SCHEMA = new Schema(CURRENT_VERSION, "ID",
+		new Field[] { LongField.INSTANCE, IntField.INSTANCE, IntField.INSTANCE, IntField.INSTANCE,
+			ByteField.INSTANCE, ByteField.INSTANCE, StringField.INSTANCE },
+		new String[] { "Return DataType ID", "StackPurge", "StackReturnOffset", "StackLocalSize",
+			"Flags", "Calling Convention ID", "Return Storage" });
 
 	protected AddressMap addrMap;
 
-	static FunctionAdapter getAdapter(DBHandle handle, int openMode, AddressMap map,
+	static FunctionAdapter getAdapter(DBHandle handle, OpenMode openMode, AddressMap map,
 			TaskMonitor monitor) throws VersionException, CancelledException, IOException {
 
-		if (openMode == DBConstants.CREATE) {
+		if (openMode == OpenMode.CREATE) {
 			return new FunctionAdapterV3(handle, map, true);
 		}
 		try {
@@ -73,11 +74,11 @@ abstract class FunctionAdapter {
 			return adapter;
 		}
 		catch (VersionException e) {
-			if (!e.isUpgradable() || openMode == DBConstants.UPDATE) {
+			if (!e.isUpgradable() || openMode == OpenMode.UPDATE) {
 				throw e;
 			}
 			FunctionAdapter adapter = findReadOnlyAdapter(handle, map);
-			if (openMode == DBConstants.UPGRADE) {
+			if (openMode == OpenMode.UPGRADE) {
 				adapter = upgrade(handle, adapter, map, monitor);
 			}
 			return adapter;
@@ -95,7 +96,11 @@ abstract class FunctionAdapter {
 	}
 
 	static byte getSignatureSourceFlagBits(SourceType signatureSource) {
-		return (byte) (signatureSource.ordinal() << FunctionAdapter.FUNCTION_SIGNATURE_SOURCE_SHIFT);
+		int sourceTypeId = signatureSource.getStorageId();
+		if (sourceTypeId > MAX_SOURCE_VALUE) {
+			throw new RuntimeException("Unsupported SourceType storage ID: " + sourceTypeId);
+		}
+		return (byte) (sourceTypeId << FunctionAdapter.FUNCTION_SIGNATURE_SOURCE_SHIFT);
 	}
 
 	static FunctionAdapter findReadOnlyAdapter(DBHandle handle, AddressMap map)
@@ -135,8 +140,8 @@ abstract class FunctionAdapter {
 			FunctionAdapter tmpAdapter = new FunctionAdapterV3(tmpHandle, map, true);
 			RecordIterator it = oldAdapter.iterateFunctionRecords();
 			while (it.hasNext()) {
-				monitor.checkCanceled();
-				Record rec = it.next();
+				monitor.checkCancelled();
+				DBRecord rec = it.next();
 				tmpAdapter.updateFunctionRecord(rec);
 				monitor.setProgress(++count);
 			}
@@ -144,8 +149,8 @@ abstract class FunctionAdapter {
 			FunctionAdapter newAdapter = new FunctionAdapterV3(handle, map, true);
 			it = tmpAdapter.iterateFunctionRecords();
 			while (it.hasNext()) {
-				monitor.checkCanceled();
-				Record rec = it.next();
+				monitor.checkCancelled();
+				DBRecord rec = it.next();
 				newAdapter.updateFunctionRecord(rec);
 				monitor.setProgress(++count);
 			}
@@ -182,17 +187,17 @@ abstract class FunctionAdapter {
 	 * @param functionKey
 	 * @return Record
 	 */
-	abstract Record getFunctionRecord(long functionKey) throws IOException;
+	abstract DBRecord getFunctionRecord(long functionKey) throws IOException;
 
 	/**
 	 * Update/Insert the specified function record.
 	 * @param functionRecord
 	 */
-	abstract void updateFunctionRecord(Record functionRecord) throws IOException;
+	abstract void updateFunctionRecord(DBRecord functionRecord) throws IOException;
 
-	abstract Record createFunctionRecord(long symbolID, long returnDataTypeId) throws IOException;
+	abstract DBRecord createFunctionRecord(long symbolID, long returnDataTypeId) throws IOException;
 
-	abstract Record translateRecord(Record record);
+	abstract DBRecord translateRecord(DBRecord record);
 
 	class TranslatedRecordIterator implements RecordIterator {
 		private RecordIterator it;
@@ -212,12 +217,12 @@ abstract class FunctionAdapter {
 		}
 
 		@Override
-		public Record next() throws IOException {
+		public DBRecord next() throws IOException {
 			return translateRecord(it.next());
 		}
 
 		@Override
-		public Record previous() throws IOException {
+		public DBRecord previous() throws IOException {
 			return translateRecord(it.previous());
 		}
 

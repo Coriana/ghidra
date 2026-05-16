@@ -23,27 +23,22 @@ import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 
-import docking.ActionContext;
-import docking.DialogComponentProvider;
+import docking.ReusableDialogComponentProvider;
 import docking.action.DockingAction;
 import docking.widgets.checkbox.GCheckBox;
 import docking.widgets.label.GDLabel;
 import docking.widgets.label.GLabel;
-import ghidra.app.events.ProgramSelectionPluginEvent;
-import ghidra.app.services.GoToService;
+import docking.widgets.textfield.HintTextField;
 import ghidra.app.util.HelpTopics;
 import ghidra.app.util.PseudoDisassembler;
-import ghidra.program.model.address.Address;
-import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.mem.MemoryBlock;
-import ghidra.program.util.ProgramSelection;
 import ghidra.util.HelpLocation;
 import ghidra.util.table.*;
 import ghidra.util.table.actions.MakeProgramSelectionAction;
 import ghidra.util.task.Task;
 
-public class AddressTableDialog extends DialogComponentProvider {
+public class AddressTableDialog extends ReusableDialogComponentProvider {
 	private static final int DEFAULT_MINIMUM_TABLE_SIZE = 3;
 	private static final String DIALOG_NAME = "Search For Address Tables";
 
@@ -84,21 +79,24 @@ public class AddressTableDialog extends DialogComponentProvider {
 
 	protected JPanel buildMainPanel() {
 		mainPanel = new JPanel(new BorderLayout());
+		mainPanel.getAccessibleContext().setAccessibleName("Address Table");
 
 		// Find Button
 		searchButton = new JButton("Search");
 		searchButton.addActionListener(e -> searchSelection());
+		searchButton.getAccessibleContext().setAccessibleName("Search");
 
 		// right panel for populating results and selecting tables to disassemble
 		JPanel resultsPanel = new JPanel(new BorderLayout());
 		resultsPanel.setPreferredSize(new Dimension(600, 300));
 		resultsPanel.setBorder(BorderFactory.createTitledBorder("Possible Address Tables"));
+		resultsPanel.getAccessibleContext().setAccessibleName("Results");
 
 		// create right side query results table with three columns
 		resultsTablePanel = new GhidraThreadedTablePanel<>(plugin.getModel());
 		resultsTable = resultsTablePanel.getTable();
-		GoToService goToService = plugin.getTool().getService(GoToService.class);
-		resultsTable.installNavigation(goToService, goToService.getDefaultNavigatable());
+		resultsTable.installNavigation(plugin.getTool());
+		resultsTable.getAccessibleContext().setAccessibleName("Results");
 
 		ListSelectionModel selModel = resultsTable.getSelectionModel();
 		selModel.addListSelectionListener(e -> {
@@ -125,31 +123,36 @@ public class AddressTableDialog extends DialogComponentProvider {
 
 		// make button panel for right panel
 		JPanel makeTablePanel = new JPanel(new FlowLayout());
-
+		makeTablePanel.getAccessibleContext().setAccessibleName("Make Table");
 		makeTableButton = new JButton("Make Table");
 		makeTableButton.setToolTipText("Make a table of addresses at the selected location(s).");
+		makeTableButton.getAccessibleContext().setAccessibleName("Make Table");
 		makeTablePanel.add(makeTableButton);
 		makeTableButton.setEnabled(false);
 		makeTableButton.addActionListener(e -> plugin.makeTable(resultsTable.getSelectedRows()));
 
 		JPanel disassemblePanel = new JPanel(new FlowLayout());
+		disassemblePanel.getAccessibleContext().setAccessibleName("Disassemble");
 		disassembleTableButton = new JButton("Disassemble");
 		disassembleTableButton.setToolTipText(
 			"Disassemble at all locations pointed to by the selected address table(s) members.");
+		disassembleTableButton.getAccessibleContext().setAccessibleName("Dissasemble");
 		disassembleTableButton.setEnabled(false);
 		disassemblePanel.add(disassembleTableButton);
-		disassembleTableButton.addActionListener(
-			e -> plugin.disassembleTable(resultsTable.getSelectedRows()));
+		disassembleTableButton
+				.addActionListener(e -> plugin.disassembleTable(resultsTable.getSelectedRows()));
 
 		// make bottom of right panel
 
-		JPanel buttonPanel = new JPanel(new FlowLayout());
-		buttonPanel.add(makeTablePanel);
-		buttonPanel.add(disassemblePanel);
+		JPanel myButtonPanel = new JPanel(new FlowLayout());
+		myButtonPanel.add(makeTablePanel);
+		myButtonPanel.add(disassemblePanel);
+		myButtonPanel.getAccessibleContext().setAccessibleName("Buttons");
 
 		// search options panel   
 		JPanel searchOptionsPanel = new JPanel(new BorderLayout());
 		searchOptionsPanel.setBorder(BorderFactory.createTitledBorder("Search Options"));
+		searchOptionsPanel.getAccessibleContext().setAccessibleName("Search Options");
 
 		JLabel minLengthLabel = new GLabel("Minimum Length: ");
 		minLengthLabel.setToolTipText(
@@ -157,14 +160,17 @@ public class AddressTableDialog extends DialogComponentProvider {
 		minLengthField = new JTextField(5);
 		minLengthField.setName("Minimum Length");
 		minLengthField.setText(Integer.toString(DEFAULT_MINIMUM_TABLE_SIZE));
+		minLengthField.getAccessibleContext().setAccessibleName("Minimum Length for Table");
 
 		JPanel minLengthPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
 		minLengthPanel.add(minLengthLabel);
 		minLengthPanel.add(minLengthField);
+		minLengthPanel.getAccessibleContext().setAccessibleName("Minimum Length");
 
 		alignLabel = new GDLabel("Alignment: ");
 		alignField = new JTextField(5);
 		alignField.setName("Alignment");
+		alignField.getAccessibleContext().setAccessibleName("Alignment");
 		alignLabel.setToolTipText(
 			"Alignment that address tables and what they are pointing to must satisfy.");
 		int align = plugin.getProgram().getLanguage().getInstructionAlignment();
@@ -176,29 +182,36 @@ public class AddressTableDialog extends DialogComponentProvider {
 		skipLabel = new GDLabel("Skip Length: ");
 		skipField = new JTextField(5);
 		skipField.setName("Skip");
+		skipField.getAccessibleContext().setAccessibleName("Skip");
 		skipLabel.setToolTipText("Number of bytes to skip between found addresses in a table.");
 		skipField.setText("0");
 
 		JPanel alignPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
 		alignPanel.add(alignLabel);
 		alignPanel.add(alignField);
+		alignPanel.getAccessibleContext().setAccessibleName("Alignment");
 
 		JPanel skipPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
 		skipPanel.add(skipLabel);
 		skipPanel.add(skipField);
+		skipPanel.getAccessibleContext().setAccessibleName("Skip");
 
 		JPanel optPanel = new JPanel(new GridLayout(3, 1));
 		optPanel.add(minLengthPanel);
 		optPanel.add(alignPanel);
 		optPanel.add(skipPanel);
+		optPanel.getAccessibleContext().setAccessibleName("Options");
 
 		selectionButton = new GCheckBox("Search Selection");
 		selectionButton.setSelected(false);
 		selectionButton.setToolTipText("If checked, search only the current selection.");
+		selectionButton.getAccessibleContext().setAccessibleName("Use Selection");
 		JPanel searchOptionsWestPanel = new JPanel(new GridLayout(2, 1));
+		searchOptionsWestPanel.getAccessibleContext().setAccessibleDescription("Search Options");
 		searchOptionsWestPanel.add(selectionButton);
 
 		shiftedAddressButton = new GCheckBox("Shifted Addresses");
+		shiftedAddressButton.getAccessibleContext().setAccessibleName("Shifted Addresses");
 
 		boolean allowShiftedAddresses =
 			plugin.getProgram().getDataTypeManager().getDataOrganization().getPointerShift() != 0;
@@ -220,44 +233,44 @@ public class AddressTableDialog extends DialogComponentProvider {
 		searchOptionsPanel.add(searchOptionsWestPanel, BorderLayout.WEST);
 		JPanel findPanel = new JPanel(new FlowLayout());
 		findPanel.add(searchButton);
+		findPanel.getAccessibleContext().setAccessibleName("Find");
 		searchOptionsPanel.add(findPanel, BorderLayout.SOUTH);
 
 		JPanel makeOptionsPanel = new JPanel(new BorderLayout());
 		makeOptionsPanel.setBorder(BorderFactory.createTitledBorder("Make Table Options"));
+		makeOptionsPanel.getAccessibleContext().setAccessibleName("Make Table Options");
 
 		autoLabelCB = new GCheckBox("Auto Label");
 		autoLabelCB.setSelected(true);
 		autoLabelCB.setEnabled(false);
-		autoLabelCB.setToolTipText(
-			"Label the top of the address table and all members of the table.");
+		autoLabelCB
+				.setToolTipText("Label the top of the address table and all members of the table.");
+		autoLabelCB.getAccessibleContext().setAccessibleName("Auto Label");
 
 		offsetLabel = new GDLabel("Offset: ");
 		offsetLabel.setToolTipText("Offset from the beginning of the selected table(s)");
 		offsetLabel.setEnabled(false);
+		offsetLabel.getAccessibleContext().setAccessibleName("Offset");
 
 		JLabel viewOffsetLabel = new GDLabel("  ");
 		viewOffsetLabel.setEnabled(false);
+		viewOffsetLabel.getAccessibleContext().setAccessibleName("View Offset");
 
-		viewOffset = new HintTextField(20);
+		viewOffset = new HintTextField("<table start address>");
 		viewOffset.setName("viewOffset");
+		viewOffset.getAccessibleContext().setAccessibleName("View Offset");
 		viewOffset.setToolTipText("Address of the selected table starting at the given offset");
-		viewOffset.setHintText("table start address");
-		viewOffset.showHint();
-
-		// We want the background of this text field to be the same as the panel, so it doesn't
-		// look like something editable.  
-		Color panelColor = makeOptionsPanel.getBackground();
-		viewOffset.setBackground(
-			new Color(panelColor.getRed(), panelColor.getGreen(), panelColor.getBlue()));
-		viewOffset.setEditable(false);
+		viewOffset.setColumns(20);
+		viewOffset.setEnabled(false);
 
 		offsetField = new JTextField(2);
 		offsetField.setName("offset");
+		offsetField.getAccessibleContext().setAccessibleName("Offset");
 		offsetField.setToolTipText("Offset from the beginning of the selected table(s)");
 		offsetField.setText("0");
 		offsetField.setEnabled(false);
-		offsetField.addActionListener(
-			e -> plugin.updateOffsetString(resultsTable.getSelectedRows()));
+		offsetField
+				.addActionListener(e -> plugin.updateOffsetString(resultsTable.getSelectedRows()));
 		offsetField.getDocument().addDocumentListener(new DocumentListener() {
 			@Override
 			public void insertUpdate(DocumentEvent e) {
@@ -282,15 +295,17 @@ public class AddressTableDialog extends DialogComponentProvider {
 		offsetPanel.add(offsetField);
 		offsetPanel.add(viewOffsetLabel);
 		offsetPanel.add(viewOffset);
+		offsetPanel.getAccessibleContext().setAccessibleName("Offset");
 
 		makeOptionsPanel.add(offsetPanel, BorderLayout.NORTH);
-		makeOptionsPanel.add(buttonPanel, BorderLayout.SOUTH);
+		makeOptionsPanel.add(myButtonPanel, BorderLayout.SOUTH);
 
 		// add panels to left panel
 		JPanel optionsPanel = new JPanel(new GridLayout(1, 2));
 
 		optionsPanel.add(searchOptionsPanel);
 		optionsPanel.add(makeOptionsPanel);
+		optionsPanel.getAccessibleContext().setAccessibleName("Options");
 
 		// put sub-panels onto main panel    
 		mainPanel.add(resultsPanel, BorderLayout.CENTER);
@@ -342,8 +357,13 @@ public class AddressTableDialog extends DialogComponentProvider {
 
 	@Override
 	public void close() {
+		if (!isShowing()) {
+			return;
+		}
+
 		cancelCurrentTask();
 		super.close();
+		resultsTablePanel.dispose();
 		plugin.dialogDismissed();
 	}
 
@@ -489,10 +509,6 @@ public class AddressTableDialog extends DialogComponentProvider {
 		return resultsTable.getSelectedRows();
 	}
 
-	void setModel(AutoTableDisassemblerModel model) {
-		resultsTablePanel.setModel(model);
-	}
-
 	public void setSelectedRows(int[] selectedRows) {
 		resultsTable.clearSelection();
 
@@ -524,53 +540,12 @@ public class AddressTableDialog extends DialogComponentProvider {
 
 	private void createAction() {
 
-		DockingAction selectAction = new MakeProgramSelectionAction(plugin, resultsTable) {
-			@Override
-			protected ProgramSelection makeSelection(ActionContext context) {
-				Program program = plugin.getProgram();
-				AddressSet set = new AddressSet();
-				AutoTableDisassemblerModel model = plugin.getModel();
-				int[] selectedRows = resultsTable.getSelectedRows();
-				for (int selectedRow : selectedRows) {
-					Address selectedAddress = model.getAddress(selectedRow);
-					AddressTable addrTab = model.get(selectedAddress);
-					if (addrTab != null) {
-						set.addRange(selectedAddress,
-							selectedAddress.add(addrTab.getByteLength() - 1));
-					}
-				}
-				ProgramSelection selection = new ProgramSelection(set);
-				if (!set.isEmpty()) {
-					plugin.firePluginEvent(
-						new ProgramSelectionPluginEvent(plugin.getName(), selection, program));
-				}
-
-				return selection;
-			}
-		};
+		DockingAction selectAction = new MakeProgramSelectionAction(plugin, resultsTable);
 
 		selectionNavigationAction = new SelectionNavigationAction(plugin, resultsTable);
 		selectionNavigationAction.setHelpLocation(
 			new HelpLocation(HelpTopics.SEARCH, "AddressTables_Selection_Navigation"));
 		addAction(selectionNavigationAction);
 		addAction(selectAction);
-	}
-
-	private void doMakeSelection() {
-		Program program = plugin.getProgram();
-		AddressSet set = new AddressSet();
-		AutoTableDisassemblerModel model = plugin.getModel();
-		int[] selectedRows = resultsTable.getSelectedRows();
-		for (int selectedRow : selectedRows) {
-			Address selectedAddress = model.getAddress(selectedRow);
-			AddressTable addrTab = model.get(selectedAddress);
-			if (addrTab != null) {
-				set.addRange(selectedAddress, selectedAddress.add(addrTab.getByteLength() - 1));
-			}
-		}
-		if (!set.isEmpty()) {
-			plugin.firePluginEvent(new ProgramSelectionPluginEvent(plugin.getName(),
-				new ProgramSelection(set), program));
-		}
 	}
 }

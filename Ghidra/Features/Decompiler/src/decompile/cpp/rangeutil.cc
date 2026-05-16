@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,6 +15,8 @@
  */
 #include "rangeutil.hh"
 #include "block.hh"
+
+namespace ghidra {
 
 const char CircleRange::arrange[] = "gcgbegdagggggggeggggcgbggggggggcdfgggggggegdggggbgggfggggcgbegda";
 
@@ -198,7 +200,7 @@ CircleRange::CircleRange(bool val)
 
 /// A size specifies the number of bytes (*8 to get number of bits) in the mask.
 /// The stride is assumed to be 1.
-/// \param val is is the single value
+/// \param val is the single value
 /// \param size is the size of the mask in bytes
 CircleRange::CircleRange(uintb val,int4 size)
 
@@ -226,7 +228,7 @@ void CircleRange::setRange(uintb lft,uintb rgt,int4 size,int4 stp)
 
 /// A size specifies the number of bytes (*8 to get number of bits) in the mask.
 /// The stride is assumed to be 1.
-/// \param val is is the single value
+/// \param val is the single value
 /// \param size is the size of the mask in bytes
 void CircleRange::setRange(uintb val,int4 size)
 
@@ -744,12 +746,18 @@ bool CircleRange::pullBackUnary(OpCode opc,int4 inSize,int4 outSize)
       left = (~right + 1 + step) & mask;
       right = val;
       break;
+    case CPUI_INT_NEGATE:
+      val = (~left + step) & mask;
+      left = (~right + step) & mask;
+      right = val;
+      break;
     case CPUI_INT_ZEXT:
     {
       val = calc_mask(inSize); // (smaller) input mask
+      uintb rem = left % step;
       CircleRange zextrange;
-      zextrange.left = 0;
-      zextrange.right = val + 1;	// Biggest possible range of ZEXT
+      zextrange.left = rem;
+      zextrange.right = val + 1 + rem;	// Biggest possible range of ZEXT
       zextrange.mask = mask;
       zextrange.step = step;	// Keep the same stride
       zextrange.isempty = false;
@@ -763,8 +771,10 @@ bool CircleRange::pullBackUnary(OpCode opc,int4 inSize,int4 outSize)
     case CPUI_INT_SEXT:
     {
       val = calc_mask(inSize); // (smaller) input mask
+      uintb rem = left & step;
       CircleRange sextrange;
       sextrange.left = val ^ (val >> 1); // High order bit for (small) input space
+      sextrange.left += rem;
       sextrange.right = sign_extend(sextrange.left, inSize, outSize);
       sextrange.mask = mask;
       sextrange.step = step;	// Keep the same stride
@@ -1096,13 +1106,15 @@ bool CircleRange::pushForwardUnary(OpCode opc,const CircleRange &in1,int4 inSize
       isempty = false;
       step = in1.step;
       mask = calc_mask(outSize);
-      left = in1.left;
-      right = (in1.right - in1.step) & in1.mask;
-      if (right < left) {	// Extending causes 2 pieces
-	left = left % step;
+      if (in1.left == in1.right) {
+	left = in1.left % step;
 	right = in1.mask + 1 + left;
       }
       else {
+	left = in1.left;
+	right = (in1.right - in1.step) & in1.mask;
+	if (right < left)
+	  return false;	// Extending causes 2 pieces
 	right += step;	// Impossible for it to wrap with bigger mask
       }
       break;
@@ -1110,16 +1122,19 @@ bool CircleRange::pushForwardUnary(OpCode opc,const CircleRange &in1,int4 inSize
       isempty = false;
       step = in1.step;
       mask = calc_mask(outSize);
-      left = sign_extend(in1.left, inSize, outSize);
-      right = sign_extend((in1.right - in1.step)&in1.mask, inSize, outSize);
-      if ((intb)right < (intb)left) {
-	uintb rem = left % step;
+      if (in1.left == in1.right) {
+	uintb rem = in1.left % step;
 	right = calc_mask(inSize) >> 1;
 	left = (calc_mask(outSize) ^ right) + rem;
 	right = right + 1 + rem;
       }
-      else
-	right += step;
+      else {
+	left = sign_extend(in1.left, inSize, outSize);
+	right = sign_extend((in1.right - in1.step)&in1.mask, inSize, outSize);
+	if ((intb)right < (intb)left)
+	  return false;	// Extending causes 2 pieces
+ 	right  = (right + step) & mask;
+      }
       break;
     case CPUI_INT_2COMP:
       isempty = false;
@@ -1133,8 +1148,8 @@ bool CircleRange::pushForwardUnary(OpCode opc,const CircleRange &in1,int4 inSize
       isempty = false;
       step = in1.step;
       mask = in1.mask;
-      left = -in1.right & mask;
-      right = -in1.left & mask;
+      left = (~in1.right + step) & mask;
+      right =(~in1.left + step) & mask;
       normalize();
       break;
     case CPUI_BOOL_NEGATE:
@@ -1224,8 +1239,8 @@ bool CircleRange::pushForwardBinary(OpCode opc,const CircleRange &in1,const Circ
       }
       int4 wholeSize = 8*sizeof(uintb) - count_leading_zeros(mask);
       if (in1.getMaxInfo() + in2.getMaxInfo() > wholeSize) {
-	left = in1.left;	// Covered everything
-	right = in1.left;
+	left = (in1.left * in2.left) % step;
+	right = left;				// Covered everything
 	normalize();
 	return true;
       }
@@ -1249,7 +1264,7 @@ bool CircleRange::pushForwardBinary(OpCode opc,const CircleRange &in1,const Circ
       uint4 tmp = sa;
       while(step < maxStep && tmp > 0) {
 	step <<= 1;
-	sa -= 1;
+	tmp -= 1;
       }
       left = (in1.left << sa)&mask;
       right = (in1.right << sa)&mask;
@@ -1268,13 +1283,14 @@ bool CircleRange::pushForwardBinary(OpCode opc,const CircleRange &in1,const Circ
       int4 sa = (int4)in2.left * 8;
       mask = calc_mask(outSize);
       step = (sa == 0) ? in1.step : 1;
+      uintb range = (in1.left < in1.right) ? in1.right-in1.left : in1.left - in1.right;
 
-      left = (in1.left >> sa)&mask;
-      right = (in1.right >> sa)&mask;
-      if ((left& ~mask) != (right & ~mask)) {	// Truncated part is different
+      if (range == 0 || ((range >> sa) > mask )) {
 	left = right = 0;	// We cover everything
       }
       else {
+	left = in1.left >> sa;
+	right = ((in1.right - in1.step) >> sa) + step;
 	left &= mask;
 	right &= mask;
 	normalize();
@@ -1307,18 +1323,16 @@ bool CircleRange::pushForwardBinary(OpCode opc,const CircleRange &in1,const Circ
       int4 sa = (int4)in2.left;
       mask = calc_mask(outSize);
       step = 1;			// Lose any step
-      intb valLeft = in1.left;
-      intb valRight = in1.right;
       int4 bitPos = 8*inSize - 1;
-      sign_extend(valLeft,bitPos);
-      sign_extend(valRight,bitPos);
+      intb valLeft = sign_extend(in1.left,bitPos);
+      intb valRight = sign_extend(in1.right,bitPos);
       if (valLeft >= valRight) {
 	valRight = (intb)(mask >> 1);	// Max positive
 	valLeft = valRight + 1;		// Min negative
-	sign_extend(valLeft,bitPos);
+	valLeft = sign_extend(valLeft,bitPos);
       }
       left = (valLeft >> sa) & mask;
-      right = (valRight >> sa) & mask;
+      right = (((valRight - in1.step) >> sa) + 1) & mask;
       if (left == right)	// Don't truncate accidentally to everything
 	right = (left + 1)&mask;
       break;
@@ -1939,7 +1953,7 @@ ValueSet *ValueSetSolver::ValueSetEdge::getNext(void)
 void ValueSetSolver::newValueSet(Varnode *vn,int4 tCode)
 
 {
-  valueNodes.push_back(ValueSet());
+  valueNodes.emplace_back();
   valueNodes.back().setVarnode(vn, tCode);
 }
 
@@ -2587,3 +2601,5 @@ void ValueSetSolver::dumpValueSets(ostream &s) const
 }
 
 #endif
+
+} // End namespace ghidra

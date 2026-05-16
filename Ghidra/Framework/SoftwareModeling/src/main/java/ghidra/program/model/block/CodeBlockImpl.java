@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,7 +22,6 @@ import ghidra.program.model.symbol.FlowType;
 import ghidra.util.Msg;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
-import ghidra.util.task.TaskMonitorAdapter;
 
 /**
  * CodeBlockImpl is an implementation of a CodeBlock.
@@ -138,13 +137,13 @@ public class CodeBlockImpl implements CodeBlock {
 		List<Address> dList = new ArrayList<Address>();
 
 		try {
-			CodeBlockReferenceIterator ri = getSources(TaskMonitorAdapter.DUMMY_MONITOR);
+			CodeBlockReferenceIterator ri = getSources(TaskMonitor.DUMMY);
 			while (ri.hasNext()) {
 				CodeBlockReference ref = ri.next();
 				Address a = ref.getSourceAddress();
 				sList.add(a);
 			}
-			CodeBlockReferenceIterator di = getDestinations(TaskMonitorAdapter.DUMMY_MONITOR);
+			CodeBlockReferenceIterator di = getDestinations(TaskMonitor.DUMMY);
 			while (di.hasNext()) {
 				CodeBlockReference ref = di.next();
 				Address a = ref.getDestinationAddress();

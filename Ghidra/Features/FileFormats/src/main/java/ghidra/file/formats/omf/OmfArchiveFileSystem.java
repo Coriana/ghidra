@@ -15,42 +15,40 @@
  */
 package ghidra.file.formats.omf;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.*;
+import static ghidra.formats.gfilesystem.fileinfo.FileAttributeType.*;
 
-import ghidra.app.util.bin.*;
-import ghidra.app.util.bin.format.omf.OmfFileHeader;
-import ghidra.app.util.bin.format.omf.OmfLibraryRecord;
+import java.io.IOException;
+import java.util.ArrayList;
+
+import ghidra.app.util.bin.ByteProvider;
+import ghidra.app.util.bin.ByteProviderWrapper;
+import ghidra.app.util.bin.format.omf.OmfException;
+import ghidra.app.util.bin.format.omf.omf.OmfLibraryRecord;
+import ghidra.app.util.bin.format.omf.omf.OmfRecordFactory;
 import ghidra.formats.gfilesystem.*;
 import ghidra.formats.gfilesystem.annotations.FileSystemInfo;
-import ghidra.util.exception.CancelledException;
+import ghidra.formats.gfilesystem.fileinfo.FileAttributes;
 import ghidra.util.task.TaskMonitor;
 
 @FileSystemInfo(type = "omf", description = "OMF Archive", factory = OmfArchiveFileSystemFactory.class)
-public class OmfArchiveFileSystem implements GFileSystem {
-
-	private final FSRLRoot fsFSRL;
-	private FileSystemIndexHelper<OmfLibraryRecord.MemberHeader> fsih;
-	private FileSystemRefManager refManager = new FileSystemRefManager(this);
+public class OmfArchiveFileSystem extends AbstractFileSystem<OmfLibraryRecord.MemberHeader> {
 
 	private ByteProvider provider;
 
 	public OmfArchiveFileSystem(FSRLRoot fsFSRL, ByteProvider provider) {
-		this.fsFSRL = fsFSRL;
+		super(fsFSRL, FileSystemService.getInstance());
 		this.provider = provider;
-		this.fsih = new FileSystemIndexHelper<>(this, fsFSRL);
 	}
 
-	public void mount(TaskMonitor monitor) throws IOException {
+	public void mount(TaskMonitor monitor) throws IOException, OmfException {
 		monitor.setMessage("Opening OMF archive...");
-		BinaryReader reader = OmfFileHeader.createReader(provider);
-		OmfLibraryRecord libraryRec = OmfLibraryRecord.parse(reader, monitor);
+		OmfLibraryRecord libraryRec =
+			OmfLibraryRecord.parse(new OmfRecordFactory(provider), monitor);
 		ArrayList<OmfLibraryRecord.MemberHeader> memberHeaders = libraryRec.getMemberHeaders();
 		for (OmfLibraryRecord.MemberHeader member : memberHeaders) {
 			String name = member.name;
 			monitor.setMessage(name);
-			fsih.storeFile(name, fsih.getFileCount(), false, member.size, member);
+			fsIndex.storeFile(name, fsIndex.getFileCount(), false, member.size, member);
 		}
 	}
 
@@ -61,17 +59,7 @@ public class OmfArchiveFileSystem implements GFileSystem {
 			provider.close();
 			provider = null;
 		}
-		fsih.clear();
-	}
-
-	@Override
-	public String getName() {
-		return fsFSRL.getContainer().getName();
-	}
-
-	@Override
-	public FSRLRoot getFSRL() {
-		return fsFSRL;
+		fsIndex.clear();
 	}
 
 	@Override
@@ -80,46 +68,24 @@ public class OmfArchiveFileSystem implements GFileSystem {
 	}
 
 	@Override
-	public int getFileCount() {
-		return fsih.getFileCount();
-	}
-
-	@Override
-	public FileSystemRefManager getRefManager() {
-		return refManager;
-	}
-
-	@Override
-	public GFile lookup(String path) throws IOException {
-		return fsih.lookup(path);
-	}
-
-	@Override
-	public InputStream getInputStream(GFile file, TaskMonitor monitor)
-			throws IOException, CancelledException {
-
-		OmfLibraryRecord.MemberHeader member = fsih.getMetadata(file);
+	public ByteProvider getByteProvider(GFile file, TaskMonitor monitor) {
+		OmfLibraryRecord.MemberHeader member = fsIndex.getMetadata(file);
 		return (member != null)
-				? new ByteProviderInputStream(provider, member.payloadOffset, member.size)
+				? new ByteProviderWrapper(provider, member.payloadOffset, member.size,
+					file.getFSRL())
 				: null;
 	}
 
 	@Override
-	public List<GFile> getListing(GFile directory) throws IOException {
-		return fsih.getListing(directory);
-	}
+	public FileAttributes getFileAttributes(GFile file, TaskMonitor monitor) {
+		FileAttributes result = new FileAttributes();
 
-	@Override
-	public String getInfo(GFile file, TaskMonitor monitor) {
-		OmfLibraryRecord.MemberHeader entry = fsih.getMetadata(file);
-		return (entry == null) ? null : FSUtilities.infoMapToString(getInfoMap(entry));
-	}
-
-	public Map<String, String> getInfoMap(OmfLibraryRecord.MemberHeader member) {
-		Map<String, String> info = new LinkedHashMap<>();
-		info.put("Name", member.name);
-		info.put("Size", "" + Long.toString(member.size) + ", 0x" + Long.toHexString(member.size));
-		return info;
+		OmfLibraryRecord.MemberHeader entry = fsIndex.getMetadata(file);
+		if (entry != null) {
+			result.add(NAME_ATTR, entry.name);
+			result.add(SIZE_ATTR, entry.size);
+		}
+		return result;
 	}
 
 }

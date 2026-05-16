@@ -4,15 +4,12 @@
  */
 package ghidra.file.formats.ios.png;
 
-import java.io.*;
+import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.zip.*;
 
-import org.apache.commons.compress.utils.IOUtils;
-
 import ghidra.file.formats.zlib.ZLIB;
-import ghidra.util.task.TaskMonitor;
 
 public class CrushedPNGUtil {
 
@@ -23,7 +20,7 @@ public class CrushedPNGUtil {
 	 * @return An InputStream of the correctly formated bytes of a png
 	 * @throws Exception 
 	 */
-	public InputStream getUncrushedPNGBytes(ProcessedPNG png, TaskMonitor monitor) throws Exception {
+	public static byte[] getUncrushedPNGBytes(ProcessedPNG png) throws Exception {
 		boolean foundIHDR = false;
 		boolean foundIDAT = false;
 		boolean foundCgBI = false;
@@ -102,37 +99,31 @@ public class CrushedPNGUtil {
 			int expectedSize =
 				(ihdrChunk.getBytesPerLine() * ihdrChunk.getImgHeight()) +
 					ihdrChunk.getRowFilterBytes();
+			byte[] results;
+			try (ByteArrayOutputStream decompressedOutput = new ByteArrayOutputStream(expectedSize);
+				InflaterOutputStream inflaterStream = new InflaterOutputStream(decompressedOutput)) {
 
-			InputStream inputStream = new ByteArrayInputStream(getFixedIdatDataBytes(idatStream));
-			byte[] results = new byte[expectedSize];
-			Inflater inflater = new Inflater();
-			inflater.setInput(IOUtils.toByteArray(inputStream));
-			//inflater.setInput(convertInputStreamToByteArray(inputStream));
-			int numDecompressed = inflater.inflate(results);
-
-			if (numDecompressed != expectedSize) {
+				inflaterStream.write(ZLIB.ZLIB_COMPRESSION_DEFAULT);
+				idatStream.writeTo(inflaterStream);
+				inflaterStream.finish();
+				results = decompressedOutput.toByteArray();
+			}
+			if (results.length != expectedSize) {
 				throw new PNGFormatException("Decompression Error, expected " + expectedSize +
-					" bytes, but got " + numDecompressed + " bytes");
+					" bytes, but got " + results.length + " bytes");
 			}
 
 			//Processes the IDAT chunks to 'uncrushify' them
 			processIDATChunks(ihdrChunk, results);
 
-			//Conservative sized repack array
-			byte[] tmp = new byte[CrushedPNGConstants.INITIAL_REPACK_SIZE];
-			Deflater deflater = new Deflater();
-			deflater.setInput(results);
-			deflater.finish();
-			int numCompressed = deflater.deflate(tmp);
+			try (ByteArrayOutputStream compressedOutput = new ByteArrayOutputStream(CrushedPNGConstants.INITIAL_REPACK_SIZE);
+				DeflaterOutputStream deflaterStream = new DeflaterOutputStream(compressedOutput)) {
 
-			if (numCompressed <= 0) {
-				throw new PNGFormatException("Number of compressed bytes <= 0");
+				deflaterStream.write(results);
+				deflaterStream.finish();
+				deflaterStream.flush();
+				repackArray = compressedOutput.toByteArray();
 			}
-			repackArray = new byte[numCompressed];
-			for (int i = 0; i < numCompressed; i++) {
-				repackArray[i] = tmp[i];
-			}
-
 		}
 
 		ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
@@ -145,31 +136,31 @@ public class CrushedPNGUtil {
 			if (!(Arrays.equals(idBytes, CrushedPNGConstants.INSERTED_IOS_CHUNK))) {
 
 				//If the chunk is the old IDAT chunk replace with new IDAT data
-				if (Arrays.equals(idBytes, CrushedPNGConstants.IDAT_CHUNK) && !wroteIDAT) {
+				if ((repackArray != null) && Arrays.equals(idBytes, CrushedPNGConstants.IDAT_CHUNK)) {
+					if (!wroteIDAT) {
+						//Write the chunk data length
+						int dataLength = repackArray.length;
+						byte[] lengthBytes = ByteBuffer.allocate(4).putInt(dataLength).array();
+						outputStream.write(lengthBytes);
 
-					//Write the chunk data length
-					int dataLength = repackArray.length;
-					byte[] lengthBytes = ByteBuffer.allocate(4).putInt(dataLength).array();
-					outputStream.write(lengthBytes);
+						//Gather ID and data together to calculate CRC32
+						byte[] idat = new byte[CrushedPNGConstants.IDAT_CHUNK.length + dataLength];
+						for (int i = 0; i < CrushedPNGConstants.IDAT_CHUNK.length; i++) {
+							idat[i] = CrushedPNGConstants.IDAT_CHUNK[i];
+						}
+						for (int i = 0; i < dataLength; i++) {
+							idat[CrushedPNGConstants.IDAT_CHUNK.length + i] = repackArray[i];
+						}
 
-					//Gather ID and data together to calculate CRC32
-					byte[] idat = new byte[CrushedPNGConstants.IDAT_CHUNK.length + dataLength];
-					for (int i = 0; i < CrushedPNGConstants.IDAT_CHUNK.length; i++) {
-						idat[i] = CrushedPNGConstants.IDAT_CHUNK[i];
+						//Write the chunk data
+						outputStream.write(idat);
+
+						//Calculate and write chunk crc32
+						byte[] checksum = calculateCRC32(idat);
+						outputStream.write(checksum);
+
+						wroteIDAT = true;
 					}
-					for (int i = 0; i < dataLength; i++) {
-						idat[CrushedPNGConstants.IDAT_CHUNK.length + i] = repackArray[i];
-					}
-
-					//Write the chunk data
-					outputStream.write(idat);
-
-					//Calculate and write chunk crc32
-					byte[] checksum = calculateCRC32(idat);
-					outputStream.write(checksum);
-
-					wroteIDAT = true;
-
 				}
 				else {
 
@@ -192,9 +183,7 @@ public class CrushedPNGUtil {
 
 		}
 
-		InputStream inputStream = new ByteArrayInputStream(outputStream.toByteArray());
-		return inputStream;
-
+		return outputStream.toByteArray();
 	}
 
 	/**
@@ -203,12 +192,13 @@ public class CrushedPNGUtil {
 	 * @param decompressedResult result of the zlib decompression
 	 * @throws PNGFormatException
 	 */
-	private void processIDATChunks(IHDRChunk ihdrChunk, byte[] decompressedResult)
+	private static void processIDATChunks(IHDRChunk ihdrChunk, byte[] decompressedResult)
 			throws PNGFormatException {
 		int width;
 		int height;
-		if (ihdrChunk.getInterlaceMethod() == 1) {
+		if (ihdrChunk.getInterlaceMethod() == CrushedPNGConstants.ADAM7_INTERLACE) {
 			//Msg.debug(this, "Checking Adam7 unpacking");
+			int y = 0;
 			for (int pass = 0; pass < CrushedPNGConstants.STARTING_COL.length; pass++) {
 				width =
 					(ihdrChunk.getImgWidth() - CrushedPNGConstants.STARTING_COL[pass] +
@@ -220,7 +210,6 @@ public class CrushedPNGUtil {
 						CrushedPNGConstants.ROW_INCREMENT[pass];
 
 				int row = 0;
-				int y = 0;
 				while (row < height) {
 					if (decompressedResult[y] > 4) {
 						throw new PNGFormatException("Unknown row filter type " +
@@ -236,7 +225,7 @@ public class CrushedPNGUtil {
 				}
 			}
 
-			int y = 0;
+			y = 0;
 			for (int pass = 0; pass < CrushedPNGConstants.STARTING_COL.length; pass++) {
 
 				//Formula taken from pngcheck
@@ -326,7 +315,7 @@ public class CrushedPNGUtil {
 	 * @param data the image data
 	 * @param offset the offset into data
 	 */
-	private void removeRowFilters(int width, int height, byte[] data, int offset) {
+	private static void removeRowFilters(int width, int height, byte[] data, int offset) {
 
 		/*
 		 * Yes, it is generally bad convention to have x in function scope in this way. However the 
@@ -434,7 +423,7 @@ public class CrushedPNGUtil {
 	 * @param data the image data
 	 * @param offset the offset into the data
 	 */
-	private void applyRowFilters(int width, int height, byte[] data, int offset) {
+	private static void applyRowFilters(int width, int height, byte[] data, int offset) {
 
 		/*
 		 * Yes, it is generally bad convention to have x in function scope in this way. However the 
@@ -533,7 +522,7 @@ public class CrushedPNGUtil {
 	 * @param data image data
 	 * @param offset offset into data
 	 */
-	private void demultiplyAlpha(int width, int height, byte[] data, int offset) {
+	private static void demultiplyAlpha(int width, int height, byte[] data, int offset) {
 		int srcPtr = offset;
 
 		for (int i = 0; i < height; i++) {
@@ -566,7 +555,7 @@ public class CrushedPNGUtil {
 	 * @param idatChunks the set of idat chunks
 	 * @return idat chunks with the new header
 	 */
-	private byte[] getFixedIdatDataBytes(ByteArrayOutputStream idatChunks) {
+	private static byte[] getFixedIdatDataBytes(ByteArrayOutputStream idatChunks) {
 
 		//Prepend the needed Zlib header info to the IDAT chunk data
 		byte[] idatData = idatChunks.toByteArray();
@@ -584,7 +573,7 @@ public class CrushedPNGUtil {
 	 * @param data the byte array to calculate crc32 from
 	 * @return The crc32 result
 	 */
-	private byte[] calculateCRC32(byte[] data) {
+	private static byte[] calculateCRC32(byte[] data) {
 		CRC32 checksum = new CRC32();
 		checksum.update(data);
 		long result = checksum.getValue();
@@ -596,7 +585,7 @@ public class CrushedPNGUtil {
 	 * @param chunk the chunk to calculate crc32 from
 	 * @return The crc32 result
 	 */
-	private byte[] calculateCRC32(PNGChunk chunk) {
+	private static byte[] calculateCRC32(PNGChunk chunk) {
 		CRC32 checksum = new CRC32();
 		checksum.update(ByteBuffer.allocate(4 + chunk.getLength()).putInt(chunk.getChunkID()).put(
 			chunk.getData()).array());

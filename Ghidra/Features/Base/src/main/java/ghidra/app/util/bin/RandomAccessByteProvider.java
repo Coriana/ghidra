@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,6 +18,8 @@ package ghidra.app.util.bin;
 import java.io.*;
 
 import ghidra.formats.gfilesystem.FSRL;
+import ghidra.formats.gfilesystem.FileSystemService;
+import ghidra.util.Msg;
 
 /**
  * An implementation of ByteProvider where the underlying
@@ -28,20 +30,23 @@ import ghidra.formats.gfilesystem.FSRL;
  * {@link ArrayIndexOutOfBoundsException}s.
  * <p>
  * See {@link SynchronizedByteProvider} as a solution.
+ * 
+ * @deprecated See {@link FileByteProvider} as replacement ByteProvider.
  */
+@Deprecated(since = "10.1", forRemoval = true)
 public class RandomAccessByteProvider implements ByteProvider {
 	protected File file;
 	protected GhidraRandomAccessFile randomAccessFile;
 	private FSRL fsrl;
-	private Long cachedLength;
+	private long fileLength;
 
 	/**
 	 * Constructs a {@link ByteProvider} using the specified {@link File}.
 	 * 
 	 * @param file the {@link File} to open for random access
-	 * @throws FileNotFoundException if the {@link File} does not exist
+	 * @throws IOException if the {@link File} does not exist or other error
 	 */
-	public RandomAccessByteProvider(File file) throws FileNotFoundException {
+	public RandomAccessByteProvider(File file) throws IOException {
 		this(file, "r");
 	}
 
@@ -50,11 +55,10 @@ public class RandomAccessByteProvider implements ByteProvider {
 	 *
 	 * @param file the {@link File} to open for random access
 	 * @param fsrl the {@link FSRL} to use for the {@link File}'s path
-	 * @throws FileNotFoundException if the {@link File} does not exist
+	 * @throws IOException if the {@link File} does not exist or other error
 	 */
-	public RandomAccessByteProvider(File file, FSRL fsrl) throws FileNotFoundException {
-		this(file, "r");
-		this.fsrl = fsrl;
+	public RandomAccessByteProvider(File file, FSRL fsrl) throws IOException {
+		this(file, fsrl, "r");
 	}
 
 	/**
@@ -62,11 +66,17 @@ public class RandomAccessByteProvider implements ByteProvider {
 	 * 
 	 * @param file the {@link File} to open for random access
 	 * @param permissions indicating permissions used for open
-	 * @throws FileNotFoundException if the {@link File} does not exist
+	 * @throws IOException if the {@link File} does not exist or other error
 	 */
-	public RandomAccessByteProvider(File file, String permissions) throws FileNotFoundException {
+	public RandomAccessByteProvider(File file, String permissions) throws IOException {
+		this(file, FileSystemService.getInstance().getLocalFSRL(file), permissions);
+	}
+
+	private RandomAccessByteProvider(File file, FSRL fsrl, String permissions) throws IOException {
 		this.file = file;
+		this.fsrl = fsrl;
 		this.randomAccessFile = new GhidraRandomAccessFile(file, permissions);
+		this.fileLength = randomAccessFile.length();
 	}
 
 	@Override
@@ -111,21 +121,13 @@ public class RandomAccessByteProvider implements ByteProvider {
 	}
 
 	@Override
-	public long length() throws IOException {
-		if (cachedLength == null) {
-			cachedLength = randomAccessFile.length();
-		}
-		return cachedLength;
+	public long length() {
+		return fileLength;
 	}
 
 	@Override
 	public boolean isValidIndex(long index) {
-		try {
-			return index >= 0 && index < length();
-		}
-		catch (IOException e) {
-			return false;
-		}
+		return 0 <= index && index < fileLength;
 	}
 
 	@Override
@@ -136,12 +138,27 @@ public class RandomAccessByteProvider implements ByteProvider {
 
 	@Override
 	public byte[] readBytes(long index, long length) throws IOException {
-		randomAccessFile.seek(index);
 		byte[] b = new byte[(int) length];
+		if (index > fileLength) {
+			throw new EOFException(
+				"Invalid file offset " + index + " while reading " + file.getName());
+		}
+		if (index + length > fileLength) {
+			Msg.trace(this, "Read at EOF, can't return partial buffer, throwing IOException: " +
+				file.getName());
+			throw new EOFException("EOF: unable to read " + length + " bytes at " + index);
+		}
+		randomAccessFile.seek(index);
 		int nRead = randomAccessFile.read(b);
 		if (nRead != length) {
 			throw new IOException("Unable to read " + length + " bytes");
 		}
 		return b;
 	}
+	
+	@Override
+	public String toString() {
+		return "RandomAccessByteProvider [\n  file=" + file + ",\n  fsrl=" + fsrl +
+			",\n  fileLength=" + fileLength + "\n]";
+	}	
 }

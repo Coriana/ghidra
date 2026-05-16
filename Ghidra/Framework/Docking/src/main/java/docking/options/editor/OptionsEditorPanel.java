@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,25 +17,26 @@ package docking.options.editor;
 
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
 
-import javax.swing.*;
+import javax.swing.BorderFactory;
+import javax.swing.JPanel;
 import javax.swing.border.Border;
 
-import docking.help.Help;
-import docking.help.HelpService;
 import ghidra.framework.options.*;
 import ghidra.util.HelpLocation;
 import ghidra.util.exception.AssertException;
-import ghidra.util.exception.InvalidInputException;
 import ghidra.util.layout.VerticalLayout;
+import help.Help;
+import help.HelpService;
 
 /**
  *
  * Panel that shows each property in an Options category or a Group in an
  * Options category.
  */
-public class OptionsEditorPanel extends JPanel implements OptionsEditor {
+public class OptionsEditorPanel extends JPanel {
 
 	private EditorStateFactory editorStateFactory;
 	private Options options;
@@ -63,12 +64,9 @@ public class OptionsEditorPanel extends JPanel implements OptionsEditor {
 		this.optionNames = optionNames;
 		this.title = title;
 
-		Collections.sort(optionNames);
-
 		create();
 	}
 
-	@Override
 	public void dispose() {
 		propertyChangeListener = null;
 		editorInfoList.clear();
@@ -90,12 +88,11 @@ public class OptionsEditorPanel extends JPanel implements OptionsEditor {
 				editorPropertyChangeListener);
 			editorInfoList.add(editorState);
 
-			HelpLocation helpLoc = options.getHelpLocation(optionName);
-
 			GenericOptionsComponent component =
 				GenericOptionsComponent.createOptionComponent(editorState);
 			add(component);
 
+			HelpLocation helpLoc = options.getHelpLocation(optionName);
 			if (helpLoc == null) {
 				help.excludeFromHelp(component);
 			}
@@ -116,33 +113,12 @@ public class OptionsEditorPanel extends JPanel implements OptionsEditor {
 		setBorder(border);
 	}
 
-//==================================================================================================
-// OptionsEditor Interface Methods
-//==================================================================================================
-
-	@Override
-	public void apply() throws InvalidInputException {
+	public void apply() {
 		for (EditorState state : editorInfoList) {
 			state.applyValue();
 		}
 	}
 
-	@Override
-	public void cancel() {
-		// nothing to do
-	}
-
-	@Override
-	public void reload() {
-		// nothing to do, as this component is reloaded when options are changed
-	}
-
-	@Override
-	public JComponent getEditorComponent(Options o, EditorStateFactory factory) {
-		return this;
-	}
-
-	@Override
 	public void setOptionsPropertyChangeListener(PropertyChangeListener listener) {
 		this.propertyChangeListener = listener;
 	}

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -25,12 +25,14 @@ import java.util.List;
 import java.util.Map.Entry;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.apache.commons.collections4.*;
+import org.apache.commons.collections4.map.LazyMap;
 
 import edu.uci.ics.jung.algorithms.layout.Layout;
 import edu.uci.ics.jung.graph.Graph;
 import edu.uci.ics.jung.graph.util.Pair;
 import edu.uci.ics.jung.visualization.VisualizationServer;
+import generic.theme.GColor;
+import generic.theme.GThemeDefaults.Colors.Palette;
 import ghidra.graph.viewer.VisualEdge;
 import ghidra.graph.viewer.VisualVertex;
 import ghidra.graph.viewer.renderer.DebugShape;
@@ -220,6 +222,7 @@ class ArticulatedEdgeRouter<V extends VisualVertex, E extends VisualEdge<V>>
 			return createLineEdge(start, end, edge);
 		}
 
+		@SuppressWarnings("unchecked")
 		E newEdge = (E) edge.cloneEdge(edge.getStart(), edge.getEnd());
 		moveArticulationsAroundVertices(intersectingVertices, newEdge, goLeft);
 
@@ -229,7 +232,6 @@ class ArticulatedEdgeRouter<V extends VisualVertex, E extends VisualEdge<V>>
 	/**
 	 * Returns a mapping edges to vertices that touch them.
 	 * 
-	 * @param viewer the viewer containing the graph
 	 * @param edgeCollection the edges to check for occlusion
 	 * @return a mapping of occluded edges (a subset of the provided edges) to those vertices that
 	 *         occlude them.
@@ -239,10 +241,7 @@ class ArticulatedEdgeRouter<V extends VisualVertex, E extends VisualEdge<V>>
 		Layout<V, E> layout = viewer.getGraphLayout();
 		Graph<V, E> graph = layout.getGraph();
 
-		Set<V> prototype = new HashSet<>();
-		Factory<Set<V>> factory = FactoryUtils.prototypeFactory(prototype);
-		Map<E, Set<V>> map = MapUtils.lazyMap(new HashMap<E, Set<V>>(), factory);
-
+		LazyMap<E, Set<V>> map = LazyMap.lazyMap(new HashMap<E, Set<V>>(), () -> new HashSet<>());
 		Map<V, Rectangle> vertexBoundsMap = getVertexBounds();
 		Set<Entry<V, Rectangle>> entrySet = vertexBoundsMap.entrySet();
 		for (Entry<V, Rectangle> entry : entrySet) {
@@ -319,35 +318,34 @@ class ArticulatedEdgeRouter<V extends VisualVertex, E extends VisualEdge<V>>
 
 	private Color getRoutingBoxColor(E edge) {
 		if (isTrueEdge(edge)) {
-			return Color.MAGENTA;
+			return Palette.MAGENTA;
 		}
-		return Color.ORANGE;
+		return Palette.ORANGE;
 	}
 
 //
 //	private Color getIntersectingBoxColor(E edge) {
 //		if (isTrueEdge(edge)) {
-//			return Color.RED;
+//			return Palette.RED;
 //		}
-//		return Color.PINK;
+//		return Palette.PINK;
 //	}
 
 	private Color getPhantomEdgeColor(E edge, boolean isLeft) {
 		if (isLeft) {
 			if (isTrueEdge(edge)) {
-				return new Color(0x999900);
+				return new GColor("color.palette.darkkhaki");
 			}
 
-			return new Color(0x009900);
+			return Palette.GREEN;
 		}
 		if (isTrueEdge(edge)) {
-			return new Color(0x3300CC);
+			return new GColor("color.palette.navy");
 		}
-		return new Color(0x3399FF);
+		return new GColor("color.palette.dodgerblue");
 	}
 
 	private boolean isTrueEdge(E edge) {
 		return true;
-		// return edge.getFlowType().isJump(); // a jump is a 'true' edge
 	}
 }

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,62 +16,113 @@
 package ghidra.framework.main.datatree;
 
 import java.io.IOException;
+import java.net.URL;
 import java.text.SimpleDateFormat;
-import java.util.Date;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.swing.Icon;
 import javax.swing.SwingWorker;
 
 import docking.widgets.tree.GTreeNode;
-import ghidra.framework.model.DomainFile;
+import generic.theme.GIcon;
+import ghidra.framework.data.LinkHandler;
+import ghidra.framework.data.LinkHandler.LinkStatus;
+import ghidra.framework.main.BrokenLinkIcon;
+import ghidra.framework.model.*;
+import ghidra.framework.protocol.ghidra.GhidraURL;
 import ghidra.framework.store.ItemCheckoutStatus;
 import ghidra.util.*;
+import ghidra.util.exception.CancelledException;
 import ghidra.util.exception.DuplicateFileException;
-import resources.ResourceManager;
+import ghidra.util.task.TaskMonitor;
 
 /**
  * Class to represent a node in the Data tree.
  */
-public class DomainFileNode extends GTreeNode implements Cuttable {
+public class DomainFileNode extends DataTreeNode {
 
-	private static final Icon UNKNOWN_FILE_ICON =
-		ResourceManager.loadImage("images/unknownFile.gif");
+	private static final Icon UNKNOWN_FILE_ICON = new GIcon("icon.datatree.node.domain.file");
+	private static final String RIGHT_ARROW = "\u2192";
 
+	// NOTE: We must ensure anything used by sort comparator remains fixed
 	private final DomainFile domainFile;
+	private final boolean isFolderLink;
+
+	private LinkFileInfo linkInfo;
+	private boolean isLeaf;
 
 	private volatile String displayName; // name displayed in the tree
 	private volatile Icon icon = UNKNOWN_FILE_ICON;
-	private volatile Icon disabledIcon;
-	protected volatile String toolTipText;
+	private volatile Icon cutIcon;
+	private volatile String toolTipText;
+	private AtomicInteger refreshCount = new AtomicInteger();
 
-	private volatile boolean isCut; // true if this node is marked as cut
+	private DomainFileFilter filter; // relavent when expand folder-link which is a file
 
-	private final SimpleDateFormat formatter = new SimpleDateFormat("yyyy MMM dd hh:mm aaa");
+	private static final SimpleDateFormat formatter = new SimpleDateFormat("yyyy MMM dd hh:mm aaa");
 
-	/**
-	 * Construct a node for a domain file.
-	 */
-	DomainFileNode(DomainFile domainFile) {
+	DomainFileNode(DomainFile domainFile, DomainFileFilter filter) {
 		this.domainFile = domainFile;
+		linkInfo = domainFile.getLinkInfo();
+		isFolderLink = linkInfo != null && linkInfo.isFolderLink();
+		this.filter = filter != null ? filter : DomainFileFilter.ALL_FILES_FILTER;
 		displayName = domainFile.getName();
 		refresh();
 	}
 
+	@Override
+	public boolean isAutoExpandPermitted() {
+		// Prevent auto-expansion through linked-folders
+		return false;
+	}
+
 	/**
-	 * Get the domain file if this node represents a file object versus
-	 * a folder; interface method for DomainDataTransfer.
+	 * Get the domain file if this node represents a file object versus a folder; interface method
+	 * for DomainDataTransfer.
+	 * 
 	 * @return null if this node represents a domain folder
 	 */
 	public DomainFile getDomainFile() {
 		return domainFile;
 	}
 
-	/**
-	 * Returns true if this node has no children.
-	 */
+	@Override
+	public String getPathname() {
+		return domainFile.getPathname();
+	}
+
 	@Override
 	public boolean isLeaf() {
-		return true;
+		return isLeaf;
+	}
+
+	@Override
+	public int getChildCount() {
+		if (isLeaf) {
+			// Optimization to avoid repeated attempts at following a bad link
+			return 0;
+		}
+		return super.getChildCount();
+	}
+
+	/**
+	 * Determine if this file node corresponds to a folder-link
+	 * @return true if file is a folder-link
+	 */
+	public boolean isFolderLink() {
+		return isFolderLink;
+	}
+
+	/**
+	 * Get linked folder which corresponds to this folder-link (see {@link #isFolderLink()}).
+	 * @return linked folder or null if this is not a folder-link
+	 */
+	LinkedDomainFolder getLinkedFolder() {
+		if (!isLeaf() && linkInfo != null) { // verifies that we are allowed to follow based upon filter
+			return linkInfo.getLinkedFolder();
+		}
+		return null;
 	}
 
 	@Override
@@ -87,7 +138,7 @@ public class DomainFileNode extends GTreeNode implements Cuttable {
 			return false;
 		}
 		DomainFileNode node = (DomainFileNode) obj;
-		if (domainFile == node.domainFile) {
+		if (domainFile.equals(node.domainFile)) {
 			return true;
 		}
 		return false;
@@ -95,25 +146,7 @@ public class DomainFileNode extends GTreeNode implements Cuttable {
 
 	@Override
 	public int hashCode() {
-		return System.identityHashCode(domainFile);
-	}
-
-	/**
-	 * Set this node to be deleted so that it can be
-	 * rendered as such.
-	 */
-	@Override
-	public void setIsCut(boolean isCut) {
-		this.isCut = isCut;
-		fireNodeChanged(getParent(), this);
-	}
-
-	/**
-	 * Returns whether this node is marked as deleted.
-	 */
-	@Override
-	public boolean isCut() {
-		return isCut;
+		return domainFile.hashCode();
 	}
 
 	@Override
@@ -123,8 +156,8 @@ public class DomainFileNode extends GTreeNode implements Cuttable {
 
 	@Override
 	public Icon getIcon(boolean expanded) {
-		if (isCut) {
-			return disabledIcon;
+		if (isCut()) {
+			return cutIcon;
 		}
 		return icon;
 	}
@@ -134,9 +167,6 @@ public class DomainFileNode extends GTreeNode implements Cuttable {
 		return domainFile.getName();
 	}
 
-	/**
-	 * Set the name of this node; update the associated file or folder.
-	 */
 	void setName(String newName) {
 		try {
 			domainFile.setName(newName);
@@ -158,34 +188,89 @@ public class DomainFileNode extends GTreeNode implements Cuttable {
 
 		@Override
 		protected DomainFileNode doInBackground() throws Exception {
-			doRefresh();
+			try {
+				doRefresh();
+			}
+			finally {
+				refreshCount.decrementAndGet();
+			}
 			return DomainFileNode.this;
 		}
 	}
 
 	/**
+	 * {@return true if a pending refresh exists for this node}
+	 * This method intended for test use only.
+	 */
+	public boolean hasPendingRefresh() {
+		return refreshCount.get() != 0;
+	}
+
+	/**
 	 * Update the display name.
-	 * @return true if the node should be reloaded because the
-	 * display name has changed
 	 */
 	void refresh() {
+		refreshCount.incrementAndGet();
 		DomainFileNodeSwingWorker worker = new DomainFileNodeSwingWorker();
 		worker.execute();
 	}
 
 	private void doRefresh() {
 
-		//DomainFolderNode parent = (DomainFolderNode) getParent();
+		isLeaf = true;
+		LinkFileInfo updatedLinkInfo = domainFile.getLinkInfo();
 
-		String name = domainFile.getName();
-		//domainFile = parent.getDomainFolder().getFile(name);
+		boolean brokenLink = false;
+		List<String> linkErrors = null;
 
-		String newDisplayName = name;
+		if (isFolderLink != (updatedLinkInfo != null && updatedLinkInfo.isFolderLink())) {
+			// Linked-folder node state changed.  Since this alters sort order we can't handle this.
+			// Such a DomainFile state change must be handled by the ChangeManager
+			brokenLink = true;
+			linkErrors = List.of("Unsupported folder-link transition");
+		}
+		else {
+			linkInfo = updatedLinkInfo;
+			if (linkInfo != null) {
+				List<String> errors = new ArrayList<>();
+				LinkStatus linkStatus =
+					LinkHandler.getLinkFileStatus(domainFile, msg -> errors.add(msg));
+				brokenLink = (linkStatus == LinkStatus.BROKEN);
+				if (brokenLink) {
+					linkErrors = errors;
+				}
+				else if (isFolderLink) {
+					if (linkStatus == LinkStatus.INTERNAL) {
+						isLeaf = false;
+					}
+					else if (linkStatus == LinkStatus.EXTERNAL &&
+						filter.followExternallyLinkedFolders()) {
+						isLeaf = false;
+					}
+				}
+			}
+		}
 
+		// We must always unload any children since a leaf has no children and a folder-link
+		// may be transitioning to a state where its children may need to be re-loaded.
+		unloadChildren();
+
+		displayName = getFormattedDisplayName();
+
+		toolTipText = HTMLUtilities.toLiteralHTMLForTooltip(getToolTipText(domainFile, linkErrors));
+
+		refreshIcons(brokenLink);
+
+		fireNodeChanged();
+	}
+
+	private String getFormattedDisplayName() {
+
+		String newDisplayName = domainFile.getName();
 		if (domainFile.isHijacked()) {
 			newDisplayName += " (hijacked)";
 		}
-		else if (domainFile.isVersioned()) {
+		else if (domainFile.isVersioned() && !domainFile.isLink()) {
 			int versionNumber = domainFile.getVersion();
 			String versionStr = "" + versionNumber;
 
@@ -208,43 +293,107 @@ public class DomainFileNode extends GTreeNode implements Cuttable {
 				newDisplayName += " (" + versionStr + ")";
 			}
 		}
-		displayName = newDisplayName;
 
-		setToolTipText();
-
-		icon = domainFile.getIcon(false);
-		disabledIcon = ResourceManager.getDisabledIcon(icon);
-
-		fireNodeChanged(getParent(), this);
+		if (domainFile.isLink()) {
+			newDisplayName += " " + RIGHT_ARROW + " " + getFormattedLinkPath();
+		}
+		return newDisplayName;
 	}
 
-	private void setToolTipText() {
-		String newToolTipText = toolTipText;
-		if (domainFile.isInWritableProject() && domainFile.isHijacked()) {
-			newToolTipText = "Hijacked file should be deleted or renamed";
+	private String getFormattedLinkPath() {
+
+		String linkPath = null;
+
+		// If link-file is a LinkedDomainFile we must always show an absolute link-path since
+		// relative paths are relative to the real file's location and it would be rather confusing
+		// to show as relative
+		if (domainFile instanceof LinkedDomainFile) {
+			try {
+				// will return GhidraURL or absolute internal path
+				linkPath = LinkHandler.getAbsoluteLinkPath(domainFile);
+			}
+			catch (IOException e) {
+				// attempt to use stored path, although it may fail as well
+				linkPath = linkInfo.getLinkPath();
+			}
 		}
-		else {
-			long lastModified = domainFile.getLastModifiedTime();
-			newToolTipText = "Last Modified " + formatter.format(new Date(lastModified));
-			if (domainFile.isCheckedOut()) {
-				try {
-					ItemCheckoutStatus status = domainFile.getCheckoutStatus();
-					if (status != null) {
-						newToolTipText = HTMLUtilities.toHTML(
-							"Checked out " + formatter.format(new Date(status.getCheckoutTime())) +
-								";\n" + newToolTipText);
+		else if (linkInfo != null) {
+			linkPath = linkInfo.getLinkPath();
+		}
+
+		if (GhidraURL.isGhidraURL(linkPath)) {
+			try {
+				URL url = GhidraURL.toURL(linkPath);
+				if (GhidraURL.isLocalURL(linkPath)) {
+					ProjectLocator loc = GhidraURL.getProjectStorageLocator(url);
+					if (loc != null) {
+						String projectPath = GhidraURL.getProjectPathname(url);
+						linkPath = loc.getName() + ":" + projectPath;
 					}
 				}
-				catch (IOException e) {
-					// just ignore and use the previously set tooltip
+				else if (GhidraURL.isServerURL(linkPath)) {
+					String host = url.getHost();
+					String repo = GhidraURL.getRepositoryName(url);
+					if (repo != null) {
+						String projectPath = GhidraURL.getProjectPathname(url);
+						linkPath = host + "[" + repo + "]:" + projectPath;
+					}
 				}
 			}
-
-			if (domainFile.isReadOnly()) {
-				newToolTipText += " (read only)";
+			catch (IllegalArgumentException e) {
+				// ignore - use original linkPath
 			}
 		}
-		toolTipText = newToolTipText;
+		return linkPath;
+	}
+
+	private void refreshIcons(boolean isBrokenLink) {
+
+		icon = domainFile.getIcon(false);
+		cutIcon = domainFile.getIcon(true);
+		if (isBrokenLink) {
+			icon = new BrokenLinkIcon(icon);
+			cutIcon = new BrokenLinkIcon(cutIcon);
+		}
+	}
+
+	public static String getToolTipText(DomainFile domainFile, List<String> linkErrors) {
+		StringBuilder buf = new StringBuilder();
+		if (domainFile.isInWritableProject() && domainFile.isHijacked()) {
+			buf.append("Hijacked file should be deleted or renamed");
+		}
+
+		if (linkErrors != null) {
+			linkErrors.forEach(linkError -> appendLine(buf, linkError));
+		}
+
+		if (domainFile.isCheckedOut()) {
+			try {
+				ItemCheckoutStatus status = domainFile.getCheckoutStatus();
+				if (status != null) {
+					appendLine(buf,
+						"Checked out " + formatter.format(new Date(status.getCheckoutTime())));
+				}
+			}
+			catch (IOException e) {
+				// just ignore and use the previously set tooltip
+			}
+		}
+
+		long lastModified = domainFile.getLastModifiedTime();
+		appendLine(buf, "Last Modified " + formatter.format(new Date(lastModified)));
+
+		if (domainFile.isReadOnly()) {
+			appendLine(buf, "(read only)");
+		}
+		return buf.toString();
+	}
+
+	private static void appendLine(StringBuilder buf, String line) {
+		if (!buf.isEmpty()) {
+			buf.append('\n');
+		}
+		buf.append(line);
 	}
 
 	@Override
@@ -254,10 +403,7 @@ public class DomainFileNode extends GTreeNode implements Cuttable {
 
 	@Override
 	public int compareTo(GTreeNode node) {
-		if (node instanceof DomainFolderNode) {
-			return 1;
-		}
-		return super.compareTo(node);
+		return DATA_NODE_SORT_COMPARATOR.compare(this, node);
 	}
 
 	@Override
@@ -280,12 +426,27 @@ public class DomainFileNode extends GTreeNode implements Cuttable {
 		}
 	}
 
-	/**
-	 * @see java.lang.Object#toString()
-	 */
 	@Override
 	public String toString() {
 		return getName();
+	}
+
+	@Override
+	public List<GTreeNode> generateChildren(TaskMonitor monitor) throws CancelledException {
+		if (isLeaf || linkInfo == null) {
+			return List.of();
+		}
+		return generateChildren(linkInfo.getLinkedFolder(), filter, monitor);
+	}
+
+	@Override
+	public GTreeNode getChild(String name, NodeType type) {
+		return getChild(children(), name, type);
+	}
+
+	@Override
+	public ProjectData getProjectData() {
+		return domainFile.getParent().getProjectData();
 	}
 
 }

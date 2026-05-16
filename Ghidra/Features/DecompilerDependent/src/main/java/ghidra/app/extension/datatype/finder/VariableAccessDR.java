@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,12 +18,13 @@ package ghidra.app.extension.datatype.finder;
 import java.util.ArrayList;
 import java.util.List;
 
+import docking.widgets.search.SearchLocationContext;
 import ghidra.app.decompiler.*;
 import ghidra.app.services.DataTypeReference;
+import ghidra.app.services.FieldMatcher;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.listing.Function;
-import ghidra.program.model.pcode.HighGlobal;
 import ghidra.program.model.pcode.HighVariable;
 import ghidra.util.StringUtilities;
 import ghidra.util.exception.AssertException;
@@ -57,26 +58,28 @@ public class VariableAccessDR extends DecompilerReference {
 	}
 
 	@Override
-	public void accumulateMatches(DataType dt, String fieldName, List<DataTypeReference> results) {
+	public void accumulateMatches(DataType dt, FieldMatcher fieldMatcher,
+			List<DataTypeReference> results) {
 
 		if (fields.isEmpty()) {
-			DecompilerVariable var = getMatch(dt, fieldName, variable, null);
+			DecompilerVariable var = getMatch(dt, fieldMatcher, variable, null);
 			if (var != null) {
-				DataTypeReference ref = createReference(var);
+				String fieldName = null;
+				DataTypeReference ref = createReference(var, fieldName);
 				results.add(ref);
 			}
 			return;
 		}
 
 		//
-		// Walk each pair of type and variables in order to see if any of them match our 
+		// Walk each pair of type and variables in order to see if any of them match our
 		// criteria
 		//
 		DecompilerVariable start = variable;
 		for (DecompilerVariable field : fields) {
 
 			DecompilerVariable next = field;
-			DecompilerVariable var = getMatch(dt, fieldName, start, next);
+			DecompilerVariable var = getMatch(dt, fieldMatcher, start, next);
 			if (var != null) {
 				DataTypeReference ref = createReference(var, next);
 				results.add(ref);
@@ -85,81 +88,119 @@ public class VariableAccessDR extends DecompilerReference {
 			start = next;
 		}
 
-		//
-		// Handle the last variable by itself (for the case where we are matching just on the
-		// type, with no field name)
-		// 
-		if (fieldName != null) {
+		if (fieldMatcher.isIgnored()) {
 			return;
 		}
 
-		DecompilerVariable var = getMatch(dt, null, start, null);
+		DecompilerVariable var = getMatch(dt, fieldMatcher, start, null);
 		if (var != null) {
-			DataTypeReference ref = createReference(var);
+			DataTypeReference ref = createReference(var, fieldMatcher.getFieldName());
 			results.add(ref);
 		}
 	}
 
-	private DecompilerVariable getMatch(DataType dt, String fieldName, DecompilerVariable var,
-			DecompilerVariable potentialField) {
+	private DecompilerVariable getMatch(DataType dt, FieldMatcher fieldMatcher,
+			DecompilerVariable var, DecompilerVariable potentialField) {
+
+		String indent = "\t\t\t";
 
 		// Note: for now, I ignore the precedence of casting; if any cast type is a match, then
 		//       signal hooray
-		boolean searchForField = fieldName != null;
+		boolean searchForField = !fieldMatcher.isIgnored();
 		DecompilerVariable fieldVar = searchForField ? potentialField : null;
 		DecompilerVariable match = getMatchingVarialbe(dt, var, fieldVar);
 		if (match == null) {
-			// wrong type, nothing to do
-			return null;
+			DtrfDbg.println(getFunction(), this, indent + "NO MATCHING VARIABLE");
+			return null; // wrong type, nothing to do
 		}
 
 		// Matches on the type, does the field match?
-		if (fieldName == null) {
+		if (fieldMatcher.isIgnored()) {
+			DtrfDbg.println(getFunction(), this,
+				indent + "field macher is ignored; returning match");
 			return match; // no field to match
 		}
 
 		if (potentialField == null) {
+
+			DtrfDbg.println(getFunction(), this,
+				indent + "No potential field to match; name / offset match?");
+
+			// check for the case where we have not been passed a 'potential field', but the given
+			// 'var' is itself may be the field we seek, such as in an if statement like this:
+			// 		if (color == RED)
+			// where 'RED' is the variable we are checking
+			String name = var.getName();
+			int offset = var.getOffset();
+			if (fieldMatcher.matches(name, offset)) {
+				StringUtilities.indentLines(var.toString(), indent + '\t');
+				DtrfDbg.println(getFunction(), this,
+					indent + "\tfield matcher matched on variable: " + var);
+				return var;
+			}
+
+			DtrfDbg.println(getFunction(), this, indent + "\tNO FIELD MATCHER MATCH");
 			return null; // we seek a field, but there is none
 		}
 
+		DtrfDbg.println(getFunction(), this, indent + "Checking 'potential field' match...");
+
 		String name = potentialField.getName();
-		if (fieldName.equals(name)) {
+		int offset = potentialField.getOffset();
+		if (fieldMatcher.matches(name, offset)) {
+			DtrfDbg.println(getFunction(), this, indent + "\tMATCHED");
 			return match;
 		}
+		DtrfDbg.println(getFunction(), this, indent + "\tNO MATCH");
 		return null;
 	}
 
 	private DecompilerVariable getMatchingVarialbe(DataType dt, DecompilerVariable var,
 			DecompilerVariable potentialField) {
 
+		String indent = "\t\t\t";
+
+		DtrfDbg.println(getFunction(), this, indent + "Checking for matching variable; any casts?");
 		List<DecompilerVariable> castVariables = var.getCasts();
 		for (DecompilerVariable cast : castVariables) {
 			if (matchesType(cast, dt)) {
+				DtrfDbg.println(getFunction(), this, indent + "MATCHED cast: " + cast);
 				return cast;
 			}
 		}
 
+		String dtString = dt == null ? "null" : dt.toString();
+		DtrfDbg.println(getFunction(), this,
+			indent + "No matched casts; checking type against var:\n" +
+				StringUtilities.indentLines("type: " + dtString, indent + "\t") + "\n" +
+				StringUtilities.indentLines("var: " + var.toString(), indent + "\t"));
 		if (matchesType(var, dt)) {
+			DtrfDbg.println(getFunction(), this, indent + "MATCHED type: ");
 			return var;
 		}
 
+		DtrfDbg.println(getFunction(), this,
+			indent + "Type did not match; checking High Variable: ");
+
 		//
 		// 						Unusual Code Alert!
-		// It is a bit odd to check the field when you are looking for the type that contains
-		// the field.  BUT, in the Decompiler, SOMETIMES the 'field' happens to have the 
-		// data type of the thing that contains it.  So, if you have:
+		// It is a bit odd to check the field when you are looking for the type that contains the
+		// field.  BUT, in the Decompiler, SOMETIMES the 'field' happens to have the data type of
+		// the thing that contains it.  So, if you have:
 		// 		foo.bar
-		// then the 'bar' field will have a data type of Foo.   Unfortunately, this is not 
-		// always the case.  For now, when the variable is global, we need to check the field
-		// Sad face emoji.
+		// then the 'bar' field will have a data type of Foo.   Unfortunately, this is not always
+		// the case.  For now, if there is a high variable, we need to check the field. Sad face
+		// emoji.
 		//
 		HighVariable highVariable = var.variable.getHighVariable();
-		if (highVariable instanceof HighGlobal) {
+		if (highVariable != null) {
 			if (matchesParentType(potentialField, dt)) {
+				DtrfDbg.println(getFunction(), this, indent + "MATCHED on parent type: " + dt);
 				return potentialField;
 			}
 		}
 
+		DtrfDbg.println(getFunction(), this, indent + "NOT MATCHED");
 		return null;
 	}
 
@@ -174,7 +215,11 @@ public class VariableAccessDR extends DecompilerReference {
 	}
 
 	private boolean matchesType(DecompilerVariable var, DataType dt) {
+
+		String indent = "\t\t\t\t";
+
 		if (var == null) {
+			DtrfDbg.println(getFunction(), this, indent + "Types Match? no variable to check");
 			return false;
 		}
 
@@ -182,43 +227,44 @@ public class VariableAccessDR extends DecompilerReference {
 		if (varType == null) {
 			// it seems odd to me that there is no type, but I have seen this in the case
 			// statement of a switch
+			DtrfDbg.println(getFunction(), this, indent + "ypes Match? no variable TYPE to check");
 			return false;
 		}
 		boolean matches = isEqual(varType, dt);
 		return matches;
 	}
 
-	protected DataTypeReference createReference(DecompilerVariable var) {
+	protected DataTypeReference createReference(DecompilerVariable var, String fieldName) {
 
 		DataType dataType = var.getDataType();
-		String context = getContext(var);
+		SearchLocationContext context = getContext(var);
 		Function function = var.getFunction();
 		Address address = getAddress(var);
-		return new DataTypeReference(dataType, null, function, address, context);
+		return new DataTypeReference(dataType, fieldName, function, address, context);
 	}
 
 	private DataTypeReference createReference(DecompilerVariable var, DecompilerVariable field) {
 		DataType dataType = var.getDataType();
-		String context = getContext(var);
+		SearchLocationContext context = getContext(var);
 		Function function = var.getFunction();
 		Address address = getAddress(var);
 		return new DataTypeReference(dataType, field.getName(), function, address, context);
 	}
 
 	@Override
-	protected String getContext(DecompilerVariable var) {
+	protected SearchLocationContext getContext(DecompilerVariable var) {
 		DecompilerVariable field = findFieldFor(var);
-		String context = super.getContext(field);
+		SearchLocationContext context = super.getContext(field);
 		return context;
 	}
 
 	private DecompilerVariable findFieldFor(DecompilerVariable var) {
 
-		// 
+		//
 		// 			Unusual Code Alert!
 		//
 		// The fact that we need to locate the given variable is a bit odd. But, elsewhere in
-		// this file we figured out which variable (out of the casts, the variable and the 
+		// this file we figured out which variable (out of the casts, the variable and the
 		// accesses) is the type we seek.  So, now we have a variable, but we don't know
 		// if it is the field or if one of the accesses is the field.  So, this method walks
 		// all variables in order to find the given variable, then returns the next variable, as
@@ -267,10 +313,10 @@ public class VariableAccessDR extends DecompilerReference {
 
 		//@formatter:off
 		return "{\n" +
-			"\tline " + getContext() + ",\n" +
+			"\tline " + getContext().getPlainText() + ",\n" +
 			"\tfunction: " + getFunction() + "\n" +
 			"\tvariable: " + StringUtilities.toStringWithIndent(variable) + ",\n" +
-			"\tdata type: " + getDataType() + ",\n"+ 
+			"\tdata type: " + getDataType() + ",\n"+
 			subFieldsString +
 		"}";
 		//@formatter:on

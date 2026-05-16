@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -26,10 +26,12 @@ import javax.swing.*;
 
 import org.apache.commons.lang3.StringUtils;
 
+import docking.DockingUtils;
 import docking.widgets.DropDownTextField;
 import docking.widgets.DropDownTextFieldDataModel;
 import docking.widgets.list.GListCellRenderer;
 import docking.widgets.table.constraint.*;
+import generic.theme.GThemeDefaults.Colors.Palette;
 import ghidra.util.HTMLUtilities;
 
 /**
@@ -61,6 +63,7 @@ public class AutocompletingStringConstraintEditor extends DataLoadingConstraintE
 		textField = new DropDownTextField<>(autocompleter, 100);
 		textField.setIgnoreEnterKeyPress(true);
 		textField.getDocument().addUndoableEditListener(e -> valueChanged());
+		DockingUtils.installUndoRedo(textField);
 		panel.add(textField, BorderLayout.NORTH);
 		textField.addActionListener(e -> textField.closeDropDownWindow());
 
@@ -135,13 +138,18 @@ public class AutocompletingStringConstraintEditor extends DataLoadingConstraintE
 
 		@Override
 		public List<String> getMatchingData(String searchText) {
-			if (StringUtils.isBlank(searchText) || !isValidPatternString(searchText)) {
+			if (!isValidPatternString(searchText)) {
 				return Collections.emptyList();
 			}
+
+			if (StringUtils.isBlank(searchText)) {
+				// full data display not supported, as we don't know how big the data may be
+				return Collections.emptyList();
+			}
+
 			searchText = searchText.trim();
-			lastConstraint =
-				(StringColumnConstraint) currentConstraint.parseConstraintValue(searchText,
-					columnDataSource.getTableDataSource());
+			lastConstraint = (StringColumnConstraint) currentConstraint
+					.parseConstraintValue(searchText, columnDataSource.getTableDataSource());
 
 			// Use a Collator to support languages other than English.
 			Collator collator = Collator.getInstance();
@@ -198,8 +206,8 @@ public class AutocompletingStringConstraintEditor extends DataLoadingConstraintE
 	}
 
 	/**
-	 * Cell renderer for suggestion nominees. Substrings that match the models' query
-	 * are highlighted for ease-of-use.
+	 * Cell renderer for suggestion candidates. Substrings that match the models' query are
+	 * highlighted for ease-of-use.
 	 */
 	private class AutocompleteListCellRenderer extends GListCellRenderer<String> {
 
@@ -212,18 +220,40 @@ public class AutocompletingStringConstraintEditor extends DataLoadingConstraintE
 
 		private String formatListValue(String value, boolean isSelected) {
 
+			//
+			// We format the matching part of the given value by using HTML to highlight the match.
+			// Since we use HTML, any HTML inside of value will interfere with the HTML we add here.
+			// To prevent this interference, we must escape the HTML inside of value.
+			//
+
+			// Rebuild the content by collecting all parts of the string, matching and non-matching.
+			// Normally we would use the matcher to append content to the string buffer, but that
+			// prevents us from being able to fix the HTML at the right time.
 			Matcher matcher = model.lastConstraint.getHighlightMatcher(value);
-
-			Color color = isSelected ? Color.YELLOW : Color.MAGENTA;
-
+			Color color = isSelected ? Palette.YELLOW : Palette.MAGENTA;
 			StringBuilder sb = new StringBuilder("<html>");
+
+			int start = 0;
+
 			// find and highlight all instances of the user-defined pattern
 			while (matcher.find()) {
+
 				String group = matcher.group(1);
-				String replacement = HTMLUtilities.colorString(color, HTMLUtilities.bold(group));
-				matcher.appendReplacement(sb, replacement);
+				int nextStart = matcher.start();
+				String previousText = value.substring(start, nextStart);
+				start = matcher.end();
+				sb.append(HTMLUtilities.escapeHTML(previousText));
+
+				// escape all unescaped '\' and '$' chars, as Match.appendReplacement() will treat
+				// them as regex characters
+				String quoted = Matcher.quoteReplacement(group);
+				String escaped = HTMLUtilities.escapeHTML(quoted);
+				String replacement = HTMLUtilities.colorString(color, HTMLUtilities.bold(escaped));
+				sb.append(replacement);
 			}
-			matcher.appendTail(sb);
+
+			String trailing = value.substring(start, value.length());
+			sb.append(HTMLUtilities.escapeHTML(trailing));
 
 			return sb.toString();
 		}
@@ -234,11 +264,8 @@ public class AutocompletingStringConstraintEditor extends DataLoadingConstraintE
 			super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
 
 			String valueString = formatListValue(value, isSelected);
-
 			setText(valueString);
 			return this;
 		}
-
 	}
-
 }

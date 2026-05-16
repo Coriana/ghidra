@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -27,9 +27,9 @@ import ghidra.program.model.util.CodeUnitInsertionException;
 import ghidra.util.Msg;
 
 /**
- * <code>PCodeTestControlBlock</code> data is read from each binary test file and
- * identified by the MAIN_CONTROL_BLOCK_MAGIC 64-bit character field value at the start of the 
- * data structure.  Only one instance of this should exist within the binary.
+ * <code>PCodeTestControlBlock</code> data is read from each binary test file and identified by the
+ * MAIN_CONTROL_BLOCK_MAGIC 64-bit character field value at the start of the data structure. Only
+ * one instance of this should exist within the binary.
  */
 public class PCodeTestControlBlock extends PCodeTestAbstractControlBlock {
 
@@ -47,6 +47,10 @@ public class PCodeTestControlBlock extends PCodeTestAbstractControlBlock {
 	public final String cachedProgramPath;
 
 	private List<PCodeTestGroup> testGroups; // test group data
+
+	// accumulators for tests pass/fail results which have been designated as ignored
+	private int ignoredPassed = 0;
+	private int ignoredFailed = 0;
 
 	// TestInfo data read from program memory
 	private Address onPassFunctionAddress;
@@ -68,13 +72,14 @@ public class PCodeTestControlBlock extends PCodeTestAbstractControlBlock {
 	private final PCodeTestResults testResults;
 
 	/**
-	 * Construct test control block instance for the specified
-	 * program.  Create TestInfo structure data within program if requested.
+	 * Construct test control block instance for the specified program. Create TestInfo structure
+	 * data within program if requested.
+	 * 
 	 * @param program program containing control block structure
-	 * @param restrictedSet the restricted memory area which should be searched 
-	 * for control structures
+	 * @param restrictedSet the restricted memory area which should be searched for control
+	 *            structures
 	 * @param testInfoStructAddr address of Main TestInfo structure
-	 * @param testFile original binary test file 
+	 * @param testFile original binary test file
 	 * @param cachedProgramPath program path within program file cache
 	 * @param applyStruct create structure Data within program if true
 	 * @throws InvalidControlBlockException
@@ -105,6 +110,7 @@ public class PCodeTestControlBlock extends PCodeTestAbstractControlBlock {
 
 	/**
 	 * Find Main TestInfo structure within memory and return instance of PCodeTestControlBlock
+	 * 
 	 * @param program
 	 * @param testFile original binary test file
 	 * @param restrictedSet a restricted set to be searched for control structures
@@ -200,7 +206,7 @@ public class PCodeTestControlBlock extends PCodeTestAbstractControlBlock {
 			if (byteOrder != 0x1020304) {
 				throw new InvalidControlBlockException(
 					"TestInfo @ " + infoStructAddr.toString(true) +
-						" has invalid byteOrder - language endianess may be incorrect (" +
+						" has invalid byteOrder - language endianness may be incorrect (" +
 						Integer.toHexString(byteOrder) + ")");
 			}
 
@@ -290,93 +296,138 @@ public class PCodeTestControlBlock extends PCodeTestAbstractControlBlock {
 
 	/**
 	 * Enable/Diable sprintf use within P-Code test emulation.
+	 * 
 	 * @param emuTestRunner emulator test runner
 	 * @param enable sprintf enablement
 	 */
 	void setSprintfEnabled(EmulatorTestRunner emuTestRunner, boolean enable) {
 		Address addr =
 			getMirroredDataAddress(emuTestRunner, infoStructAddr.add(sprintfEnableOffset));
-		emuWrite(emuTestRunner.getEmulatorHelper(), addr, SIZEOF_U4, enable ? 1 : 0);
+		emuWrite(emuTestRunner.getEmulatorThread(), addr, SIZEOF_U4, enable ? 1 : 0);
 	}
 
 	/**
 	 * Get 'numpass' field value from emulation memory state
+	 * 
 	 * @param emuTestRunner emulator test runner
 	 * @return 'numpass' field value
 	 */
 	int getNumberPassed(EmulatorTestRunner emuTestRunner) {
 		Address addr = getMirroredDataAddress(emuTestRunner, infoStructAddr.add(numPassOffset));
-		return (int) emuRead(emuTestRunner.getEmulatorHelper(), addr, SIZEOF_U4);
+		return (int) emuRead(emuTestRunner.getEmulatorThread(), addr, SIZEOF_U4);
 	}
 
 	/**
 	 * Set 'numpass' field value within emulation memory state
+	 * 
 	 * @param emuTestRunner emulator test runner
 	 * @param value field value
 	 */
 	void setNumberPassed(EmulatorTestRunner emuTestRunner, int value) {
 		Address addr = getMirroredDataAddress(emuTestRunner, infoStructAddr.add(numPassOffset));
-		emuWrite(emuTestRunner.getEmulatorHelper(), addr, SIZEOF_U4, value);
+		emuWrite(emuTestRunner.getEmulatorThread(), addr, SIZEOF_U4, value);
+	}
+
+	void resultIgnored(String testGroupName, String testName, boolean passed) {
+		if (passed) {
+			++ignoredPassed;
+		}
+		else {
+			++ignoredFailed;
+		}
+		testResults.addIgnoredResult(testGroupName, testName);
+	}
+
+	/**
+	 * Get the number of passed tests which should be ignored
+	 * 
+	 * @return number of passed tests which should be ignored
+	 */
+	int getNumberPassedIgnored() {
+		return ignoredPassed;
+	}
+
+	/**
+	 * Get the number of failed tests which should be ignored
+	 * 
+	 * @return number of failed tests which should be ignored
+	 */
+	int getNumberFailedIgnored() {
+		return ignoredFailed;
+	}
+
+	/**
+	 * Clear ignored test result accumulators
+	 */
+	void clearNumberIgnored() {
+		ignoredFailed = 0;
+		ignoredPassed = 0;
 	}
 
 	/**
 	 * Get 'numfail' field value from emulation memory state
+	 * 
 	 * @param emuTestRunner emulator test runner
 	 * @return 'numfail' field value
 	 */
 	int getNumberFailed(EmulatorTestRunner emuTestRunner) {
 		Address addr = getMirroredDataAddress(emuTestRunner, infoStructAddr.add(numFailOffset));
-		return (int) emuRead(emuTestRunner.getEmulatorHelper(), addr, SIZEOF_U4);
+		return (int) emuRead(emuTestRunner.getEmulatorThread(), addr, SIZEOF_U4);
 	}
 
 	/**
 	 * Set 'numfail' field value within emulation memory state
+	 * 
 	 * @param emuTestRunner emulator test runner
 	 * @param value field value
 	 */
 	void setNumberFailed(EmulatorTestRunner emuTestRunner, int value) {
 		Address addr = getMirroredDataAddress(emuTestRunner, infoStructAddr.add(numFailOffset));
-		emuWrite(emuTestRunner.getEmulatorHelper(), addr, SIZEOF_U4, value);
+		emuWrite(emuTestRunner.getEmulatorThread(), addr, SIZEOF_U4, value);
 	}
 
 	/**
 	 * Get 'lastTestPos' field value from emulation memory state
+	 * 
 	 * @param emuTestRunner emulator test runner
 	 * @return 'lastTestPos' field value
 	 */
 	int getLastTestIndex(EmulatorTestRunner emuTestRunner) {
 		Address addr = getMirroredDataAddress(emuTestRunner, infoStructAddr.add(lastTestPosOffset));
-		return (int) emuRead(emuTestRunner.getEmulatorHelper(), addr, SIZEOF_U4);
+		return (int) emuRead(emuTestRunner.getEmulatorThread(), addr, SIZEOF_U4);
 	}
 
 	/**
 	 * Get 'lastErrorLine' field value from emulation memory state
+	 * 
 	 * @param emuTestRunner emulator test runner
 	 * @return 'lastErrorLine' field value
 	 */
 	int getLastErrorLine(EmulatorTestRunner emuTestRunner) {
 		Address addr =
 			getMirroredDataAddress(emuTestRunner, infoStructAddr.add(lastErrorLineOffset));
-		return (int) emuRead(emuTestRunner.getEmulatorHelper(), addr, SIZEOF_U4);
+		return (int) emuRead(emuTestRunner.getEmulatorThread(), addr, SIZEOF_U4);
 	}
 
 	/**
-	 * Get 'lastErrorFile' string value from emulation memory state.  Must follow string
-	 * pointer contained within lastErrorFile field.
+	 * Get 'lastErrorFile' string value from emulation memory state. Must follow string pointer
+	 * contained within lastErrorFile field.
+	 * 
 	 * @param emuTestRunner emulator test runner
 	 * @return 'lastErrorLine' field value
 	 */
 	String getLastErrorFile(EmulatorTestRunner emuTestRunner) {
 		Address addr =
 			getMirroredDataAddress(emuTestRunner, infoStructAddr.add(lastErrorFileOffset));
-		long fileNameOffset = emuRead(emuTestRunner.getEmulatorHelper(), addr, pointerSize);
+		long fileNameOffset = emuRead(emuTestRunner.getEmulatorThread(), addr, pointerSize);
 		addr = addr.getNewAddress(fileNameOffset, true);
 		addr = getMirroredDataAddress(emuTestRunner, addr);
-		return emuReadString(emuTestRunner.getEmulatorHelper(), addr);
+		return emuReadString(emuTestRunner.getEmulatorThread(), addr);
 	}
 
 	/**
 	 * Get the name of the last test function to be run
+	 * 
 	 * @param emuTestRunner
 	 * @return last test function name
 	 */
@@ -384,10 +435,10 @@ public class PCodeTestControlBlock extends PCodeTestAbstractControlBlock {
 			PCodeTestGroup activeGroup) {
 		Address ptrStorageAddr = infoStructAddr.add(lastFuncOffset);
 		Address ptrAddr = getMirroredDataAddress(emuTestRunner, ptrStorageAddr);
-		long funcNameOffset = emuRead(emuTestRunner.getEmulatorHelper(), ptrAddr, pointerSize);
+		long funcNameOffset = emuRead(emuTestRunner.getEmulatorThread(), ptrAddr, pointerSize);
 		Address strAddr = ptrAddr.getNewAddress(funcNameOffset, true);
 		strAddr = getMirroredDataAddress(emuTestRunner, strAddr);
-		String fnName = emuReadString(emuTestRunner.getEmulatorHelper(), strAddr);
+		String fnName = emuReadString(emuTestRunner.getEmulatorThread(), strAddr);
 		if ("none".equals(fnName)) {
 			if (logger != null) {
 				logger.log(activeGroup, "ERROR last executed function name pointer stored at " +

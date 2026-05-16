@@ -36,8 +36,8 @@ public class UnionEditorActions4Test extends AbstractUnionEditorTest {
 		assertEquals(2, model.getComponent(4).getLength());
 
 		// Make array of 3 pointers
-		invoke(arrayAction);
-		dialog = env.waitForDialogComponent(NumberInputDialog.class, 1000);
+		invoke(arrayAction, false);
+		dialog = waitForDialogComponent(NumberInputDialog.class);
 		assertNotNull(dialog);
 		okInput(dialog, 3);
 		dialog = null;
@@ -59,8 +59,8 @@ public class UnionEditorActions4Test extends AbstractUnionEditorTest {
 		DataType dt2 = getDataType(2);
 		DataType dt3 = getDataType(3);
 
-		invoke(duplicateMultipleAction);
-		dialog = env.waitForDialogComponent(NumberInputDialog.class, 1000);
+		invoke(duplicateMultipleAction, false);
+		dialog = waitForDialogComponent(NumberInputDialog.class);
 		assertNotNull(dialog);
 		okInput(dialog, 5);
 		dialog = null;
@@ -68,7 +68,7 @@ public class UnionEditorActions4Test extends AbstractUnionEditorTest {
 
 		num += 5;
 		assertEquals(num, model.getNumComponents());
-		checkSelection(new int[] { 2 });
+		checkSelection(new int[] { 7 });
 		assertEquals(getDataType(2), dt2);
 		assertEquals(getDataType(3), dt2);
 		assertEquals(getDataType(4), dt2);

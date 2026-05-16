@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,7 +18,7 @@ package ghidra.app.plugin.core.functiongraph.graph;
 import java.awt.Point;
 import java.util.*;
 
-import org.jdom.Element;
+import org.jdom2.Element;
 
 import edu.uci.ics.jung.graph.Graph;
 import ghidra.app.plugin.core.functiongraph.graph.layout.FGLayout;
@@ -161,12 +161,10 @@ public class FunctionGraph extends GroupingVisualGraph<FGVertex, FGEdge> {
 		settings.clearVertexLocation(vertex);
 	}
 
-	// TODO make private?
 	public void clearSavedVertexLocations() {
 		settings.clearVertexLocations(this);
 	}
 
-	// TODO make private?
 	public void clearAllUserLayoutSettings() {
 		clearSavedVertexLocations();
 		settings.clearGroupSettings(this);
@@ -175,7 +173,7 @@ public class FunctionGraph extends GroupingVisualGraph<FGVertex, FGEdge> {
 
 	@Override
 	public void vertexLocationChanged(FGVertex v, Point point, ChangeType changeType) {
-		if (changeType == ChangeType.USER) {
+		if (!changeType.isTransitional()) {
 			settings.putVertexLocation(v, point);
 		}
 	}
@@ -444,7 +442,8 @@ public class FunctionGraph extends GroupingVisualGraph<FGVertex, FGEdge> {
 
 	public void setRootVertex(FGVertex rootVertex) {
 		if (this.rootVertex != null) {
-			throw new IllegalStateException("Cannot set the root vertex more than once!");
+			this.rootVertex = rootVertex;
+			return;
 		}
 
 		this.rootVertex = rootVertex;
@@ -585,6 +584,16 @@ public class FunctionGraph extends GroupingVisualGraph<FGVertex, FGEdge> {
 		Collection<FGVertex> v = getVertices();
 		Collection<FGEdge> e = getEdges();
 		FunctionGraph newGraph = new FunctionGraph(getFunction(), getSettings(), v, e);
+
+		FGLayout originalLayout = getLayout();
+		FGLayout newLayout = originalLayout.cloneLayout(newGraph);
+		newGraph.rootVertex = rootVertex;
+
+		// setSize() must be called after setGraphLayout() due to callbacks performed when 
+		// setSize() is called
+		newGraph.setGraphLayout(newLayout);
+		newLayout.setSize(originalLayout.getSize());
+
 		newGraph.setOptions(getOptions());
 		return newGraph;
 	}

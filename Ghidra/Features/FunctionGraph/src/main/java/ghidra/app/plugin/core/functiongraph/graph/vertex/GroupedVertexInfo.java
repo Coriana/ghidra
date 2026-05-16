@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,13 +19,12 @@ import java.awt.Color;
 import java.awt.geom.Point2D;
 import java.util.*;
 
-import org.jdom.Element;
+import org.jdom2.Element;
 
 import ghidra.app.plugin.core.functiongraph.graph.FGEdge;
 import ghidra.app.plugin.core.functiongraph.graph.FunctionGraph;
 import ghidra.app.plugin.core.functiongraph.mvc.FGController;
 import ghidra.app.plugin.core.functiongraph.mvc.FunctionGraphOptions;
-import ghidra.util.Msg;
 import ghidra.util.xml.XmlUtilities;
 
 /**
@@ -93,26 +92,11 @@ class GroupedVertexInfo extends VertexInfo {
 			return FunctionGraphOptions.DEFAULT_GROUP_BACKGROUND_COLOR;
 		}
 
-		StringTokenizer tokenizer = new StringTokenizer(colorString, ",");
-		int tokenCount = tokenizer.countTokens();
-		if (tokenCount != 4) {
-			return FunctionGraphOptions.DEFAULT_GROUP_BACKGROUND_COLOR;
-		}
-
-		String redString = tokenizer.nextToken();
-		String greenString = tokenizer.nextToken();
-		String blueString = tokenizer.nextToken();
-		String alphaString = tokenizer.nextToken();
-
 		try {
-			int red = Integer.parseInt(redString);
-			int green = Integer.parseInt(greenString);
-			int blue = Integer.parseInt(blueString);
-			int alpha = Integer.parseInt(alphaString);
-			return new Color(red, green, blue, alpha);
+			return Color.decode(colorString);
 		}
 		catch (NumberFormatException e) {
-			Msg.error(this, "Unexpected exception parsing number", e);
+			// must be an old format
 			return FunctionGraphOptions.DEFAULT_GROUP_BACKGROUND_COLOR;
 		}
 	}
@@ -121,8 +105,9 @@ class GroupedVertexInfo extends VertexInfo {
 		if (color == null) {
 			return encodeColor(FunctionGraphOptions.DEFAULT_GROUP_BACKGROUND_COLOR);
 		}
-		return color.getRed() + "," + color.getGreen() + "," + color.getBlue() + "," +
-			color.getAlpha();
+
+		int rgb = color.getRGB();
+		return Integer.toString(rgb);
 	}
 
 	@Override
@@ -264,7 +249,7 @@ class GroupedVertexInfo extends VertexInfo {
 	@Override
 	public String toString() {
 		String superString = super.toString();
-		StringBuffer buffy = new StringBuffer(superString);
+		StringBuilder buffy = new StringBuilder(superString);
 		buffy.append('\n');
 		for (VertexInfo info : vertexInfos) {
 			buffy.append('\t').append(info.toString()).append('\n');

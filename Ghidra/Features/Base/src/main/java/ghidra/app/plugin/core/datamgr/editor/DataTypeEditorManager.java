@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,21 +15,15 @@
  */
 package ghidra.app.plugin.core.datamgr.editor;
 
-import java.util.ArrayList;
-import java.util.List;
-
-import javax.swing.ComboBoxModel;
-import javax.swing.JPanel;
+import java.util.*;
 
 import docking.ComponentProvider;
 import docking.actions.DockingToolActions;
 import docking.actions.SharedDockingActionPlaceholder;
-import docking.widgets.checkbox.GCheckBox;
-import docking.widgets.combobox.GhidraComboBox;
-import docking.widgets.label.GLabel;
 import ghidra.app.plugin.core.compositeeditor.*;
 import ghidra.app.plugin.core.datamgr.DataTypeManagerPlugin;
-import ghidra.app.plugin.core.function.EditFunctionSignatureDialog;
+import ghidra.app.plugin.core.datamgr.actions.AbstractFindReferencesToFieldAction;
+import ghidra.app.plugin.core.function.AbstractEditFunctionSignatureDialog;
 import ghidra.framework.model.DomainObject;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.data.*;
@@ -41,10 +35,9 @@ import ghidra.util.exception.*;
 /**
  * Manages program and archive data type editors.
  */
-public class DataTypeEditorManager
-		implements EditorListener, StructureEditorOptionManager, UnionEditorOptionManager {
+public class DataTypeEditorManager implements EditorListener {
 
-	private ArrayList<EditorProvider> editorList;
+	private List<EditorProvider> editorList;
 	private EditorOptionManager editorOptionMgr; // manages editor tool options
 	private DataTypeManagerPlugin plugin;
 
@@ -104,17 +97,8 @@ public class DataTypeEditorManager
 	 */
 	public void edit(DataType dataType) {
 
-		DataTypeManager dataTypeManager = dataType.getDataTypeManager();
-		if (dataTypeManager == null) {
-			throw new IllegalArgumentException(
-				"Datatype " + dataType.getName() + " doesn't have a data type manager specified.");
-		}
-
-		EditorProvider editor = getEditor(dataType);
+		EditorProvider editor = reuseExistingEditor(dataType);
 		if (editor != null) {
-			ComponentProvider componentProvider = editor.getComponentProvider();
-			plugin.getTool().showComponentProvider(componentProvider, true);
-			componentProvider.toFront();
 			return;
 		}
 
@@ -131,15 +115,68 @@ public class DataTypeEditorManager
 		else if (dataType instanceof FunctionDefinition) {
 			editFunctionSignature((FunctionDefinition) dataType);
 		}
-		if (editor == null) {
+
+		if (editor != null) {
+			editor.addEditorListener(this);
+			editorList.add(editor);
+		}
+	}
+
+	/**
+	 * Displays a data type editor for editing the given Structure. If the structure is already 
+	 * being edited then it is brought to the front. Otherwise, a new editor is created and 
+	 * displayed.
+	 * @param composite the structure.
+	 * @param fieldName the optional name of the field to select in the editor.
+	 */
+	@SuppressWarnings("rawtypes") // ignore on CompositeEditorProvider
+	public void edit(Composite composite, String fieldName) {
+
+		CompositeEditorProvider editor = (CompositeEditorProvider) getEditor(composite);
+		if (editor != null) {
+			reuseExistingEditor(composite);
+			editor.selectField(fieldName);
 			return;
 		}
+		if (composite instanceof Union) {
+			editor = new UnionEditorProvider(plugin, (Union) composite, showUnionNumbersInHex());
+		}
+		else if (composite instanceof Structure) {
+			editor = new StructureEditorProvider(plugin, (Structure) composite,
+				showStructureNumbersInHex());
+		}
+
 		editor.addEditorListener(this);
 		editorList.add(editor);
+
+		editor.selectField(fieldName);
+	}
+
+	private EditorProvider reuseExistingEditor(DataType dataType) {
+		DataTypeManager dataTypeManager = dataType.getDataTypeManager();
+		if (dataTypeManager == null) {
+			throw new IllegalArgumentException(
+				"Datatype " + dataType.getName() + " doesn't have a data type manager specified.");
+		}
+
+		CategoryPath categoryPath = dataType.getCategoryPath();
+		if (categoryPath == null) {
+			throw new IllegalArgumentException(
+				"DataType " + dataType.getName() + " has no category path!");
+		}
+
+		EditorProvider editor = getEditor(dataType);
+		if (editor != null) {
+			ComponentProvider componentProvider = editor.getComponentProvider();
+			plugin.getTool().showComponentProvider(componentProvider, true);
+			componentProvider.toFront();
+		}
+		return editor;
 	}
 
 	private void installEditorActions() {
 
+		// composite editor actions
 		registerAction(ApplyAction.ACTION_NAME);
 		registerAction(InsertUndefinedAction.ACTION_NAME);
 		registerAction(MoveUpAction.ACTION_NAME);
@@ -150,7 +187,7 @@ public class DataTypeEditorManager
 		registerAction(DeleteAction.ACTION_NAME);
 		registerAction(PointerAction.ACTION_NAME);
 		registerAction(ArrayAction.ACTION_NAME);
-		registerAction(FindReferencesToField.ACTION_NAME);
+		registerAction(AbstractFindReferencesToFieldAction.BASE_ACTION_NAME);
 		registerAction(UnpackageAction.ACTION_NAME);
 		registerAction(EditComponentAction.ACTION_NAME);
 		registerAction(EditFieldAction.ACTION_NAME);
@@ -159,6 +196,12 @@ public class DataTypeEditorManager
 		registerAction(ShowComponentPathAction.ACTION_NAME);
 		registerAction(AddBitFieldAction.ACTION_NAME);
 		registerAction(EditBitFieldAction.ACTION_NAME);
+		registerAction(ShowDataTypeInTreeAction.ACTION_NAME);
+
+		// enum editor actions
+		registerAction(EnumEditorProvider.ACTION_NAME_ADD);
+		registerAction(EnumEditorProvider.ACTION_NAME_APPLY);
+		registerAction(EnumEditorProvider.ACTION_NAME_DELETE);
 	}
 
 	private void registerAction(String name) {
@@ -238,8 +281,8 @@ public class DataTypeEditorManager
 				list.add(editor);
 			}
 		}
-		for (int i = 0; i < list.size(); i++) {
-			dismissEditor(list.get(i));
+		for (EditorProvider element : list) {
+			dismissEditor(element);
 		}
 	}
 
@@ -354,27 +397,6 @@ public class DataTypeEditorManager
 		return false;
 	}
 
-	public void domainObjectRestored(DataTypeManagerDomainObject domainObject) {
-		// Create a copy of the list since restore may remove an editor from the original list.
-		ArrayList<EditorProvider> list = new ArrayList<>(editorList);
-		// notify the editors
-		for (EditorProvider editor : list) {
-			DataTypeManager dataTypeManager = editor.getDataTypeManager();
-			DataTypeManager programDataTypeManager = domainObject.getDataTypeManager();
-			if (dataTypeManager == programDataTypeManager) {
-				DataTypePath dtPath = editor.getDtPath();
-				CategoryPath categoryPath = dtPath.getCategoryPath();
-				String name = dtPath.getDataTypeName();
-				DataType dataType = programDataTypeManager.getDataType(categoryPath, name);
-				if (dataType == null || dataType.isDeleted()) {
-					dismissEditor(editor);
-					continue;
-				}
-				editor.domainObjectRestored(domainObject);
-			}
-		}
-	}
-
 	/**
 	 * If the specified data type is being edited for the indicated category, this gets that editor.
 	 * @param dataType the data type
@@ -451,41 +473,33 @@ public class DataTypeEditorManager
 		return true;
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.app.plugin.core.compositeeditor.StructureEditorOptionManager#showStructureCompOffsetInHex()
-	 */
-	@Override
 	public boolean showStructureNumbersInHex() {
 		return editorOptionMgr.showStructureNumbersInHex();
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.app.plugin.core.compositeeditor.UnionEditorOptionManager#showUnionCompLengthInHex()
-	 */
-	@Override
 	public boolean showUnionNumbersInHex() {
 		return editorOptionMgr.showUnionNumbersInHex();
 	}
 
-	public void createNewStructure(Category category, boolean isInternallyAligned) {
+	public void createNewStructure(Category category, boolean isPacked) {
 		String newName = getUniqueName(category, "struct");
 		DataTypeManager dataTypeManager = category.getDataTypeManager();
 		SourceArchive sourceArchive = dataTypeManager.getLocalSourceArchive();
 		StructureDataType structureDataType =
 			new StructureDataType(category.getCategoryPath(), newName, 0, dataTypeManager);
 		structureDataType.setSourceArchive(sourceArchive);
-		structureDataType.setInternallyAligned(isInternallyAligned);
+		structureDataType.setPackingEnabled(isPacked);
 		edit(structureDataType);
 	}
 
-	public void createNewUnion(Category category, boolean isInternallyAligned) {
+	public void createNewUnion(Category category, boolean isPacked) {
 		String newName = getUniqueName(category, "union");
 		DataTypeManager dataTypeManager = category.getDataTypeManager();
 		SourceArchive sourceArchive = dataTypeManager.getLocalSourceArchive();
 		UnionDataType unionDataType =
 			new UnionDataType(category.getCategoryPath(), newName, dataTypeManager);
 		unionDataType.setSourceArchive(sourceArchive);
-		unionDataType.setInternallyAligned(isInternallyAligned);
+		unionDataType.setPackingEnabled(isPacked);
 		edit(unionDataType);
 	}
 
@@ -519,57 +533,12 @@ public class DataTypeEditorManager
 		editFunctionSignature(category, functionDefinition);
 	}
 
-	private void editFunctionSignature(final Category category,
-			final FunctionDefinition functionDefinition) {
-
-		Function function =
-			new UndefinedFunction(plugin.getProgram(), plugin.getProgram().getMinAddress()) {
-				@Override
-				public String getCallingConventionName() {
-					if (functionDefinition == null) {
-						return super.getCallingConventionName();
-					}
-					return functionDefinition.getGenericCallingConvention().toString();
-				}
-
-				@Override
-				public void setCallingConvention(String name) throws InvalidInputException {
-					// no-op; we handle this in the editor dialog
-				}
-
-				@Override
-				public void setInline(boolean isInline) {
-					// can't edit this from the DataTypeManager
-				}
-
-				@Override
-				public void setNoReturn(boolean hasNoReturn) {
-					// can't edit this from the DataTypeManager
-				}
-
-				@Override
-				public FunctionSignature getSignature() {
-					if (functionDefinition != null) {
-						return functionDefinition;
-					}
-					return super.getSignature();
-				}
-
-				@Override
-				public String getName() {
-					if (functionDefinition != null) {
-						return functionDefinition.getName();
-					}
-					return "newFunction";
-				}
-			};
-
-		// DT how do I do the same as the other creates.
+	private void editFunctionSignature(Category category, FunctionDefinition functionDefinition) {
 		PluginTool tool = plugin.getTool();
 		DTMEditFunctionSignatureDialog editSigDialog = new DTMEditFunctionSignatureDialog(
-			plugin.getTool(), "Edit Function Signature", function, category, functionDefinition);
-		editSigDialog.setHelpLocation(
-			new HelpLocation("DataTypeManagerPlugin", "Function_Definition"));
+			plugin.getTool(), "Edit Function Signature", category, functionDefinition);
+		editSigDialog
+				.setHelpLocation(new HelpLocation("DataTypeManagerPlugin", "Function_Definition"));
 		tool.showDialog(editSigDialog);
 	}
 
@@ -577,64 +546,103 @@ public class DataTypeEditorManager
 // Inner Classes
 //==================================================================================================
 
-	private class DTMEditFunctionSignatureDialog extends EditFunctionSignatureDialog {
+	/**
+	 * <code>DTMEditFunctionSignatureDialog</code> provides the ability to edit the
+	 * function signature associated with a specific {@link FunctionDefinition}.
+	 * Use of this editor requires the presence of the tool-based datatype manager service.
+	 */
+	private class DTMEditFunctionSignatureDialog extends AbstractEditFunctionSignatureDialog {
+		private final FunctionDefinition functionDefinition; // may be null
+		private final FunctionSignature oldSignature;
 		private final Category category;
-		private final FunctionDefinition functionDefinitionDataType;
 
-		DTMEditFunctionSignatureDialog(PluginTool pluginTool, String title, Function function,
-				Category category, FunctionDefinition functionDefinition) {
-			super(pluginTool, title, function);
+		/**
+		 * Construct function signature editor model
+		 * @param pluginTool plugin tool
+		 * @param title Dialog title
+		 * @param category datatype category
+		 * @param functionDefinition function definition to be modified (null for new definition)
+		 */
+		DTMEditFunctionSignatureDialog(PluginTool pluginTool, String title, Category category,
+				FunctionDefinition functionDefinition) {
+			super(pluginTool, title, false, true, false);
+			this.functionDefinition = functionDefinition;
 			this.category = category;
-			this.functionDefinitionDataType = functionDefinition;
-
-			if (functionDefinitionDataType != null) {
-				setCallingConvention(
-					functionDefinitionDataType.getGenericCallingConvention().toString());
+			this.oldSignature = buildSignature();
+			if (isAdhocCallingConventionPermitted()) {
+				callingConventionComboBox.setEditable(true);
 			}
 		}
 
-		@Override
-		protected void installCallingConventionWidget(JPanel parentPanel) {
-			callingConventionComboBox = new GhidraComboBox<>();
-			GenericCallingConvention[] values = GenericCallingConvention.values();
-			String[] choices = new String[values.length];
-			for (int i = 0; i < values.length; i++) {
-				choices[i] = values[i].toString();
-			}
-
-			setCallingConventionChoices(choices);
-			parentPanel.add(new GLabel("Calling Convention:"));
-			parentPanel.add(callingConventionComboBox);
+		/**
+		 * Determine if an adhoc calling convention entry is permitted (i.e., text entry)
+		 * @return true if calling convention name may be edited with text entry, else false
+		 */
+		private boolean isAdhocCallingConventionPermitted() {
+			// DataTypeManager dtm = functionDefinition.getDataTypeManager();
+			// return dtm == null || dtm.getProgramArchitecture() == null;
+			// TODO: not sure we should allow unrestricted entries which could lead to using misspelled names
+			return false;
 		}
 
-		@Override
-		protected void installInlineWidget(JPanel parentPanel) {
-			inlineCheckBox = new GCheckBox("Inline");
-		}
-
-		@Override
-		protected void installNoReturnWidget(JPanel parentPanel) {
-			noReturnCheckBox = new GCheckBox("No Return");
-		}
-
-		@Override
-		protected void installCallFixupWidget(JPanel parentPanel) {
-			// don't add this panel
-		}
-
-		@Override
-		protected void setCallingConvention(String callingConvention) {
-			ComboBoxModel<?> model = callingConventionComboBox.getModel();
-			int size = model.getSize();
-			for (int i = 0; i < size; i++) {
-				Object item = model.getElementAt(i);
-				if (item.equals(callingConvention)) {
-					callingConventionComboBox.setSelectedItem(callingConvention);
-					return;
+		private FunctionSignature buildSignature() {
+			if (functionDefinition != null) {
+				if (category.getDataTypeManager() != functionDefinition.getDataTypeManager()) {
+					throw new IllegalArgumentException(
+						"FunctionDefinition and Category must have same DataTypeManager");
 				}
+				return functionDefinition;
 			}
+			return new FunctionDefinitionDataType("newFunction", category.getDataTypeManager());
+		}
 
-			callingConventionComboBox.setSelectedItem(GenericCallingConvention.unknown);
+		@Override
+		protected boolean hasNoReturn() {
+			return functionDefinition != null ? functionDefinition.hasNoReturn() : false;
+		}
+
+		@Override
+		protected String[] getSupportedCallFixupNames() {
+			return null; // Call fixup not supported on FunctionDefinition
+		}
+
+		@Override
+		protected String getCallFixupName() {
+			return null; // Call fixup not supported on FunctionDefinition
+		}
+
+		@Override
+		protected FunctionSignature getFunctionSignature() {
+			return oldSignature;
+		}
+
+		@Override
+		protected String getPrototypeString() {
+			return getFunctionSignature().getPrototypeString();
+		}
+
+		@Override
+		protected String getCallingConventionName() {
+			return getFunctionSignature().getCallingConventionName();
+		}
+
+		@Override
+		protected List<String> getCallingConventionNames() {
+			// can't rely on functionDefinition which may be null for new definition
+			DataTypeManager dtm = getDataTypeManager();
+			if (dtm instanceof CompositeViewerDataTypeManager cvdtm) {
+				dtm = cvdtm.getOriginalDataTypeManager();
+			}
+			ArrayList<String> list = new ArrayList<>();
+			list.add(Function.UNKNOWN_CALLING_CONVENTION_STRING);
+			list.add(Function.DEFAULT_CALLING_CONVENTION_STRING);
+			list.addAll(dtm.getDefinedCallingConventionNames());
+			return list;
+		}
+
+		@Override
+		protected DataTypeManager getDataTypeManager() {
+			return category.getDataTypeManager();
 		}
 
 		@Override
@@ -653,36 +661,53 @@ public class DataTypeEditorManager
 				return false;
 			}
 
-			GenericCallingConvention callingConvention =
-				GenericCallingConvention.getGenericCallingConvention(getCallingConvention());
-			newDefinition.setGenericCallingConvention(callingConvention);
+			String callingConvention = getCallingConvention();
+			boolean hasNoReturn = hasNoReturnSelected();
+			try {
+				newDefinition.setCallingConvention(callingConvention);
+				newDefinition.setNoReturn(hasNoReturn);
 
-			DataTypeManager manager = category.getDataTypeManager();
-			SourceArchive sourceArchive = manager.getLocalSourceArchive();
-			if (functionDefinitionDataType == null) {
-				newDefinition.setSourceArchive(sourceArchive);
-				newDefinition.setCategoryPath(category.getCategoryPath());
-				int id = manager.startTransaction("Create Function Definition");
-				manager.addDataType(newDefinition, DataTypeConflictHandler.REPLACE_HANDLER);
-				manager.endTransaction(id, true);
-			}
-			else {
-				int id = manager.startTransaction("Edit Function Definition");
-				try {
-					if (!functionDefinitionDataType.getName().equals(newDefinition.getName())) {
-						functionDefinitionDataType.setName(newDefinition.getName());
+				DataTypeManager manager = getDataTypeManager();
+				SourceArchive sourceArchive = manager.getLocalSourceArchive();
+				if (functionDefinition == null) {
+					newDefinition.setSourceArchive(sourceArchive);
+					newDefinition.setCategoryPath(category.getCategoryPath());
+					int id = manager.startTransaction("Create Function Definition");
+					try {
+						manager.addDataType(newDefinition, DataTypeConflictHandler.REPLACE_HANDLER);
 					}
-					functionDefinitionDataType.setArguments(newDefinition.getArguments());
-					functionDefinitionDataType.setGenericCallingConvention(
-						newDefinition.getGenericCallingConvention());
-					functionDefinitionDataType.setReturnType(newDefinition.getReturnType());
-					functionDefinitionDataType.setVarArgs(newDefinition.hasVarArgs());
+					finally {
+						manager.endTransaction(id, true);
+					}
 				}
-				catch (InvalidNameException | DuplicateNameException e) {
-					// not sure why we are squashing this? ...assuming this can't happen
-					Msg.error(this, "Unexpected Exception", e);
+				else {
+					int id = manager.startTransaction("Edit Function Definition");
+					try {
+						if (!functionDefinition.getName().equals(newDefinition.getName())) {
+							functionDefinition.setName(newDefinition.getName());
+						}
+						functionDefinition.setArguments(newDefinition.getArguments());
+						if (!Objects.equals(callingConvention,
+							functionDefinition.getCallingConventionName())) {
+							functionDefinition.setCallingConvention(callingConvention);
+						}
+						functionDefinition.setReturnType(newDefinition.getReturnType());
+						functionDefinition.setVarArgs(newDefinition.hasVarArgs());
+						functionDefinition.setNoReturn(hasNoReturn);
+					}
+					catch (InvalidNameException | DuplicateNameException e) {
+						// not sure why we are squashing this? ...assuming this can't happen
+						Msg.error(this, "Unexpected Exception", e);
+					}
+					finally {
+						manager.endTransaction(id, true);
+					}
 				}
-				manager.endTransaction(id, true);
+			}
+			catch (InvalidInputException e) {
+				setStatusText("Unknown calling convention specified: " + callingConvention,
+					MessageType.ERROR);
+				return false;
 			}
 
 			return true;
@@ -695,7 +720,7 @@ public class DataTypeEditorManager
 		private String name;
 
 		DtSharedActionPlaceholder(String name) {
-			this.name = CompositeEditorTableAction.EDIT_ACTION_PREFIX + name;
+			this.name = name;
 		}
 
 		@Override

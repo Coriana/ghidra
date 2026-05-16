@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -79,7 +79,7 @@ public class ProgramTreeMergeManager implements MergeResolver {
 	 * @param myProgram source of changes to apply to the destination
 	 * program
 	 * @param originalProgram program that was originally checked out
-	 * @param latestProgram program that that is the latest version; the
+	 * @param latestProgram program that is the latest version; the
 	 * resultProgram and latestProgram start out as being identical
 	 * @param latestChangeSet change set of the destination program
 	 * @param myChangeSet change set for the source program
@@ -154,14 +154,14 @@ public class ProgramTreeMergeManager implements MergeResolver {
 			"Program Tree Merge is processing IDs changed in Checked Out...");
 		ArrayList<Long> changeList = new ArrayList<Long>();
 		for (long myChangeID : myChangeIDs) {
-			changeList.add(new Long(myChangeID));
+			changeList.add(Long.valueOf(myChangeID));
 		}
 
 		mergeManager.updateProgress(10,
 			"Program Tree Merge is processing IDs added in Checked Out...");
 		ArrayList<Long> myAddedList = new ArrayList<Long>();
 		for (long element : myIDsAdded) {
-			myAddedList.add(new Long(element));
+			myAddedList.add(Long.valueOf(element));
 		}
 
 		mergeManager.updateProgress(20, "Program Tree Merge is eliminating removed IDs...");
@@ -171,7 +171,7 @@ public class ProgramTreeMergeManager implements MergeResolver {
 		mergeManager.updateProgress(30, "Program Tree Merge is processing IDs added in Latest...");
 		ArrayList<Long> latestAddedList = new ArrayList<Long>();
 		for (long element : latestIDsAdded) {
-			latestAddedList.add(new Long(element));
+			latestAddedList.add(Long.valueOf(element));
 		}
 
 		conflictsChangeList = new ArrayList<Long>(changeList);
@@ -179,7 +179,7 @@ public class ProgramTreeMergeManager implements MergeResolver {
 		mergeManager.updateProgress(40, "Program Tree Merge is processing change IDs...");
 		ArrayList<Long> latestChangeList = new ArrayList<Long>();
 		for (long latestChangeID : latestChangeIDs) {
-			latestChangeList.add(new Long(latestChangeID));
+			latestChangeList.add(Long.valueOf(latestChangeID));
 		}
 
 		mergeManager.updateProgress(50,

@@ -16,18 +16,29 @@
 package ghidra.program.model.mem;
 
 import java.io.InputStream;
+import java.math.BigInteger;
 import java.util.List;
 
 import ghidra.framework.store.LockException;
-import ghidra.program.model.address.Address;
-import ghidra.util.exception.DuplicateNameException;
+import ghidra.program.model.address.*;
 
 /**
- * MemoryBlockStub can be extended for use by tests. It throws an UnsupportedOperationException
- * for all methods in the MemoryBlock interface. Any method that is needed for your test can then 
- * be overridden so it can provide its own test implementation and return value.
+ * MemoryBlockStub can be extended for use by tests. It throws an UnsupportedOperationException for
+ * all methods in the MemoryBlock interface. Any method that is needed for your test can then be
+ * overridden so it can provide its own test implementation and return value.
  */
 public class MemoryBlockStub implements MemoryBlock {
+	Address start;
+	Address end;
+
+	public MemoryBlockStub() {
+		this(Address.NO_ADDRESS, Address.NO_ADDRESS);
+	}
+
+	public MemoryBlockStub(Address start, Address end) {
+		this.start = start;
+		this.end = end;
+	}
 
 	@Override
 	public int compareTo(MemoryBlock o) {
@@ -35,7 +46,7 @@ public class MemoryBlockStub implements MemoryBlock {
 	}
 
 	@Override
-	public int getPermissions() {
+	public int getFlags() {
 		throw new UnsupportedOperationException();
 	}
 
@@ -51,16 +62,26 @@ public class MemoryBlockStub implements MemoryBlock {
 
 	@Override
 	public Address getStart() {
-		throw new UnsupportedOperationException();
+		return start;
 	}
 
 	@Override
 	public Address getEnd() {
-		throw new UnsupportedOperationException();
+		return end;
+	}
+
+	@Override
+	public AddressRange getAddressRange() {
+		return new AddressRangeImpl(start, end);
 	}
 
 	@Override
 	public long getSize() {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public BigInteger getSizeAsBigInteger() {
 		throw new UnsupportedOperationException();
 	}
 
@@ -70,7 +91,7 @@ public class MemoryBlockStub implements MemoryBlock {
 	}
 
 	@Override
-	public void setName(String name) throws DuplicateNameException, LockException {
+	public void setName(String name) throws LockException {
 		throw new UnsupportedOperationException();
 	}
 
@@ -130,8 +151,18 @@ public class MemoryBlockStub implements MemoryBlock {
 	}
 
 	@Override
-	public boolean isOverlay() {
+	public boolean isArtificial() {
 		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public void setArtificial(boolean a) {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public boolean isOverlay() {
+		return false;
 	}
 
 	@Override
@@ -176,7 +207,7 @@ public class MemoryBlockStub implements MemoryBlock {
 
 	@Override
 	public MemoryBlockType getType() {
-		throw new UnsupportedOperationException();
+		return MemoryBlockType.DEFAULT;
 	}
 
 	@Override

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -25,21 +25,19 @@ import javax.swing.event.DocumentListener;
 
 import docking.widgets.EmptyBorderButton;
 import docking.widgets.label.GLabel;
-import resources.ResourceManager;
+import generic.theme.GIcon;
 
 public class SearchControlPanel extends JPanel {
 
-	private static final Icon NEXT_ICON = ResourceManager.getScaledIcon(
-		ResourceManager.loadImage("images/go-down.tango.16.png"), 16, 16);
-	private static final Icon PREV_ICON = ResourceManager.getScaledIcon(
-		ResourceManager.loadImage("images/go-up.tango.16.png"), 16, 16);
-	private CompositeEditorPanel editorPanel;
+	private static final Icon NEXT_ICON = new GIcon("icon.plugin.composite.editor.search.next");
+	private static final Icon PREV_ICON = new GIcon("icon.plugin.composite.editor.search.previous");
+	private CompositeEditorPanel<?, ?> editorPanel;
 	private JTextField textField;
 
 	private EmptyBorderButton searchNext;
 	private EmptyBorderButton searchPrevious;
 
-	public SearchControlPanel(CompositeEditorPanel editorPanel) {
+	public SearchControlPanel(CompositeEditorPanel<?, ?> editorPanel) {
 		this.editorPanel = editorPanel;
 
 		setLayout(new BorderLayout());
@@ -109,4 +107,7 @@ public class SearchControlPanel extends JPanel {
 		}
 	}
 
+	public JTextField getTextField() {
+		return textField;
+	}
 }

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,17 +19,18 @@ import java.awt.Color;
 import java.awt.Component;
 import java.util.*;
 
-import org.jdom.Element;
+import org.jdom2.Element;
 
 import docking.ComponentPlaceholder;
 import docking.DockingWindowManager;
 import docking.options.editor.GhidraColorChooser;
+import generic.theme.GColor;
 import ghidra.app.plugin.core.functiongraph.graph.vertex.FGVertex;
 import ghidra.app.plugin.core.functiongraph.mvc.FunctionGraphVertexAttributes;
 import ghidra.framework.options.SaveState;
 import ghidra.framework.plugintool.PluginTool;
 
-class IndependentColorProvider implements FGColorProvider {
+public class IndependentColorProvider implements FGColorProvider {
 
 	private static final String VERTEX_COLORS = "VERTEX_COLORS";
 
@@ -37,7 +38,7 @@ class IndependentColorProvider implements FGColorProvider {
 
 	private final PluginTool tool;
 
-	IndependentColorProvider(PluginTool tool) {
+	public IndependentColorProvider(PluginTool tool) {
 		this.tool = tool;
 	}
 
@@ -111,8 +112,7 @@ class IndependentColorProvider implements FGColorProvider {
 			List<Element> colorElements = xmlElement.getChildren("COLOR");
 			for (Element element : colorElements) {
 				String rgbString = element.getAttributeValue("RGB");
-				int rgb = Integer.parseInt(rgbString);
-				recentColorCache.addColor(new Color(rgb, true));
+				recentColorCache.addColor(Color.decode(rgbString));
 			}
 		}
 	}
@@ -138,7 +138,9 @@ class IndependentColorProvider implements FGColorProvider {
 //==================================================================================================
 	private class RecentColorCache extends LinkedHashMap<Color, Color> implements Iterable<Color> {
 		private static final int MAX_SIZE = 10;
-		private Color mostRecentColor = Color.blue;
+
+		// not sure what the default color should be here
+		private Color mostRecentColor = new GColor("color.bg");
 
 		RecentColorCache() {
 			super(16, 0.75f, true);

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -23,7 +23,6 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Stream;
 
 import org.junit.*;
 import org.osgi.framework.Bundle;
@@ -31,27 +30,27 @@ import org.osgi.framework.Bundle;
 import generic.jar.ResourceFile;
 import ghidra.app.plugin.core.osgi.*;
 import ghidra.test.AbstractGhidraHeadlessIntegrationTest;
+import utilities.util.FileUtilities;
 
 public class BundleHostTest extends AbstractGhidraHeadlessIntegrationTest {
-	BundleHost bundleHost;
-	CapturingBundleHostListener capturingBundleHostListener;
+	private static final String TEMP_NAME_PREFIX = "sourcebundle";
 
-	Set<Path> tempDirs = new HashSet<>();
-	LinkedList<GhidraBundle> bundleStack = new LinkedList<>();
-	GhidraBundle currentBundle;
+	// the version of Guava Ghidra is currently using.
+	private static final int GUAVA_MAJOR_VERSION = 32;
 
-	protected static void wipe(Path path) throws IOException {
-		if (Files.exists(path)) {
-			try (Stream<Path> walk = Files.walk(path)) {
-				for (Path p : (Iterable<Path>) walk.sorted(Comparator.reverseOrder())::iterator) {
-					Files.deleteIfExists(p);
-				}
-			}
-		}
+	private BundleHost bundleHost;
+	private CapturingBundleHostListener capturingBundleHostListener;
+
+	private Set<Path> tempDirs = new HashSet<>();
+	private LinkedList<GhidraBundle> bundleStack = new LinkedList<>();
+	private GhidraBundle currentBundle;
+
+	private static void wipe(Path path) {
+		FileUtilities.deleteDir(path);
 	}
 
-	protected GhidraBundle pushNewBundle() throws IOException {
-		String dir = String.format("sourcebundle%03d", tempDirs.size());
+	private GhidraBundle pushNewBundle() throws IOException {
+		String dir = String.format(TEMP_NAME_PREFIX + "%03d", tempDirs.size());
 		Path tmpDir = new File(getTestDirectoryPath(), dir).toPath();
 		Files.createDirectories(tmpDir);
 		tempDirs.add(tmpDir);
@@ -62,7 +61,7 @@ public class BundleHostTest extends AbstractGhidraHeadlessIntegrationTest {
 		return currentBundle;
 	}
 
-	static class CapturingBundleHostListener implements BundleHostListener {
+	private static class CapturingBundleHostListener implements BundleHostListener {
 		String lastBuildSummary;
 
 		@Override
@@ -76,6 +75,7 @@ public class BundleHostTest extends AbstractGhidraHeadlessIntegrationTest {
 	@Before
 	public void setup() throws OSGiException, IOException {
 		wipe(GhidraSourceBundle.getCompiledBundlesDir());
+		deleteSimilarTempFiles(TEMP_NAME_PREFIX);
 
 		bundleHost = new BundleHost();
 		bundleHost.startFramework();
@@ -86,8 +86,8 @@ public class BundleHostTest extends AbstractGhidraHeadlessIntegrationTest {
 	}
 
 	@After
-	public void tearDown() throws IOException {
-		bundleHost.dispose();
+	public void tearDown() {
+		bundleHost.stopFramework();
 		capturingBundleHostListener = null;
 		bundleHost = null;
 
@@ -96,7 +96,7 @@ public class BundleHostTest extends AbstractGhidraHeadlessIntegrationTest {
 		}
 	}
 
-	protected void buildWithExpectations(String expectedCompilerOutput, String expectedSummary)
+	private void buildWithExpectations(String expectedCompilerOutput, String expectedSummary)
 			throws Exception {
 		StringWriter stringWriter = new StringWriter();
 
@@ -110,32 +110,32 @@ public class BundleHostTest extends AbstractGhidraHeadlessIntegrationTest {
 			capturingBundleHostListener.lastBuildSummary);
 	}
 
-	protected void activate() throws Exception {
+	private void activate() throws Exception {
 		Bundle bundle = bundleHost.install(currentBundle);
 		assertNotNull("failed to install bundle", bundle);
 		bundle.start();
 	}
 
-	protected void buildAndActivate() throws Exception {
+	private void buildAndActivate() throws Exception {
 		buildWithExpectations("", "");
 		activate();
 	}
 
-	protected Class<?> loadClass(String classname) throws ClassNotFoundException {
+	private Class<?> loadClass(String classname) throws ClassNotFoundException {
 		Class<?> clazz = currentBundle.getOSGiBundle().loadClass(classname);
 		assertNotNull("failed to load class", clazz);
 		return clazz;
 	}
 
-	protected void addClass(String fullclassname, String body) throws IOException {
+	private void addClass(String fullclassname, String body) throws IOException {
 		addClass("", fullclassname, body);
 	}
 
-	protected void addClass(String imports, String fullclassname, String body) throws IOException {
+	private void addClass(String imports, String fullclassname, String body) throws IOException {
 		addClass("", imports, fullclassname, body);
 	}
 
-	protected void addClass(String meta, String imports, String fullclassname, String body)
+	private void addClass(String meta, String imports, String fullclassname, String body)
 			throws IOException {
 		String simplename;
 		Path tmpsource = currentBundle.getFile().getFile(false).toPath();
@@ -172,7 +172,7 @@ public class BundleHostTest extends AbstractGhidraHeadlessIntegrationTest {
 
 	}
 
-	protected Object getInstance(String classname) throws Exception {
+	private Object getInstance(String classname) throws Exception {
 		Class<?> clazz = loadClass(classname);
 		Object object = clazz.getDeclaredConstructor().newInstance();
 		assertNotNull("failed to create instance", object);
@@ -236,6 +236,49 @@ public class BundleHostTest extends AbstractGhidraHeadlessIntegrationTest {
 
 		assertEquals("wrong response from instantiated class", "yupyup",
 			getInstance("apackage.AClass").toString());
+	}
+
+	@Test
+	public void testDeletedSourceRemovesStaleBuildError() throws Exception {
+
+		// @formatter:off
+		addClass(
+			"apackage.BClass", 
+			"@Override\n" + 
+			"public String toString() {\n" +
+			"   failing java goes here\n" +
+			"	return \"yupyup\";\n" + 
+			"}\n" 
+		);
+
+		buildWithExpectations(
+			"BClass.java:7: error: ';' expected\n" + 
+			"   failing java goes here\n" + 
+			"               ^\n" + 
+			"BClass.java:7: error: ';' expected\n" + 
+			"   failing java goes here\n" + 
+			"                         ^\n" + 
+			"skipping "+currentBundle.getFile().toString()+File.separator+"apackage"+File.separator+"BClass.java\n"
+			,
+			"1 source file with errors"
+		);
+		// @formatter:on
+
+		Path srcDir = currentBundle.getFile().getFile(false).toPath();
+		Path bpath = srcDir.resolve("apackage").resolve("BClass.java");
+		Files.delete(bpath);
+
+		// @formatter:off
+		addClass(
+			"apackage.AClass", 
+			"@Override\n" + 
+			"public String toString() {\n" + 
+			"	return \"yupyup\";\n" + 
+			"}\n" 
+		);
+		// @formatter:on
+
+		buildAndActivate();
 	}
 
 	@Test
@@ -334,6 +377,52 @@ public class BundleHostTest extends AbstractGhidraHeadlessIntegrationTest {
 		buildAndActivate();
 		assertEquals("wrong response from instantiated class", "lib says yupyup",
 			getInstance("AClass").toString());
+		// @formatter:on
+	}
+
+	@Test
+	public void testImportFromExtraSystemPackagesWithVersionConstraint() throws Exception {
+		// @formatter:off
+		String goodRange = String.format("[%d,%d)", GUAVA_MAJOR_VERSION, GUAVA_MAJOR_VERSION+1);
+		addClass(
+			"//@importpackage com.google.common.io;version=\""+goodRange+"\"\n",
+			"import com.google.common.io.BaseEncoding;",
+			"AClass", 
+			"@Override\n" + 
+			"public String toString() {\n" + 
+			"	return BaseEncoding.base16().encode(new byte[] {0x42});\n" + 
+			"}\n"
+		);
+
+		buildAndActivate();
+		assertEquals("wrong response from instantiated class", "42",
+			getInstance("AClass").toString());
+		// @formatter:on
+	}
+
+	@Test
+	public void testImportFromExtraSystemPackagesWithBadVersionConstraint() throws Exception {
+		// @formatter:off
+		String badRange = String.format("[%d,%d)", GUAVA_MAJOR_VERSION+1, GUAVA_MAJOR_VERSION+2);
+		addClass(
+			"//@importpackage com.google.common.io;version=\""+badRange+"\"\n",
+			"import com.google.common.io.BaseEncoding;",
+			"AClass", 
+			"@Override\n" + 
+			"public String toString() {\n" + 
+			"	return BaseEncoding.base16().encode(new byte[] {0x42});\n" + 
+			"}\n"
+		);
+
+		buildWithExpectations(
+			"1 import requirement remains unresolved:\n" + 
+			"  [null] osgi.wiring.package; (&(osgi.wiring.package=com.google.common.io)" +
+			  "(version>="+(GUAVA_MAJOR_VERSION+1)+".0.0)" +
+			  "(!(version>="+(GUAVA_MAJOR_VERSION+2)+".0.0))), " +
+			  "from "+generic.util.Path.toPathString(currentBundle.getFile())+"/AClass.java\n",
+			"1 missing package import:com.google.common.io (version>="+(GUAVA_MAJOR_VERSION+1)+".0.0)" +
+			  ", 1 source file with errors"
+		);
 		// @formatter:on
 	}
 

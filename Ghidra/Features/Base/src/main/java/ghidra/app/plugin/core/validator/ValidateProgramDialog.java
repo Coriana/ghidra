@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,13 +15,8 @@
  */
 package ghidra.app.plugin.core.validator;
 
-import ghidra.program.model.listing.Program;
-import ghidra.util.HelpLocation;
-
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.util.List;
 
 import javax.swing.*;
@@ -30,6 +24,8 @@ import javax.swing.*;
 import docking.DialogComponentProvider;
 import docking.widgets.conditiontestpanel.ConditionTestPanel;
 import docking.widgets.conditiontestpanel.ConditionTester;
+import ghidra.program.model.listing.Program;
+import ghidra.util.HelpLocation;
 
 public class ValidateProgramDialog extends DialogComponentProvider {
 	private ConditionTestPanel conditionTestPanel;
@@ -41,6 +37,7 @@ public class ValidateProgramDialog extends DialogComponentProvider {
 
 		conditionTestPanel = new ConditionTestPanel(list);
 		conditionTestPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+		conditionTestPanel.getAccessibleContext().setAccessibleName("Condition Test");
 
 		mainPanel.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
 		mainPanel.setLayout(new BorderLayout());
@@ -48,17 +45,14 @@ public class ValidateProgramDialog extends DialogComponentProvider {
 		JPanel runButtonPanel = new JPanel();
 		runButtonPanel.setBorder(BorderFactory.createEmptyBorder(20, 0, 0, 0));
 		runButtonPanel.setLayout(new FlowLayout());
+		runButtonPanel.getAccessibleContext().setAccessibleName("Run Tests");
 		JButton runTestsButton = new JButton("Run Validators");
-		runTestsButton.addActionListener(new ActionListener() {
-			@Override
-			public void actionPerformed(ActionEvent e) {
-				conditionTestPanel.runTests();
-			}
-		});
+		runTestsButton.addActionListener(e -> conditionTestPanel.runTests());
+		runTestsButton.getAccessibleContext().setAccessibleName("Run Tests");
 		runButtonPanel.add(runTestsButton);
 		mainPanel.add(conditionTestPanel, BorderLayout.CENTER);
 		mainPanel.add(runButtonPanel, BorderLayout.SOUTH);
-
+		mainPanel.getAccessibleContext().setAccessibleName("Validate Program");
 		addWorkPanel(mainPanel);
 		addOKButton();
 		setOkEnabled(true);
@@ -67,10 +61,6 @@ public class ValidateProgramDialog extends DialogComponentProvider {
 
 	private static String getTitle(Program program) {
 		return "Validate: " + program.getDomainFile().getName();
-	}
-
-	void dispose() {
-		close();
 	}
 
 	@Override

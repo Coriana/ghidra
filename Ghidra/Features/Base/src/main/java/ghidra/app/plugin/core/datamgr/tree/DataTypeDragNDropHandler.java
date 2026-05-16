@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,6 +15,16 @@
  */
 package ghidra.app.plugin.core.datamgr.tree;
 
+import java.awt.datatransfer.*;
+import java.awt.dnd.DnDConstants;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+
+import docking.dnd.GenericDataFlavor;
+import docking.widgets.tree.GTree;
+import docking.widgets.tree.GTreeNode;
+import docking.widgets.tree.support.GTreeDragNDropHandler;
 import generic.jar.ResourceFile;
 import ghidra.app.plugin.core.datamgr.DataTypeManagerPlugin;
 import ghidra.app.plugin.core.datamgr.archive.FileArchive;
@@ -25,36 +34,27 @@ import ghidra.program.model.data.*;
 import ghidra.util.Msg;
 import ghidra.util.task.Task;
 
-import java.awt.Component;
-import java.awt.datatransfer.*;
-import java.awt.dnd.DnDConstants;
-import java.io.IOException;
-import java.util.*;
-
-import docking.dnd.GenericDataFlavor;
-import docking.widgets.tree.GTreeNode;
-import docking.widgets.tree.support.GTreeDragNDropHandler;
-
 public class DataTypeDragNDropHandler implements GTreeDragNDropHandler {
 	private static DataFlavor localDataTypeTreeFlavor = createLocalTreeNodeFlavor();
 
-	public static DataFlavor[] allSupportedFlavors = { DataTypeTransferable.localDataTypeFlavor,
-		localDataTypeTreeFlavor };
+	public static DataFlavor[] allSupportedFlavors =
+		{ DataTypeTransferable.localDataTypeFlavor, localDataTypeTreeFlavor };
 
-	public static DataFlavor[] builtinFlavors = { DataTypeTransferable.localBuiltinDataTypeFlavor,
-		localDataTypeTreeFlavor };
+	public static DataFlavor[] builtinFlavors =
+		{ DataTypeTransferable.localBuiltinDataTypeFlavor, localDataTypeTreeFlavor };
 
 	public static DataFlavor[] restrictedFlavors = { localDataTypeTreeFlavor };
 
-	private final Component component;
+	private final GTree tree;
 
 	private final DataTypeManagerPlugin plugin;
 
 	// create a data flavor that is an List of GTreeNodes
 	private static DataFlavor createLocalTreeNodeFlavor() {
 		try {
-			return new GenericDataFlavor(DataFlavor.javaJVMLocalObjectMimeType +
-				"; class=java.util.List", "Local list of Drag/Drop DataType Tree objects");
+			return new GenericDataFlavor(
+				DataFlavor.javaJVMLocalObjectMimeType + "; class=java.util.List",
+				"Local list of Drag/Drop DataType Tree objects");
 		}
 		catch (Exception e) {
 			Msg.showError(DataTypeDragNDropHandler.class, null, null, null, e);
@@ -62,39 +62,51 @@ public class DataTypeDragNDropHandler implements GTreeDragNDropHandler {
 		return null;
 	}
 
-	public DataTypeDragNDropHandler(DataTypeManagerPlugin plugin, Component component) {
+	public DataTypeDragNDropHandler(DataTypeManagerPlugin plugin, GTree tree) {
 		this.plugin = plugin;
-		this.component = component;
+		this.tree = tree;
 	}
 
 	@Override
-	@SuppressWarnings("unchecked")
-	// old API call
-	public void drop(GTreeNode destUserData, Transferable transferable, int dropAction) {
+	@SuppressWarnings("unchecked") 	// old API call
+	public void drop(GTreeNode destinationNode, Transferable transferable, int dropAction) {
 		try {
 			List<GTreeNode> list =
 				(List<GTreeNode>) transferable.getTransferData(localDataTypeTreeFlavor);
-			if (list.contains(destUserData)) { // don't allow drop on dragged nodes.
+			if (list.contains(destinationNode)) { // don't allow drop on dragged nodes.
 				return;
 			}
+
+			CategoryNode updatedDestinationNode = getDropTargetNode(destinationNode);
 			ActionType actionType =
 				dropAction == DnDConstants.ACTION_COPY ? ActionType.COPY : ActionType.MOVE;
-			Task task =
-				new DataTypeTreeCopyMoveTask(destUserData, list, actionType, component,
-					plugin.getConflictHandler());
+			Task task = new DataTypeTreeCopyMoveTask(updatedDestinationNode, list, actionType,
+				(DataTypeArchiveGTree) tree, plugin.getConflictHandler());
 			plugin.getTool().execute(task, 250);
 		}
 		catch (UnsupportedFlavorException e) {
+			Msg.error(this, "Unable to perform drop operation", e);
 		}
 		catch (IOException e) {
+			Msg.error(this, "Unable to perform drop operation", e);
 		}
 	}
 
+	private CategoryNode getDropTargetNode(GTreeNode node) {
+
+		// clients can drop/paste onto a category or archive
+		if (node instanceof CategoryNode) {
+			return (CategoryNode) node;
+		}
+
+		return (CategoryNode) node.getParent();
+	}
+
 	@Override
-	public DataFlavor[] getSupportedDataFlavors(List<GTreeNode> dragUserData) {
+	public DataFlavor[] getSupportedDataFlavors(List<GTreeNode> draggedNodes) {
 		// single, datatype node supports both datatype dragging *and* local tree dragging
-		if (dragUserData.size() == 1) {
-			GTreeNode node = dragUserData.get(0);
+		if (draggedNodes.size() == 1) {
+			GTreeNode node = draggedNodes.get(0);
 			if (node instanceof DataTypeNode) {
 				DataType dataType = ((DataTypeNode) node).getDataType();
 
@@ -134,10 +146,10 @@ public class DataTypeDragNDropHandler implements GTreeDragNDropHandler {
 		else if (flavor.equals(DataFlavor.javaFileListFlavor)) {
 			List<?> nodeList = dragUserData;
 			ArrayList<ResourceFile> fileList = new ArrayList<ResourceFile>();
-			for (Iterator<?> iterator = nodeList.iterator(); iterator.hasNext();) {
+			for (Object node : nodeList) {
 
-				ArchiveNode node = (ArchiveNode) iterator.next();
-				FileArchive archive = (FileArchive) node.getArchive();
+				ArchiveNode archiveNode = (ArchiveNode) node;
+				FileArchive archive = (FileArchive) archiveNode.getArchive();
 				ResourceFile file = archive.getFile();
 				fileList.add(file);
 			}
@@ -149,12 +161,38 @@ public class DataTypeDragNDropHandler implements GTreeDragNDropHandler {
 
 	@Override
 	public boolean isDropSiteOk(GTreeNode destinationNode, DataFlavor[] flavors, int dropAction) {
-		// can't drop on the root node
+
+		if (!isValidDataTypeDestination(destinationNode, flavors, dropAction)) {
+			return false;
+		}
+
+		GTreeNode updatedDestinationNode = getDropTargetNode(destinationNode);
+
+		if (isDroppingBuiltin(flavors)) {
+			if (!isValidBuiltinDropSite(updatedDestinationNode)) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * Verifies the given destination node can accept the given drop/copy/paste action and content
+	 * flavors.
+	 * @param destinationNode the node accepting the action
+	 * @param flavors the supported flavors of the action
+	 * @param dropAction the actual action see {@link DnDConstants}
+	 * @return true if valid
+	 */
+	public boolean isValidDataTypeDestination(GTreeNode destinationNode, DataFlavor[] flavors,
+			int dropAction) {
+		// can't drop/paste on the root node
 		if (destinationNode == null || destinationNode.getParent() == null) {
 			return false;
 		}
 
-		// can only drop nodes from other dataTypetrees
+		// can only drop/paste nodes from other dataType trees
 		if (!containsFlavor(flavors, localDataTypeTreeFlavor)) {
 			return false;
 		}
@@ -164,20 +202,6 @@ public class DataTypeDragNDropHandler implements GTreeDragNDropHandler {
 		ArchiveNode archiveNode = ((DataTypeTreeNode) destinationNode).getArchiveNode();
 		if (archiveNode == null || !archiveNode.isModifiable()) {
 			return false;
-		}
-
-		// only a single datatype node can be dropped on a datatype node.
-		if (destinationNode instanceof DataTypeNode) {
-			if (!containsFlavor(flavors, DataTypeTransferable.localDataTypeFlavor) &&
-				!containsFlavor(flavors, DataTypeTransferable.localBuiltinDataTypeFlavor)) {
-				return false;
-			}
-		}
-
-		if (isDroppingBuiltin(flavors)) {
-			if (!isValidBuiltinDropSite(destinationNode)) {
-				return false;
-			}
 		}
 
 		return true;
@@ -201,8 +225,8 @@ public class DataTypeDragNDropHandler implements GTreeDragNDropHandler {
 	}
 
 	private boolean containsFlavor(DataFlavor[] flavors, DataFlavor flavor) {
-		for (int i = 0; i < flavors.length; i++) {
-			if (flavors[i].equals(flavor)) {
+		for (DataFlavor f : flavors) {
+			if (f.equals(flavor)) {
 				return true;
 			}
 		}

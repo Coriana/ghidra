@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,6 +15,7 @@
  */
 package ghidra.framework.plugintool;
 
+import java.net.URL;
 import java.util.*;
 
 import docking.ComponentProvider;
@@ -27,6 +28,7 @@ import ghidra.framework.options.SaveState;
 import ghidra.framework.plugintool.util.*;
 import ghidra.util.Msg;
 import ghidra.util.SystemUtilities;
+import ghidra.util.classfinder.ClassSearcher;
 import ghidra.util.classfinder.ExtensionPoint;
 
 /**
@@ -36,70 +38,85 @@ import ghidra.util.classfinder.ExtensionPoint;
  * Plugins expose their features or capabilities to users via menu items and buttons that
  * the user can click on, and via "service" APIs that other Plugins can programmatically subscribe
  * to, and via {@link PluginEvent}s that are broadcast.
- * <p>
+ * 
  * <h2>Well formed Plugins:</h2>
  * <UL>
- * 	<LI>Derive from <code>Plugin</code> (directly or indirectly).
- * 	<LI>Class name ends with "Plugin" and does not match any other Plugin, regardless of
- * 	its location in the package tree.
- * 	<LI>Have a {@link PluginInfo @PluginInfo()} annotation.
- * 	<LI>Have a constructor with exactly 1 parameter: PluginTool.
- * 		<UL>
- *  			<LI><code>public MyPlugin(PluginTool tool) { ... }</code>
- *  		</UL>
- *  	<LI>Usually overrides <code>protected void init()</code>.
+ *   <LI>Derive from <code>Plugin</code> (directly or indirectly).</LI>
+ *   <LI>Class name ends with "Plugin" and does not match any other Plugin, regardless of its 
+ *       location in the package tree.</LI>
+ *   <LI>Have a {@link PluginInfo @PluginInfo()} annotation.</LI>
+ *   <LI>Have a constructor with exactly 1 parameter: {@link PluginTool}.</LI>
+ *   <LI>
+ *     <UL>
+ *       <LI><code>public MyPlugin(PluginTool tool) { ... }</code></LI>
+ *     </UL>
+ *   </LI>
+ *   <LI>Usually overrides <code>protected void init()</code>.</LI>
  * </UL>
  * <h2>Class naming</h2>
- * All Plugin Classes <b>MUST END IN</b> "Plugin".  If not, the ClassSearcher will not find them.
+ * <p>
+ * All Plugin Classes <b>MUST END IN</b> "Plugin".  If not, the {@link ClassSearcher} will not find
+ * them.
  * <p>
  * Some special Plugins marked with the {@link ProgramaticUseOnly} interface are manually
  * created and do not follow this naming requirement.
  *
  * <h2>Plugin Life cycle</h2>
  * <OL>
- * 	<LI>Your Plugin's constructor is called
- * 		<OL>
- * 			<LI>Plugin base class constructor is called.
- * 				<OL>
- * 					<LI>Services listed in the @PluginInfo annotation are automatically added
- * 					to dependency list
- * 				</OL>
- * 			<LI>Your Plugin publishes any services listed in PluginInfo using
- * 			{@link Plugin#registerServiceProvided(Class, Object) registerServiceProvided()}.
- * 			(required)
- *  			<LI>Create Actions (optional)
- *  			<LI>Register {@link ghidra.framework.options.Options Options} with the
- * {@link PluginTool#getOptions(String)}. (optional)<br>
- * 		</OL>
- * 	<LI>Other Plugins are constructed, dependencies evaluated, etc.<br>
- * 	If your dependencies are not available (ie. not installed, threw an exception during their
+ *   <LI>Your Plugin's constructor is called</LI>
+ *   <LI>
+ *     <OL>
+ *       <LI>Plugin base class constructor is called.</LI>
+ *       <LI>
+ *         <OL>
+ *           <LI>Services listed in the {@code @}{@link PluginInfo} annotation are automatically
+ *               added to dependency list</LI>
+ *         </OL>
+ *       </LI>
+ *       <LI>Your Plugin publishes any services listed in PluginInfo using
+ *           {@link Plugin#registerServiceProvided(Class, Object) registerServiceProvided()}.
+ *           (required)</LI>
+ *       <LI>Create Actions (optional)</LI>
+ *       <LI>Register {@link ghidra.framework.options.Options Options} with the
+ *           {@link PluginTool#getOptions(String)}. (optional)</LI>
+ *     </OL>
+ *  </LI>
+ *  <LI>Other Plugins are constructed, dependencies evaluated, etc.<br>
+ * 	If your dependencies are not available (i.e., not installed, threw an exception during their
  *	initialization, etc), your Plugin's {@link #dispose()} will be called and then your Plugin
- *	instance will be discarded.<br>
- *	<LI>Your Plugin's {@link #init()} method is called (when its dependencies are met).
- * 		<OL>
- * 			<LI>Call {@link PluginTool#getService(Class)} to get service
- * 			implementations. (the service class being requested should already be
- * 			listed in the @PluginInfo)
- * 			<LI>Create Actions (optional)
- * 			<LI>Other initialization stuff.
- * 		</OL>
- *	<LI>Your Plugin's {@link #readConfigState(SaveState)} is called.
- * 	<LI>...user uses Ghidra...
- * 		<UL>
- * 			<LI>Your Plugin's {@link #processEvent(PluginEvent)} is called for events.
- * 			<LI>Your Plugin's Action's methods (ie.
- * 			{@link DockingAction#actionPerformed(docking.ActionContext) actionPerformed}) are called.
- * 			<LI>Your Plugin's published service methods are called by other Plugins.
- * 			<LI>Your Plugin's listener methods are called.
- * 		</UL>
- * 	<LI>Plugin is unloaded due to shutdown of the Tool or being disabled by user
- * 		<OL>
- *			<LI>Your Plugin's {@link #writeConfigState(SaveState)} is called - override this
- *			method to write configuration info into the Tool definition.
- * 			<LI>Your Plugin's {@link #dispose()} is called - override this method to free
- * 			any resources and perform any needed cleanup.
- * 			<LI>Your Plugin's services and events are de-registered automatically.
- * 		</OL>
+ *	instance will be discarded.</LI>
+ *  <LI>Your Plugin's {@link #init()} method is called (when its dependencies are met).</LI>
+ *  <LI>
+ *    <OL>
+ *      <LI>Call {@link PluginTool#getService(Class)} to get service
+ *          implementations. (the service class being requested should already be
+ *          listed in the PluginInfo)</LI>
+ *       <LI>Create Actions (optional)</LI>
+ *       <LI>Other initialization stuff.</LI>
+ *    </OL>
+ *  </LI>
+ *  <LI>Your Plugin's {@link #readConfigState(SaveState)} is called.</LI>
+ *  <LI>...user uses Ghidra...</LI>
+ * 	<LI>
+ *    <UL>
+ *      <LI>Your Plugin's {@link #processEvent(PluginEvent)} is called for events.</LI>
+ *      <LI>Your Plugin's Action's methods (i.e.,
+ *          {@link DockingAction#actionPerformed(docking.ActionContext) actionPerformed}) are
+ *          called.</LI>
+ *      <LI>Your Plugin's published service methods are called by other Plugins.</LI>
+ *      <LI>Your Plugin's listener methods are called.</LI>
+ *    </UL>
+ *  </LI>
+ * 	<LI>Plugin is unloaded due to shutdown of the Tool or being disabled by user</LI>
+ * 	<LI>
+ *    <OL>
+ *      <LI>Your Plugin's {@link #writeConfigState(SaveState)} is called - override this
+ *          method to write configuration info into the Tool definition.</LI>
+ *      <LI>Your Plugin's {@link #dispose()} is called - override this method to free
+ *          any resources and perform any needed cleanup.</LI>
+ *      <LI>Your Plugin's services and events are de-registered automatically.</LI>
+ *    </OL>
+ *   </LI>
  * </OL>
  *
  * <h2>Plugin Service dependency</h2>
@@ -112,31 +129,32 @@ import ghidra.util.classfinder.ExtensionPoint;
  * of its required services are loaded successfully and are available for use when your Plugin
  * calls the {@link PluginTool#getService(Class)} method.
  * <p>
- * Conversely, any services your Plugin advertises in &#64;PluginInfo must be published via calls to
- * {@link #registerServiceProvided(Class, Object) registerServiceProvided()} in your Plugin's 
- * constructor.
+ * Conversely, any services your Plugin advertises in {@code @PluginInfo} must be published via
+ * calls to {@link #registerServiceProvided(Class, Object) registerServiceProvided()} in your
+ * Plugin's constructor.
  * <p>
- * <b>Cyclic dependencies</b> are not allowed and will cause the Plugin management code to fail to 
- * load your Plugin. (ie. PluginA requires a service that PluginB provides, which requires a service
- * that PluginA provides)
+ * <b>Cyclic dependencies</b> are not allowed and will cause the Plugin management code to fail to
+ * load your Plugin. (i.e., PluginA requires a service that PluginB provides, which requires a
+ * service that PluginA provides)
  *
  * <h2>Plugin Service implementation</h2>
  * A Plugin may provide a service to other Plugins by advertising in its {@link PluginInfo}
  * annotation that it {@link PluginInfo#servicesProvided() provides} an interface class.
  * <p>
  * Your Plugin can either directly implement the interface in your Plugin class:
- * <p>
- * &nbsp;&nbsp;<code>public class MyPlugin extends Plugin <b>implements MyService</b> {....}</code>
+ * <pre>
+ * 	public class MyPlugin extends Plugin <b>implements MyService</b> {....}</code>
+ * </pre>
  * <p>
  * or it may delegate the handling of the service interface to another object during its
  * constructor:
- * <p>
- * &nbsp;&nbsp;<code>public MyPlugin(PluginTool tool) {</code><br>
- * &nbsp;&nbsp;&nbsp;&nbsp;<code>...</code><br>
- * &nbsp;&nbsp;&nbsp;&nbsp;<code>MyService serviceObj = new MyService() { ... };</code><br>
- * &nbsp;&nbsp;&nbsp;&nbsp;<code><b>registerServiceProvided(MyService.class, serviceObj);</b>
- * </code><br>
- * &nbsp;&nbsp;<code>}</code><br>
+ * <pre>
+ * 	public MyPlugin(PluginTool tool) {
+ * 		// ...
+ * 		MyService serviceObj = new MyService() { ... };
+ * 		<b>registerServiceProvided(MyService.class, serviceObj);</b>
+ * 	}
+ * </pre>
  * <p>
  * When your Plugin directly implements the advertised service interface, you should <b>not</b>
  * call {@link #registerServiceProvided(Class, Object) registerServiceProvided} for that service
@@ -157,30 +175,32 @@ import ghidra.util.classfinder.ExtensionPoint;
  * multi-implemented service will either receive a randomly picked instance if using
  * {@link PluginTool#getService(Class)} or will receive all implementations if using
  * {@link PluginTool#getServices(Class)}.
- * <p>
  *
  * <h2>Plugin Events</h2>
  * <UL>
- * 	<LI>Every type of plugin event should be represented by some class extending {@link PluginEvent}.
- *  <LI>One PluginEvent subclass may be used for more than one event type as long as there's some 
- *  natural grouping.
+ * 	<LI>Every type of plugin event should be represented by some class extending
+ *  {@link PluginEvent}.</LI>
+ *  <LI>One PluginEvent subclass may be used for more than one event type as long as there's some
+ *  natural grouping.</LI>
  * </UL>
  *
  * <h2>Component Providers</h2>
  * <UL>
- *  <LI>A plugin may supply a {@link ComponentProvider} that provides a visual component when 
- *  the plugin is added to the tool.
+ *  <LI>A plugin may supply a {@link ComponentProvider} that provides a visual component when
+ *  the plugin is added to the tool.</LI>
  * </UL>
  *
  * <h2>Important interfaces Plugins often need to implement</h2>
  * <UL>
  * 	<LI>{@link OptionsChangeListener} - to receive notification when a configuration option
- * 	is changed by the user.
- * 	<LI>{@link FrontEndable} - marks this Plugin as being suitable for inclusion in the FrontEnd 
- * 		tool.
- * 	<LI>{@link FrontEndOnly} - marks this Plugin as FrontEnd only, not usable in CodeBrowser or 
- * 		other tools.
- * 	<LI>{@link ProgramaticUseOnly} - marks this Plugin as special and not for user configuration.
+ * 	    is changed by the user.</LI>
+ * 	<LI>{@link ApplicationLevelPlugin} - marks this Plugin as being suitable for inclusion in the
+ * 		application-level tool.</LI>
+ * 	<LI>{@link ApplicationLevelOnlyPlugin} - marks this Plugin as application-level only, not
+ * 		usable in an application's sub-tools.</LI>
+ * 	<LI>{@link ProgramaticUseOnly} - marks this Plugin as special and not for user configuration.</LI>
+ * 	<LI>{@link PluginWithTransientState} - allows this Plugin to save and restore per-program
+ * 	    transient state.</LI>
  * </UL>
  *
  */
@@ -202,15 +222,6 @@ public abstract class Plugin implements ExtensionPoint, PluginEventListener, Ser
 	protected final PluginDescription pluginDescription =
 		PluginDescription.getPluginDescription(getClass());
 
-	/**
-	 * Temporary compatibility for Plugins that have not been updated to new PluginInfo API.
-	 * <p>
-	 * Contains the list of service classes that this plugin registered as being required.
-	 * <p>
-	 * Ignored if the PluginDescription has values for requiredServices.
-	 */
-	private List<Class<?>> legacyRequiredServices = new ArrayList<>();
-
 	private List<Class<? extends PluginEvent>> eventsProduced = new ArrayList<>();
 	private List<Class<? extends PluginEvent>> eventsConsumed = new ArrayList<>();
 	private List<ServiceInterfaceImplementationPair> services = new ArrayList<>();
@@ -226,7 +237,7 @@ public abstract class Plugin implements ExtensionPoint, PluginEventListener, Ser
 
 	/**
 	 * Construct a new Plugin.
-	 * <p>
+	 * 
 	 * @param tool PluginTool that will host/contain this plugin.
 	 */
 	protected Plugin(PluginTool tool) {
@@ -238,20 +249,7 @@ public abstract class Plugin implements ExtensionPoint, PluginEventListener, Ser
 	}
 
 	/**
-	 * Construct a new Plugin.
-	 * <p>
-	 * Deprecated, use {@link Plugin#Plugin(PluginTool)} instead.
-	 *
-	 * @param pluginName name of plugin - not used.
-	 * @param tool tool that will contain this plugin
-	 */
-	@Deprecated
-	protected Plugin(String pluginName, PluginTool tool) {
-		this(tool);
-	}
-
-	/**
-	 * Auto-registers any services directly implemented by this Plugin instance (ie.
+	 * Auto-registers any services directly implemented by this Plugin instance (i.e.,
 	 * the MyService in "class MyPlugin extends Plugin implements MyService { }" )
 	 */
 	private void registerPluginImplementedServices() {
@@ -277,21 +275,9 @@ public abstract class Plugin implements ExtensionPoint, PluginEventListener, Ser
 	}
 
 	/**
-	 * Returns plugin name or null if given class does not extend {@link Plugin}
-	 * <p>
-	 * Deprecated, use {@link PluginUtils#getPluginNameFromClass(Class)}
-	 * <p>
-	 * @param pluginClass the plugin class
-	 * @return the plugin name
+	 * Called by the framework to dispose of this plugin and unregister for events and services. 
+	 * Subclasses should not override this method, but should instead override {@link #dispose()}.
 	 */
-	@Deprecated
-	public static String getPluginName(Class<?> pluginClass) {
-		if (pluginClass != Plugin.class && Plugin.class.isAssignableFrom(pluginClass)) {
-			return pluginClass.getSimpleName();
-		}
-		return null;
-	}
-
 	protected void cleanup() {
 		if (!disposed) {
 			Throwable thr = null;
@@ -303,7 +289,6 @@ public abstract class Plugin implements ExtensionPoint, PluginEventListener, Ser
 				thr = t;
 			}
 			tool.removeServiceListener(this);
-			legacyRequiredServices.clear();
 			unregisterServices();
 			unregisterEvents();
 			tool.removeAll(getName());
@@ -316,7 +301,7 @@ public abstract class Plugin implements ExtensionPoint, PluginEventListener, Ser
 
 	/**
 	 * Returns this plugin's name.
-	 * <p>
+	 * 
 	 * @return String name, derived from simple class name.
 	 */
 	public final String getName() {
@@ -350,7 +335,7 @@ public abstract class Plugin implements ExtensionPoint, PluginEventListener, Ser
 
 	/**
 	 * Return classes of data types that this plugin can support.
-	 * <p>
+	 * 
 	 * @return classes of data types that this plugin can support
 	 */
 	public Class<?>[] getSupportedDataTypes() {
@@ -359,7 +344,7 @@ public abstract class Plugin implements ExtensionPoint, PluginEventListener, Ser
 
 	/**
 	 * Method called if the plugin supports this domain file.
-	 * <p>
+	 * 
 	 * @param data array of {@link DomainFile}s
 	 * @return boolean true if can accept
 	 */
@@ -368,8 +353,19 @@ public abstract class Plugin implements ExtensionPoint, PluginEventListener, Ser
 	}
 
 	/**
+	 * Request plugin to process URL if supported.  Actual processing may be delayed and 
+	 * interaction with user may occur (e.g., authentication, approval, etc.).
+	 * 
+	 * @param url data URL
+	 * @return boolean true if this plugin can process URL.
+	 */
+	public boolean accept(URL url) {
+		return false;
+	}
+
+	/**
 	 * Get the domain files that this plugin has open.
-	 * <p>
+	 * 
 	 * @return array of {@link DomainFile}s that are open by this Plugin.
 	 */
 	public DomainFile[] getData() {
@@ -377,7 +373,7 @@ public abstract class Plugin implements ExtensionPoint, PluginEventListener, Ser
 	}
 
 	/**
-	 * Called after the constructor and before {@link #init()} to publish services to 
+	 * Called after the constructor and before {@link #init()} to publish services to
 	 * the Tool's service registry.
 	 * <p>
 	 * Services registered during the constructor call will be queued in the services list.
@@ -452,6 +448,8 @@ public abstract class Plugin implements ExtensionPoint, PluginEventListener, Ser
 		// do nothing by default; subclasses should override as needed
 	}
 
+	// NOTE: get/restoreTransientState moved to PluginWithTransientState interface
+
 	/**
 	 * Tells the Plugin to write any data-dependent state to the
 	 * output stream.
@@ -520,13 +518,12 @@ public abstract class Plugin implements ExtensionPoint, PluginEventListener, Ser
 
 	/**
 	 * Check if this plugin depends on the given plugin
-	 * 
+	 *
 	 * @param plugin the plugin
 	 * @return true if this plugin depends on the given plugin
 	 */
 	public boolean dependsUpon(Plugin plugin) {
-		for (Class<?> c : getList(pluginDescription.getServicesRequired(),
-			legacyRequiredServices)) {
+		for (Class<?> c : pluginDescription.getServicesRequired()) {
 			// If one of our required services is provided by a single Plugin,
 			// then we depend on that Plugin.  If multiple provide, we are not dependent.
 			if (plugin.isOnlyProviderOfService(c)) {
@@ -538,8 +535,7 @@ public abstract class Plugin implements ExtensionPoint, PluginEventListener, Ser
 
 	public List<Class<?>> getMissingRequiredServices() {
 		List<Class<?>> missingServices = new ArrayList<>();
-		for (Class<?> requiredServiceClass : getList(pluginDescription.getServicesRequired(),
-			legacyRequiredServices)) {
+		for (Class<?> requiredServiceClass : pluginDescription.getServicesRequired()) {
 			if (tool.getService(requiredServiceClass) == null) {
 				missingServices.add(requiredServiceClass);
 			}
@@ -553,38 +549,12 @@ public abstract class Plugin implements ExtensionPoint, PluginEventListener, Ser
 	 * @return boolean true if a required service isn't available via the PluginTool.
 	 */
 	public boolean hasMissingRequiredService() {
-		for (Class<?> depClass : getList(pluginDescription.getServicesRequired(),
-			legacyRequiredServices)) {
+		for (Class<?> depClass : pluginDescription.getServicesRequired()) {
 			if (tool.getService(depClass) == null) {
 				return true;
 			}
 		}
 		return false;
-	}
-
-	/**
-	 * Used to choose between lists to support the old Plugin ABI backward compatible lists
-	 *
-	 * @param l1 the new list from the static PluginDescription config - preferred if it has any elements
-	 * @param l2 the old list - only returned if l1 is empty
-	 * @return either l1 or l2, depending on which one has elements.
-	 */
-	private static <T> List<T> getList(List<T> l1, List<T> l2) {
-		return !l1.isEmpty() ? l1 : l2;
-	}
-
-	/**
-	 * Register event that this plugin produces.
-	 * <p>
-	 * Deprecated, use {@link PluginInfo @PluginInfo.eventsProduced} instead.
-	 * <p>
-	 * @param eventClass Class of the produced event; class is required to force it
-	 * to be loaded
-	 */
-	@Deprecated
-	protected final void registerEventProduced(Class<? extends PluginEvent> eventClass) {
-		eventsProduced.add(eventClass);
-		tool.registerEventProduced(eventClass);
 	}
 
 	private void unregisterEvents() {
@@ -599,23 +569,11 @@ public abstract class Plugin implements ExtensionPoint, PluginEventListener, Ser
 	/**
 	 * Register event that this plugin consumes.
 	 * <p>
-	 * Deprecated, use {@link PluginInfo @PluginInfo.eventsConsumed} instead.
-	 * <p>
-	 * @param eventClass Class for the event; class is required to force it
-	 * to be loaded
+	 * This method is for internal use.  If plugins wish to manage events consumed, then they should
+	 * use the {@link PluginInfo} annotation to do so.
+	 * @param eventClass Class for the event; class is required to force it to be loaded
 	 */
-	@Deprecated
-	protected final void registerEventConsumed(Class<? extends PluginEvent> eventClass) {
-		registerDynamicEventConsumed(eventClass);
-	}
-
-	/**
-	 * Register event that this plugin consumes.
-	 * <p>
-	 * @param eventClass Class for the event; class is required to force it
-	 * to be loaded
-	 */
-	protected final void registerDynamicEventConsumed(Class<? extends PluginEvent> eventClass) {
+	protected final void internalRegisterEventConsumed(Class<? extends PluginEvent> eventClass) {
 		eventsConsumed.add(eventClass);
 		tool.addEventListener(eventClass, this);
 	}
@@ -630,7 +588,7 @@ public abstract class Plugin implements ExtensionPoint, PluginEventListener, Ser
 	 * with the PluginTool's services.
 	 * <p>
 	 * The {@link #initServices()} handles registering the services queued during the constructor.
-	 * <p>
+	 * 
 	 * @param interfaceClass Class that the service object implements.
 	 * @param service Service object instance.
 	 * @param dynamicRegister boolean flag that indicates that the service being registered
@@ -691,7 +649,7 @@ public abstract class Plugin implements ExtensionPoint, PluginEventListener, Ser
 	/**
 	 * Used to register a service dynamically, during runtime, instead of during the Plugin's
 	 * constructor.
-	 * <p>
+	 * 
 	 * @param interfaceClass service interface class
 	 * @param service service implementation
 	 */
@@ -708,33 +666,13 @@ public abstract class Plugin implements ExtensionPoint, PluginEventListener, Ser
 	protected final List<Class<?>> getServicesRequired() {
 		// return either the new PluginDescription servicesRequired or the old
 		// deprecated legacyRequiredServices.
-		return getList(pluginDescription.getServicesRequired(), legacyRequiredServices);
+		return pluginDescription.getServicesRequired();
 	}
 
 	private void unregisterServices() {
 		for (ServiceInterfaceImplementationPair siip : services) {
 			tool.removeService(siip.interfaceClass, siip.provider);
 		}
-	}
-
-	/**
-	 * Registers a dependency on a service interface Class.
-	 * <p>
-	 * This method is deprecated.  Use {@link PluginInfo#servicesRequired() @PluginInfo.servicesRequired}
-	 * instead.
-	 * <p>
-	 * @param interfaceClass interface class that this plugin depends on
-	 * @param isDependency boolean flag, if true this plugin will not work without the
-	 * specified service, if false this service can work without it.  If false, this
-	 * method is a no-op as non-dependency registration information is now discarded.
-	 */
-	@Deprecated
-	protected final void registerServiceUsed(Class<?> interfaceClass, boolean isDependency) {
-		if (isDependency) {
-			legacyRequiredServices.add(interfaceClass);
-		}
-		// information about non-dependency used-services is discarded.  Only
-		// required services are retained.
 	}
 
 	protected final void deregisterService(Class<?> interfaceClass, Object service) {
@@ -836,7 +774,7 @@ public abstract class Plugin implements ExtensionPoint, PluginEventListener, Ser
 	 * Close the plugin.   This is when the plugin should release resources, such as those from
 	 * other services.  This method should not close resources being used by others (that should
 	 * happen in dispose()).
-	 * 
+	 *
 	 * <p>This method will be called before {@link #dispose()}.
 	 */
 	protected void close() {
@@ -862,28 +800,6 @@ public abstract class Plugin implements ExtensionPoint, PluginEventListener, Ser
 	@Override
 	public int hashCode() {
 		return name.hashCode();
-	}
-
-	/**
-	 * Provides the transient state object that was returned in the corresponding getTransientState()
-	 * call.  Plugins should override this method if they have state that needs to be saved as domain objects
-	 * get switched between active and inactive.
-	 * @param state the state object that was generated by this plugin's getTransientState() method.
-	 */
-	public void restoreTransientState(Object state) {
-		// do nothing by default; subclasses should override as needed
-	}
-
-	/**
-	 * Returns an object containing the plugins state.  Plugins should override this method if
-	 * they have state that they want to maintain between domain object state transitions (i.e. when the
-	 * user tabs to a different domain object and back) Whatever object is returned will be fed back to
-	 * the plugin after the tool state is switch back to the domain object that was active when the this
-	 * method was called.
-	 * @return Object to be return in the restoreTransientState() method.
-	 */
-	public Object getTransientState() {
-		return null;
 	}
 
 	/**
@@ -917,7 +833,7 @@ public abstract class Plugin implements ExtensionPoint, PluginEventListener, Ser
 	/**
 	 * Returns the static {@link PluginDescription} object that was derived from the
 	 * {@link PluginInfo @PluginInfo} annotation at the top of your Plugin.
-	 * <p>
+	 * 
 	 * @return the static/shared {@link PluginDescription} instance that describes this Plugin.
 	 */
 	public final PluginDescription getPluginDescription() {

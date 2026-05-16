@@ -17,7 +17,7 @@ package ghidra.program.database.mem;
 
 import java.io.IOException;
 
-import db.Record;
+import db.DBRecord;
 import ghidra.program.database.map.AddressMapDB;
 import ghidra.program.model.address.*;
 import ghidra.program.model.mem.MemoryAccessException;
@@ -31,7 +31,7 @@ class BitMappedSubMemoryBlock extends SubMemoryBlock {
 	private final Address mappedAddress;
 	private boolean ioPending;
 
-	BitMappedSubMemoryBlock(MemoryMapDBAdapter adapter, Record record) {
+	BitMappedSubMemoryBlock(MemoryMapDBAdapter adapter, DBRecord record) {
 		super(adapter, record);
 		this.memMap = adapter.getMemoryMap();
 		AddressMapDB addressMap = memMap.getAddressMap();
@@ -179,7 +179,7 @@ class BitMappedSubMemoryBlock extends SubMemoryBlock {
 
 	@Override
 	protected String getDescription() {
-		return "Bit Mapped: " + mappedAddress;
+		return "bitmap[0x%x, 0x%x, %s]".formatted(subBlockOffset, subBlockLength, mappedAddress);
 	}
 
 }

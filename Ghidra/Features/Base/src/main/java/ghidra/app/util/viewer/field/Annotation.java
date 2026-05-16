@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,183 +16,172 @@
 package ghidra.app.util.viewer.field;
 
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
-import docking.widgets.fieldpanel.field.AttributedString;
-import ghidra.app.nav.Navigatable;
-import ghidra.framework.plugintool.ServiceProvider;
 import ghidra.program.model.listing.Program;
-import ghidra.util.classfinder.ClassSearcher;
 
 public class Annotation {
-	/**
-	 * A pattern to match text between two quote characters and to capture that text.  This 
-	 * pattern does not match quote characters that are escaped with a '\' character.
-	 */
-	private static final Pattern QUOTATION_PATTERN =
-		Pattern.compile("(?<!\\\\)[\"](.*?)(?<!\\\\)[\"]");
 
-	private static Map<String, AnnotatedStringHandler> ANNOTATED_STRING_MAP;
+	private static final char BS = '\\';
+	private static final String SEP = "\\s";
+	private static final String ESCAPABLE_CHARS = "{}\"\\";
 
-	private String annotationText;
-	private String[] annotationParts;
-	private AnnotatedStringHandler annotatedStringHandler;
-	private AttributedString displayString;
-
-	private static Map<String, AnnotatedStringHandler> getAnnotatedStringHandlerMap() {
-		if (ANNOTATED_STRING_MAP == null) { // lazy init due to our use of ClassSearcher
-			ANNOTATED_STRING_MAP = createAnnotatedStringHandlerMap();
-		}
-		return ANNOTATED_STRING_MAP;
-	}
-
-	// locates AnnotatedStringHandler implementations to handle annotations 
-	private static Map<String, AnnotatedStringHandler> createAnnotatedStringHandlerMap() {
-		Map<String, AnnotatedStringHandler> map = new HashMap<>();
-
-		// find all instances of AnnotatedString
-		List<AnnotatedStringHandler> instances =
-			ClassSearcher.getInstances(AnnotatedStringHandler.class);
-
-		for (AnnotatedStringHandler instance : instances) {
-			String[] supportedAnnotations = instance.getSupportedAnnotations();
-			for (String supportedAnnotation : supportedAnnotations) {
-				map.put(supportedAnnotation, instance);
-			}
-		}
-
-		return Collections.unmodifiableMap(map);
-	}
+	private final String[] annotationParts;
+	private final String annotationText;
 
 	/**
 	 * Constructor
-	 * <b>Note</b>: This constructor assumes that the string starts with "{<pre>@</pre>" and ends with '}'
+	 * <br>
+	 * <b>Note</b>: This constructor assumes that the string starts with 
+	 * "{<pre>@</pre>" and ends with '}'
 	 * 
-	 * @param annotationText The complete annotation text.
-	 * @param prototypeString An AttributedString that provides the attributes for the display 
-	 * text this Annotation can create
+	 * @param annotationText the complete annotation text.
 	 */
-	public Annotation(String annotationText, AttributedString prototypeString, Program program) {
-
+	public Annotation(String annotationText) {
+		this.annotationParts = parseAnnotationText(annotationText);
 		this.annotationText = annotationText;
-		annotationParts = parseAnnotationText(annotationText);
-
-		annotatedStringHandler = getHandler(annotationParts);
-
-		try {
-			displayString = annotatedStringHandler.createAnnotatedString(prototypeString,
-				annotationParts, program);
-		}
-		catch (AnnotationException ae) {
-			// uh-oh
-			annotatedStringHandler =
-				new InvalidAnnotatedStringHandler("Annotation Exception: " + ae.getMessage());
-			displayString = annotatedStringHandler.createAnnotatedString(prototypeString,
-				annotationParts, program);
-		}
-	}
-
-	private AnnotatedStringHandler getHandler(String[] annotationPieces) {
-
-		if (annotationPieces.length <= 1) {
-			return new InvalidAnnotatedStringHandler(
-				"Invalid annotation format." + " Expected at least two strings.");
-		}
-
-		// the first part is the annotation (@xxx)
-		String keyword = annotationPieces[0];
-		AnnotatedStringHandler handler = getAnnotatedStringHandlerMap().get(keyword);
-
-		if (handler == null) {
-			return new InvalidAnnotatedStringHandler("Invalid annotation keyword: " + keyword);
-		}
-		return handler;
-	}
-
-	String[] getAnnotationParts() {
-		return annotationParts;
-	}
-
-	AnnotatedStringHandler getHandler() {
-		return annotatedStringHandler;
-	}
-
-	public AttributedString getDisplayString() {
-		return displayString;
 	}
 
 	/**
-	 * Called when a mouse click occurs on a FieldElement containing this Annotation.
-	 * 
-	 * @param sourceNavigatable The source navigatable associated with the mouse click.
-	 * @param serviceProvider The service provider to be used when creating 
-	 * {@link AnnotatedStringHandler} instances.
-	 * @return true if the handler desires to handle the mouse click.
+	 * Constructor.  Used for creating a new Annotation from a previously parsed annotation String.
+	 *
+	 * @param annotationParts The annotation parts.
 	 */
-	public boolean handleMouseClick(Navigatable sourceNavigatable,
-			ServiceProvider serviceProvider) {
-		return annotatedStringHandler.handleMouseClick(annotationParts, sourceNavigatable,
-			serviceProvider);
+	public Annotation(String[] annotationParts) {
+		this.annotationParts = annotationParts;
+		this.annotationText = buildAnnotationText(annotationParts);
 	}
 
-	private String[] parseAnnotationText(String theAnnotationText) {
-		StringBuffer buffer = new StringBuffer(theAnnotationText);
-
-		// strip off the brackets
-		buffer.delete(0, 2); // remove '{' and '@'
-		buffer.deleteCharAt(buffer.length() - 1);
-
-		// first split out the tokens on '"' so that annotations can have groupings with 
-		// whitespace
-		int unqouotedOffset = 0;
-		List<String> tokens = new ArrayList<>();
-		Matcher matcher = QUOTATION_PATTERN.matcher(buffer.toString());
-		while (matcher.find()) {
-			// put all text in the buffer, 
-			int quoteStart = matcher.start();
-			String contentBeforeQuote = buffer.substring(unqouotedOffset, quoteStart);
-			grabTokens(tokens, contentBeforeQuote);
-			unqouotedOffset = matcher.end();
-
-			String quotedContent = matcher.group(1); // group 0 is the entire string
-			tokens.add(quotedContent);
-		}
-
-		// handle any remaining part of the text after quoted sections
-		if (unqouotedOffset < buffer.length()) {
-			String remainingString = buffer.substring(unqouotedOffset);
-			grabTokens(tokens, remainingString);
-		}
-
-		// split on whitespace
-		return tokens.toArray(new String[tokens.size()]);
+	/**
+	 * Deprecated.  Use {@link #Annotation(String)}.
+	 * @param annotationText the complete annotation text
+	 * @param program ignored
+	 */
+	@Deprecated
+	public Annotation(String annotationText, Program program) {
+		this(annotationText);
 	}
 
-	private void grabTokens(List<String> tokenContainer, String content) {
-		String[] strings = content.split("\\s");
-		for (String string : strings) {
-			// 0 length strings can happen when 'content' begins with a space
-			if (string.length() > 0) {
-				tokenContainer.add(string);
-			}
-		}
+	public String[] getAnnotationParts() {
+		return annotationParts;
 	}
 
 	public String getAnnotationText() {
 		return annotationText;
 	}
 
-	public static AnnotatedStringHandler[] getAnnotatedStringHandlers() {
-		Set<AnnotatedStringHandler> annotations =
-			new HashSet<>(getAnnotatedStringHandlerMap().values());
-		AnnotatedStringHandler[] retVal = new AnnotatedStringHandler[annotations.size()];
-		annotations.toArray(retVal);
-		return retVal;
+	@Override
+	public String toString() {
+		return annotationText;
 	}
 
-	/*package*/ static Set<String> getAnnotationNames() {
-		return Collections.unmodifiableSet(getAnnotatedStringHandlerMap().keySet());
+	private static String[] parseAnnotationText(String text) {
+		String trimmed = text.substring(2, text.length() - 1); // remove "{@" and '}' 
+		return parseText(trimmed);
 	}
 
+	private static String buildAnnotationText(String[] text) {
+		return Arrays.stream(text)
+				.map(Annotation::maybeQuote)
+				.collect(Collectors.joining(" ", "{@", "}"));
+	}
+
+	private static String[] parseText(String text) {
+		List<String> parts = new ArrayList<>();
+		boolean escape = false;
+		boolean quote = false;
+		StringBuilder buffy = new StringBuilder();
+
+		for (char c : text.toCharArray()) {
+			if (escape) {
+				escape = false;
+				buffy.append(BS);
+				buffy.append(c);
+				continue;
+			}
+
+			if (c == BS) {
+				escape = true;
+				continue;
+			}
+
+			if (c == '"') {
+				String s = buffy.toString();
+				if (quote) {
+					// end quote; keep the text as a single part
+					parts.add(s);
+				}
+				else {
+					// new quote start; split previous unquoted text into parts
+					parts.addAll(Arrays.asList(s.split(SEP)));
+				}
+				buffy.setLength(0);
+				quote = !quote;
+			}
+			else {
+				buffy.append(c);
+			}
+		}
+
+		String s = buffy.toString();
+		parts.addAll(Arrays.asList(s.split(SEP)));
+
+		return parts.stream()
+				.filter(t -> t.length() > 0)
+				.map(t -> removeEscapeChars(t))
+				.toArray(String[]::new);
+	}
+
+	// remove any backslashes that escape special annotation characters, like '{' and '}'
+	private static String removeEscapeChars(String text) {
+		boolean escape = false;
+		StringBuilder buffy = new StringBuilder();
+		for (char c : text.toCharArray()) {
+			if (escape) {
+				escape = false;
+				if (ESCAPABLE_CHARS.indexOf(c) == -1) {
+					buffy.append(BS); // restore non-escaping backslash
+				}
+				buffy.append(c);
+				continue;
+			}
+
+			if (c == BS) {
+				escape = true;
+				continue;
+			}
+
+			buffy.append(c);
+		}
+
+		return buffy.toString();
+	}
+
+	private static String maybeQuote(String text) {
+		if (needsQuotes(text)) {
+			return '"' + escapeAnnotationChars(text) + '"';
+		}
+		return text;
+	}
+
+	private static boolean needsQuotes(String text) {
+		for (char c : text.toCharArray()) {
+			if (ESCAPABLE_CHARS.indexOf(c) != -1 || Character.isWhitespace(c)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static String escapeAnnotationChars(String text) {
+		StringBuilder buffy = new StringBuilder();
+		for (char c : text.toCharArray()) {
+			if (ESCAPABLE_CHARS.indexOf(c) != -1) {
+				buffy.append(BS);
+			}
+			buffy.append(c);
+		}
+
+		return buffy.toString();
+	}
 }

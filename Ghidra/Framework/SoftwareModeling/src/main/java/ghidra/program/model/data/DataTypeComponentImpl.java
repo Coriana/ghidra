@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,11 +16,13 @@
 package ghidra.program.model.data;
 
 import java.io.Serializable;
+import java.util.Objects;
+
+import org.apache.commons.lang3.StringUtils;
 
 import ghidra.docking.settings.Settings;
 import ghidra.docking.settings.SettingsImpl;
 import ghidra.program.database.data.DataTypeUtilities;
-import ghidra.util.SystemUtilities;
 import ghidra.util.exception.DuplicateNameException;
 
 /**
@@ -30,15 +32,14 @@ public class DataTypeComponentImpl implements InternalDataTypeComponent, Seriali
 	private final static long serialVersionUID = 1;
 
 	private DataType dataType;
-	private CompositeDataTypeImpl parent; // parent prototype containing us
+	private CompositeDataTypeImpl parent; // composite containing us (may be null in certain use cases)
 	private int offset; // offset in parent
 	private int ordinal; // position in parent
-	private Settings settings;
+	private SettingsImpl defaultSettings;
 
 	private String fieldName; // name of this prototype in the component
 	private String comment; // comment about this component.
 	private int length; // my length
-	private boolean isFlexibleArrayComponent = false;
 
 	/**
 	 * Create a new DataTypeComponent
@@ -47,33 +48,25 @@ public class DataTypeComponentImpl implements InternalDataTypeComponent, Seriali
 	 * @param length the length of the dataType in this component.
 	 * @param ordinal the index within its parent.
 	 * @param offset the byte offset within the parent
-	 * @param fieldName the name associated with this component
-	 * @param comment the comment associated with this component
+	 * @param fieldName the name associated with this component or null
+	 * @param comment the comment associated with this component or null
 	 */
 	public DataTypeComponentImpl(DataType dataType, CompositeDataTypeImpl parent, int length,
 			int ordinal, int offset, String fieldName, String comment) {
-
 		this.parent = parent;
 		this.ordinal = ordinal;
 		this.offset = offset;
 		this.length = length;
-		this.fieldName = fieldName;
-		this.comment = comment;
+		this.fieldName = InternalDataTypeComponent.cleanupFieldName(fieldName);
 		setDataType(dataType);
-		initFlexibleArrayComponent();
-	}
-
-	private void initFlexibleArrayComponent() {
-		if (dataType instanceof BitFieldDataType || dataType instanceof Dynamic ||
-			dataType instanceof FactoryDataType) {
-			return;
+		setComment(comment);
+		if (isZeroBitFieldComponent()) {
+			this.length = 0; // previously stored as 1, force to 0
 		}
-		isFlexibleArrayComponent =
-			length == 0 && offset < 0 && ordinal < 0 && (parent instanceof Structure);
 	}
 
 	/**
-	 * Create a new DataTypeComponent
+	 * Create a new DataTypeComponent without a name
 	 * @param dataType the dataType for this component
 	 * @param parent the dataType that this component belongs to
 	 * @param length the length of the dataType in this component.
@@ -83,11 +76,6 @@ public class DataTypeComponentImpl implements InternalDataTypeComponent, Seriali
 	public DataTypeComponentImpl(DataType dataType, CompositeDataTypeImpl parent, int length,
 			int ordinal, int offset) {
 		this(dataType, parent, length, ordinal, offset, null, null);
-	}
-
-	@Override
-	public boolean isFlexibleArrayComponent() {
-		return isFlexibleArrayComponent;
 	}
 
 	@Override
@@ -106,25 +94,21 @@ public class DataTypeComponentImpl implements InternalDataTypeComponent, Seriali
 
 	@Override
 	public int getOffset() {
-		if (isFlexibleArrayComponent) {
-			if (parent.isNotYetDefined()) {
-				// some structures have only a flexible array defined
-				return 0;
-			}
-			return parent.getLength();
-		}
 		return offset;
 	}
 
 	boolean containsOffset(int off) {
-		if (isFlexibleArrayComponent) {
-			return false;
+		if (off == offset) { // separate check required to handle zero-length case
+			return true;
 		}
-		return off >= offset && off <= (offset + length - 1);
+		return off > offset && off < (offset + length);
 	}
 
 	@Override
 	public int getEndOffset() {
+		if (length == 0) { // separate check required to handle zero-length case
+			return offset;
+		}
 		return offset + length - 1;
 	}
 
@@ -134,56 +118,24 @@ public class DataTypeComponentImpl implements InternalDataTypeComponent, Seriali
 	}
 
 	@Override
-	public void setComment(String comment) {
-		this.comment = comment;
+	public DataTypeComponentImpl setComment(String comment) {
+		this.comment = StringUtils.isBlank(comment) ? null : comment;
+		return this;
 	}
 
 	@Override
 	public String getFieldName() {
 		if (isZeroBitFieldComponent()) {
-			return "";
+			return null;
 		}
 		return fieldName;
 	}
 
 	@Override
-	public String getDefaultFieldName() {
-		if (isZeroBitFieldComponent()) {
-			return "";
-		}
-		if (parent instanceof Structure) {
-			return DEFAULT_FIELD_NAME_PREFIX + "_0x" + Integer.toHexString(getOffset());
-		}
-		return DEFAULT_FIELD_NAME_PREFIX + getOrdinal();
-	}
-
-	@Override
-	public void setFieldName(String name) throws DuplicateNameException {
-		if (name != null) {
-			name = name.trim();
-			if (name.length() == 0 || name.equals(getDefaultFieldName())) {
-				name = null;
-			}
-			else {
-				if (name.equals(this.fieldName)) {
-					return;
-				}
-				checkDuplicateName(name);
-			}
-		}
-		this.fieldName = name;
-	}
-
-	private void checkDuplicateName(String name) throws DuplicateNameException {
-		checkDefaultFieldName(name);
-		if (parent == null) {
-			return; // Bad situation
-		}
-		for (DataTypeComponent comp : parent.getComponents()) {
-			if (comp != this && name.equals(comp.getFieldName())) {
-				throw new DuplicateNameException("Duplicate field name: " + name);
-			}
-		}
+	public DataTypeComponentImpl setFieldName(String name) {
+		// Cleanup invalid names and make unique within its parent
+		fieldName = InternalDataTypeComponent.cleanupFieldName(name);
+		return this;
 	}
 
 	public static void checkDefaultFieldName(String fieldName) throws DuplicateNameException {
@@ -217,11 +169,23 @@ public class DataTypeComponentImpl implements InternalDataTypeComponent, Seriali
 		return parent;
 	}
 
+	/**
+	 * Perform special-case component update that does not result in size or alignment changes. 
+	 * @param name new component name
+	 * @param newDataType new resolved datatype
+	 * @param newComment new comment
+	 */
+	void update(String name, DataType newDataType, String newComment) {
+		this.dataType = newDataType;
+		setFieldName(name);
+		setComment(newComment);
+	}
+
 	@Override
-	public void update(int ordinal, int offset, int length) {
-		this.ordinal = ordinal;
-		this.offset = offset;
-		this.length = length;
+	public void update(int newOrdinal, int newOffset, int newLength) {
+		this.ordinal = newOrdinal;
+		this.offset = newOffset;
+		this.length = newLength;
 	}
 
 	/**
@@ -244,16 +208,13 @@ public class DataTypeComponentImpl implements InternalDataTypeComponent, Seriali
 
 	@Override
 	public int getOrdinal() {
-		if (isFlexibleArrayComponent) {
-			return parent.getNumComponents();
-		}
 		return ordinal;
 	}
 
 	/**
 	 * Set the component ordinal of this component within its parent
 	 * data type.
-	 * @param ordinal
+	 * @param ordinal component ordinal
 	 */
 	void setOrdinal(int ordinal) {
 		this.ordinal = ordinal;
@@ -261,15 +222,18 @@ public class DataTypeComponentImpl implements InternalDataTypeComponent, Seriali
 
 	@Override
 	public Settings getDefaultSettings() {
-		if (settings == null) {
-			settings = new SettingsImpl();
+		if (defaultSettings == null && parent != null) {
+			DataTypeManager dataMgr = parent.getDataTypeManager();
+			boolean immutableSettings =
+				dataMgr == null || !dataMgr.allowsDefaultComponentSettings();
+			defaultSettings = new SettingsImpl(immutableSettings);
+			defaultSettings.setDefaultSettings(getDataType().getDefaultSettings());
 		}
-		return settings;
+		return defaultSettings;
 	}
 
-	@Override
-	public void setDefaultSettings(Settings settings) {
-		this.settings = settings;
+	void invalidateSettings() {
+		defaultSettings = null;
 	}
 
 	@Override
@@ -287,12 +251,10 @@ public class DataTypeComponentImpl implements InternalDataTypeComponent, Seriali
 		DataType myDt = getDataType();
 		DataType otherDt = dtc.getDataType();
 
-		// NOTE: use getOffset() and getOrdinal() methods since returned values will differ from
-		// stored values for flexible array component
-		if (getOffset() != dtc.getOffset() || getLength() != dtc.getLength() ||
-			getOrdinal() != dtc.getOrdinal() ||
-			!SystemUtilities.isEqual(getFieldName(), dtc.getFieldName()) ||
-			!SystemUtilities.isEqual(getComment(), dtc.getComment())) {
+		if (offset != dtc.getOffset() || getLength() != dtc.getLength() ||
+			ordinal != dtc.getOrdinal() ||
+			!Objects.equals(getFieldName(), dtc.getFieldName()) ||
+			!Objects.equals(getComment(), dtc.getComment())) {
 			return false;
 		}
 		if (!(myDt instanceof Pointer)) {
@@ -328,15 +290,16 @@ public class DataTypeComponentImpl implements InternalDataTypeComponent, Seriali
 		DataType otherDt = dtc.getDataType();
 		DataType myParent = getParent();
 		boolean aligned =
-			(myParent instanceof Composite) ? ((Composite) myParent).isInternallyAligned() : false;
-		// Components don't need to have matching offset when they are aligned, only matching ordinal.
-		if ((!aligned && (getOffset() != dtc.getOffset())) ||
-			// Components don't need to have matching length when they are aligned. Is this correct?
-			// NOTE: use getOffset() and getOrdinal() methods since returned values will differ from
-			// stored values for flexible array component
-			(!aligned && (getLength() != dtc.getLength())) || getOrdinal() != dtc.getOrdinal() ||
-			!SystemUtilities.isEqual(getFieldName(), dtc.getFieldName()) ||
-			!SystemUtilities.isEqual(getComment(), dtc.getComment())) {
+			(myParent instanceof Composite) ? ((Composite) myParent).isPackingEnabled() : false;
+		// Components don't need to have matching offset when they are aligned
+		if ((!aligned && (offset != dtc.getOffset())) ||
+			!Objects.equals(getFieldName(), dtc.getFieldName()) ||
+			!Objects.equals(getComment(), dtc.getComment())) {
+			return false;
+		}
+
+		// Component lengths need only be checked for dynamic types
+		if (getLength() != dtc.getLength() && (myDt instanceof Dynamic)) {
 			return false;
 		}
 
@@ -345,29 +308,50 @@ public class DataTypeComponentImpl implements InternalDataTypeComponent, Seriali
 
 	@Override
 	public void setDataType(DataType dt) {
+		// intended for internal use only - note exsiting settings should be preserved
 		dataType = dt;
-		if (dt instanceof BitFieldDataType) {
-			// bit-field packing may change component size
-			setLength(dt.getLength());
-		}
+	}
+
+	@Override
+	public boolean isUndefined() {
+		return dataType == DataType.DEFAULT;
 	}
 
 	@Override
 	public String toString() {
-		StringBuffer buffer = new StringBuffer();
-		buffer.append("  " + ordinal);
-		buffer.append("  " + offset);
-		buffer.append("  " + dataType.getName());
-		if (isFlexibleArrayComponent) {
-			buffer.append("[ ]");
+		return InternalDataTypeComponent.toString(this);
+	}
+
+	/**
+	 * Get the preferred length for a new component. The length returned will be no
+	 * larger than the specified length.
+	 * 
+	 * @param dataType new component datatype
+	 * @param length   constrained length or -1 to force use of dataType size.
+	 *                 Dynamic types such as string must have a positive length
+	 *                 specified.
+	 * @return preferred component length
+	 * @throws IllegalArgumentException if length not specified for a {@link Dynamic} dataType.
+	 */
+	public static int getPreferredComponentLength(DataType dataType, int length) {
+		if (DataTypeComponent.usesZeroLengthComponent(dataType)) {
+			return 0;
 		}
-		else if (dataType instanceof BitFieldDataType) {
-			buffer.append("(" + ((BitFieldDataType) dataType).getBitOffset() + ")");
+		if ((dataType instanceof Dynamic dynamic) && dynamic.canSpecifyLength()) {
+			return length;
 		}
-		buffer.append("  " + length);
-		buffer.append("  " + fieldName);
-		buffer.append("  " + ((comment != null) ? ("\"" + comment + "\"") : comment));
-		return buffer.toString();
+		int dtLength = dataType.getLength();
+		if (length <= 0) {
+			length = dtLength;
+		}
+		else if (dtLength >= 0 && dtLength < length) { // constrain fixed-length type
+			length = dtLength;
+		}
+		if (length <= 0) {
+			throw new IllegalArgumentException("Positive length must be specified for " +
+				dataType.getDisplayName() + " component");
+		}
+		return length;
 	}
 
 }

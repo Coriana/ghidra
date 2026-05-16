@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,20 +15,19 @@
  */
 package ghidra.framework.main;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.*;
 
 import java.util.function.Supplier;
 
 import javax.swing.JFrame;
 import javax.swing.JScrollPane;
-import javax.swing.text.Document;
 
 import org.junit.Test;
 
-import generic.test.AbstractGenericTest;
+import generic.test.AbstractGuiTest;
 import ghidra.framework.plugintool.DummyPluginTool;
 
-public class ConsoleTextPaneTest {
+public class ConsoleTextPaneTest extends AbstractGuiTest {
 
 	private int runNumber = 1;
 
@@ -104,37 +103,42 @@ public class ConsoleTextPaneTest {
 		assertCaretAtBottom(text);
 	}
 
+//=================================================================================================
+// Private Methods
+//=================================================================================================	
+
 	private void setCaret(ConsoleTextPane text, int position) {
 		swing(() -> text.setCaretPosition(position));
 	}
 
 	private void assertCaretAtTop(ConsoleTextPane text) {
 
-		AbstractGenericTest.waitForSwing();
+		waitForSwing();
 		int expectedPosition = 0;
 		assertCaretPosition(text, expectedPosition);
 	}
 
 	private void assertCaretAtBottom(ConsoleTextPane text) {
 
-		AbstractGenericTest.waitForSwing();
+		waitForSwing();
 		int expectedPosition = text.getDocument().getLength();
 		assertCaretPosition(text, expectedPosition);
 	}
 
 	private void assertCaretPosition(ConsoleTextPane text, int expectedPosition) {
-
-		AbstractGenericTest.waitForSwing();
-		Document doc = text.getDocument();
+		waitForSwing();
 		int actualPosition = swing(() -> text.getCaretPosition());
 		assertEquals(expectedPosition, actualPosition);
 	}
 
 	private void printEnoughLinesToOverflowTheMaxCharCount(ConsoleTextPane text) {
-		AbstractGenericTest.runSwing(() -> {
+		runSwing(() -> {
 
-			for (int i = 0; i < 20; i++) {
-				text.addMessage("Run " + runNumber + " - line " + (i + 1) + '\n');
+			int charsWritten = 0;
+			for (int i = 0; charsWritten < text.getMaximumCharacterLimit(); i++) {
+				String msg = "Run " + runNumber + " - line " + (i + 1) + '\n';
+				charsWritten += msg.length();
+				text.addMessage(msg);
 			}
 		});
 
@@ -142,10 +146,10 @@ public class ConsoleTextPaneTest {
 	}
 
 	private void swing(Runnable r) {
-		AbstractGenericTest.runSwing(r);
+		runSwing(r);
 	}
 
 	private <T> T swing(Supplier<T> s) {
-		return AbstractGenericTest.runSwing(s);
+		return runSwing(s);
 	}
 }

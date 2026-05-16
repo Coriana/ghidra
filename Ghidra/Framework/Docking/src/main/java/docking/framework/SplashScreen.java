@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,13 +21,20 @@ import java.util.List;
 
 import javax.swing.*;
 import javax.swing.border.BevelBorder;
+import javax.swing.border.CompoundBorder;
+
+import org.apache.commons.lang3.StringUtils;
 
 import docking.*;
 import docking.widgets.label.GDLabel;
-import docking.widgets.label.GLabel;
+import generic.application.GenericApplicationLayout;
+import generic.theme.GColor;
+import generic.theme.GThemeDefaults.Colors;
+import generic.theme.Gui;
 import generic.util.WindowUtilities;
 import ghidra.framework.Application;
 import ghidra.util.Msg;
+import ghidra.util.Swing;
 import utility.application.ApplicationLayout;
 
 /**
@@ -37,42 +44,71 @@ import utility.application.ApplicationLayout;
  */
 public class SplashScreen extends JWindow {
 
-	private static final Color DEFAULT_BACKGROUND_COLOR = new Color(243, 250, 255);
+	private static final Color BG_COLOR = new GColor("color.bg.splashscreen");
+
+	private static final String FONT_ID = "font.splash.status";
 
 	private static SplashScreen splashWindow; // splash window displayed while ghidra is coming up
-	private static JFrame hiddenFrame;
+	private static DockingFrame hiddenFrame;
 	private static JLabel statusLabel;
 	private static Timer hideSplashWindowTimer;
 
 	/**
-	 * Show the splash screen; displayed only when Ghidra is first coming up
+	 * Show the splash screen on the Swing thread later.
+	 */
+	public static void showLater() {
+
+		Swing.runIfSwingOrRunLater(() -> {
+
+			if (splashWindow != null) {
+				return; // already showing
+			}
+
+			JFrame parentFrame = getParentFrame();
+			splashWindow = new SplashScreen(parentFrame);
+
+			initializeSplashWindowAndParent(parentFrame);
+
+			createSplashScreenCloseListeners(parentFrame);
+
+			parentFrame.setVisible(true);
+			splashWindow.setVisible(true);
+
+			// this call is needed for the splash screen to initially paint correctly on the Mac
+			splashWindow.repaint();
+		});
+	}
+
+	/**
+	 * Show the splash screen on the Swing thread now.  This will block.
 	 * @return the new splash screen
 	 */
-	public static SplashScreen showSplashScreen() {
-		if (splashWindow != null) {
-			return splashWindow; // already showing
-		}
+	public static SplashScreen showNow() {
+		return Swing.runNow(() -> {
+			if (splashWindow != null) {
+				return splashWindow; // already showing
+			}
 
-		final JFrame parentFrame = getParentFrame();
-		splashWindow = new SplashScreen(parentFrame);
+			JFrame parentFrame = getParentFrame();
+			splashWindow = new SplashScreen(parentFrame);
 
-		initializeSplashWindowAndParent(parentFrame);
+			initializeSplashWindowAndParent(parentFrame);
 
-		createSplashScreenCloseListeners(parentFrame);
+			createSplashScreenCloseListeners(parentFrame);
 
-		parentFrame.setVisible(true);
-		splashWindow.setVisible(true);
+			parentFrame.setVisible(true);
+			splashWindow.setVisible(true);
 
-		// this call is needed for the splash screen to initially paint correctly on the Mac
-		splashWindow.repaint();
-		return splashWindow;
+			// this call is needed for the splash screen to initially paint correctly on the Mac
+			splashWindow.repaint();
+			return splashWindow;
+		});
 	}
 
 	private static void initializeSplashWindowAndParent(final JFrame parentFrame) {
 
 		Dimension wd = splashWindow.getPreferredSize();
 		Point point = WindowUtilities.centerOnScreen(wd);
-
 		splashWindow.setLocation(point);
 
 		// move us when the parent frame moves
@@ -250,6 +286,7 @@ public class SplashScreen extends JWindow {
 			List<Image> list = ApplicationInformationDisplayFactory.getWindowIcons();
 			hiddenFrame.setIconImages(list);
 			hiddenFrame.setUndecorated(true);
+			hiddenFrame.setTransient();
 		}
 		return hiddenFrame;
 	}
@@ -261,6 +298,10 @@ public class SplashScreen extends JWindow {
 		hideSplashWindowTimer.stop();
 		closeSplashScreen();
 		if (hiddenFrame != null) {
+			WindowListener[] windowListeners = hiddenFrame.getWindowListeners();
+			for (WindowListener l : windowListeners) {
+				hiddenFrame.removeWindowListener(l);
+			}
 			hiddenFrame.setVisible(false);
 			hiddenFrame.dispose();
 			hiddenFrame = null;
@@ -279,18 +320,25 @@ public class SplashScreen extends JWindow {
 		updateStatus(status);
 	}
 
-	/**
-	 * Update the status label on the splash screen window.
-	 * @param status
-	 */
+	public static void clearStatus() {
+		updateSplashScreenStatus(null);
+	}
+
 	private static void updateStatus(String status) {
-		statusLabel.setText(status);
+		// empty strings causes label to lose its height
+		String message = StringUtils.isBlank(status) ? " " : status;
+		Swing.runIfSwingOrRunLater(() -> {
+			statusLabel.setText(message);
+			Rectangle bounds = statusLabel.getBounds();
+			bounds.x = 0;
+			bounds.y = 0;
+			statusLabel.paintImmediately(bounds);
+		});
 	}
 
 	private JPanel createMainPanel() {
 		JPanel mainPanel = new JPanel(new BorderLayout());
-		mainPanel.setBackground(DEFAULT_BACKGROUND_COLOR);
-		mainPanel.add(createTitlePanel(), BorderLayout.NORTH);
+		mainPanel.setBackground(BG_COLOR);
 		mainPanel.add(createContentPanel(), BorderLayout.CENTER);
 		return mainPanel;
 	}
@@ -303,39 +351,17 @@ public class SplashScreen extends JWindow {
 		return contentPanel;
 	}
 
-	private Component createTitlePanel() {
-		Color backgroundColor = UIManager.getColor("InternalFrame.activeTitleBackground");
-		Color foregroundColor = UIManager.getColor("InternalFrame.activeTitleForeground");
-
-		JPanel titlePanel = new JPanel();
-		if (backgroundColor == null) {
-			backgroundColor = new Color(0, 0, 255);
-		}
-		titlePanel.setBackground(backgroundColor);
-		titlePanel.setLayout(new BorderLayout());
-
-		JLabel titleLabel =
-			new GLabel(ApplicationInformationDisplayFactory.createSplashScreenTitle());
-		Font font = titleLabel.getFont();
-		font = new Font(font.getName(), Font.BOLD, 11);
-		titleLabel.setFont(font);
-		if (foregroundColor == null) {
-			foregroundColor = Color.white;
-		}
-		titleLabel.setForeground(foregroundColor);
-		titlePanel.add(titleLabel, BorderLayout.CENTER);
-		titlePanel.setBorder(BorderFactory.createEmptyBorder(2, 10, 2, 10));
-		return titlePanel;
-	}
-
 	private Component createStatusComponent() {
-		Font f = new Font("serif", Font.BOLD, 12);
 		statusLabel = new GDLabel(" Loading...");
-		statusLabel.setFont(f);
+		Gui.registerFont(statusLabel, FONT_ID);
+		statusLabel.setFont(Gui.getFont(FONT_ID));
 
-		statusLabel.setBorder(BorderFactory.createEmptyBorder(0, 10, 2, 10));
-		statusLabel.setBackground(DEFAULT_BACKGROUND_COLOR);
+		CompoundBorder border = BorderFactory.createCompoundBorder(
+			BorderFactory.createLoweredBevelBorder(), BorderFactory.createEmptyBorder(0, 5, 2, 5));
+		statusLabel.setBorder(border);
 		statusLabel.setOpaque(true);
+		statusLabel.setBackground(Colors.BACKGROUND);
+		statusLabel.setForeground(Colors.FOREGROUND);
 		return statusLabel;
 	}
 
@@ -344,12 +370,12 @@ public class SplashScreen extends JWindow {
 	}
 
 	public static void main(String[] args) throws Exception {
-		ApplicationLayout layout = new DockingApplicationLayout("Splash Screen Main", "1.0");
+		ApplicationLayout layout = new GenericApplicationLayout("Splash Screen Main", "1.0");
 		DockingApplicationConfiguration config = new DockingApplicationConfiguration();
 
 		config.setShowSplashScreen(false);
 		Application.initializeApplication(layout, config);
-		showSplashScreen();
+		showLater();
 
 // tests that modal dialogs popup on top of the splash screen
 //	    new Thread( new Runnable() {
@@ -403,4 +429,5 @@ public class SplashScreen extends JWindow {
 			}
 		}).start();
 	}
+
 }

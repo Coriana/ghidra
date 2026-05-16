@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,15 +15,52 @@
  */
 package ghidra.app.plugin.debug.dbtable;
 
-import db.Record;
+import db.DBRecord;
+import docking.widgets.table.AbstractDynamicTableColumnStub;
+import ghidra.docking.settings.Settings;
+import ghidra.framework.plugintool.ServiceProvider;
 
-abstract class AbstractColumnAdapter {
+abstract class AbstractColumnAdapter extends AbstractDynamicTableColumnStub<DBRecord, Object> {
+
+	protected LongRenderer longRenderer = new LongRenderer();
+
+	protected int column;
+	private String columnName;
+
+	AbstractColumnAdapter(String columnName, int column) {
+		this.column = column;
+		this.columnName = columnName;
+	}
+
+	@Override
+	public Object getValue(DBRecord rowObject, Settings settings, ServiceProvider serviceProvider)
+			throws IllegalArgumentException {
+
+		if (column == 0) {
+			return getKeyValue(rowObject);
+		}
+
+		// -1, since the DB indices do not have the key column included
+		int dbColumn = column - 1;
+		return getValue(rowObject, dbColumn);
+	}
+
+	@SuppressWarnings("unchecked")
+	@Override
+	public Class<Object> getColumnClass() {
+		return (Class<Object>) getValueClass();
+	}
+
+	@Override
+	public String getColumnName() {
+		return columnName;
+	}
 
 	abstract Class<?> getValueClass();
 
-	abstract Object getKeyValue(Record rec);
+	abstract Object getKeyValue(DBRecord rec);
 
-	abstract Object getValue(Record rec, int col);
+	abstract Object getValue(DBRecord rec, int dbColumn);
 
 	protected String getByteString(byte b) {
 		String str = Integer.toHexString(b);
@@ -34,20 +70,4 @@ abstract class AbstractColumnAdapter {
 		return "0x" + str;
 	}
 
-//	private String format(long l, int size) {
-//		String hex = Long.toHexString(l);
-//		if (hex.length() > size) {
-//			hex = hex.substring(hex.length()-size);
-//		}
-//		else if (hex.length() < size) {
-//			StringBuffer b = new StringBuffer(20);
-//			for(int i=hex.length();i<size;i++) {
-//				b.append("");
-//			}
-//			b.append(hex);
-//			hex = b.toString();
-//		}
-//		
-//		return hex;
-//	}
 }

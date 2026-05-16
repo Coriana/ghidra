@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,7 +21,8 @@ import ghidra.app.cmd.data.CreateStringCmd;
 import ghidra.app.cmd.function.CreateFunctionCmd;
 import ghidra.app.services.Analyzer;
 import ghidra.app.util.importer.MessageLog;
-import ghidra.docking.settings.*;
+import ghidra.docking.settings.FormatSettingsDefinition;
+import ghidra.docking.settings.SettingsDefinition;
 import ghidra.framework.options.Options;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSetView;
@@ -138,8 +139,6 @@ public abstract class AbstractJavaAnalyzer implements Analyzer {
 	}
 
 	protected void changeFormatToString(Data data) {
-		SettingsImpl settings = new SettingsImpl(data);
-		settings.setDefaultSettings(settings);
 		SettingsDefinition[] settingsDefinitions = data.getDataType().getSettingsDefinitions();
 		for (SettingsDefinition settingsDefinition : settingsDefinitions) {
 			if (settingsDefinition instanceof FormatSettingsDefinition) {
@@ -208,7 +207,7 @@ public abstract class AbstractJavaAnalyzer implements Analyzer {
 	}
 
 	protected boolean setPlateComment(Program program, Address address, String comment) {
-		SetCommentCmd cmd = new SetCommentCmd(address, CodeUnit.PLATE_COMMENT, comment);
+		SetCommentCmd cmd = new SetCommentCmd(address, CommentType.PLATE, comment);
 		return cmd.applyTo(program);
 	}
 
@@ -221,4 +220,5 @@ public abstract class AbstractJavaAnalyzer implements Analyzer {
 	protected Address find(Program program, Address start, byte[] values, TaskMonitor monitor) {
 		return program.getMemory().findBytes(start, values, null, true, monitor);
 	}
+
 }

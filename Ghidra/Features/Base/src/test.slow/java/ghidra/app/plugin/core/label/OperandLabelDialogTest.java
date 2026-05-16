@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,12 +15,11 @@
  */
 package ghidra.app.plugin.core.label;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.*;
 
 import org.junit.*;
 
 import docking.ActionContext;
-import docking.widgets.combobox.GhidraComboBox;
 import ghidra.app.events.ProgramLocationPluginEvent;
 import ghidra.app.plugin.core.codebrowser.CodeBrowserPlugin;
 import ghidra.framework.plugintool.PluginTool;
@@ -37,8 +36,6 @@ public class OperandLabelDialogTest extends AbstractGhidraHeadedIntegrationTest 
 	private LabelMgrPlugin plugin;
 	private CodeBrowserPlugin cb;
 	private Program program;
-	private OperandLabelDialog dialog;
-	private GhidraComboBox<?> combo;
 	private SetOperandLabelAction setLabelAction;
 
 	@Before
@@ -50,10 +47,6 @@ public class OperandLabelDialogTest extends AbstractGhidraHeadedIntegrationTest 
 		tool = env.launchDefaultTool(program);
 		plugin = getPlugin(tool, LabelMgrPlugin.class);
 		cb = getPlugin(tool, CodeBrowserPlugin.class);
-
-		dialog = runSwing(() -> plugin.getOperandLabelDialog());
-
-		combo = (GhidraComboBox<?>) findComponentByName(dialog, "MYCHOICE");
 
 		setLabelAction = (SetOperandLabelAction) getAction(plugin, "Set Operand Label");
 	}
@@ -80,7 +73,9 @@ public class OperandLabelDialogTest extends AbstractGhidraHeadedIntegrationTest 
 		performAction(setLabelAction, context, false);
 		waitForSwing();
 
-		runSwing(() -> combo.setSelectedItem("bob"));
+		SymbolChooserDialog dialog = waitForDialogComponent(SymbolChooserDialog.class);
+
+		setSelectedItem(dialog, "bob");
 
 		pressButtonByText(dialog, "OK");
 		waitForSwing();
@@ -94,7 +89,9 @@ public class OperandLabelDialogTest extends AbstractGhidraHeadedIntegrationTest 
 		performAction(setLabelAction, context, false);
 		waitForSwing();
 
-		runSwing(() -> combo.setSelectedItem("b"));
+		dialog = waitForDialogComponent(SymbolChooserDialog.class);
+
+		setSelectedItem(dialog, "b");
 		pressButtonByText(dialog, "OK");
 
 		program.flushEvents();
@@ -108,4 +105,7 @@ public class OperandLabelDialogTest extends AbstractGhidraHeadedIntegrationTest 
 		assertEquals("dword ptr [b]", cb.getCurrentFieldText());
 	}
 
+	private void setSelectedItem(SymbolChooserDialog dialog, String item) {
+		runSwing(() -> dialog.setSelectedItem(item));
+	}
 }

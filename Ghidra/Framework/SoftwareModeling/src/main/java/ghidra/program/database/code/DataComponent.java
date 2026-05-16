@@ -4,27 +4,25 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/*
- *
- */
 package ghidra.program.database.code;
 
-import db.Record;
-import ghidra.program.database.DBObjectCache;
+import db.DBRecord;
+import ghidra.docking.settings.Settings;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.*;
-import ghidra.program.model.listing.CodeUnit;
+import ghidra.program.model.listing.CommentType;
 import ghidra.program.model.listing.Data;
 import ghidra.program.model.mem.MemoryAccessException;
+import ghidra.util.Lock.Closeable;
 
 /**
  * <code>DataComponent</code> provides Data and CodeUnit access to Struct and Array components.
@@ -42,52 +40,53 @@ class DataComponent extends DataDB {
 	private int[] path;
 
 	/**
-	 * Constructs a new DataComponent
+	 * Constructs a new {@link DataComponent} for a {@link DataTypeComponent}.
+	 * NOTE: a zero-length component will be forced to have a length of 1-byte.
+	 * This can result in what would appear to be overlapping components with the same overset.
 	 * @param codeMgr the code manager.
-	 * @param componentCache data component cache
 	 * @param address the address of the data component
 	 * @param addr the convert address long value
 	 * @param parent the DataDB object that contains this component.
 	 * @param component the DataTypeComponent for this DataComponent.
 	 */
-	public DataComponent(CodeManager codeMgr, DBObjectCache<DataDB> componentCache, Address address,
-			long addr, DataDB parent, DataTypeComponent component) {
-		super(codeMgr, componentCache, component.getOrdinal(), address, addr,
+	DataComponent(CodeManager codeMgr, Address address, long addr, DataDB parent,
+			DataTypeComponent component) {
+		super(codeMgr, component.getOrdinal(), address, addr,
 			component.getDataType());
 		this.indexInParent = component.getOrdinal();
 		this.parent = parent;
 		this.component = component;
 		this.level = parent.level + 1;
 		this.offset = component.getOffset();
-		this.length = component.getLength();
-		defaultSettings = component.getDefaultSettings();
+		length = component.getLength();
+		if (length == 0) {
+			length = 1; // zero-length components must be forced to have a length of 1
+		}
 	}
 
 	/**
-	 * Constructs a new DataComponent
+	 * Constructs a new {@link DataComponent} for an {@link Array} element.
 	 * @param codeMgr the code manager.
 	 * @param componentCache data component cache
 	 * @param address the address of the data component
 	 * @param addr the convert address long value
 	 * @param parent the DataDB object that contains this component.
-	 * @param dt the datatype for this component.
-	 * @param ordinal the ordinal for this component.
-	 * @param offset the offset of this component within its parent.
-	 * @param the length of this component.
+	 * @param array the array containing this component.
+	 * @param ordinal the array index for this component.
 	 */
-	DataComponent(CodeManager codeMgr, DBObjectCache<DataDB> componentCache, Address address,
-			long addr, DataDB parent, DataType dt, int ordinal, int offset, int length) {
-		super(codeMgr, componentCache, ordinal, address, addr, dt);
+	DataComponent(CodeManager codeMgr, Address address, long addr, DataDB parent, Array array,
+			int ordinal) {
+		super(codeMgr, ordinal, address, addr, array.getDataType());
+		int elementLength = array.getElementLength();
 		this.indexInParent = ordinal;
 		this.parent = parent;
-		this.offset = offset;
+		this.offset = ordinal * elementLength;
 		this.level = parent.level + 1;
-		this.length = length;
-		defaultSettings = dataType.getDefaultSettings();
+		this.length = elementLength;
 	}
 
 	@Override
-	protected boolean hasBeenDeleted(Record rec) {
+	protected boolean hasBeenDeleted(DBRecord rec) {
 		// Records do not apply to data components which
 		// are derived from parent data type
 		if (parent.hasBeenDeleted(null)) {
@@ -106,6 +105,9 @@ class DataComponent extends DataDB {
 			dataType = c.getDataType();
 			offset = component.getOffset();
 			length = component.getLength();
+			if (length == 0) {
+				length = 1; // zero-length components must be forced to have a length of 1
+			}
 		}
 		else if (pdt instanceof Array) {
 			Array a = (Array) pdt;
@@ -123,20 +125,10 @@ class DataComponent extends DataDB {
 		address = parent.getAddress().add(offset);
 		addr = parent.addr + offset;
 		baseDataType = getBaseDataType(dataType);
-		if (component != null) {
-			defaultSettings = component.getDefaultSettings();
-		}
-		else {
-			defaultSettings = dataType.getDefaultSettings();
-		}
 		bytes = null;
 		return false;
 	}
 
-	/**
-	 *
-	 * @see ghidra.program.model.listing.Data#getComponentPath()
-	 */
 	@Override
 	public int[] getComponentPath() {
 		if (path == null) {
@@ -154,20 +146,6 @@ class DataComponent extends DataDB {
 		return path;
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.CodeUnit#getLength()
-	 */
-	@Override
-	public int getLength() {
-		return length;
-	}
-
-	/**
-	 * Get the name of this Data that is a component of another
-	 * Data Item.
-	 * @return the name as a component of another prototype,
-	 *         and null if this is not a component of another prototype.
-	 */
 	@Override
 	public String getFieldName() {
 		if (component == null) { // is array?
@@ -180,18 +158,12 @@ class DataComponent extends DataDB {
 		return myName;
 	}
 
-	/**
-	 * Returns the path name (dot notation) for this field
-	 */
 	@Override
 	public String getPathName() {
 		String parentPath = parent.getPathName();
 		return getComponentName(parentPath);
 	}
 
-	/**
-	 * Returns the relative path name (dot notation) for this field
-	 */
 	@Override
 	public String getComponentPathName() {
 		String parentPath = parent.getComponentPathName();
@@ -211,55 +183,31 @@ class DataComponent extends DataDB {
 		return stringBuffer.toString();
 	}
 
-	/**
-	 * Get the immediate parent Data Prototype of this component
-	 */
 	@Override
 	public Data getParent() {
 		return parent;
 	}
 
-	/**
-	 * Get the highest level Data Prototype in a hierarchy of structures
-	 * containing this component.
-	 */
 	@Override
 	public Data getRoot() {
 		return parent.getRoot();
 	}
 
-	/**
-	 * Get the offset of this Data item from the start of
-	 *  some hierarchy of structures.
-	 */
 	@Override
 	public int getRootOffset() {
 		return parent.getRootOffset() + getParentOffset();
 	}
 
-	/**
-	 * Get the offset of this Data item from the start of its immediate
-	 * parent.
-	 */
 	@Override
 	public int getParentOffset() {
 		return offset;
 	}
 
-	/**
-	 * Get the index of this Data item within its parent
-	 *
-	 * @return the index of this component in its parent
-	 *         returns -1 if this is not a component
-	 */
 	@Override
 	public int getComponentIndex() {
 		return indexInParent;
 	}
 
-	/**
-	 * @see java.lang.Object#equals(java.lang.Object)
-	 */
 	@Override
 	public boolean equals(Object obj) {
 
@@ -285,63 +233,52 @@ class DataComponent extends DataDB {
 	}
 
 	@Override
-	public int getBytes(byte[] b, int offset) {
-		lock.acquire();
-		try {
-			checkIsValid();
-			return parent.getBytes(b, this.offset + offset);
-		}
-		finally {
-			lock.release();
+	public int getBytes(byte[] b, int off) {
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
+			return parent.getBytes(b, this.offset + off);
 		}
 	}
 
 	@Override
 	public byte[] getBytes() throws MemoryAccessException {
-		lock.acquire();
-		try {
-			checkIsValid();
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
 			byte[] b = new byte[length];
 			if (parent.getBytes(b, this.offset) != length) {
 				throw new MemoryAccessException("Couldn't get all bytes for CodeUnit");
 			}
 			return b;
 		}
-		finally {
-			lock.release();
-		}
 	}
 
 	@Override
 	public byte getByte(int n) throws MemoryAccessException {
-		lock.acquire();
-		try {
-			checkIsValid();
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
 			return parent.getByte(this.offset + n);
-		}
-		finally {
-			lock.release();
 		}
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.CodeUnit#getComment(int)
-	 */
 	@Override
-	public String getComment(int commentType) {
+	public String getComment(CommentType commentType) {
 		String cmt = super.getComment(commentType);
-		if (cmt == null && commentType == CodeUnit.EOL_COMMENT && component != null) {
+		if (cmt == null && commentType == CommentType.EOL && component != null) {
 			cmt = component.getComment();
 		}
 		return cmt;
 	}
 
 	@Override
-	protected Address getDataSettingsAddress() {
-		if (parent.getBaseDataType() instanceof Array) {
-			return parent.getDataSettingsAddress();
+	public Settings getDefaultSettings() {
+		if (component != null) {
+			return component.getDefaultSettings();
 		}
-		return address;
+		if (parent instanceof DataComponent) {
+			// Ensure we pickup default component settings for array
+			return parent.getDefaultSettings();
+		}
+		return super.getDefaultSettings();
 	}
 
 }

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -33,9 +33,10 @@ import ghidra.test.AbstractGhidraHeadedIntegrationTest;
 import ghidra.test.TestEnv;
 import ghidra.util.Lock;
 import ghidra.util.exception.CancelledException;
-import ghidra.util.task.TaskMonitorAdapter;
+import ghidra.util.task.TaskMonitor;
 
-public class AddressRangeMapDBTest extends AbstractGhidraHeadedIntegrationTest implements ErrorHandler {
+public class AddressRangeMapDBTest extends AbstractGhidraHeadedIntegrationTest
+		implements ErrorHandler {
 
 	private TestEnv env; // needed to discover languages
 	private ProgramDB program;
@@ -53,7 +54,7 @@ public class AddressRangeMapDBTest extends AbstractGhidraHeadedIntegrationTest i
 		Language language = service.getLanguage(new LanguageID("sparc:BE:64:default"));
 		program = new ProgramDB("test", language, language.getDefaultCompilerSpec(), this);
 
-		MemoryMapDB memory = (MemoryMapDB) program.getMemory();
+		MemoryMapDB memory = program.getMemory();
 		addrMap = (AddressMap) getInstanceField("addrMap", memory);
 		space = program.getAddressFactory().getDefaultAddressSpace();
 	}
@@ -83,7 +84,7 @@ public class AddressRangeMapDBTest extends AbstractGhidraHeadedIntegrationTest i
 	public void testTransaction() {
 
 		AddressRangeMapDB map = new AddressRangeMapDB(program.getDBHandle(), addrMap,
-			new Lock("Test"), "TEST", this, LongField.class, true);
+			new Lock("Test"), "TEST", this, LongField.INSTANCE, true);
 
 		try {
 			map.paintRange(addr(0), addr(0x1000), ONE);
@@ -114,7 +115,7 @@ public class AddressRangeMapDBTest extends AbstractGhidraHeadedIntegrationTest i
 	public void testPaint() {
 
 		AddressRangeMapDB map = new AddressRangeMapDB(program.getDBHandle(), addrMap,
-			new Lock("Test"), "TEST", this, LongField.class, true);
+			new Lock("Test"), "TEST", this, LongField.INSTANCE, true);
 
 		int id = program.startTransaction("TEST");
 		try {
@@ -152,7 +153,7 @@ public class AddressRangeMapDBTest extends AbstractGhidraHeadedIntegrationTest i
 	public void testClear() {
 
 		AddressRangeMapDB map = new AddressRangeMapDB(program.getDBHandle(), addrMap,
-			new Lock("Test"), "TEST", this, LongField.class, true);
+			new Lock("Test"), "TEST", this, LongField.INSTANCE, true);
 
 		int id = program.startTransaction("TEST");
 		try {
@@ -186,7 +187,7 @@ public class AddressRangeMapDBTest extends AbstractGhidraHeadedIntegrationTest i
 	public void testAddressRangeIterator() {
 
 		AddressRangeMapDB map = new AddressRangeMapDB(program.getDBHandle(), addrMap,
-			new Lock("Test"), "TEST", this, LongField.class, true);
+			new Lock("Test"), "TEST", this, LongField.INSTANCE, true);
 
 		int id = program.startTransaction("TEST");
 		try {
@@ -245,10 +246,76 @@ public class AddressRangeMapDBTest extends AbstractGhidraHeadedIntegrationTest i
 	}
 
 	@Test
+	public void testAddressRangeIteratorWithImageBase() throws Exception {
+
+		AddressRangeMapDB map = new AddressRangeMapDB(program.getDBHandle(), addrMap,
+			new Lock("Test"), "TEST", this, LongField.INSTANCE, true);
+
+		int id = program.startTransaction("TEST");
+		try {
+
+			program.setImageBase(addr(0x0000001000L), true);
+
+			assertNull(map.getValue(addr(0x01000000000L)));
+
+			map.paintRange(addr(0x0000000000L), addr(0x0200001000L), ONE);
+			map.paintRange(addr(0x0100000000L), addr(0x0100001000L), TWO);
+			map.paintRange(addr(0x0080000000L), addr(0x0100000fffL), THREE);
+
+			map.clearRange(addr(0x0100000000L), addr(0x0100000010L));
+			map.clearRange(addr(0x01fffffff0L), addr(0x0200000010L));
+
+			// Force painted key range to cross wrap point
+			program.setImageBase(addr(0), true);
+		}
+		finally {
+			program.endTransaction(id, true);
+		}
+
+		// All address
+		AddressRangeIterator iter = map.getAddressRanges();
+		assertTrue(iter.hasNext());
+		assertEquals(new AddressRangeImpl(addr(0x0000000000L), addr(0x007fffefffL)), iter.next());
+		assertTrue(iter.hasNext());
+		assertEquals(new AddressRangeImpl(addr(0x007ffff000L), addr(0x00ffffefffL)), iter.next());
+		assertTrue(iter.hasNext());
+		assertEquals(new AddressRangeImpl(addr(0x0fffff011L), addr(0x0ffffffffL)), iter.next());
+		assertTrue(iter.hasNext());
+		assertEquals(new AddressRangeImpl(addr(0x0100000000L), addr(0x0100000000L)), iter.next());
+		assertTrue(iter.hasNext());
+		assertEquals(new AddressRangeImpl(addr(0x0100000001L), addr(0x01ffffefefL)), iter.next());
+		assertTrue(iter.hasNext());
+		assertEquals(new AddressRangeImpl(addr(0x01fffff011L), addr(0x0200000000L)), iter.next());
+		assertTrue(iter.hasNext());
+		assertEquals(new AddressRangeImpl(addr(0xfffffffffffff000L), addr(0xffffffffffffffffL)),
+			iter.next());
+		assertTrue(!iter.hasNext());
+
+		// Limited range of addresses starting at 0x0100000100
+		iter = map.getAddressRanges(addr(0x0100000100L));
+		assertTrue(iter.hasNext());
+		assertEquals(new AddressRangeImpl(addr(0x0100000100L), addr(0x01ffffefefL)), iter.next());
+		assertTrue(iter.hasNext());
+		assertEquals(new AddressRangeImpl(addr(0x01fffff011L), addr(0x0200000000L)), iter.next());
+		assertTrue(iter.hasNext());
+		assertEquals(new AddressRangeImpl(addr(0xfffffffffffff000L), addr(0xffffffffffffffffL)),
+			iter.next());
+		assertTrue(!iter.hasNext());
+
+		// Limited range of addresses from 0x0100000100 to 0x0200000100L
+		iter = map.getAddressRanges(addr(0x0100000100L), addr(0x0200000100L));
+		assertTrue(iter.hasNext());
+		assertEquals(new AddressRangeImpl(addr(0x0100000100L), addr(0x01ffffefefL)), iter.next());
+		assertTrue(iter.hasNext());
+		assertEquals(new AddressRangeImpl(addr(0x01fffff011L), addr(0x0200000000L)), iter.next());
+		assertTrue(!iter.hasNext());
+	}
+
+	@Test
 	public void testMove() {
 
 		AddressRangeMapDB map = new AddressRangeMapDB(program.getDBHandle(), addrMap,
-			new Lock("Test"), "TEST", this, LongField.class, true);
+			new Lock("Test"), "TEST", this, LongField.INSTANCE, true);
 
 		int id = program.startTransaction("TEST");
 		try {
@@ -279,7 +346,7 @@ public class AddressRangeMapDBTest extends AbstractGhidraHeadedIntegrationTest i
 
 			try {
 				map.moveAddressRange(addr(0x0100000000L), addr(0x0100001000L), 0x1000,
-					TaskMonitorAdapter.DUMMY_MONITOR);
+					TaskMonitor.DUMMY);
 			}
 			catch (CancelledException e) {
 				Assert.fail();

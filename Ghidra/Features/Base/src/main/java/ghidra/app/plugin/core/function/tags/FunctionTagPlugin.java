@@ -26,9 +26,9 @@ import ghidra.program.util.ProgramLocation;
 
 /**
  * Plugin for managing function tags. This works with the associated
- * {@link FunctionTagsComponentProvider} to allow users to view and 
+ * {@link FunctionTagProvider} to allow users to view and
  * edit function tags both globally and for individual functions.
- * 
+ *
  */
 //@formatter:off
 @PluginInfo(
@@ -40,42 +40,35 @@ import ghidra.program.util.ProgramLocation;
 )
 //@formatter:on
 public class FunctionTagPlugin extends ProgramPlugin {
-	
+
 	public final static String FUNCTION_TAG_MENU_SUBGROUP = "TagFunction";
 
 	// Action visible when right-clicking on a function in the listing.
 	private EditFunctionTagsAction editFunctionTagsAction;
 
 	// The display object for this plugin.
-	private FunctionTagsComponentProvider provider;
+	private FunctionTagProvider provider;
 
 	public FunctionTagPlugin(PluginTool tool) {
-		super(tool, true, false);
-		provider = new FunctionTagsComponentProvider(this, getCurrentProgram());
-		createActions();
+		super(tool);
 	}
-
-	/******************************************************************************
-	 * PUBLIC METHODS
-	 ******************************************************************************/
 
 	/**
 	 * Returns the component provider for this plugin
-	 * 
+	 *
 	 * @return the component provider
 	 */
-	public FunctionTagsComponentProvider getProvider() {
+	public FunctionTagProvider getProvider() {
 		return provider;
 	}
 
 	@Override
 	public void init() {
 		super.init();
-	}
 
-	/******************************************************************************
-	 * PROTECTED METHODS
-	 ******************************************************************************/
+		provider = new FunctionTagProvider(this, getCurrentProgram());
+		createActions();
+	}
 
 	@Override
 	protected void programDeactivated(Program program) {
@@ -91,10 +84,6 @@ public class FunctionTagPlugin extends ProgramPlugin {
 	protected void locationChanged(ProgramLocation loc) {
 		provider.locationChanged(loc);
 	}
-
-	/******************************************************************************
-	 * PRIVATE METHODS
-	 ******************************************************************************/
 
 	private void createActions() {
 		editFunctionTagsAction = new EditFunctionTagsAction("Edit Function Tags", this);

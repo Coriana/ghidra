@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,22 +17,24 @@ package ghidra.program.database.mem;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigInteger;
 import java.util.*;
 
 import db.DBBuffer;
-import db.Record;
+import db.DBRecord;
 import ghidra.framework.store.LockException;
 import ghidra.program.database.map.AddressMap;
 import ghidra.program.database.map.AddressMapDB;
 import ghidra.program.model.address.*;
 import ghidra.program.model.mem.*;
+import ghidra.util.Lock.Closeable;
+import ghidra.util.NumericUtilities;
 import ghidra.util.exception.AssertException;
-import ghidra.util.exception.DuplicateNameException;
 
 public class MemoryBlockDB implements MemoryBlock {
 
 	private MemoryMapDBAdapter adapter;
-	protected Record record;
+	protected DBRecord record;
 	private Address startAddress;
 	private long length;
 	private List<SubMemoryBlock> subBlocks;
@@ -43,7 +45,7 @@ public class MemoryBlockDB implements MemoryBlock {
 
 	private List<MemoryBlockDB> mappedBlocks; // list of mapped blocks which map onto this block
 
-	MemoryBlockDB(MemoryMapDBAdapter adapter, Record record, List<SubMemoryBlock> subBlocks) {
+	MemoryBlockDB(MemoryMapDBAdapter adapter, DBRecord record, List<SubMemoryBlock> subBlocks) {
 		this.adapter = adapter;
 		this.record = record;
 		this.memMap = adapter.getMemoryMap();
@@ -53,13 +55,14 @@ public class MemoryBlockDB implements MemoryBlock {
 
 	/**
 	 * Returns the id for this memory block
+	 * 
 	 * @return the id for this memory block
 	 */
 	long getID() {
 		return id;
 	}
 
-	void refresh(Record lRecord, List<SubMemoryBlock> list) {
+	void refresh(DBRecord lRecord, List<SubMemoryBlock> list) {
 		if (id != lRecord.getKey()) {
 			throw new AssertException("Incorrect block record");
 		}
@@ -82,6 +85,7 @@ public class MemoryBlockDB implements MemoryBlock {
 
 	/**
 	 * Add a block which is mapped onto this block
+	 * 
 	 * @param mappedBlock mapped memory block
 	 */
 	void addMappedBlock(MemoryBlockDB mappedBlock) {
@@ -100,9 +104,12 @@ public class MemoryBlockDB implements MemoryBlock {
 
 	/**
 	 * Get collection of blocks which map onto this block.
+	 * 
 	 * @return collection of blocks which map onto this block or null if none identified
 	 */
 	Collection<MemoryBlockDB> getMappedBlocks() {
+		// this call will force mapped blocks to be rebuilt if out of date
+		memMap.getMemoryAddressSetViews();
 		return mappedBlocks;
 	}
 
@@ -112,8 +119,8 @@ public class MemoryBlockDB implements MemoryBlock {
 	}
 
 	@Override
-	public int getPermissions() {
-		return record.getByteValue(MemoryMapDBAdapter.PERMISSIONS_COL);
+	public int getFlags() {
+		return record.getByteValue(MemoryMapDBAdapter.FLAGS_COL);
 	}
 
 	@Override
@@ -146,6 +153,21 @@ public class MemoryBlockDB implements MemoryBlock {
 	}
 
 	@Override
+	public BigInteger getSizeAsBigInteger() {
+		return NumericUtilities.unsignedLongToBigInteger(length);
+	}
+
+	@Override
+	public AddressRange getAddressRange() {
+		try {
+			return new AddressRangeImpl(startAddress, length);
+		}
+		catch (AddressOverflowException e) {
+			throw new RuntimeException(e); // unexpected
+		}
+	}
+
+	@Override
 	public String getName() {
 		String name = record.getString(MemoryMapDBAdapter.NAME_COL);
 		if (name == null) {
@@ -155,19 +177,15 @@ public class MemoryBlockDB implements MemoryBlock {
 	}
 
 	@Override
-	public void setName(String name) throws DuplicateNameException, LockException {
+	public void setName(String name) throws LockException {
 		String oldName = getName();
-		memMap.lock.acquire();
-		try {
+		try (Closeable c = memMap.lock.write()) {
 			checkValid();
 			if (oldName.equals(name)) {
 				return;
 			}
-			memMap.checkBlockName(name, isOverlay());
+			memMap.checkBlockName(name);
 			try {
-				if (isOverlay()) {
-					memMap.overlayBlockRenamed(oldName, name);
-				}
 				record.setString(MemoryMapDBAdapter.NAME_COL, name);
 				adapter.updateBlockRecord(record);
 			}
@@ -175,9 +193,6 @@ public class MemoryBlockDB implements MemoryBlock {
 				memMap.dbError(e);
 			}
 			memMap.fireBlockChanged(this);
-		}
-		finally {
-			memMap.lock.release();
 		}
 	}
 
@@ -188,8 +203,7 @@ public class MemoryBlockDB implements MemoryBlock {
 
 	@Override
 	public void setComment(String comment) {
-		memMap.lock.acquire();
-		try {
+		try (Closeable c = memMap.lock.write()) {
 			checkValid();
 			try {
 				record.setString(MemoryMapDBAdapter.COMMENTS_COL, comment);
@@ -200,95 +214,95 @@ public class MemoryBlockDB implements MemoryBlock {
 				memMap.dbError(e);
 			}
 		}
-		finally {
-			memMap.lock.release();
-		}
 	}
 
 	@Override
 	public boolean isRead() {
-		return (record.getByteValue(MemoryMapDBAdapter.PERMISSIONS_COL) & READ) != 0;
+		return (record.getByteValue(MemoryMapDBAdapter.FLAGS_COL) & READ) != 0;
 	}
 
 	@Override
 	public void setRead(boolean r) {
-		memMap.lock.acquire();
-		try {
+		try (Closeable c = memMap.lock.write()) {
 			checkValid();
-			setPermissionBit(READ, r);
-			memMap.fireBlockChanged(this);
-		}
-		finally {
-			memMap.lock.release();
+			if (setFlagBit(READ, r)) {
+				memMap.fireBlockChanged(this);
+			}
 		}
 	}
 
 	@Override
 	public boolean isWrite() {
-		return (record.getByteValue(MemoryMapDBAdapter.PERMISSIONS_COL) & WRITE) != 0;
+		return (record.getByteValue(MemoryMapDBAdapter.FLAGS_COL) & WRITE) != 0;
 	}
 
 	@Override
 	public void setWrite(boolean w) {
-		memMap.lock.acquire();
-		try {
+		try (Closeable c = memMap.lock.write()) {
 			checkValid();
-			setPermissionBit(WRITE, w);
-			memMap.fireBlockChanged(this);
-		}
-		finally {
-			memMap.lock.release();
+			if (setFlagBit(WRITE, w)) {
+				memMap.fireBlockChanged(this);
+			}
 		}
 	}
 
 	@Override
 	public boolean isExecute() {
-		return (record.getByteValue(MemoryMapDBAdapter.PERMISSIONS_COL) & EXECUTE) != 0;
+		return (record.getByteValue(MemoryMapDBAdapter.FLAGS_COL) & EXECUTE) != 0;
 	}
 
 	@Override
 	public void setExecute(boolean x) {
-		memMap.lock.acquire();
-		try {
+		try (Closeable c = memMap.lock.write()) {
 			checkValid();
-			setPermissionBit(EXECUTE, x);
-			memMap.fireBlockChanged(this);
-		}
-		finally {
-			memMap.lock.release();
+			if (setFlagBit(EXECUTE, x)) {
+				memMap.blockExecuteChanged(this);
+				memMap.fireBlockChanged(this);
+			}
 		}
 	}
 
 	@Override
 	public void setPermissions(boolean read, boolean write, boolean execute) {
-		memMap.lock.acquire();
-		try {
+		try (Closeable c = memMap.lock.write()) {
 			checkValid();
-			setPermissionBit(READ, read);
-			setPermissionBit(WRITE, write);
-			setPermissionBit(EXECUTE, execute);
-			memMap.fireBlockChanged(this);
-		}
-		finally {
-			memMap.lock.release();
+			boolean changed = setFlagBit(READ, read);
+			changed |= setFlagBit(WRITE, write);
+			changed |= setFlagBit(EXECUTE, execute);
+			if (changed) {
+				memMap.blockExecuteChanged(this);
+				memMap.fireBlockChanged(this);
+			}
 		}
 	}
 
 	@Override
 	public boolean isVolatile() {
-		return (record.getByteValue(MemoryMapDBAdapter.PERMISSIONS_COL) & VOLATILE) != 0;
+		return (record.getByteValue(MemoryMapDBAdapter.FLAGS_COL) & VOLATILE) != 0;
 	}
 
 	@Override
 	public void setVolatile(boolean v) {
-		memMap.lock.acquire();
-		try {
+		try (Closeable c = memMap.lock.write()) {
 			checkValid();
-			setPermissionBit(VOLATILE, v);
-			memMap.fireBlockChanged(this);
+			if (setFlagBit(VOLATILE, v)) {
+				memMap.fireBlockChanged(this);
+			}
 		}
-		finally {
-			memMap.lock.release();
+	}
+
+	@Override
+	public boolean isArtificial() {
+		return (record.getByteValue(MemoryMapDBAdapter.FLAGS_COL) & ARTIFICIAL) != 0;
+	}
+
+	@Override
+	public void setArtificial(boolean a) {
+		try (Closeable c = memMap.lock.write()) {
+			checkValid();
+			if (setFlagBit(ARTIFICIAL, a)) {
+				memMap.fireBlockChanged(this);
+			}
 		}
 	}
 
@@ -299,8 +313,7 @@ public class MemoryBlockDB implements MemoryBlock {
 
 	@Override
 	public void setSourceName(String sourceName) {
-		memMap.lock.acquire();
-		try {
+		try (Closeable c = memMap.lock.write()) {
 			checkValid();
 			try {
 				record.setString(MemoryMapDBAdapter.SOURCE_COL, sourceName);
@@ -311,16 +324,10 @@ public class MemoryBlockDB implements MemoryBlock {
 			}
 			memMap.fireBlockChanged(this);
 		}
-		finally {
-			memMap.lock.release();
-		}
 	}
 
 	@Override
 	public byte getByte(Address addr) throws MemoryAccessException {
-		if (memMap.getLiveMemoryHandler() != null) {
-			return memMap.getByte(addr);
-		}
 		checkValid();
 		long offset = getBlockOffset(addr);
 		return getByte(offset);
@@ -332,11 +339,8 @@ public class MemoryBlockDB implements MemoryBlock {
 	}
 
 	@Override
-	public int getBytes(Address addr, byte[] b, int off, int len) throws MemoryAccessException {
-		if (memMap.getLiveMemoryHandler() != null) {
-			return memMap.getBytes(addr, b, off, len);
-		}
-
+	public int getBytes(Address addr, byte[] b, int off, int len)
+			throws IndexOutOfBoundsException, MemoryAccessException {
 		checkValid();
 		long offset = getBlockOffset(addr);
 		return getBytes(offset, b, off, len);
@@ -344,20 +348,12 @@ public class MemoryBlockDB implements MemoryBlock {
 
 	@Override
 	public void putByte(Address addr, byte b) throws MemoryAccessException {
-		if (memMap.getLiveMemoryHandler() != null) {
-			memMap.setByte(addr, b);
-			return;
-		}
 		long offset = getBlockOffset(addr);
-		memMap.lock.acquire();
-		try {
+		try (Closeable c = memMap.lock.write()) {
 			checkValid();
 			memMap.checkMemoryWrite(this, addr, 1);
 			putByte(offset, b);
 			memMap.fireBytesChanged(addr, 1);
-		}
-		finally {
-			memMap.lock.release();
 		}
 	}
 
@@ -367,13 +363,9 @@ public class MemoryBlockDB implements MemoryBlock {
 	}
 
 	@Override
-	public int putBytes(Address addr, byte[] b, int off, int len) throws MemoryAccessException {
-		if (memMap.getLiveMemoryHandler() != null) {
-			memMap.setBytes(addr, b, off, len);
-			return len;
-		}
-		memMap.lock.acquire();
-		try {
+	public int putBytes(Address addr, byte[] b, int off, int len)
+			throws IndexOutOfBoundsException, MemoryAccessException {
+		try (Closeable c = memMap.lock.write()) {
 			checkValid();
 			memMap.checkMemoryWrite(this, addr, len);
 
@@ -382,9 +374,6 @@ public class MemoryBlockDB implements MemoryBlock {
 
 			memMap.fireBytesChanged(addr, n);
 			return n;
-		}
-		finally {
-			memMap.lock.release();
 		}
 	}
 
@@ -409,21 +398,28 @@ public class MemoryBlockDB implements MemoryBlock {
 		}
 	}
 
-	private void setPermissionBit(int permBitMask, boolean enable) {
-		byte p = record.getByteValue(MemoryMapDBAdapter.PERMISSIONS_COL);
+	private boolean setFlagBit(int flagBitMask, boolean enable) {
+		byte p = record.getByteValue(MemoryMapDBAdapter.FLAGS_COL);
 		if (enable) {
-			p |= permBitMask;
+			if ((p & flagBitMask) == flagBitMask) {
+				return false; // no change
+			}
+			p |= flagBitMask;
 		}
 		else {
-			p &= ~permBitMask;
+			if ((p & flagBitMask) == 0) {
+				return false; // no change
+			}
+			p &= ~flagBitMask;
 		}
-		record.setByteValue(MemoryMapDBAdapter.PERMISSIONS_COL, p);
+		record.setByteValue(MemoryMapDBAdapter.FLAGS_COL, p);
 		try {
 			adapter.updateBlockRecord(record);
 		}
 		catch (IOException e) {
 			memMap.dbError(e);
 		}
+		return true;
 	}
 
 	@Override
@@ -448,12 +444,13 @@ public class MemoryBlockDB implements MemoryBlock {
 		return 0;
 	}
 
-	public int getBytes(long offset, byte[] b, int off, int len) throws MemoryAccessException {
+	public int getBytes(long offset, byte[] b, int off, int len)
+			throws IndexOutOfBoundsException, MemoryAccessException {
 		if (off < 0 || off + len > b.length) {
-			throw new ArrayIndexOutOfBoundsException();
+			throw new IndexOutOfBoundsException();
 		}
 		if (offset < 0 || offset >= length) {
-			throw new ArrayIndexOutOfBoundsException();
+			throw new IndexOutOfBoundsException();
 		}
 
 		len = (int) Math.min(len, length - offset);
@@ -488,24 +485,21 @@ public class MemoryBlockDB implements MemoryBlock {
 
 	private void putByte(long offset, byte b) throws MemoryAccessException {
 		SubMemoryBlock subBlock = getSubBlock(offset);
-		memMap.lock.acquire();
-		try {
+		try (Closeable c = memMap.lock.write()) {
 			subBlock.putByte(offset, b);
 		}
 		catch (IOException e) {
 			memMap.dbError(e);
 		}
-		finally {
-			memMap.lock.release();
-		}
 	}
 
-	private int putBytes(long offset, byte[] b, int off, int len) throws MemoryAccessException {
+	private int putBytes(long offset, byte[] b, int off, int len)
+			throws IndexOutOfBoundsException, MemoryAccessException {
 		if (off < 0 || off + len > b.length) {
-			throw new ArrayIndexOutOfBoundsException();
+			throw new IndexOutOfBoundsException();
 		}
 		if (offset < 0 || offset >= length) {
-			throw new ArrayIndexOutOfBoundsException();
+			throw new IndexOutOfBoundsException();
 		}
 
 		len = (int) Math.min(len, length - offset);
@@ -527,11 +521,14 @@ public class MemoryBlockDB implements MemoryBlock {
 	}
 
 	private SubMemoryBlock getSubBlock(long offset) {
-		if (lastSubBlock != null && lastSubBlock.contains(offset)) {
-			return lastSubBlock;
+		// avoid potential thread race condition
+		SubMemoryBlock last = lastSubBlock;
+		if (last != null && last.contains(offset)) {
+			return last;
 		}
-		lastSubBlock = findBlock(0, subBlocks.size() - 1, offset);
-		return lastSubBlock;
+		last = findBlock(0, subBlocks.size() - 1, offset);
+		lastSubBlock = last;
+		return last;
 	}
 
 	private SubMemoryBlock findBlock(int minIndex, int maxIndex, long offset) {
@@ -559,7 +556,7 @@ public class MemoryBlockDB implements MemoryBlock {
 		for (SubMemoryBlock subBlock : subBlocks) {
 			subBlock.delete();
 		}
-		adapter.deleteMemoryBlock(getID());
+		adapter.deleteMemoryBlock(this);
 		invalidate();
 	}
 
@@ -608,8 +605,7 @@ public class MemoryBlockDB implements MemoryBlock {
 			splitBlocks.addAll(subList);
 			subList.clear();
 		}
-		return adapter.createBlock(getName() + ".split", addr, newLength, getPermissions(),
-			splitBlocks);
+		return adapter.createBlock(getName() + ".split", addr, newLength, getFlags(), splitBlocks);
 	}
 
 	private int getIndexOfSubBlockToSplit(long offset) {
@@ -643,7 +639,7 @@ public class MemoryBlockDB implements MemoryBlock {
 	private void createBufferSubBlock(byte initialValue, long blockOffset, int size)
 			throws IOException {
 		DBBuffer buffer = adapter.createBuffer(size, initialValue);
-		Record subBlockRecord = adapter.createSubBlockRecord(id, blockOffset, size,
+		DBRecord subBlockRecord = adapter.createSubBlockRecord(id, blockOffset, size,
 			MemoryMapDBAdapter.SUB_TYPE_BUFFER, buffer.getId(), 0);
 
 		BufferSubMemoryBlock sub = new BufferSubMemoryBlock(adapter, subBlockRecord);
@@ -658,7 +654,7 @@ public class MemoryBlockDB implements MemoryBlock {
 		subBlocks.addAll(memBlock2.subBlocks);
 		possiblyMergeSubBlocks(n - 1, n);
 		sequenceSubBlocks();
-		adapter.deleteMemoryBlock(memBlock2.id);
+		adapter.deleteMemoryBlock(memBlock2);
 		adapter.updateBlockRecord(record);
 
 	}
@@ -685,8 +681,8 @@ public class MemoryBlockDB implements MemoryBlock {
 			subBlock.delete();
 		}
 		subBlocks.clear();
-		Record subRecord = adapter.createSubBlockRecord(id, 0, length,
-			MemoryMapDBAdapter.SUB_TYPE_UNITIALIZED, 0, 0);
+		DBRecord subRecord = adapter.createSubBlockRecord(id, 0, length,
+			MemoryMapDBAdapter.SUB_TYPE_UNINITIALIZED, 0, 0);
 		subBlocks.add(new UninitializedSubMemoryBlock(adapter, subRecord));
 
 	}
@@ -721,6 +717,24 @@ public class MemoryBlockDB implements MemoryBlock {
 			}
 		}
 		return false;
+	}
+
+	@Override
+	public String toString() {
+		StringBuilder buf = new StringBuilder();
+		buf.append(getName());
+		buf.append("(");
+		Address start = getStart();
+		buf.append(start.toString());
+		buf.append(" - ");
+		buf.append(getEnd().toString());
+		AddressSpace space = start.getAddressSpace();
+		if (space instanceof OverlayAddressSpace os) {
+			buf.append(", overlays: ");
+			buf.append(os.getOverlayedSpace().getName());
+		}
+		buf.append(")");
+		return buf.toString();
 	}
 
 }

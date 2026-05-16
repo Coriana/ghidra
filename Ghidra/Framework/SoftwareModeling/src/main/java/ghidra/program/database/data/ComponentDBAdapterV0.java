@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,11 +15,13 @@
  */
 package ghidra.program.database.data;
 
-import ghidra.util.exception.VersionException;
-
 import java.io.IOException;
 
+import org.apache.commons.lang3.StringUtils;
+
 import db.*;
+import ghidra.program.model.data.InternalDataTypeComponent;
+import ghidra.util.exception.VersionException;
 
 /**
  * Version 0 implementation for accessing the Component database table. 
@@ -37,58 +38,56 @@ class ComponentDBAdapterV0 extends ComponentDBAdapter {
 	static final int V0_COMPONENT_SIZE_COL = 5;
 	static final int V0_COMPONENT_ORDINAL_COL = 6;
 
-	static final Schema V0_COMPONENT_SCHEMA = new Schema(0, "Data Type ID", new Class[] {
-		LongField.class, IntField.class, LongField.class, StringField.class, StringField.class,
-		IntField.class, IntField.class }, new String[] { "Parent", "Offset", "Data Type ID",
-		"Field Name", "Comment", "Component Size", "Ordinal" });
+	static final Schema V0_COMPONENT_SCHEMA = new Schema(0, "Data Type ID",
+		new Field[] { LongField.INSTANCE, IntField.INSTANCE, LongField.INSTANCE,
+			StringField.INSTANCE, StringField.INSTANCE, IntField.INSTANCE, IntField.INSTANCE },
+		new String[] { "Parent", "Offset", "Data Type ID", "Field Name", "Comment",
+			"Component Size", "Ordinal" });
+
 	private Table componentTable;
 
 	/**
 	 * Gets a version 0 adapter for the Component database table.
 	 * @param handle handle to the database containing the table.
+	 * @param tablePrefix prefix to be used with default table name
 	 * @param create true if this constructor should create the table.
-	 * @throws VersionException if the the table's version does not match the expected version
+	 * @throws VersionException if the table's version does not match the expected version
 	 * for this adapter.
+	 * @throws IOException if an IO error occurs
 	 */
-	public ComponentDBAdapterV0(DBHandle handle, int openMode) throws VersionException, IOException {
-
-		if (openMode == DBConstants.CREATE) {
-			componentTable =
-				handle.createTable(COMPONENT_TABLE_NAME, V0_COMPONENT_SCHEMA,
-					new int[] { V0_COMPONENT_PARENT_ID_COL });
+	ComponentDBAdapterV0(DBHandle handle, String tablePrefix, boolean create)
+			throws VersionException, IOException {
+		String tableName = tablePrefix + COMPONENT_TABLE_NAME;
+		if (create) {
+			componentTable = handle.createTable(tableName, V0_COMPONENT_SCHEMA,
+				new int[] { V0_COMPONENT_PARENT_ID_COL });
 		}
 		else {
-			componentTable = handle.getTable(COMPONENT_TABLE_NAME);
+			componentTable = handle.getTable(tableName);
 			if (componentTable == null) {
-				throw new VersionException("Missing Table: " + COMPONENT_TABLE_NAME);
+				throw new VersionException("Missing Table: " + tableName);
 			}
-			int version = componentTable.getSchema().getVersion();
-			if (version != VERSION) {
-				String msg =
-					"Expected version " + VERSION + " for table " + COMPONENT_TABLE_NAME +
-						" but got " + componentTable.getSchema().getVersion();
-				if (version < VERSION) {
-					throw new VersionException(msg, VersionException.OLDER_VERSION, true);
-				}
-				throw new VersionException(msg, VersionException.NEWER_VERSION, false);
+			if (componentTable.getSchema().getVersion() != VERSION) {
+				throw new VersionException(false);
 			}
 		}
 	}
 
 	@Override
-	public Record createRecord(long dataTypeID, long parentID, int length, int ordinal, int offset,
-			String name, String comment) throws IOException {
+	DBRecord createRecord(long dataTypeID, long parentID, int length, int ordinal, int offset,
+			String fieldName, String comment) throws IOException {
+		long key =
+			DataTypeManagerDB.createKey(DataTypeManagerDB.COMPONENT, componentTable.getKey());
+		if (StringUtils.isBlank(comment)) {
+			comment = null;
+		}
+		fieldName = InternalDataTypeComponent.cleanupFieldName(fieldName);
 
-		long tableKey = componentTable.getKey();
-//		if (tableKey <= DataManager.VOID_DATATYPE_ID) {
-//			tableKey = DataManager.VOID_DATATYPE_ID +1;
-//		}
-		long key = DataTypeManagerDB.createKey(DataTypeManagerDB.COMPONENT, tableKey);
-		Record record = ComponentDBAdapter.COMPONENT_SCHEMA.createRecord(key);
+		DBRecord record = ComponentDBAdapter.COMPONENT_SCHEMA.createRecord(key);
 		record.setLongValue(ComponentDBAdapter.COMPONENT_PARENT_ID_COL, parentID);
 		record.setLongValue(ComponentDBAdapter.COMPONENT_OFFSET_COL, offset);
 		record.setLongValue(ComponentDBAdapter.COMPONENT_DT_ID_COL, dataTypeID);
-		record.setString(ComponentDBAdapter.COMPONENT_FIELD_NAME_COL, name);
+		record.setString(ComponentDBAdapter.COMPONENT_FIELD_NAME_COL, fieldName);
 		record.setString(ComponentDBAdapter.COMPONENT_COMMENT_COL, comment);
 		record.setIntValue(ComponentDBAdapter.COMPONENT_SIZE_COL, length);
 		record.setIntValue(ComponentDBAdapter.COMPONENT_ORDINAL_COL, ordinal);
@@ -97,24 +96,23 @@ class ComponentDBAdapterV0 extends ComponentDBAdapter {
 	}
 
 	@Override
-	public Record getRecord(long componentID) throws IOException {
+	DBRecord getRecord(long componentID) throws IOException {
 		return componentTable.getRecord(componentID);
 	}
 
 	@Override
-	public void updateRecord(Record record) throws IOException {
+	void updateRecord(DBRecord record) throws IOException {
 		componentTable.putRecord(record);
 	}
 
 	@Override
-	public boolean removeRecord(long componentID) throws IOException {
+	boolean removeRecord(long componentID) throws IOException {
 		return componentTable.deleteRecord(componentID);
 	}
 
 	@Override
-	public long[] getComponentIdsInComposite(long compositeID) throws IOException {
+	Field[] getComponentIdsInComposite(long compositeID) throws IOException {
 		return componentTable.findRecords(new LongField(compositeID),
 			ComponentDBAdapter.COMPONENT_PARENT_ID_COL);
 	}
-
 }

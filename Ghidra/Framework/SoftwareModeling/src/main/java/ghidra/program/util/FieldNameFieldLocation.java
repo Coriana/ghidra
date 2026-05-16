@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,13 +17,16 @@
 
 package ghidra.program.util;
 
+import java.util.Objects;
+
 import ghidra.framework.options.SaveState;
 import ghidra.program.model.address.Address;
+import ghidra.program.model.listing.Data;
 import ghidra.program.model.listing.Program;
 
 /**
- * The <CODE>FieldNameFieldLocation</CODE> class provides specific information
- * about the Function Name field within a program location.
+ * The <CODE>FieldNameFieldLocation</CODE> class provides specific information about the Function
+ * Name field within a program location.
  */
 public class FieldNameFieldLocation extends CodeUnitLocation {
 
@@ -31,11 +34,11 @@ public class FieldNameFieldLocation extends CodeUnitLocation {
 
 	/**
 	 * Construct a new FieldNameFieldLocation.
-	 * 
+	 *
 	 * @param program the program of the location
-	 * @param addr the address of the codeunit.
-	 * @param componentPath if not null, it is the array of indexes that point
-	 * to a specific data type inside of another data type
+	 * @param addr the address of the code unit
+	 * @param componentPath if not null, it is the array of indexes that point to a specific data
+	 *            type inside of another data type
 	 * @param fieldName the field name
 	 * @param charOffset the character position within the field name for this location.
 	 */
@@ -48,14 +51,15 @@ public class FieldNameFieldLocation extends CodeUnitLocation {
 	}
 
 	/**
-	 * Default constructor needed for restoring
-	 * a field name location from XML
+	 * Default constructor needed for restoring a field name location from XML
 	 */
 	public FieldNameFieldLocation() {
 	}
 
 	/**
 	 * Returns the field name of this location.
+	 * 
+	 * @return the name.
 	 */
 	public String getFieldName() {
 		return fieldName;
@@ -71,19 +75,19 @@ public class FieldNameFieldLocation extends CodeUnitLocation {
 
 	@Override
 	public boolean equals(Object obj) {
-		if (this == obj)
+		if (this == obj) {
 			return true;
-		if (!super.equals(obj))
-			return false;
-		if (getClass() != obj.getClass())
-			return false;
-		FieldNameFieldLocation other = (FieldNameFieldLocation) obj;
-		if (fieldName == null) {
-			if (other.fieldName != null)
-				return false;
 		}
-		else if (!fieldName.equals(other.fieldName))
+		if (!super.equals(obj)) {
 			return false;
+		}
+		if (getClass() != obj.getClass()) {
+			return false;
+		}
+		FieldNameFieldLocation other = (FieldNameFieldLocation) obj;
+		if (!Objects.equals(fieldName, other.fieldName)) {
+			return false;
+		}
 		return true;
 	}
 
@@ -102,5 +106,18 @@ public class FieldNameFieldLocation extends CodeUnitLocation {
 	@Override
 	public String toString() {
 		return super.toString() + ", Field Name = " + fieldName;
+	}
+
+	/**
+	 * Get the data component representing the named field
+	 * 
+	 * @return the data unit
+	 */
+	public Data getDataComponent() {
+		Data data = program.getListing().getDataContaining(addr);
+		if (data == null) {
+			return null;
+		}
+		return data.getComponent(getComponentPath());
 	}
 }

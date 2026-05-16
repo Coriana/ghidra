@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -32,7 +32,7 @@ public abstract class VtTask extends Task {
 	private boolean success = false;
 	private boolean cancelled = false;
 
-	private List<String> errors = new ArrayList<>();
+	private List<Throwable> errors = new ArrayList<>();
 
 	protected VtTask(String title, VTSession session) {
 		super(title, true, true, true, true);
@@ -41,11 +41,8 @@ public abstract class VtTask extends Task {
 
 	@Override
 	public final void run(TaskMonitor monitor) {
-		boolean restoreEvents = false;
-		if (session != null && shouldSuspendSessionEvents()) {
-			session.setEventsEnabled(false);
-			restoreEvents = true;
-		}
+		boolean restoreEvents = suspendEvents();
+
 		try {
 			success = doWork(monitor);
 		}
@@ -62,10 +59,28 @@ public abstract class VtTask extends Task {
 		}
 	}
 
+	private boolean suspendEvents() {
+
+		if (session == null) {
+			return false; // no events to suspend
+		}
+
+		if (!shouldSuspendSessionEvents()) {
+			return false; // this task has chosen not to suspend events
+		}
+
+		if (!session.isSendingEvents()) {
+			return false; // someone external to this task is managing events
+		}
+
+		session.setEventsEnabled(false);
+		return true;
+	}
+
 	/**
 	 * Determine if session events should be suspended during task execution.
-	 * This can improve performance during task execution at the expense of bulk 
-	 * table updates at task completion.  Method return false by default.  
+	 * This can improve performance during task execution at the expense of bulk
+	 * table updates at task completion.  Method return false by default.
 	 * If not constructed with a session this method is not used.
 	 * @return true if events should be suspended
 	 */
@@ -109,29 +124,19 @@ public abstract class VtTask extends Task {
 		if (errors.isEmpty()) {
 			return;
 		}
+
 		String title = getErrorDialogTitle();
 		String message = getErrorDetails();
-		Msg.showError(this, null, title, message);
+		if (errors.size() == 1) {
+			Msg.showError(this, null, title, message, errors.get(0));
+			return;
+		}
 
+		Msg.showError(this, null, title, message);
 	}
 
 	protected String getErrorHeader() {
 		return "Errors encountered for task \"" + getTaskTitle() + "\":";
-	}
-
-	/**
-	 * Writes any error messages from the task to the log.
-	 */
-	public void logErrors() {
-		if (errors.isEmpty()) {
-			return;
-		}
-		StringBuilder buf = new StringBuilder(getErrorHeader());
-		buf.append("\n");
-		for (String error : errors) {
-			buf.append("\t").append(error).append("\n");
-		}
-		Msg.error(this, buf.toString());
 	}
 
 	private String getErrorDialogTitle() {
@@ -143,15 +148,20 @@ public abstract class VtTask extends Task {
 
 	/**
 	 * Returns an HTML formated error message
-	 * @param messagePrefix the error message header
 	 * @return an HTML formatted error message
 	 */
 	public String getErrorDetails() {
 		StringBuilder buf = new StringBuilder("<html>" + getErrorHeader());
 		int errorCount = 0;
 		buf.append("<blockquote><br>");
-		for (String error : errors) {
-			buf.append(error).append("<br>");
+		for (Throwable t : errors) {
+
+			String message = t.getMessage();
+			if (message == null) {
+				message = "Unexpected Exception: " + t.toString();
+			}
+
+			buf.append(message).append("<br>");
 			if (++errorCount > MAX_ERRORS) {
 				buf.append("...and " + (errors.size() - errorCount) + " more!");
 				break;
@@ -161,15 +171,12 @@ public abstract class VtTask extends Task {
 	}
 
 	protected void reportError(Exception e) {
-		String message = e.getMessage();
-		if (message == null) {
-			message = "Unexpected Exception: " + e.toString();
+		Throwable t = e;
+		Throwable cause = e.getCause();
+		if (cause != null) {
+			t = cause;
 		}
-		errors.add(message);
-	}
-
-	protected void reportError(String message) {
-		errors.add(message);
+		errors.add(t);
 	}
 
 	protected void addErrors(VtTask task) {

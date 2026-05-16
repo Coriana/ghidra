@@ -16,8 +16,7 @@
 package ghidra.app.util.html;
 
 import java.awt.Color;
-
-import ghidra.util.exception.AssertException;
+import java.util.Objects;
 
 public class TextLine implements ValidatableLine {
 
@@ -27,11 +26,7 @@ public class TextLine implements ValidatableLine {
 	private ValidatableLine validationLine;
 
 	public TextLine(String text) {
-		if (text == null) {
-			throw new NullPointerException("Text cannot be null.");
-		}
-
-		this.text = text;
+		this.text = Objects.requireNonNull(text);
 	}
 
 	@Override
@@ -53,6 +48,7 @@ public class TextLine implements ValidatableLine {
 		return textColor;
 	}
 
+	@Override
 	public void setTextColor(Color color) {
 		this.textColor = color;
 	}
@@ -78,8 +74,7 @@ public class TextLine implements ValidatableLine {
 	@Override
 	public boolean matches(ValidatableLine otherLine) {
 		if (!(otherLine instanceof TextLine)) {
-			throw new AssertException(
-				"TextLine can only be matched against other " + "TextLine implementations.");
+			return false;
 		}
 		TextLine textLine = (TextLine) otherLine;
 		return text.equals(textLine.getText());
@@ -96,15 +91,9 @@ public class TextLine implements ValidatableLine {
 			return;
 		}
 
-		if (!(otherLine instanceof TextLine)) {
-			throw new AssertException(
-				"TextLine can only be matched against other " + "TextLine implementations.");
-		}
-		TextLine textLine = (TextLine) otherLine;
-
-		if (!matches(textLine)) {
+		if (!matches(otherLine)) {
 			setTextColor(invalidColor);
-			textLine.setTextColor(invalidColor);
+			otherLine.setTextColor(invalidColor);
 		}
 	}
 

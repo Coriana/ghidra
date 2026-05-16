@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,12 +21,11 @@ import ghidra.program.model.mem.MemBuffer;
 import ghidra.program.model.mem.MemoryAccessException;
 import ghidra.program.model.scalar.Scalar;
 import ghidra.util.StringUtilities;
+import ghidra.util.charset.CharsetInfoManager;
 
 public class WideChar32DataType extends BuiltIn implements ArrayStringable, DataTypeWithCharset {
 
-	private final static long serialVersionUID = 1;
-
-	/** A statically defined WideCharDataType instance.*/
+	/** A statically defined WideCharDataType instance. */
 	public final static WideChar32DataType dataType = new WideChar32DataType();
 
 	public WideChar32DataType() {
@@ -40,11 +39,6 @@ public class WideChar32DataType extends BuiltIn implements ArrayStringable, Data
 	@Override
 	public int getLength() {
 		return 4;
-	}
-
-	@Override
-	public boolean isDynamicallySized() {
-		return false;
 	}
 
 	@Override
@@ -85,6 +79,23 @@ public class WideChar32DataType extends BuiltIn implements ArrayStringable, Data
 			// ignore
 		}
 		return null;
+	}
+
+	@Override
+	public boolean isEncodable() {
+		return true;
+	}
+
+	@Override
+	public byte[] encodeValue(Object value, MemBuffer buf, Settings settings, int length)
+			throws DataTypeEncodeException {
+		return encodeCharacterValue(value, buf, settings);
+	}
+
+	@Override
+	public byte[] encodeRepresentation(String repr, MemBuffer buf, Settings settings, int length)
+			throws DataTypeEncodeException {
+		return encodeCharacterRepresentation(repr, buf, settings);
 	}
 
 	@Override
@@ -144,7 +155,7 @@ public class WideChar32DataType extends BuiltIn implements ArrayStringable, Data
 
 	@Override
 	public String getCharsetName(Settings settings) {
-		return CharsetInfo.UTF32;
+		return CharsetInfoManager.UTF32;
 	}
 
 }

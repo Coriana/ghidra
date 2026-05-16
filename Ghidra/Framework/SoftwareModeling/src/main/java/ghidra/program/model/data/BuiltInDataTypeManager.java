@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,24 +15,29 @@
  */
 package ghidra.program.model.data;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
+import javax.help.UnsupportedOperationException;
 import javax.swing.event.ChangeListener;
 
 import ghidra.framework.ShutdownHookRegistry;
 import ghidra.framework.ShutdownPriority;
+import ghidra.program.database.symbol.VariableStorageManager;
+import ghidra.program.model.lang.ProgramArchitecture;
 import ghidra.util.*;
 import ghidra.util.classfinder.ClassFilter;
 import ghidra.util.classfinder.ClassSearcher;
 import ghidra.util.exception.AssertException;
+import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
 
 /**
  * Data type manager for built in types that do not live anywhere except
  * in memory.
  */
-public class BuiltInDataTypeManager extends StandAloneDataTypeManager {
+public final class BuiltInDataTypeManager extends StandAloneDataTypeManager {
 
 	// TODO: There appear to be many public methods in DataTypeManagerDB which could potentially modify the 
 	// underlying database - these methods should probably be overridden
@@ -41,29 +46,40 @@ public class BuiltInDataTypeManager extends StandAloneDataTypeManager {
 	private ChangeListener classSearcherListener = e -> refresh();
 
 	/**
-	 * Returns shared instance of built-in data-type manager.
+	 * Returns shared instance of built-in data type manager.
+	 * @return the manager
 	 */
 	public static synchronized BuiltInDataTypeManager getDataTypeManager() {
 		if (manager == null) {
 			manager = new BuiltInDataTypeManager();
-			Runnable cleanupTask = new Thread((Runnable) () -> {
+			Runnable cleanupTask = () -> {
 				if (manager != null) {
-					manager.dispose();
+					manager.closeStaticInstance();
 					manager = null;
 				}
-			}, "Builtin DataType Manager Cleanup Thread");
+			};
 			ShutdownHookRegistry.addShutdownHook(cleanupTask,
 				ShutdownPriority.DISPOSE_DATABASES.before());
 		}
 		return manager;
 	}
 
-	/**
-	 * Constructor
-	 */
 	private BuiltInDataTypeManager() {
 		super(BUILT_IN_DATA_TYPES_NAME);
 		initialize();
+		setImmutable();
+	}
+
+	@Override
+	protected final void setProgramArchitecture(ProgramArchitecture programArchitecture,
+			VariableStorageManager variableStorageMgr, boolean force, TaskMonitor monitor)
+			throws IOException, CancelledException {
+		throw new UnsupportedOperationException("program architecture change not permitted");
+	}
+
+	@Override
+	protected final boolean isArchitectureChangeAllowed() {
+		return false;
 	}
 
 	@Override
@@ -76,11 +92,21 @@ public class BuiltInDataTypeManager extends StandAloneDataTypeManager {
 	}
 
 	@Override
-	public synchronized void endTransaction(int transactionID, boolean commit) {
+	public synchronized boolean endTransaction(int transactionID, boolean commit) {
 		if (manager != null) {
 			throw new UnsupportedOperationException();
 		}
-		super.endTransaction(transactionID, commit);
+		return super.endTransaction(transactionID, commit);
+	}
+
+	@Override
+	public synchronized boolean canUndo() {
+		return false;
+	}
+
+	@Override
+	public synchronized boolean canRedo() {
+		return false;
 	}
 
 	@Override
@@ -92,17 +118,9 @@ public class BuiltInDataTypeManager extends StandAloneDataTypeManager {
 		return super.createCategory(path);
 	}
 
-	private synchronized void dispose() {
+	private synchronized void closeStaticInstance() {
 		ClassSearcher.removeChangeListener(classSearcherListener);
 		super.close();
-	}
-
-	/* (non-Javadoc)
-	 * @see ghidra.program.model.data.DataTypeManager#close()
-	 */
-	@Override
-	public void close() {
-		// static shared instance can't be closed
 	}
 
 	/**
@@ -111,8 +129,6 @@ public class BuiltInDataTypeManager extends StandAloneDataTypeManager {
 	private synchronized void refresh() {
 		populateBuiltInTypes();
 	}
-
-	/////////////////////////////////////
 
 	private void initialize() {
 		try {
@@ -131,7 +147,8 @@ public class BuiltInDataTypeManager extends StandAloneDataTypeManager {
 	protected void populateBuiltInTypes() {
 		int id = super.startTransaction("Populate");
 		try {
-			ArrayList<DataType> list = new ArrayList<>();
+
+			List<DataType> list = new ArrayList<>();
 			ClassFilter filter = new BuiltInDataTypeClassExclusionFilter();
 			List<BuiltInDataType> datatypes =
 				ClassSearcher.getInstances(BuiltInDataType.class, filter);
@@ -149,7 +166,7 @@ public class BuiltInDataTypeManager extends StandAloneDataTypeManager {
 							datatype.getName() + "'");
 				}
 				else if (list.size() != 1) {
-					throw new AssertException("Should be no duplicate named nuilt-in types");
+					throw new AssertException("Should be no duplicate named built-in types");
 				}
 			}
 		}
@@ -163,8 +180,8 @@ public class BuiltInDataTypeManager extends StandAloneDataTypeManager {
 		if (dataType instanceof BuiltInDataType) {
 			return DataTypeManager.BUILT_IN_ARCHIVE_UNIVERSAL_ID;
 		}
-		throw new IllegalArgumentException(
-			"Only Built-In data types can be resolved by the BuiltInTypes manager.");
+		throw new IllegalArgumentException("Only Built-in data types can be resolved by the " +
+			getClass().getSimpleName() + " manager.");
 	}
 
 	@Override
@@ -193,7 +210,7 @@ public class BuiltInDataTypeManager extends StandAloneDataTypeManager {
 	}
 
 	@Override
-	public boolean remove(DataType dataType, TaskMonitor monitor) {
+	public boolean remove(DataType dataType) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -201,5 +218,10 @@ public class BuiltInDataTypeManager extends StandAloneDataTypeManager {
 	public DataType replaceDataType(DataType existingDt, DataType replacementDt,
 			boolean updateCategoryPath) throws DataTypeDependencyException {
 		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public void close() {
+		// cannot close a built-in data type manager; close performed automatically during shutdown
 	}
 }

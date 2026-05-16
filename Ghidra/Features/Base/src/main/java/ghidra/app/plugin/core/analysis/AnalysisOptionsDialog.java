@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,6 +20,8 @@ import java.beans.PropertyChangeListener;
 import java.util.List;
 
 import docking.DialogComponentProvider;
+import docking.widgets.OptionDialog;
+import ghidra.GhidraOptions;
 import ghidra.framework.options.EditorStateFactory;
 import ghidra.program.model.listing.Program;
 import ghidra.util.HelpLocation;
@@ -29,11 +31,12 @@ import ghidra.util.Msg;
  * Dialog to show the panel for the auto analysis options.
  *
  */
-public class AnalysisOptionsDialog extends DialogComponentProvider implements
-		PropertyChangeListener {
+public class AnalysisOptionsDialog extends DialogComponentProvider
+		implements PropertyChangeListener {
 	private boolean doAnalysis;
 	private AnalysisPanel panel;
 	private EditorStateFactory editorStateFactory = new EditorStateFactory();
+	private boolean hasChanges;
 
 	/**
 	 * Constructor
@@ -52,31 +55,23 @@ public class AnalysisOptionsDialog extends DialogComponentProvider implements
 	AnalysisOptionsDialog(List<Program> programs) {
 		super("Analysis Options");
 		setHelpLocation(new HelpLocation("AutoAnalysisPlugin", "AnalysisOptions"));
-		panel = buildComponent(programs);
-
+		panel = new AnalysisPanel(programs, editorStateFactory, this);
+		panel.setToLastUsedAnalysisOptionsIfProgramNotAnalyzed();
+		panel.getAccessibleContext().setAccessibleName("Analysis Options");
 		addWorkPanel(panel);
 		addOKButton();
 		addCancelButton();
+		addApplyButton();
 		setOkButtonText("Analyze");
+
+		// This allows user to press Enter to launch analysis when the dialog is shown.  Without
+		// this, the table takes focus, which consumes Enter key presses.
+		setFocusComponent(okButton);
 		okButton.setMnemonic('A');
 		setOkEnabled(true);
 		setPreferredSize(1000, 600);
 		setRememberSize(true);
-	}
-
-	@Override
-	public void propertyChange(PropertyChangeEvent evt) {
-
-		// On any analyzer status change, update the options for all programs
-		// being analyzed. This is necessary to keep options consistent across all
-		// programs being analyzed.
-		//
-		// Note: It's possible to receive a property change notification before the 
-		//       analysis panel has finished being constructed, so protect against
-		//       that before calling the update method.
-		if (panel != null) {
-			panel.updateOptionForAllPrograms(evt.getPropertyName(), (Boolean) evt.getNewValue());
-		}
+		setHasChanges(panel.hasChangedValues());
 	}
 
 	@Override
@@ -91,18 +86,41 @@ public class AnalysisOptionsDialog extends DialogComponentProvider implements
 		}
 	}
 
+	@Override
+	protected void cancelCallback() {
+		if (hasChanges) {
+			int result = OptionDialog.showYesNoCancelDialog(panel, "Save Changes?",
+				"These options are different from what is in the program.\n" +
+					"Do you want to save them to the program?");
+			if (result == OptionDialog.CANCEL_OPTION) {
+				return;
+			}
+			if (result == OptionDialog.YES_OPTION) {
+				panel.applyChanges();
+			}
+		}
+		close();
+	}
+
+	@Override
+	protected void applyCallback() {
+		panel.applyChanges();
+		setHasChanges(false);
+	}
+
 	boolean wasAnalyzeButtonSelected() {
 		return doAnalysis;
 	}
 
-	/**
-	 * Constructs a new {@link AnalysisPanel}
-	 * 
-	 * @param programs the programs to analyze
-	 * @return the new analysis panel
-	 */
-	private AnalysisPanel buildComponent(List<Program> programs) {
-		AnalysisPanel panel = new AnalysisPanel(programs, editorStateFactory, this);
-		return panel;
+	private void setHasChanges(boolean hasChanges) {
+		this.hasChanges = hasChanges;
+		setApplyEnabled(hasChanges);
+	}
+
+	@Override
+	public void propertyChange(PropertyChangeEvent evt) {
+		if (evt.getPropertyName().equals(GhidraOptions.APPLY_ENABLED)) {
+			setHasChanges((Boolean) evt.getNewValue());
+		}
 	}
 }

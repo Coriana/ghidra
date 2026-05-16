@@ -143,7 +143,7 @@ public class MakeStringsTask extends ProgramTask {
 		Data stringData = null;
 		try {
 			// TODO: Clearing all conflicts might be overly aggressive
-			stringData = DataUtilities.createData(program, address, dataTypeToCreate, length, false,
+			stringData = DataUtilities.createData(program, address, dataTypeToCreate, length,
 				DataUtilities.ClearDataMode.CLEAR_ALL_CONFLICT_DATA);
 			events.add(new StringAddedEvent(dataTypeToCreate, address, stringData.getLength()));
 		}
@@ -153,8 +153,9 @@ public class MakeStringsTask extends ProgramTask {
 
 		if (paddingLength != 0) {
 			try {
-				program.getListing().createData(address.add(length), new AlignmentDataType(),
-					paddingLength);
+				program.getListing()
+						.createData(address.add(length), new AlignmentDataType(),
+							paddingLength);
 			}
 			catch (Exception e) {
 				// don't care that padding failed
@@ -241,7 +242,7 @@ public class MakeStringsTask extends ProgramTask {
 
 	private boolean labelAlreadyExists(Address addr, String name) {
 		SymbolTable symbolTable = program.getSymbolTable();
-		Symbol[] symbols = symbolTable.getSymbols(addr);
+		SymbolIterator symbols = symbolTable.getSymbolsAsIterator(addr);
 		for (Symbol symbol : symbols) {
 			if (symbol.getName().equals(name)) {
 				return true;

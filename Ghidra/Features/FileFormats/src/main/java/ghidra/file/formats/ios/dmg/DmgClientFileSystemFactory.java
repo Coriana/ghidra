@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,35 +17,32 @@ package ghidra.file.formats.ios.dmg;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Arrays;
 
 import generic.jar.ResourceFile;
 import ghidra.app.util.bin.ByteProvider;
 import ghidra.file.formats.xar.XARUtil;
 import ghidra.formats.gfilesystem.*;
-import ghidra.formats.gfilesystem.factory.GFileSystemFactoryWithFile;
-import ghidra.formats.gfilesystem.factory.GFileSystemProbeFull;
+import ghidra.formats.gfilesystem.factory.GFileSystemFactoryByteProvider;
+import ghidra.formats.gfilesystem.factory.GFileSystemProbeByteProvider;
 import ghidra.framework.Application;
 import ghidra.util.Msg;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.exception.CryptoException;
 import ghidra.util.task.TaskMonitor;
-import utilities.util.ArrayUtilities;
-import utilities.util.FileUtilities;
 
 /**
  * Handles probing for and creating {@link DmgClientFileSystem} instances.
- * <p>
  */
-public class DmgClientFileSystemFactory
-		implements GFileSystemFactoryWithFile<DmgClientFileSystem>, GFileSystemProbeFull {
+public class DmgClientFileSystemFactory implements
+		GFileSystemFactoryByteProvider<DmgClientFileSystem>, GFileSystemProbeByteProvider {
 
 	public DmgClientFileSystemFactory() {
 	}
 
 	@Override
-	public boolean probe(FSRL containerFSRL, ByteProvider byteProvider, File containerFile,
-			FileSystemService fsService, TaskMonitor taskMonitor)
-			throws IOException, CancelledException {
+	public boolean probe(ByteProvider byteProvider, FileSystemService fsService,
+			TaskMonitor taskMonitor) throws IOException, CancelledException {
 
 		if (!isDmgPresent()) {
 			return false;
@@ -56,19 +53,19 @@ public class DmgClientFileSystemFactory
 			return false;
 		}
 
-		return isEncrypted(containerFile);
+		return hasUDIF(byteProvider) || isEncrypted(byteProvider);
 	}
 
 	private static boolean isEncrypted(byte[] startBytes) {
-		return ArrayUtilities.arrayRangesEquals(startBytes, 0, DmgConstants.DMG_MAGIC_BYTES_v1, 0,
-			DmgConstants.DMG_MAGIC_BYTES_v1.length) ||
-			ArrayUtilities.arrayRangesEquals(startBytes, 0, DmgConstants.DMG_MAGIC_BYTES_v2, 0,
-				DmgConstants.DMG_MAGIC_BYTES_v2.length);
+		return Arrays.equals(startBytes, 0, DmgConstants.DMG_MAGIC_BYTES_v1.length,
+			DmgConstants.DMG_MAGIC_BYTES_v1, 0, DmgConstants.DMG_MAGIC_BYTES_v1.length) ||
+			Arrays.equals(startBytes, 0, DmgConstants.DMG_MAGIC_BYTES_v2.length,
+				DmgConstants.DMG_MAGIC_BYTES_v2, 0, DmgConstants.DMG_MAGIC_BYTES_v2.length);
 	}
 
-	private static boolean isEncrypted(File f) {
+	private static boolean isEncrypted(ByteProvider bp) {
 		try {
-			byte[] startBytes = FileUtilities.getBytesFromFile(f, 0, DmgConstants.DMG_MAGIC_LENGTH);
+			byte[] startBytes = bp.readBytes(0, DmgConstants.DMG_MAGIC_LENGTH);
 			return isEncrypted(startBytes);
 		}
 		catch (IOException ioe) {
@@ -77,36 +74,50 @@ public class DmgClientFileSystemFactory
 		return false;
 	}
 
+	private static boolean hasUDIF(ByteProvider bp) {
+		try {
+			UDIFHeader udif = UDIFHeader.read(bp);
+			return udif.isValid() && udif.hasGoodOffsets(bp);
+		}
+		catch (IOException e) {
+			// ignore, fall thru
+		}
+		return false;
+	}
+
 	@Override
-	public DmgClientFileSystem create(FSRL containerFSRL, FSRLRoot targetFSRL, File containerFile,
+	public DmgClientFileSystem create(FSRLRoot targetFSRL, ByteProvider provider,
 			FileSystemService fsService, TaskMonitor monitor)
 			throws IOException, CancelledException {
 
+		FSRL containerFSRL = provider.getFSRL();
 		String dmgName = containerFSRL.getName();
 
-		File decrypted_dmg_file;
-		if (isEncrypted(containerFile)) {
+		ByteProvider decryptedProvider;
+		if (isEncrypted(provider)) {
 			if (containerFSRL.getNestingDepth() < 2) {
-				throw new CryptoException(
-					"Unable to decrypt DMG data because DMG crypto keys are specific to the container it is embedded in and this DMG was not in a container");
+				throw new CryptoException("Unable to decrypt DMG data because DMG crypto keys " +
+					"are specific to the container it is embedded in and this DMG was not " +
+					"in a container");
 			}
 
-			String containerName = containerFSRL.getName(1);
 			// get the name of the iphone.ipsw container so we can lookup our crypto keys
 			// based on that.
+			String containerName = containerFSRL.getName(1);
 
-			FileCacheEntry fce =
-				fsService.getDerivedFile(containerFSRL, "decrypted " + containerName, (srcFile) -> {
-					monitor.initialize(srcFile.length());
-					return new DmgDecryptorStream(containerName, dmgName, srcFile);
-				}, monitor);
-			decrypted_dmg_file = fce.file;
+			decryptedProvider = fsService.getDerivedByteProvider(containerFSRL, null,
+				"decrypted " + containerName, provider.length(),
+				() -> new DmgDecryptorStream(containerName, dmgName, provider), monitor);
 		}
 		else {
-			decrypted_dmg_file = containerFile;
+			decryptedProvider = provider;
 		}
 
-		DmgClientFileSystem fs = new DmgClientFileSystem(decrypted_dmg_file, targetFSRL, fsService);
+		File decryptedDmgFile = fsService.createPlaintextTempFile(decryptedProvider,
+			"ghidra_decrypted_dmg_file", monitor);
+
+		DmgClientFileSystem fs =
+			new DmgClientFileSystem(decryptedDmgFile, true, targetFSRL, fsService);
 		try {
 			fs.mount(monitor);
 			return fs;

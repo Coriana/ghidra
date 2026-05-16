@@ -29,6 +29,7 @@ import edu.uci.ics.jung.visualization.layout.ObservableCachingLayout;
 import edu.uci.ics.jung.visualization.renderers.Renderer;
 import edu.uci.ics.jung.visualization.transform.shape.GraphicsDecorator;
 import edu.uci.ics.jung.visualization.transform.shape.ShapeTransformer;
+import generic.theme.GThemeDefaults.Colors.Palette;
 import ghidra.graph.viewer.*;
 import ghidra.graph.viewer.renderer.VisualVertexSatelliteRenderer;
 import ghidra.util.task.SwingUpdateManager;
@@ -53,7 +54,6 @@ public class CachingSatelliteGraphViewer<V extends VisualVertex, E extends Visua
 		super(masterViewer, preferredSize);
 
 		preRenderers.clear(); // remove default lens painter
-		setBackground(masterViewer.getBackground().darker()); // same behavior as default ViewLens
 
 		Layout<V, E> layout = masterViewer.getGraphLayout();
 		if (layout instanceof ObservableCachingLayout<?, ?>) {
@@ -71,11 +71,11 @@ public class CachingSatelliteGraphViewer<V extends VisualVertex, E extends Visua
 
 	@Override
 	public Renderer.Vertex<V, E> getPreferredVertexRenderer() {
-		return new VisualVertexSatelliteRenderer<V, E>() {
+		return new VisualVertexSatelliteRenderer<>() {
 			@Override
 			protected void paintHighlight(RenderContext<V, E> rc, V vertex, GraphicsDecorator g,
 					Rectangle bounds) {
-				// Stub--we don't want the render to paint highlights, as we use a static, 
+				// Stub--we don't want the render to paint highlights, as we use a static,
 				// cached image.  We will manually paint highlights in the paint routine of this
 				// viewer.
 			}
@@ -95,16 +95,16 @@ public class CachingSatelliteGraphViewer<V extends VisualVertex, E extends Visua
 		bufferedBackgroundImage =
 			new BufferedImage(getWidth(), getHeight(), BufferedImage.TYPE_INT_ARGB);
 		Graphics2D graphics = (Graphics2D) bufferedBackgroundImage.getGraphics();
+		setBackground(options.getGraphBackgroundColor());
 		renderGraph(graphics);
 		graphics.dispose();
 
 		bufferedOverlayImage =
 			new BufferedImage(getWidth(), getHeight(), BufferedImage.TYPE_INT_ARGB);
 		graphics = (Graphics2D) bufferedOverlayImage.getGraphics();
-		Color originalBackground = getBackground();
-		setBackground(Color.WHITE);
+		setBackground(Palette.WHITE);
 		renderGraph(graphics);
-		setBackground(originalBackground);
+		setBackground(options.getGraphBackgroundColor());
 		graphics.dispose();
 	}
 
@@ -114,7 +114,7 @@ public class CachingSatelliteGraphViewer<V extends VisualVertex, E extends Visua
 //		super.paintComponent(g);
 
 //      Original Code - We don't have a need to support double buffering, I think...so don't do it
-//        
+//
 //		Graphics2D g2d = (Graphics2D)g;
 //		if(doubleBuffered) {
 //		    checkOffscreenImage(getSize());

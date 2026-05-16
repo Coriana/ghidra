@@ -18,6 +18,7 @@ package ghidra.program.database.function;
 import java.io.IOException;
 
 import db.*;
+import ghidra.framework.data.OpenMode;
 import ghidra.program.model.symbol.SymbolTable;
 import ghidra.util.exception.VersionException;
 import ghidra.util.task.TaskMonitor;
@@ -32,25 +33,25 @@ abstract class FunctionTagMappingAdapter {
 	static final String TABLE_NAME = "Function Tag Map";
 
 	static final int CURRENT_VERSION = 0;
-	
+
 	static final int FUNCTION_ID_COL = 0;
 	static final int TAG_ID_COL = 1;
 
-	static FunctionTagMappingAdapter getAdapter(DBHandle handle, int openMode,
+	static FunctionTagMappingAdapter getAdapter(DBHandle handle, OpenMode openMode,
 			TaskMonitor monitor) throws VersionException {
 
-		if (openMode == DBConstants.CREATE) {
+		if (openMode == OpenMode.CREATE) {
 			return new FunctionTagMappingAdapterV0(handle, true);
 		}
 		try {
 			return new FunctionTagMappingAdapterV0(handle, false);
 		}
 		catch (VersionException e) {
-			if (!e.isUpgradable() || openMode == DBConstants.UPDATE) {
+			if (!e.isUpgradable() || openMode == OpenMode.UPDATE) {
 				throw e;
 			}
 			FunctionTagMappingAdapter adapter = findReadOnlyAdapter(handle);
-			if (openMode == DBConstants.UPGRADE) {
+			if (openMode == OpenMode.UPGRADE) {
 				adapter = upgrade(handle, adapter, monitor);
 			}
 			return adapter;
@@ -62,9 +63,7 @@ abstract class FunctionTagMappingAdapter {
 	}
 
 	private static FunctionTagMappingAdapter upgrade(DBHandle handle,
-			FunctionTagMappingAdapter oldAdapter,
-			TaskMonitor monitor)
-			throws VersionException {
+			FunctionTagMappingAdapter oldAdapter, TaskMonitor monitor) throws VersionException {
 		return new FunctionTagMappingAdapterV0(handle, true);
 	}
 
@@ -74,7 +73,7 @@ abstract class FunctionTagMappingAdapter {
 	 * 
 	 * @param functionID index into the {@link SymbolTable} table
 	 * @return iterator of database records
-	 * @throws IOException
+	 * @throws IOException if database error occurs
 	 */
 	abstract RecordIterator getRecordsByFunctionID(long functionID) throws IOException;
 
@@ -84,20 +83,19 @@ abstract class FunctionTagMappingAdapter {
 	 * @param functionID index into the {@link SymbolTable} table
 	 * @param tagID index into the {@link FunctionTagAdapter} table
 	 * @return null if not found
-	 * @throws IOException
+	 * @throws IOException if database error occurs
 	 */
-	abstract Record getRecord(long functionID, long tagID) throws IOException;
+	abstract DBRecord getRecord(long functionID, long tagID) throws IOException;
 
 	/**
 	 * Creates a new record with the given function and tag ID's.
 	 * 
-	 * @param functionID
-	 * @param tagID
+	 * @param functionID the function's database id
+	 * @param tagID the FunctionTags database id
 	 * @return newly-created database record
-	 * @throws IOException
+	 * @throws IOException if database error occurs
 	 */
-	abstract Record createFunctionTagRecord(long functionID, long tagID)
-			throws IOException;
+	abstract DBRecord createFunctionTagRecord(long functionID, long tagID) throws IOException;
 
 	/**
 	 * Removes the record with the given function and tag IDs. There should be at most
@@ -106,26 +104,31 @@ abstract class FunctionTagMappingAdapter {
 	 * @param functionID index into the {@link SymbolTable} table
 	 * @param tagID index into the {@link FunctionTagAdapter} table
 	 * @return true if the remove was performed
-	 * @throws IOException
+	 * @throws IOException if database error occurs
 	 */
-	abstract boolean removeFunctionTagRecord(long functionID, long tagID)
-			throws IOException;
+	abstract boolean removeFunctionTagRecord(long functionID, long tagID) throws IOException;
 
 	/**
 	 * Removes all records containing the given tag ID. This should be called
 	 * whenever a tag is being deleted from the system.
 	 * 
 	 * @param tagID index into the {@link FunctionTagAdapter} table
-	 * @throws IOException 
+	 * @throws IOException if database error occurs
 	 */
 	abstract void removeFunctionTagRecord(long tagID) throws IOException;
 
 	/**
 	 * Determine if the specified tag ID has been applied to a function
-	 * @param tagId tag ID
+	 * @param id tag ID
 	 * @return true if tag applied to one or more functions
-	 * @throws IOException
+	 * @throws IOException if database error occurs
 	 */
 	abstract boolean isTagAssigned(long id) throws IOException;
 
+	/**
+	 * Returns a RecordIterator over all the records in this table
+	 * @return  a RecordIterator over all the records in this table
+	 * @throws IOException if database error occurs
+	 */
+	protected abstract RecordIterator getRecords() throws IOException;
 }

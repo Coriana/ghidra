@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,7 +22,6 @@ import java.util.*;
 import ghidra.app.cmd.data.CreateDataCmd;
 import ghidra.app.cmd.label.AddUniqueLabelCmd;
 import ghidra.app.util.MemoryBlockUtils;
-import ghidra.app.util.Option;
 import ghidra.app.util.bin.ByteProvider;
 import ghidra.app.util.bin.format.pef.*;
 import ghidra.app.util.importer.MessageLog;
@@ -36,7 +35,7 @@ import ghidra.program.model.symbol.*;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
 
-public class PefLoader extends AbstractLibrarySupportLoader {
+public class PefLoader extends AbstractProgramWrapperLoader {
 
 	public final static String PEF_NAME = "Preferred Executable Format (PEF)";
 	private static final long MIN_BYTE_LENGTH = 40;
@@ -68,15 +67,17 @@ public class PefLoader extends AbstractLibrarySupportLoader {
 	}
 
 	@Override
-	public void load(ByteProvider provider, LoadSpec loadSpec, List<Option> options,
-			Program program, TaskMonitor monitor, MessageLog log)
+	public void load(Program program, ImporterSettings settings)
 			throws IOException, CancelledException {
 
-		FileBytes fileBytes = MemoryBlockUtils.createFileBytes(program, provider, monitor);
+		MessageLog log = settings.log();
+		TaskMonitor monitor = settings.monitor();
+		FileBytes fileBytes =
+			MemoryBlockUtils.createFileBytes(program, settings.provider(), monitor);
 
 		ImportStateCache importState = null;
 		try {
-			ContainerHeader header = new ContainerHeader(provider);
+			ContainerHeader header = new ContainerHeader(settings.provider());
 			monitor.setMessage("Completing PEF header parsing...");
 			monitor.setCancelEnabled(false);
 			header.parse();
@@ -320,7 +321,7 @@ public class PefLoader extends AbstractLibrarySupportLoader {
 	}
 
 	private void processRelocations(ContainerHeader header, Program program,
-			ImportStateCache importState, MessageLog log, TaskMonitor monitor) {
+			ImportStateCache importState, MessageLog log, TaskMonitor monitor) throws IOException {
 		List<LoaderRelocationHeader> relocationHeaders = header.getLoader().getRelocations();
 		for (LoaderRelocationHeader relocationHeader : relocationHeaders) {
 			if (monitor.isCancelled()) {
@@ -330,7 +331,9 @@ public class PefLoader extends AbstractLibrarySupportLoader {
 				new RelocationState(header, relocationHeader, program, importState);
 			List<Relocation> relocations = relocationHeader.getRelocations();
 			int relocationIndex = 0;
-			for (Relocation relocation : relocations) {
+			int numRepeats = 0;
+			int jumpToIdx = -1;
+			while (relocationIndex < relocations.size()) {
 				if (monitor.isCancelled()) {
 					return;
 				}
@@ -338,9 +341,40 @@ public class PefLoader extends AbstractLibrarySupportLoader {
 					monitor.setMessage(
 						"Processing relocation " + relocationIndex + " of " + relocations.size());
 				}
-				++relocationIndex;
 
+				Relocation relocation = relocations.get(relocationIndex);
 				relocation.apply(importState, state, header, program, log, monitor);
+
+				if (relocation.getRepeatCount() != 0) {
+					numRepeats++;
+
+					if (numRepeats < relocation.getRepeatCount()) {
+						if (jumpToIdx != -1) {
+							relocationIndex = jumpToIdx;
+							continue;
+						}
+
+						int blocksBack = 0;
+						jumpToIdx = relocationIndex;
+						while (blocksBack < relocation.getRepeatChunks()) {
+							jumpToIdx--;
+							blocksBack += relocations.get(jumpToIdx).getSizeInBytes() / 2;
+						}
+
+						if (blocksBack != relocation.getRepeatChunks()) {
+							throw new IOException("specified number of repeat chunks does not point to the start of a relocation command!");
+						}
+
+						continue;
+
+					} else {
+						/* done looping */
+						numRepeats = 0;
+						jumpToIdx = -1;
+					}
+				}
+
+				++relocationIndex;
 			}
 			state.dispose();
 		}

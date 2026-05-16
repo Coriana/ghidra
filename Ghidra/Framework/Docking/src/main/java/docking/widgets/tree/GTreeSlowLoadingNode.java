@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,25 +15,29 @@
  */
 package docking.widgets.tree;
 
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
+
+import org.apache.commons.collections4.IteratorUtils;
 
 import docking.widgets.tree.internal.InProgressGTreeNode;
+import ghidra.util.Msg;
 import ghidra.util.Swing;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
 import util.CollectionUtils;
 
 /**
- * Base class for nodes that generate their children on demand, but because generating their children
- * is slow, that operation is moved to a background thread.  While the children are being generated,
- * an {@link InProgressGTreeNode} will appear in the tree until the {@link LoadChildrenTask} has completed.
+ * Base class for nodes that generate their children on demand, but because generating their
+ * children is slow, that operation is moved to a background thread. While the children are being
+ * generated, an {@link InProgressGTreeNode} will appear in the tree until the
+ * {@link LoadChildrenTask} has completed.
  */
 public abstract class GTreeSlowLoadingNode extends GTreeLazyNode {
 
 	/**
 	 * Subclass must implement this method to generate their children. This operation will always be
 	 * performed in a background thread (i.e. Not the swing thread)
+	 * 
 	 * @param monitor a TaskMonitor for reporting progress and cancel notification.
 	 * @return the list of children for this node.
 	 * @throws CancelledException if the monitor is cancelled
@@ -95,7 +99,7 @@ public abstract class GTreeSlowLoadingNode extends GTreeLazyNode {
 				// had a chance to run.  Since we last left the JTree thinking there is an 
 				// "in progress" node in place, we need to notify the JTree that this is no longer
 				// the case.
-				fireNodeStructureChanged(GTreeSlowLoadingNode.this);
+				fireNodeStructureChanged();
 				return;
 			}
 
@@ -121,5 +125,15 @@ public abstract class GTreeSlowLoadingNode extends GTreeLazyNode {
 				monitor.setProgress(progressValue);
 			}
 		}
+	}
+
+	@Override
+	public Iterator<GTreeNode> iterator(boolean depthFirst) {
+		if (Swing.isSwingThread()) {
+			Msg.warn(this, "Threaded tree nodes cannot be iterated on the Swing thread. " +
+				"Change the call to this method to be run in a background task");
+			return IteratorUtils.emptyIterator();
+		}
+		return super.iterator(depthFirst);
 	}
 }

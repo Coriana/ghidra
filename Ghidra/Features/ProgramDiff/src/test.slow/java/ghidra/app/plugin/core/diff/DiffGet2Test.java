@@ -15,37 +15,24 @@
  */
 package ghidra.app.plugin.core.diff;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.*;
 
 import javax.swing.JDialog;
 
-import org.junit.Before;
 import org.junit.Test;
 
 public class DiffGet2Test extends DiffTestAdapter {
-
-	public DiffGet2Test() {
-		super();
-	}
-
-	@Override
-	@Before
-	public void setUp() throws Exception {
-		super.setUp();
-//		programBuilderDiffTest1.createMemory("d4", "0x400", 0x100);
-//		programBuilderDiffTest2.createMemory("d2", "0x200", 0x100);
-	}
 
 	@Test
 	public void testGetByteDiffsAction() throws Exception {
 		getDiffDialog(diffTestP1, diffTestP2);
 		setAllTypes(false);
 		byteCB.setSelected(true);
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		pressButtonByText(getDiffsDialog, "OK");
-		JDialog dialog = waitForJDialog(tool.getToolFrame(), "Memory Differs", 2000);
+		JDialog dialog = waitForJDialog("Memory Differs");
 		pressButtonByText(dialog, "OK");
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		waitForDiff();
 
 		assertEquals(getPgmByteDiffs(), diffPlugin.getDiffHighlightSelection());
@@ -56,11 +43,11 @@ public class DiffGet2Test extends DiffTestAdapter {
 		getDiffDialog(diffTestP1, diffTestP2);
 		setAllTypes(false);
 		codeUnitCB.setSelected(true);
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		pressButtonByText(getDiffsDialog, "OK");
-		JDialog dialog = waitForJDialog(tool.getToolFrame(), "Memory Differs", 2000);
+		JDialog dialog = waitForJDialog("Memory Differs");
 		pressButtonByText(dialog, "OK");
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		waitForDiff();
 
 		assertEquals(getPgmCodeUnitDiffs(), diffPlugin.getDiffHighlightSelection());
@@ -71,11 +58,11 @@ public class DiffGet2Test extends DiffTestAdapter {
 		getDiffDialog(diffTestP1, diffTestP2);
 		setAllTypes(false);
 		programContextCB.setSelected(true);
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		pressButtonByText(getDiffsDialog, "OK");
-		JDialog dialog = waitForJDialog(tool.getToolFrame(), "Memory Differs", 2000);
+		JDialog dialog = waitForJDialog("Memory Differs");
 		pressButtonByText(dialog, "OK");
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		waitForDiff();
 		assertEquals(getPgmProgramContextDiffs(), diffPlugin.getDiffHighlightSelection());
 	}
@@ -85,11 +72,11 @@ public class DiffGet2Test extends DiffTestAdapter {
 		getDiffDialog(diffTestP1, diffTestP2);
 		setAllTypes(false);
 		bookmarkCB.setSelected(true);
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		pressButtonByText(getDiffsDialog, "OK");
-		JDialog dialog = waitForJDialog(tool.getToolFrame(), "Memory Differs", 2000);
+		JDialog dialog = waitForJDialog("Memory Differs");
 		pressButtonByText(dialog, "OK");
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		waitForDiff();
 		assertEquals(getPgmBookmarkDiffs(), diffPlugin.getDiffHighlightSelection());
 	}
@@ -99,11 +86,11 @@ public class DiffGet2Test extends DiffTestAdapter {
 		getDiffDialog(diffTestP1, diffTestP2);
 		setAllTypes(false);
 		commentCB.setSelected(true);
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		pressButtonByText(getDiffsDialog, "OK");
-		JDialog dialog = waitForJDialog(tool.getToolFrame(), "Memory Differs", 2000);
+		JDialog dialog = waitForJDialog("Memory Differs");
 		pressButtonByText(dialog, "OK");
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		waitForDiff();
 		assertEquals(getPgmCommentDiffs(), diffPlugin.getDiffHighlightSelection());
 	}

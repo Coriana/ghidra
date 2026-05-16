@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,22 +15,23 @@
  */
 package ghidra.app.plugin.core.decompile.actions;
 
-import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 
+import docking.DockingUtils;
 import docking.action.KeyBindingData;
 import docking.action.MenuData;
 import ghidra.app.decompiler.*;
 import ghidra.app.plugin.core.decompile.DecompilerActionContext;
+import ghidra.app.util.HelpTopics;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.DataTypeManager;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.pcode.*;
+import ghidra.program.model.pcode.HighFunctionDBUtil.ReturnCommitOption;
 import ghidra.program.model.symbol.SourceType;
-import ghidra.util.Msg;
-import ghidra.util.UndefinedFunction;
+import ghidra.util.*;
 import ghidra.util.exception.*;
 
 /**
@@ -54,11 +55,17 @@ public class RetypeLocalAction extends AbstractDecompilerAction {
 
 	public RetypeLocalAction() {
 		super("Retype Variable");
+		setHelpLocation(new HelpLocation(HelpTopics.DECOMPILER, "ActionRetypeVariable"));
 		setPopupMenuData(new MenuData(new String[] { "Retype Variable" }, "Decompile"));
-		setKeyBindingData(new KeyBindingData(KeyEvent.VK_L, InputEvent.CTRL_DOWN_MASK));
+		setKeyBindingData(
+			new KeyBindingData(KeyEvent.VK_L, DockingUtils.CONTROL_KEY_MODIFIER_MASK));
 	}
 
-	private void retypeSymbol(Program program, HighSymbol highSymbol, Varnode exactSpot,
+	protected RetypeLocalAction(String name) {
+		super(name);
+	}
+
+	protected void retypeSymbol(Program program, HighSymbol highSymbol, Varnode exactSpot,
 			DataType dt, PluginTool tool) {
 		HighFunction hfunction = highSymbol.getHighFunction();
 
@@ -91,11 +98,7 @@ public class RetypeLocalAction extends AbstractDecompilerAction {
 					hfunction.getFunction().getSignatureSource() != SourceType.DEFAULT;
 				try {
 					HighFunctionDBUtil.commitParamsToDatabase(hfunction, useDataTypes,
-						SourceType.USER_DEFINED);
-					if (useDataTypes) {
-						HighFunctionDBUtil.commitReturnToDatabase(hfunction,
-							SourceType.USER_DEFINED);
-					}
+						ReturnCommitOption.NO_COMMIT, SourceType.USER_DEFINED);
 				}
 				catch (DuplicateNameException e) {
 					throw new AssertException("Unexpected exception", e);
@@ -139,7 +142,7 @@ public class RetypeLocalAction extends AbstractDecompilerAction {
 		if (!tokenAtCursor.isVariableRef()) {
 			return false;
 		}
-		HighSymbol highSymbol = findHighSymbolFromToken(tokenAtCursor, context.getHighFunction());
+		HighSymbol highSymbol = tokenAtCursor.getHighSymbol(context.getHighFunction());
 		if (highSymbol == null) {
 			return false;
 		}
@@ -153,7 +156,7 @@ public class RetypeLocalAction extends AbstractDecompilerAction {
 		ClangToken tokenAtCursor = context.getTokenAtCursor();
 
 		DataType dataType = null;
-		HighSymbol highSymbol = findHighSymbolFromToken(tokenAtCursor, context.getHighFunction());
+		HighSymbol highSymbol = tokenAtCursor.getHighSymbol(context.getHighFunction());
 		if (highSymbol == null) {
 			return;
 		}

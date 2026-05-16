@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,17 +16,17 @@
 package ghidra.app.cmd.data;
 
 import ghidra.framework.cmd.Command;
-import ghidra.framework.model.DomainObject;
 import ghidra.program.model.address.*;
 import ghidra.program.model.data.*;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.util.CodeUnitInsertionException;
+import ghidra.util.Msg;
 
 /**
- * Command to create an array.
+ * Command to create an array.  All conflicting data will be cleared.
  * 
  */
-public class CreateArrayCmd implements Command {
+public class CreateArrayCmd implements Command<Program> {
 	private String msg;
 	private Address addr;
 	private int numElements;
@@ -37,79 +36,59 @@ public class CreateArrayCmd implements Command {
 	/**
 	 * Constructs a new command for creating arrays.
 	 * @param addr The address at which to create an array.
-	 * @param numElements the number of elements in the array to be created.
+	 * @param numElements the number of elements in the array to be created.  
+	 * A 0 element count is permitted but a minimum length will apply for all array instances.
 	 * @param dt the dataType of the elements in the array to be created.
-	 * @param elementLength the size of an element in the array.
-	 */	
+	 * @param elementLength the size of an element in the array.  Only used for Dynamic
+	 * datatype <code>dt</code> when {@link Dynamic#canSpecifyLength()} returns true.
+	 */
 	public CreateArrayCmd(Address addr, int numElements, DataType dt, int elementLength) {
 		this.addr = addr;
 		this.numElements = numElements;
 		this.dataType = dt;
 		this.elementLength = elementLength;
 	}
-	
-	/**
-	 * 
-	 * @see ghidra.framework.cmd.Command#applyTo(ghidra.framework.model.DomainObject)
-	 */	
-	public boolean applyTo(DomainObject obj) {
-		Program program = (Program)obj;
+
+	@Override
+	public boolean applyTo(Program program) {
 		Listing listing = program.getListing();
-		
-        if (dataType instanceof FactoryDataType) {
-			msg = "Array not allowed on a Factory data-type: " + dataType.getName();
-			return false;
-		}
-		if (dataType instanceof Dynamic && !((Dynamic)dataType).canSpecifyLength()) {
-			msg = "Array not allowed on a non-sizable Dynamic data-type: " + dataType.getName();
-			return false;
-		}
-		if (elementLength <=0) {
-			msg = "DataType must have fixed size > 0, not "+dataType.getLength();
-			return false;
-		}
-		if (numElements <= 0) {
-			msg = "Number of elements must be positive, not "+numElements;
-			return false;
-		}
-		
-		int length = numElements*elementLength;
-		Address endAddr;
 		try {
-			endAddr = addr.addNoWrap(length - 1);
-		} catch (AddressOverflowException e1) {
+			ArrayDataType adt = new ArrayDataType(dataType, numElements, elementLength,
+				program.getDataTypeManager());
+			int length = adt.getLength();
+
+			Address endAddr = addr.addNoWrap(length - 1);
+			AddressSet set = new AddressSet(addr, endAddr);
+			InstructionIterator iter = listing.getInstructions(set, true);
+			if (iter.hasNext()) {
+				msg = "Can't create data because the current selection contains instructions";
+				return false;
+			}
+			listing.clearCodeUnits(addr, endAddr, false);
+			listing.createData(addr, adt, adt.getLength());
+		}
+		catch (AddressOverflowException e1) {
 			msg = "Can't create data because length exceeds address space";
 			return false;
 		}
-		AddressSet set = new AddressSet(addr, endAddr);
-        InstructionIterator iter = listing.getInstructions(set, true);
-        if (iter.hasNext()) {
-        	msg = "Can't create data because the current selection contains instructions";
-         	return false;
-        }
-        
-        listing.clearCodeUnits(addr, endAddr, false);
-        ArrayDataType adt = new ArrayDataType(dataType, numElements, elementLength);
-		try {
-			listing.createData(addr, adt, adt.getLength());
-		} catch(CodeUnitInsertionException e) {
+		catch (IllegalArgumentException | CodeUnitInsertionException e) {
 			msg = e.getMessage();
 			return false;
 		}
-		return true; 
+		catch (RuntimeException e) {
+			msg = "Unexpected error: " + e.toString();
+			Msg.error(this, msg, e);
+			return false;
+		}
+		return true;
 	}
 
-
-	/**
-	 * @see ghidra.framework.cmd.Command#getStatusMsg()
-	 */
+	@Override
 	public String getStatusMsg() {
 		return msg;
 	}
 
-	/**
-	 * @see ghidra.framework.cmd.Command#getName()
-	 */
+	@Override
 	public String getName() {
 		return "Create Array";
 	}

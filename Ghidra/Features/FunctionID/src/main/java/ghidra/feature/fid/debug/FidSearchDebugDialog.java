@@ -21,6 +21,8 @@ import javax.swing.*;
 
 import docking.DialogComponentProvider;
 import docking.widgets.label.GDLabel;
+import generic.theme.GThemeDefaults.Ids.Fonts;
+import generic.theme.Gui;
 import ghidra.feature.fid.db.FidFileManager;
 import ghidra.feature.fid.db.FidQueryService;
 import ghidra.feature.fid.plugin.FidPlugin;
@@ -75,13 +77,14 @@ public class FidSearchDebugDialog extends DialogComponentProvider {
 
 	private JLabel getPreparedLabel(String text) {
 		JLabel label = new GDLabel(text, SwingConstants.RIGHT);
-		label.setFont(FidDebugUtils.MONOSPACED_FONT);
+		Gui.registerFont(label, Fonts.MONOSPACED);
 		return label;
 	}
 
 	private JTextField getPreparedTextField() {
 		JTextField textField = new JTextField(25);
-		textField.setFont(FidDebugUtils.MONOSPACED_FONT);
+		Gui.registerFont(textField, Fonts.MONOSPACED);
+		textField.getAccessibleContext().setAccessibleName("Text");
 		return textField;
 	}
 
@@ -92,22 +95,27 @@ public class FidSearchDebugDialog extends DialogComponentProvider {
 
 		panel.add(getPreparedLabel("Function ID: "));
 		functionIdTextField = getPreparedTextField();
+		functionIdTextField.getAccessibleContext().setAccessibleName("Function Id");
 		panel.add(functionIdTextField);
 
 		panel.add(getPreparedLabel("Name: "));
 		nameTextField = getPreparedTextField();
+		nameTextField.getAccessibleContext().setAccessibleName("Name");
 		panel.add(nameTextField);
 
 		panel.add(getPreparedLabel("Domain Path: "));
 		pathTextField = getPreparedTextField();
+		pathTextField.getAccessibleContext().setAccessibleName("Path");
 		panel.add(pathTextField);
 
 		panel.add(getPreparedLabel("FH: "));
 		fhTextField = getPreparedTextField();
+		fhTextField.getAccessibleContext().setAccessibleName("Full Hash");
 		panel.add(fhTextField);
 
 		panel.add(getPreparedLabel("XH: "));
 		xhTextField = getPreparedTextField();
+		xhTextField.getAccessibleContext().setAccessibleName("Specific Hash");
 		panel.add(xhTextField);
 
 		functionIdTextField.addActionListener(e -> {
@@ -144,6 +152,7 @@ public class FidSearchDebugDialog extends DialogComponentProvider {
 			FidDebugUtils.searchBySpecificHash(val.longValue(), service, fidQueryService);
 
 		});
+		panel.getAccessibleContext().setAccessibleName("Fid Database Search");
 		return panel;
 	}
 

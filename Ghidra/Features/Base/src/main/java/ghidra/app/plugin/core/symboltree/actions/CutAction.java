@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,10 +15,9 @@
  */
 package ghidra.app.plugin.core.symboltree.actions;
 
-import static docking.KeyBindingPrecedence.ActionMapLevel;
+import static docking.KeyBindingPrecedence.*;
 
 import java.awt.datatransfer.*;
-import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
 import java.util.List;
@@ -27,6 +26,7 @@ import javax.swing.Icon;
 import javax.swing.KeyStroke;
 import javax.swing.tree.TreePath;
 
+import docking.DockingUtils;
 import docking.action.KeyBindingData;
 import docking.action.MenuData;
 import docking.widgets.tree.GTree;
@@ -35,10 +35,10 @@ import docking.widgets.tree.support.GTreeNodeTransferable;
 import docking.widgets.tree.support.GTreeTransferHandler;
 import ghidra.app.plugin.core.symboltree.*;
 import ghidra.app.plugin.core.symboltree.nodes.SymbolTreeNode;
-import resources.ResourceManager;
+import resources.Icons;
 
 public class CutAction extends SymbolTreeContextAction {
-	private final static Icon CUT_ICON = ResourceManager.loadImage("images/edit-cut22.png");
+	private final static Icon CUT_ICON = Icons.CUT_ICON;
 	private final SymbolTreeProvider provider;
 	private ClipboardOwner clipboardOwner;
 
@@ -47,7 +47,8 @@ public class CutAction extends SymbolTreeContextAction {
 		this.provider = provider;
 		setEnabled(false);
 		setPopupMenuData(new MenuData(new String[] { "Cut" }, CUT_ICON, "cut/paste"));
-		KeyStroke keyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_X, InputEvent.CTRL_DOWN_MASK);
+		KeyStroke keyStroke =
+			KeyStroke.getKeyStroke(KeyEvent.VK_X, DockingUtils.CONTROL_KEY_MODIFIER_MASK);
 		setKeyBindingData(new KeyBindingData(keyStroke, ActionMapLevel));
 
 		clipboardOwner = (currentClipboard, transferable) -> {
@@ -86,7 +87,7 @@ public class CutAction extends SymbolTreeContextAction {
 
 		clearClipboardFromPreviousCut();
 
-		List<GTreeNode> transferableList = createList(selectionPaths);
+		List<GTreeNode> transferableList = createList(context.getSymbolTree(), selectionPaths);
 		setClipboardContents(context.getSymbolTree(), provider.getClipboard(), transferableList);
 
 		setNodesCut(transferableList, true);
@@ -109,12 +110,13 @@ public class CutAction extends SymbolTreeContextAction {
 		}
 	}
 
-	private List<GTreeNode> createList(TreePath[] paths) {
+	private List<GTreeNode> createList(GTree gTree, TreePath[] paths) {
 		ArrayList<GTreeNode> list = new ArrayList<>();
 		if (paths != null) {
 			for (TreePath element : paths) {
 				GTreeNode node = (GTreeNode) element.getLastPathComponent();
-				list.add(node);
+				GTreeNode modelNode = gTree.getModelNode(node);
+				list.add(modelNode);
 			}
 		}
 		return list;

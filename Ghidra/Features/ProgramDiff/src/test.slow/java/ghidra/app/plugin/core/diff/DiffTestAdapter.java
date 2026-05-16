@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -33,6 +33,7 @@ import docking.action.ToggleDockingAction;
 import docking.tool.ToolConstants;
 import docking.widgets.fieldpanel.FieldPanel;
 import generic.test.AbstractGenericTest;
+import generic.theme.GThemeDefaults.Colors.Palette;
 import ghidra.app.events.ProgramLocationPluginEvent;
 import ghidra.app.plugin.core.codebrowser.CodeBrowserPlugin;
 import ghidra.app.plugin.core.marker.MarkerManagerPlugin;
@@ -42,7 +43,8 @@ import ghidra.app.plugin.core.programtree.ProgramTreePlugin;
 import ghidra.app.services.ProgramManager;
 import ghidra.app.util.viewer.listingpanel.ListingPanel;
 import ghidra.framework.main.*;
-import ghidra.framework.model.*;
+import ghidra.framework.model.DomainFile;
+import ghidra.framework.model.DomainFolder;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.database.ProgramBuilder;
 import ghidra.program.database.ProgramDB;
@@ -101,6 +103,7 @@ public class DiffTestAdapter extends AbstractGhidraHeadedIntegrationTest {
 	JCheckBox functionCB;
 	JCheckBox bookmarkCB;
 	JCheckBox propertiesCB;
+	JCheckBox sourceMapCB;
 
 	JCheckBox limitToSelectionCB;
 	JTextArea limitText;
@@ -109,7 +112,7 @@ public class DiffTestAdapter extends AbstractGhidraHeadedIntegrationTest {
 
 	ProgramTreePlugin pt;
 	ComponentProvider programTreeProvider;
-	DockingActionIf replaceView;
+	DockingActionIf setView;
 	DockingActionIf goToView;
 	DockingActionIf removeView;
 
@@ -161,49 +164,49 @@ public class DiffTestAdapter extends AbstractGhidraHeadedIntegrationTest {
 		builder.createExternalReference("0x01001034", "yourLib.dll", "GetStuff", "0x77f42caa", 0);
 
 		// comments
-		builder.createComment("1002040", "Plate in P1.", CodeUnit.PLATE_COMMENT);
-		builder.createComment("1002040", "Pre in P1.", CodeUnit.PRE_COMMENT);
-		builder.createComment("1002040", "EOL in P1.", CodeUnit.EOL_COMMENT);
-		builder.createComment("1002040", "Repeatable in P1.", CodeUnit.REPEATABLE_COMMENT);
-		builder.createComment("1002040", "Post in P1.", CodeUnit.POST_COMMENT);
+		builder.createComment("1002040", "Plate in P1.", CommentType.PLATE);
+		builder.createComment("1002040", "Pre in P1.", CommentType.PRE);
+		builder.createComment("1002040", "EOL in P1.", CommentType.EOL);
+		builder.createComment("1002040", "Repeatable in P1.", CommentType.REPEATABLE);
+		builder.createComment("1002040", "Post in P1.", CommentType.POST);
 
-		builder.createComment("1002304", "EOL comment", CodeUnit.EOL_COMMENT);
-		builder.createComment("1002306", "\"Pre Comment\"", CodeUnit.PRE_COMMENT);
-		builder.createComment("100230b", "Plate Comment", CodeUnit.PRE_COMMENT);
-		builder.createComment("100230b", "Post Comment", CodeUnit.PRE_COMMENT);
-		builder.createComment("100230d", "simple comment", CodeUnit.PRE_COMMENT);
-		builder.createComment("100230d", "simple comment", CodeUnit.EOL_COMMENT);
-		builder.createComment("100230d", "simple comment", CodeUnit.POST_COMMENT);
-		builder.createComment("100230d", "simple comment", CodeUnit.REPEATABLE_COMMENT);
-		builder.createComment("100230d", "simple comment", CodeUnit.PLATE_COMMENT);
+		builder.createComment("1002304", "EOL comment", CommentType.EOL);
+		builder.createComment("1002306", "\"Pre Comment\"", CommentType.PRE);
+		builder.createComment("100230b", "Plate Comment", CommentType.PRE);
+		builder.createComment("100230b", "Post Comment", CommentType.PRE);
+		builder.createComment("100230d", "simple comment", CommentType.PRE);
+		builder.createComment("100230d", "simple comment", CommentType.EOL);
+		builder.createComment("100230d", "simple comment", CommentType.POST);
+		builder.createComment("100230d", "simple comment", CommentType.REPEATABLE);
+		builder.createComment("100230d", "simple comment", CommentType.PLATE);
 
 		builder.createComment("1002312", "\"My comment that the other comment is in.\"",
-			CodeUnit.PRE_COMMENT);
+			CommentType.PRE);
 		builder.createComment("1002312", "My comment that the other comment is in.",
-			CodeUnit.EOL_COMMENT);
+			CommentType.EOL);
 		builder.createComment("1002312", "My comment that the other comment is in.",
-			CodeUnit.POST_COMMENT);
+			CommentType.POST);
 		builder.createComment("1002312", "My comment that the other comment is in.",
-			CodeUnit.PLATE_COMMENT);
+			CommentType.PLATE);
 
-		builder.createComment("1002336", "ONE: Repeatable comment.", CodeUnit.REPEATABLE_COMMENT);
+		builder.createComment("1002336", "ONE: Repeatable comment.", CommentType.REPEATABLE);
 
-		builder.createComment("1002346", "Easy as pie.", CodeUnit.REPEATABLE_COMMENT);
+		builder.createComment("1002346", "Easy as pie.", CommentType.REPEATABLE);
 
-		builder.createComment("1002350", "Once upon a", CodeUnit.REPEATABLE_COMMENT);
+		builder.createComment("1002350", "Once upon a", CommentType.REPEATABLE);
 
-		builder.createComment("100238f", "EOL: Program1", CodeUnit.EOL_COMMENT);
+		builder.createComment("100238f", "EOL: Program1", CommentType.EOL);
 
-		builder.createComment("1002395", "Pre: Program1", CodeUnit.PRE_COMMENT);
+		builder.createComment("1002395", "Pre: Program1", CommentType.PRE);
 
-//		builder.createComment("100239d", "Plate: Program1", CodeUnit.PLATE_COMMENT);
-		builder.createComment("100239d", "Post: Program1", CodeUnit.POST_COMMENT);
+//		builder.createComment("100239d", "Plate: Program1", CommentType.PLATE);
+		builder.createComment("100239d", "Post: Program1", CommentType.POST);
 
-		builder.createComment("10030d2", "FUNCTION", CodeUnit.PLATE_COMMENT);
+		builder.createComment("10030d2", "FUNCTION", CommentType.PLATE);
 
-		builder.createComment("100355f", "This is a function.", CodeUnit.PLATE_COMMENT);
+		builder.createComment("100355f", "This is a function.", CommentType.PLATE);
 
-		builder.createComment("100415a", "This is my function", CodeUnit.PLATE_COMMENT);
+		builder.createComment("100415a", "This is my function", CommentType.PLATE);
 
 		// functions 
 		DataType dt = new ByteDataType();
@@ -271,10 +274,10 @@ public class DiffTestAdapter extends AbstractGhidraHeadedIntegrationTest {
 		builder.setIntProperty("10018ff", "Space", 1);
 		builder.setIntProperty("100248c", "Space", 1);
 
-		builder.setObjectProperty("100248c", "testColor", new SaveableColor(Color.CYAN));
-		builder.setObjectProperty("10039dd", "testColor", new SaveableColor(Color.BLACK));
-		builder.setObjectProperty("10039f8", "testColor", new SaveableColor(Color.BLACK));
-		builder.setObjectProperty("10039fe", "testColor", new SaveableColor(Color.RED));
+		builder.setObjectProperty("100248c", "testColor", new SaveableColor(Palette.CYAN));
+		builder.setObjectProperty("10039dd", "testColor", new SaveableColor(Palette.BLACK));
+		builder.setObjectProperty("10039f8", "testColor", new SaveableColor(Palette.BLACK));
+		builder.setObjectProperty("10039fe", "testColor", new SaveableColor(Palette.RED));
 
 		AbstractGenericTest.setInstanceField("recordChanges", builder.getProgram(), Boolean.TRUE);
 
@@ -330,54 +333,50 @@ public class DiffTestAdapter extends AbstractGhidraHeadedIntegrationTest {
 
 		// comments
 		builder.createComment("100204c", "My multi-line plate\ncomment for program2.",
-			CodeUnit.PLATE_COMMENT);
+			CommentType.PLATE);
 		builder.createComment("100204c", "My multi-line pre\ncomment for program2.",
-			CodeUnit.PRE_COMMENT);
+			CommentType.PRE);
 		builder.createComment("100204c", "My multi-line EOL\ncomment for program2.",
-			CodeUnit.EOL_COMMENT);
+			CommentType.EOL);
 		builder.createComment("100204c", "My multi-line repeatable\ncomment for program2.",
-			CodeUnit.REPEATABLE_COMMENT);
+			CommentType.REPEATABLE);
 		builder.createComment("100204c", "My multi-line post\ncomment for program2.",
-			CodeUnit.POST_COMMENT);
+			CommentType.POST);
 
+		builder.createComment("100230d", "This is a simple comment for example.", CommentType.PRE);
+		builder.createComment("100230d", "This is a simple comment for example.", CommentType.EOL);
+		builder.createComment("100230d", "This is a simple comment for example.", CommentType.POST);
 		builder.createComment("100230d", "This is a simple comment for example.",
-			CodeUnit.PRE_COMMENT);
+			CommentType.REPEATABLE);
 		builder.createComment("100230d", "This is a simple comment for example.",
-			CodeUnit.EOL_COMMENT);
-		builder.createComment("100230d", "This is a simple comment for example.",
-			CodeUnit.POST_COMMENT);
-		builder.createComment("100230d", "This is a simple comment for example.",
-			CodeUnit.REPEATABLE_COMMENT);
-		builder.createComment("100230d", "This is a simple comment for example.",
-			CodeUnit.PLATE_COMMENT);
+			CommentType.PLATE);
 
-		builder.createComment("1002312", "My comment", CodeUnit.PRE_COMMENT);
-		builder.createComment("1002312", "My comment", CodeUnit.EOL_COMMENT);
-		builder.createComment("1002312", "My comment", CodeUnit.POST_COMMENT);
-		builder.createComment("1002312", "My comment", CodeUnit.PLATE_COMMENT);
+		builder.createComment("1002312", "My comment", CommentType.PRE);
+		builder.createComment("1002312", "My comment", CommentType.EOL);
+		builder.createComment("1002312", "My comment", CommentType.POST);
+		builder.createComment("1002312", "My comment", CommentType.PLATE);
 
-		builder.createComment("1002329", "Before the code unit", CodeUnit.PRE_COMMENT);
-		builder.createComment("1002329", "End of the line.", CodeUnit.EOL_COMMENT);
-		builder.createComment("1002329", "After the code unit", CodeUnit.POST_COMMENT);
-		builder.createComment("1002329", "PLATE", CodeUnit.PLATE_COMMENT);
+		builder.createComment("1002329", "Before the code unit", CommentType.PRE);
+		builder.createComment("1002329", "End of the line.", CommentType.EOL);
+		builder.createComment("1002329", "After the code unit", CommentType.POST);
+		builder.createComment("1002329", "PLATE", CommentType.PLATE);
 
-		builder.createComment("1002336", "TWO: Repeatable comment.", CodeUnit.REPEATABLE_COMMENT);
+		builder.createComment("1002336", "TWO: Repeatable comment.", CommentType.REPEATABLE);
 
-		builder.createComment("1002346", "Easy", CodeUnit.REPEATABLE_COMMENT);
+		builder.createComment("1002346", "Easy", CommentType.REPEATABLE);
 
-		builder.createComment("1002350", "Once upon a time...", CodeUnit.REPEATABLE_COMMENT);
+		builder.createComment("1002350", "Once upon a time...", CommentType.REPEATABLE);
 
-		builder.createComment("100238f", "EOL: Program2", CodeUnit.EOL_COMMENT);
+		builder.createComment("100238f", "EOL: Program2", CommentType.EOL);
 
-		builder.createComment("1002395", "Pre: Program2", CodeUnit.PRE_COMMENT);
+		builder.createComment("1002395", "Pre: Program2", CommentType.PRE);
 
-//		builder.createComment("100239d", "Plate: Program2", CodeUnit.PLATE_COMMENT);
-		builder.createComment("100239d", "Post: Program2", CodeUnit.POST_COMMENT);
+//		builder.createComment("100239d", "Plate: Program2", CommentType.PLATE);
+		builder.createComment("100239d", "Post: Program2", CommentType.POST);
 
-		builder.createComment("1002a91", "FUNCTION", CodeUnit.PLATE_COMMENT);
+		builder.createComment("1002a91", "FUNCTION", CommentType.PLATE);
 
-		builder.createComment("100415a", "This is my function for testing diff",
-			CodeUnit.PLATE_COMMENT);
+		builder.createComment("100415a", "This is my function for testing diff", CommentType.PLATE);
 
 		// functions 
 		DataType dt = new ByteDataType();
@@ -450,10 +449,10 @@ public class DiffTestAdapter extends AbstractGhidraHeadedIntegrationTest {
 		builder.setIntProperty("1002428", "Space", 1);
 		builder.setIntProperty("100248c", "Space", 1);
 
-		builder.setObjectProperty("100248c", "testColor", new SaveableColor(Color.WHITE));
-		builder.setObjectProperty("10039f1", "testColor", new SaveableColor(Color.BLACK));
-		builder.setObjectProperty("10039f8", "testColor", new SaveableColor(Color.BLACK));
-		builder.setObjectProperty("10039fe", "testColor", new SaveableColor(Color.GREEN));
+		builder.setObjectProperty("100248c", "testColor", new SaveableColor(Palette.WHITE));
+		builder.setObjectProperty("10039f1", "testColor", new SaveableColor(Palette.BLACK));
+		builder.setObjectProperty("10039f8", "testColor", new SaveableColor(Palette.BLACK));
+		builder.setObjectProperty("10039fe", "testColor", new SaveableColor(Palette.GREEN));
 
 		AbstractGenericTest.setInstanceField("recordChanges", builder.getProgram(), Boolean.TRUE);
 
@@ -478,12 +477,12 @@ public class DiffTestAdapter extends AbstractGhidraHeadedIntegrationTest {
 		diffListingPanel = diffPlugin.getListingPanel();
 		fp1 = cb.getFieldPanel();
 		fp2 = diffListingPanel.getFieldPanel();
-		openClosePgm2 = (ToggleDockingAction) getAction(diffPlugin, "Open/Close Program View");
+		openClosePgm2 = (ToggleDockingAction) getAction(diffPlugin, "Open/Close Diff View");
 
 		tool.addPlugin(ProgramTreePlugin.class.getName());
 		pt = env.getPlugin(ProgramTreePlugin.class);
-		showProgramTree();
-		replaceView = getAction(pt, "Replace View");
+		programTreeProvider = showProvider(tool, "Program Tree");
+		setView = getAction(pt, "Set View");
 		goToView = getAction(pt, "Go To start of folder/fragment in View");
 		removeView = getAction(pt, "Remove folder/fragment from View");
 
@@ -499,17 +498,32 @@ public class DiffTestAdapter extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	@After
-	public void tearDown() {
+	public void tearDown() throws Exception {
 
 		Window win = getWindow("Select Other Program");
 		if (win != null) {
 			pressButton(win, "Cancel");
 		}
 
+		closeDiff();
+
 		env.dispose();
 	}
 
+	protected void setView() {
+		ActionContext context = createActionContext(programTreeProvider);
+		performAction(setView, context, true);
+	}
+
+	protected boolean isDiffActive() {
+		return runSwing(() -> diffPlugin.isDiffActive());
+	}
+
 	void closeDiff() throws Exception {
+
+		if (!isDiffActive()) {
+			return;
+		}
 
 		closeDiffByAction();
 		DialogComponentProvider dialogProvider = waitForDialogComponent("Close Diff Session");
@@ -663,10 +677,12 @@ public class DiffTestAdapter extends AbstractGhidraHeadedIntegrationTest {
 
 	void pickSecondProgram(final Program program2) {
 
-		program2.addConsumer(diffPlugin);
-
-		OpenVersionedFileDialogTestFake dialog = new OpenVersionedFileDialogTestFake(program2);
-		diffPlugin.setOpenDiffProgramDialog(dialog);
+		OpenVersionedFileDialogTestFake dialog = runSwing(() -> {
+			OpenVersionedFileDialogTestFake openDialog =
+				new OpenVersionedFileDialogTestFake(program2);
+			diffPlugin.setDiffOpenVersionedFileDialog(openDialog);
+			return openDialog;
+		});
 
 		launchDiffByAction();
 
@@ -720,11 +736,11 @@ public class DiffTestAdapter extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	void launchDiffByAction() {
-		setToggleActionSelected(openClosePgm2, new ActionContext(), true, false);
+		setToggleActionSelected(openClosePgm2, new DefaultActionContext(), true, false);
 	}
 
 	void closeDiffByAction() {
-		setToggleActionSelected(openClosePgm2, new ActionContext(), false, false);
+		setToggleActionSelected(openClosePgm2, new DefaultActionContext(), false, false);
 	}
 
 	void invokeAndWait(DockingActionIf action) {
@@ -1053,6 +1069,7 @@ public class DiffTestAdapter extends AbstractGhidraHeadedIntegrationTest {
 		functionCB = (JCheckBox) findComponentByName(win, "FunctionsDiffCB");
 		bookmarkCB = (JCheckBox) findComponentByName(win, "BookmarksDiffCB");
 		propertiesCB = (JCheckBox) findComponentByName(win, "PropertiesDiffCB");
+		sourceMapCB = (JCheckBox) findComponentByName(win, "SourceMapDiffCB");
 
 		limitToSelectionCB = (JCheckBox) findComponentByName(win, "LimitToSelectionDiffCB");
 		limitText = (JTextArea) findComponentByName(win, "AddressTextArea");
@@ -1060,7 +1077,7 @@ public class DiffTestAdapter extends AbstractGhidraHeadedIntegrationTest {
 
 	void setAllTypes(boolean select) {
 		setCheckBoxes(select, new JCheckBox[] { programContextCB, byteCB, codeUnitCB, refCB,
-			commentCB, labelCB, functionCB, bookmarkCB, propertiesCB });
+			commentCB, labelCB, functionCB, bookmarkCB, propertiesCB, sourceMapCB });
 	}
 
 	void topOfFile(final FieldPanel fp) {
@@ -1130,13 +1147,6 @@ public class DiffTestAdapter extends AbstractGhidraHeadedIntegrationTest {
 		assertEquals(expectedSelection, currentSelection);
 	}
 
-	private void showProgramTree() {
-
-		ProgramTreePlugin ptree = env.getPlugin(ProgramTreePlugin.class);
-		programTreeProvider = (ComponentProvider) getInstanceField("viewProvider", ptree);
-		tool.showComponentProvider(programTreeProvider, true);
-	}
-
 	JTree getProgramTree() {
 		JTree tree = findComponent(programTreeProvider.getComponent(), JTree.class);
 		return tree;
@@ -1153,13 +1163,13 @@ public class DiffTestAdapter extends AbstractGhidraHeadedIntegrationTest {
 // Inner Classes
 //==================================================================================================
 
-	private class OpenVersionedFileDialogTestFake extends OpenVersionedFileDialog {
+	private class OpenVersionedFileDialogTestFake extends OpenVersionedFileDialog<Program> {
 
 		private ActionListener listener;
 		private Program chosenProgram;
 
 		OpenVersionedFileDialogTestFake(Program program) {
-			super(tool, "Select Other Program", null);
+			super(tool, "Select Other Program", Program.class);
 			this.chosenProgram = program;
 		}
 
@@ -1182,7 +1192,10 @@ public class DiffTestAdapter extends AbstractGhidraHeadedIntegrationTest {
 		}
 
 		@Override
-		public DomainObject getVersionedDomainObject(Object consumer, boolean readOnly) {
+		public Program getDomainObject(Object consumer, boolean readOnly) {
+			if (chosenProgram != null) {
+				chosenProgram.addConsumer(consumer);
+			}
 			return chosenProgram;
 		}
 

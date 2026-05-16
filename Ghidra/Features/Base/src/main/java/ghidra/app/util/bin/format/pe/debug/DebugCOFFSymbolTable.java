@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,57 +15,45 @@
  */
 package ghidra.app.util.bin.format.pe.debug;
 
-import ghidra.app.util.bin.format.*;
-import ghidra.app.util.bin.format.pe.NTHeader;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
-import java.io.*;
+import ghidra.app.util.bin.BinaryReader;
+import ghidra.app.util.bin.format.pe.NTHeader;
 
 /**
  * A class to represent the COFF Symbol Table.
  */
 public class DebugCOFFSymbolTable {
-    private int ptrToSymbolTable;
-    private int symbolCount;
+	private int ptrToSymbolTable;
+	private int symbolCount;
 
-    private DebugCOFFSymbol [] symbols;
+	private List<DebugCOFFSymbol> symbols = new ArrayList<>();
 
-    public static DebugCOFFSymbolTable createDebugCOFFSymbolTable(
-            FactoryBundledWithBinaryReader reader,
-            DebugCOFFSymbolsHeader coffHeader, int offset) throws IOException {
-        DebugCOFFSymbolTable debugCOFFSymbolTable = (DebugCOFFSymbolTable) reader.getFactory().create(DebugCOFFSymbolTable.class);
-        debugCOFFSymbolTable.initDebugCOFFSymbolTable(reader, coffHeader, offset);
-        return debugCOFFSymbolTable;
-    }
+	public DebugCOFFSymbolTable(BinaryReader reader, DebugCOFFSymbolsHeader coffHeader, int offset)
+			throws IOException {
+		this.ptrToSymbolTable = coffHeader.getFirstSymbolLVA() + offset;
+		this.symbolCount = coffHeader.getNumberOfSymbols();
 
-    /**
-     * DO NOT USE THIS CONSTRUCTOR, USE create*(GenericFactory ...) FACTORY METHODS INSTEAD.
-     */
-    public DebugCOFFSymbolTable() {}
+		//TODO: should symbol table info in NT Header agree with info in COFF Header?
 
-    private void initDebugCOFFSymbolTable(FactoryBundledWithBinaryReader reader, DebugCOFFSymbolsHeader coffHeader, int offset) throws IOException {
-        this.ptrToSymbolTable = coffHeader.getFirstSymbolLVA() + offset;
-        this.symbolCount      = coffHeader.getNumberOfSymbols();
+		if (symbolCount < NTHeader.MAX_SANE_COUNT) {
+			for (int i = 0; i < symbolCount; ++i) {
+				symbols.add(new DebugCOFFSymbol(reader,
+					ptrToSymbolTable + (i * DebugCOFFSymbol.IMAGE_SIZEOF_SYMBOL), this));
+			}
+		}
+	}
 
-//TODO:
-//should symbol table info in NT Header agree with info in COFF Header?
-
-        if (symbolCount > 0 && symbolCount < NTHeader.MAX_SANE_COUNT) {
-	        symbols = new DebugCOFFSymbol[symbolCount];
-	        for (int i = 0 ; i < symbolCount ; ++i) {
-	            symbols[i] = DebugCOFFSymbol.createDebugCOFFSymbol(reader, ptrToSymbolTable + (i * DebugCOFFSymbol.IMAGE_SIZEOF_SYMBOL), this);
-	        }
-        }
-    }
-
-    int getStringTableIndex() {
-        return ptrToSymbolTable + (symbolCount * DebugCOFFSymbol.IMAGE_SIZEOF_SYMBOL);
-    }
+	int getStringTableIndex() {
+		return ptrToSymbolTable + (symbolCount * DebugCOFFSymbol.IMAGE_SIZEOF_SYMBOL);
+	}
 
 	/**
-	 * Returns the COFF symbols defined in this COFF symbol table.
-	 * @return the COFF symbols defined in this COFF symbol table
+	 * {@return the COFF symbols defined in this COFF symbol table}
 	 */
-    public DebugCOFFSymbol [] getSymbols() {
-        return symbols;
-    }
+	public List<DebugCOFFSymbol> getSymbols() {
+		return symbols;
+	}
 }

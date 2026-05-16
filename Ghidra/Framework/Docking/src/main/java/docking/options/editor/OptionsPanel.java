@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -27,8 +27,6 @@ import javax.swing.*;
 import javax.swing.tree.TreePath;
 import javax.swing.tree.TreeSelectionModel;
 
-import docking.help.Help;
-import docking.help.HelpService;
 import docking.widgets.MultiLineLabel;
 import docking.widgets.OptionDialog;
 import docking.widgets.label.GIconLabel;
@@ -40,7 +38,9 @@ import ghidra.util.*;
 import ghidra.util.bean.opteditor.OptionsVetoException;
 import ghidra.util.layout.MiddleLayout;
 import ghidra.util.task.SwingUpdateManager;
-import resources.ResourceManager;
+import help.Help;
+import help.HelpService;
+import resources.Icons;
 
 public class OptionsPanel extends JPanel {
 	private PropertyChangeListener changeListener;
@@ -183,7 +183,7 @@ public class OptionsPanel extends JPanel {
 		processSelection(node);
 	}
 
-	public boolean cancel() {
+	public void cancel() {
 		Set<Entry<OptionsTreeNode, OptionsEditor>> entrySet = editorMap.entrySet();
 		for (Map.Entry<OptionsTreeNode, OptionsEditor> entry : entrySet) {
 			OptionsEditor editor = entry.getValue();
@@ -199,8 +199,6 @@ public class OptionsPanel extends JPanel {
 				Msg.showError(this, this, title, title + "\nError Message: " + msg, e);
 			}
 		}
-
-		return true;
 	}
 
 	public boolean apply() {
@@ -214,6 +212,7 @@ public class OptionsPanel extends JPanel {
 			catch (OptionsVetoException ove) {
 				Msg.showWarn(this, this, "Invalid Option Value",
 					"Attempted to set an option to an invalid value:\n" + ove.getMessage());
+				status = false;
 			}
 			catch (Exception e) {
 				status = false;
@@ -253,7 +252,7 @@ public class OptionsPanel extends JPanel {
 		BoxLayout bl = new BoxLayout(labelPanel, BoxLayout.X_AXIS);
 		labelPanel.setLayout(bl);
 		labelPanel.add(Box.createHorizontalStrut(5));
-		labelPanel.add(new GIconLabel(ResourceManager.loadImage("images/information.png")));
+		labelPanel.add(new GIconLabel(Icons.INFO_ICON));
 		labelPanel.add(Box.createHorizontalStrut(5));
 		labelPanel.add(label);
 
@@ -341,13 +340,13 @@ public class OptionsPanel extends JPanel {
 		if (options == null) {
 			return null;
 		}
-		List<String> optionList = node.getOptionNames();
 
 		editor = options.getOptionsEditor();
 		if (editor == null) {
+			List<String> optionList = node.getOptionNames();
+			Collections.sort(optionList);
 			if (optionList.size() > 0) {
-				editor = new ScrollableOptionsEditor(options.getName(), options, optionList,
-					editorStateFactory);
+				editor = new ScrollableOptionsEditor(options.getName(), optionList);
 			}
 		}
 
@@ -374,7 +373,7 @@ public class OptionsPanel extends JPanel {
 
 //==================================================================================================
 // Inner Classes
-//==================================================================================================	
+//==================================================================================================
 
 	public class OptionsDataTransformer extends DefaultGTreeDataTransformer {
 		@Override
@@ -392,7 +391,7 @@ public class OptionsPanel extends JPanel {
 		}
 
 		private void addDetails(Options options, String optionName, List<String> results) {
-			// some options use property editor classes to handle options editing and not 
+			// some options use property editor classes to handle options editing and not
 			// EditableOptions objects directly
 			PropertyEditor propertyEditor = options.getRegisteredPropertyEditor(optionName);
 			if (propertyEditor instanceof CustomOptionsEditor) {
@@ -412,8 +411,10 @@ public class OptionsPanel extends JPanel {
 			}
 
 			String[] descriptions = editor.getOptionDescriptions();
-			for (String string : descriptions) {
-				results.add(string);
+			if (descriptions != null) {
+				for (String string : descriptions) {
+					results.add(string);
+				}
 			}
 		}
 	}

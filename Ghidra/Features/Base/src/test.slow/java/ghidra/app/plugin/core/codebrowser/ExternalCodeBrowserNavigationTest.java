@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,7 +15,8 @@
  */
 package ghidra.app.plugin.core.codebrowser;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 
 import javax.swing.table.TableColumnModel;
 import javax.swing.table.TableModel;
@@ -28,6 +29,8 @@ import ghidra.app.cmd.function.CreateThunkFunctionCmd;
 import ghidra.app.nav.Navigatable;
 import ghidra.app.plugin.core.gotoquery.GoToHelper;
 import ghidra.app.plugin.core.navigation.NavigationOptions;
+import ghidra.app.services.GoToService;
+import ghidra.app.util.navigation.GoToServiceImpl;
 import ghidra.framework.main.DataTreeDialog;
 import ghidra.framework.main.datatree.DataTree;
 import ghidra.framework.main.datatree.ProjectDataTreePanel;
@@ -42,7 +45,6 @@ import ghidra.program.util.ProgramLocation;
 import ghidra.util.Msg;
 import ghidra.util.table.GhidraTable;
 import ghidra.util.task.TaskMonitor;
-import mockit.*;
 
 public class ExternalCodeBrowserNavigationTest extends AbstractCodeBrowserNavigationTest {
 
@@ -53,8 +55,20 @@ public class ExternalCodeBrowserNavigationTest extends AbstractCodeBrowserNaviga
 	public void setUp() throws Exception {
 		super.setUp();
 
-		// this call triggers jMockit to load our spy
-		new SpyGoToHelper();
+		GoToHelper spyGoToHelper = new GoToHelper(tool) {
+			@Override
+			public boolean goTo(final Navigatable navigatable, ProgramLocation loc, Program p) {
+				Msg.debug(this, "goTo() called with " + loc);
+
+				// Track last navigation location
+				lastNavigationLocation = loc;
+				lastNavigationProgram = p;
+				return super.goTo(navigatable, loc, p);
+			}
+		};
+
+		GoToServiceImpl goToServiceImpl = (GoToServiceImpl) tool.getService(GoToService.class);
+		setInstanceField("helper", goToServiceImpl, spyGoToHelper);
 
 		Project project = getTool().getProject();
 		DomainFolder rootFolder = project.getProjectData().getRootFolder();
@@ -85,7 +99,7 @@ public class ExternalCodeBrowserNavigationTest extends AbstractCodeBrowserNaviga
 	private void addThunkToExternalFunction(String libraryName, String label,
 			Address thunkAddress) {
 		ExternalLocation externalLocation =
-			program.getExternalManager().getExternalLocation(libraryName, label);
+			program.getExternalManager().getUniqueExternalLocation(libraryName, label);
 		Function extFunction = externalLocation.getFunction();
 
 		CreateThunkFunctionCmd cmd = new CreateThunkFunctionCmd(thunkAddress,
@@ -183,8 +197,9 @@ public class ExternalCodeBrowserNavigationTest extends AbstractCodeBrowserNaviga
 	@Test
 	public void testOperandExternalProgramNavigation() throws Exception {
 
-		getTool().getOptions("Navigation").setEnum("External Navigation",
-			NavigationOptions.ExternalNavigationEnum.NavigateToExternalProgram);
+		getTool().getOptions("Navigation")
+				.setEnum("External Navigation",
+					NavigationOptions.ExternalNavigationEnum.NavigateToExternalProgram);
 
 		cb.goTo(new OperandFieldLocation(program, addr("1001020"), null, null, null, 0, 0));
 		assertEquals(addr("1001020"), cb.getCurrentAddress());
@@ -205,8 +220,9 @@ public class ExternalCodeBrowserNavigationTest extends AbstractCodeBrowserNaviga
 	@Test
 	public void testOperandExternalProgramNavigation_OnThunk() throws Exception {
 
-		getTool().getOptions("Navigation").setEnum("External Navigation",
-			NavigationOptions.ExternalNavigationEnum.NavigateToExternalProgram);
+		getTool().getOptions("Navigation")
+				.setEnum("External Navigation",
+					NavigationOptions.ExternalNavigationEnum.NavigateToExternalProgram);
 
 		String fromAddress = "1001030";
 		cb.goTo(new OperandFieldLocation(program, addr(fromAddress), null, null, null, 0, 0));
@@ -234,8 +250,9 @@ public class ExternalCodeBrowserNavigationTest extends AbstractCodeBrowserNaviga
 	@Test
 	public void testOperandExternalProgramMissingPathNavigation() throws Exception {
 
-		getTool().getOptions("Navigation").setEnum("External Navigation",
-			NavigationOptions.ExternalNavigationEnum.NavigateToExternalProgram);
+		getTool().getOptions("Navigation")
+				.setEnum("External Navigation",
+					NavigationOptions.ExternalNavigationEnum.NavigateToExternalProgram);
 
 		// clear external program path
 		int txId = program.startTransaction("Set Path");
@@ -293,20 +310,5 @@ public class ExternalCodeBrowserNavigationTest extends AbstractCodeBrowserNaviga
 			(ProjectDataTreePanel) getInstanceField("treePanel", dialog);
 		DataTree dataTree = treePanel.getDataTree();
 		waitForTree(dataTree);
-	}
-
-	public class SpyGoToHelper extends MockUp<GoToHelper> {
-
-		@Mock
-		public boolean goTo(Invocation inv, final Navigatable navigatable, ProgramLocation loc,
-				Program p) {
-
-			Msg.debug(this, "goTo() called with " + loc);
-
-			// Track last navigation location
-			lastNavigationLocation = loc;
-			lastNavigationProgram = p;
-			return inv.proceed(navigatable, loc, p); // pass-thru to real
-		}
 	}
 }

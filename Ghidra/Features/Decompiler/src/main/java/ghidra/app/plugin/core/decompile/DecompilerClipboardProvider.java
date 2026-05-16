@@ -29,17 +29,22 @@ import org.apache.commons.lang3.StringUtils;
 
 import docking.ActionContext;
 import docking.ComponentProvider;
+import docking.dnd.StringTransferable;
 import docking.widgets.fieldpanel.Layout;
 import docking.widgets.fieldpanel.LayoutModel;
 import docking.widgets.fieldpanel.internal.PaintContext;
 import docking.widgets.fieldpanel.support.FieldRange;
 import docking.widgets.fieldpanel.support.FieldSelection;
+import ghidra.app.decompiler.ClangFuncNameToken;
 import ghidra.app.decompiler.ClangToken;
-import ghidra.app.decompiler.component.ClangTextField;
-import ghidra.app.decompiler.component.DecompilerPanel;
+import ghidra.app.decompiler.component.*;
 import ghidra.app.services.ClipboardContentProviderService;
 import ghidra.app.util.ByteCopier;
 import ghidra.app.util.ClipboardType;
+import ghidra.program.model.listing.Function;
+import ghidra.program.model.listing.Program;
+import ghidra.program.util.ProgramLocation;
+import ghidra.program.util.ProgramSelection;
 import ghidra.util.task.TaskMonitor;
 
 public class DecompilerClipboardProvider extends ByteCopier
@@ -48,7 +53,7 @@ public class DecompilerClipboardProvider extends ByteCopier
 	private static final PaintContext PAINT_CONTEXT = new PaintContext();
 	private static final ClipboardType TEXT_TYPE =
 		new ClipboardType(DataFlavor.stringFlavor, "Text");
-	private static final List<ClipboardType> COPY_TYPES = new LinkedList<ClipboardType>();
+	private static final List<ClipboardType> COPY_TYPES = new LinkedList<>();
 
 	static {
 		COPY_TYPES.add(TEXT_TYPE);
@@ -58,8 +63,22 @@ public class DecompilerClipboardProvider extends ByteCopier
 	private FieldSelection selection;
 
 	private boolean copyFromSelectionEnabled;
-	private Set<ChangeListener> listeners = new CopyOnWriteArraySet<ChangeListener>();
+	private Set<ChangeListener> listeners = new CopyOnWriteArraySet<>();
 	private int spaceCharWidthInPixels = 7;
+
+	void setLocation(ProgramLocation location) {
+		currentLocation = location;
+	}
+
+	void setSelection(ProgramSelection selection) {
+		currentSelection = selection;
+	}
+
+	void setProgram(Program p) {
+		currentProgram = p;
+		currentLocation = null;
+		currentSelection = null;
+	}
 
 	public DecompilerClipboardProvider(DecompilePlugin plugin, DecompilerProvider provider) {
 		this.provider = provider;
@@ -86,18 +105,28 @@ public class DecompilerClipboardProvider extends ByteCopier
 
 	@Override
 	public Transferable copy(TaskMonitor monitor) {
-		if (!copyFromSelectionEnabled) {
-			return createStringTransferable(getCursorText());
+		if (copyFromSelectionEnabled) {
+			return copyTextFromSelection(monitor);
 		}
-
-		return copyText(monitor);
+		return new StringTransferable(getCursorText());
 	}
 
 	private String getCursorText() {
+		if (currentProgram == null) {
+			return null; // disposed
+		}
+
 		DecompilerPanel panel = provider.getDecompilerPanel();
 		ClangToken token = panel.getTokenAtCursor();
 		if (token == null) {
 			return null;
+		}
+
+		if (token instanceof ClangFuncNameToken functionToken) {
+			Function function = DecompilerUtils.getFunction(currentProgram, functionToken);
+			if (function != null) {
+				return function.getName();
+			}
 		}
 
 		String text = token.getText();
@@ -119,7 +148,7 @@ public class DecompilerClipboardProvider extends ByteCopier
 	@Override
 	public Transferable copySpecial(ClipboardType copyType, TaskMonitor monitor) {
 		if (copyType == TEXT_TYPE) {
-			return copyText(monitor);
+			return copyTextFromSelection(monitor);
 		}
 
 		return null;
@@ -161,12 +190,12 @@ public class DecompilerClipboardProvider extends ByteCopier
 		return false;
 	}
 
-	protected Transferable copyText(TaskMonitor monitor) {
+	private Transferable copyTextFromSelection(TaskMonitor monitor) {
 		return createStringTransferable(getText());
 	}
 
-	String getText() {
-		StringBuffer buffer = new StringBuffer();
+	private String getText() {
+		StringBuilder buffer = new StringBuilder();
 		int numRanges = selection.getNumRanges();
 		for (int i = 0; i < numRanges; i++) {
 			appendText(buffer, selection.getFieldRange(i));
@@ -174,7 +203,7 @@ public class DecompilerClipboardProvider extends ByteCopier
 		return buffer.toString();
 	}
 
-	void appendText(StringBuffer buffer, FieldRange fieldRange) {
+	private void appendText(StringBuilder buffer, FieldRange fieldRange) {
 		int startIndex = fieldRange.getStart().getIndex().intValue();
 		int endIndex = fieldRange.getEnd().getIndex().intValue();
 		if (startIndex == endIndex) { // single line selection (don't include padding)
@@ -189,7 +218,7 @@ public class DecompilerClipboardProvider extends ByteCopier
 		}
 	}
 
-	private void appendText(StringBuffer buffer, int lineNumber,
+	private void appendText(StringBuilder buffer, int lineNumber,
 			FieldSelection singleLineSelection) {
 		if (singleLineSelection.isEmpty()) {
 			return;
@@ -206,10 +235,10 @@ public class DecompilerClipboardProvider extends ByteCopier
 			endRow = fieldRange.getEnd().getRow();
 		}
 
-		LayoutModel model = provider.getDecompilerPanel().getLayoutModel();
+		LayoutModel model = provider.getDecompilerPanel().getLayoutController();
 		Layout layout = model.getLayout(BigInteger.valueOf(lineNumber));
 		ClangTextField field = (ClangTextField) layout.getField(0);
-		int numSpaces = (field.getStartX() - field.getLineNumberWidth()) / spaceCharWidthInPixels;
+		int numSpaces = field.getStartX() / spaceCharWidthInPixels;
 		for (int i = 0; i < numSpaces; i++) {
 			buffer.append(' ');
 		}
@@ -224,7 +253,7 @@ public class DecompilerClipboardProvider extends ByteCopier
 		}
 	}
 
-	private void appendTextSingleLine(StringBuffer buffer, int lineNumber,
+	private void appendTextSingleLine(StringBuilder buffer, int lineNumber,
 			FieldSelection singleLineSelection) {
 		if (singleLineSelection.isEmpty()) {
 			return;
@@ -235,7 +264,7 @@ public class DecompilerClipboardProvider extends ByteCopier
 		int startRow = fieldRange.getStart().getRow();
 		int endRow = fieldRange.getEnd().getRow();
 
-		LayoutModel model = provider.getDecompilerPanel().getLayoutModel();
+		LayoutModel model = provider.getDecompilerPanel().getLayoutController();
 		Layout layout = model.getLayout(BigInteger.valueOf(lineNumber));
 		ClangTextField field = (ClangTextField) layout.getField(0);
 
@@ -249,7 +278,7 @@ public class DecompilerClipboardProvider extends ByteCopier
 
 //==================================================================================================
 // Unsupported Operations
-//==================================================================================================    
+//==================================================================================================
 
 	@Override
 	public boolean enablePaste() {

@@ -4,18 +4,16 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/**
- *
- */
+
 package docking.widgets.textfield;
 
 import java.awt.*;
@@ -31,6 +29,8 @@ import javax.swing.JTextField;
 import javax.swing.event.*;
 
 import docking.util.GraphicsUtils;
+import generic.theme.GThemeDefaults.Colors.Messages;
+import generic.theme.Gui;
 import ghidra.util.SystemUtilities;
 
 /**
@@ -226,15 +226,17 @@ public class LocalDateTextField {
 
 	private class MyTextField extends JTextField {
 
+		private static final String FONT_ID = "font.input.hint";
+
 		@Override
 		protected void paintComponent(Graphics g) {
 			super.paintComponent(g);
 
 			if (showFieldDecoration) {
-				Font font = new Font("Monospaced", Font.PLAIN, 10);
+				Font font = Gui.getFont(FONT_ID);
 				Font savedFont = g.getFont();
 				g.setFont(font);
-				g.setColor(Color.LIGHT_GRAY);
+				g.setColor(Messages.HINT);
 				FontMetrics fontMetrics = getFontMetrics(font);
 				String label = isMonthMode ? MONTH_LABEL : DAY_LABEL;
 				int stringWidth = fontMetrics.stringWidth(label);

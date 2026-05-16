@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,8 +15,7 @@
  */
 package docking.widgets;
 
-import java.awt.BorderLayout;
-import java.awt.Component;
+import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -35,9 +34,7 @@ import ghidra.util.exception.AssertException;
  * A utility class to easily show dialogs that require input from the user.
  *
  *
- * <h2>Option Dialogs</h2><br>
- * <blockquote>
- * <p>
+ * <h2>Option Dialogs</h2>
  * The primary type of
  * dialog provided herein is the basic option dialog that allows the user to specify the buttons
  * that appear on the dialog.  By default, the given option text will appear as a button(s),
@@ -45,61 +42,43 @@ import ghidra.util.exception.AssertException;
  * {@link #showOptionNoCancelDialog(Component, String, String, String, String, int)} methods if
  * you do not want a <code>Cancel</code> button.  To use this type of dialog you can use the
  * various <b><code>showOptionDialog*</code></b> methods.
- * </p>
  * <p>
  * Each of the option dialog methods will return a result, which is a number indicating the
  * choice made by the user.  See each method for more details.
- * </p>
- * </blockquote>
  *
  *
- * <h3>Data Input and Choice Dialogs</h3><br>
- * <blockquote>
- * 		<p>
- * 		The methods listed here allow the user to either enter data from the keyboard or to choose
- * 		from a pre-populated list of data.
- * 		</p>
- * 		<blockquote>
- * 		{@link #showInputChoiceDialog(Component, String, String, String[], String, int)}<br>
- * 		{@link #showInputMultilineDialog(Component, String, String, String)}<br>
- * 		{@link #showInputSingleLineDialog(Component, String, String, String)}
- * 	</blockquote>
- * </blockquote>
+ * <h3>Data Input and Choice Dialogs</h3>
+ * The methods listed here allow the user to either enter data from the keyboard or to choose
+ * from a pre-populated list of data.
+ * <ul>
+ *   <li>{@link #showInputChoiceDialog(Component, String, String, String[], String, int)}</li>
+ *   <li>{@link #showInputMultilineDialog(Component, String, String, String)}</li>
+ *   <li>{@link #showInputSingleLineDialog(Component, String, String, String)}</li>
+ * </ul>
  *
  *
- * <h3>Yes/No Dialogs</h3><br>
- * <blockquote>
- * <p>
+ * <h3>Yes/No Dialogs</h3>
  * Finally, there are a series of methods that present <code>Yes</code> and <code>No</code> buttons in
  * a dialog.  There are versions that do and do not have a <code>Cancel</code> button.
- * </p>
- * </blockquote>
  *
  *
- * <h3>Basic Message / Warning / Error Dialogs</h3><br>
- * <blockquote>
- * <p>
+ * <h3>Basic Message / Warning / Error Dialogs</h3>
  * If you would like to display a simple message to the user, but do not require input from the
  * user, then you should use the various methods of {@link Msg}, such as
  * {@link Msg#showInfo(Object, Component, String, Object)}.
- * </p>
  * <p>
  * Note, the user will be unable to select any text shown in the message area of the dialog.
- * </p>
- * </blockquote>
  * 
- * <h3>"Apply to All" / "Don't Show Again"</h3><br>
- * <blockquote>
- * <p>For more advanced input dialog usage, to include allowing the user to tell the dialog
+ * <h3>"Apply to All" / "Don't Show Again"</h3>
+ * For more advanced input dialog usage, to include allowing the user to tell the dialog
  * to remember a particular decision, or to apply a given choice to all future request, see
  * {@link OptionDialogBuilder}.
- * </blockquote>
  *
  * @see Msg
  * @see OptionDialogBuilder
  */
 public class OptionDialog extends DialogComponentProvider {
-	private static final String MESSAGE_COMPONENT_NAME = "MESSAGE-COMPONENT";
+	public static final String MESSAGE_COMPONENT_NAME = "MESSAGE-COMPONENT";
 	/** Used for error messages. */
 	public static final int ERROR_MESSAGE = 0;
 	/** Used for information messages. */
@@ -174,6 +153,7 @@ public class OptionDialog extends DialogComponentProvider {
 	protected OptionDialog(String title, String message, String option1, String option2,
 			int messageType, Icon icon, boolean addCancel) {
 		super(title, true, false, true, false);
+		setTransient(true);
 		buildMainPanel(message, messageType, icon, null);
 		buildButtons(toList(option1, option2), addCancel, null);
 	}
@@ -189,11 +169,12 @@ public class OptionDialog extends DialogComponentProvider {
 	 * @param icon allows the user to specify the icon to be used.  If non-null,
 	 *     this will override the messageType.
 	 * @param addCancel true means add a Cancel button
-	 * @param defaultButtonName The default button name	
+	 * @param defaultButtonName The default button name
 	 */
 	protected OptionDialog(String title, String message, String option1, String option2,
 			int messageType, Icon icon, boolean addCancel, String defaultButtonName) {
 		super(title, true, false, true, false);
+		setTransient(true);
 		buildMainPanel(message, messageType, icon, null);
 		buildButtons(toList(option1, option2), addCancel, defaultButtonName);
 	}
@@ -233,6 +214,7 @@ public class OptionDialog extends DialogComponentProvider {
 	protected OptionDialog(String title, String message, String option1, String option2,
 			String option3, int messageType, Icon icon, boolean addCancel) {
 		super(title, true, false, true, false);
+		setTransient(true);
 		buildMainPanel(message, messageType, icon, null);
 		buildButtons(toList(option1, option2, option3), addCancel, null);
 	}
@@ -240,6 +222,7 @@ public class OptionDialog extends DialogComponentProvider {
 	OptionDialog(String title, String message, int messageType, Icon icon, boolean addCancelButton,
 			DialogRememberOption savedDialogChoice, List<String> options, String defaultOption) {
 		super(title, true, false, true, false);
+		setTransient(true);
 		buildMainPanel(message, messageType, icon, savedDialogChoice);
 		buildButtons(options, addCancelButton, defaultOption);
 	}
@@ -256,6 +239,7 @@ public class OptionDialog extends DialogComponentProvider {
 
 	private void buildMainPanel(String message, int messageType, Icon icon,
 			DialogRememberOption rememberOptionChoice) {
+
 		JPanel panel = new JPanel(new BorderLayout());
 		panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
@@ -266,7 +250,7 @@ public class OptionDialog extends DialogComponentProvider {
 		if (savedDialogChoicePanel != null) {
 			panel.add(savedDialogChoicePanel, BorderLayout.SOUTH);
 		}
-
+		setAccessibleDescription(message);
 		addWorkPanel(panel);
 		setRememberLocation(false);
 		setRememberSize(false);
@@ -275,7 +259,7 @@ public class OptionDialog extends DialogComponentProvider {
 	private JPanel buildRememberOptionChoicePanel(DialogRememberOption rememberOptionChoice) {
 		if (rememberOptionChoice == null) {
 			this.rememberOption = new DoNothingDialogRememberOption();
-			rememberOptionCheckBox = new GCheckBox(); // to prevent null checks, create dummy checkbox
+			rememberOptionCheckBox = new GCheckBox(); // dummy checkbox to prevent null checks
 			return null;
 		}
 		this.rememberOption = rememberOptionChoice;
@@ -288,11 +272,26 @@ public class OptionDialog extends DialogComponentProvider {
 	}
 
 	private JPanel buildMessagePanel(String message, int messageType, Icon icon) {
+
+		this.dialogMessage = message;
+
 		JPanel panel = new JPanel(new BorderLayout());
 		JPanel textPanel = createTextPanel(message);
 		textPanel.setMaximumSize(textPanel.getPreferredSize());
-		panel.add(new GIconLabel((icon == null) ? getIconForMessageType(messageType) : icon),
-			BorderLayout.WEST);
+
+		// we override preferred size here to compensate for html text that is being clipped on
+		// some operating systems
+		Icon messageIcon = (icon == null) ? getIconForMessageType(messageType) : icon;
+		JLabel label = new GIconLabel(messageIcon) {
+			@Override
+			public Dimension getPreferredSize() {
+				Dimension ps = super.getPreferredSize();
+				ps.height += 10;
+				return ps;
+			}
+		};
+
+		panel.add(label, BorderLayout.WEST);
 		panel.add(textPanel, BorderLayout.CENTER);
 		return panel;
 	}
@@ -369,18 +368,28 @@ public class OptionDialog extends DialogComponentProvider {
 
 	protected JPanel createTextPanel(String message) {
 
-		this.dialogMessage = message;
-		if (HTMLUtilities.isHTML(dialogMessage)) {
-			JLabel messageLabel = new GHtmlLabel(dialogMessage);
-			messageLabel.setName(MESSAGE_COMPONENT_NAME);
-			JPanel panel = new JPanel(new BorderLayout());
-			panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-			panel.add(messageLabel);
-			return panel;
+		if (!HTMLUtilities.isHTML(dialogMessage)) {
+			MultiLineLabel label = new MultiLineLabel(dialogMessage);
+			label.setName(MESSAGE_COMPONENT_NAME);
+			return label;
 		}
-		MultiLineLabel label = new MultiLineLabel(dialogMessage);
+
+		// we override preferred size here to compensate for html text that is being clipped on
+		// some operating systems
+		JLabel label = new GHtmlLabel(dialogMessage) {
+			@Override
+			public Dimension getPreferredSize() {
+				Dimension ps = super.getPreferredSize();
+				ps.height += 10;
+				return ps;
+			}
+		};
 		label.setName(MESSAGE_COMPONENT_NAME);
-		return label;
+		JPanel panel = new JPanel(new BorderLayout());
+		panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+		panel.add(label, BorderLayout.CENTER);
+		return panel;
+
 	}
 
 	/**
@@ -735,7 +744,7 @@ public class OptionDialog extends DialogComponentProvider {
 		return Swing.runNow(() -> {
 			OptionDialog info =
 				new OptionDialog(title, message, option1, option2, PLAIN_MESSAGE, icon, false);
-			return info.show();
+			return info.show(parent);
 		});
 	}
 
@@ -765,7 +774,39 @@ public class OptionDialog extends DialogComponentProvider {
 		return Swing.runNow(() -> {
 			OptionDialog info = new OptionDialog(title, message, option1, option2, option3,
 				messageType, null, false);
-			return info.show();
+			return info.show(parent);
+		});
+	}
+
+	/**
+	 * Static helper method to easily display an three-option dialog with no Cancel button.
+	 * The dialog will remain until the user presses the
+	 * Option1, Option 2, or Option 3 button.
+	 *
+	 * @param parent    The parent component of this dialog. If the given component is
+	 * a frame or dialog, then the component will be used to parent the option dialog.
+	 * Otherwise, the parent frame or dialog will be found by traversing up the given
+	 * component's parent hierarchy.  Also, null can be used to not parent the dialog at all,
+	 * but this promotes poor dialog behavior
+	 * @param title The String to be placed in the dialogs title area
+	 * @param message The information message to be displayed in the dialog
+	 * @param option1 The text to place on the first option button
+	 * @param option2 The text to place on the second option button
+	 * @param option3 The text to place on the third option button
+	 * @param messageType used to specify a default icon, can be ERROR_MESSAGE,
+	 * 		INFORMATION_MESSAGE, WARNING_MESSAGE, QUESTION_MESSAGE, or PLAIN_MESSAGE)
+	 * @param help The help location for this dialog
+	 * @return The options selected by the user. 1 for the first option and
+	 *  2 for the second option.  0 is returned if the operation is cancelled
+	 */
+	public static int showOptionNoCancelDialog(Component parent, String title, String message,
+			String option1, String option2, String option3, int messageType, HelpLocation help) {
+
+		return Swing.runNow(() -> {
+			OptionDialog info = new OptionDialog(title, message, option1, option2, option3,
+				messageType, null, false);
+			info.setHelpLocation(help);
+			return info.show(parent);
 		});
 	}
 

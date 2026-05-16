@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -24,7 +24,7 @@ import javax.swing.ListSelectionModel;
 import javax.swing.event.*;
 import javax.swing.table.*;
 
-import org.jdom.Element;
+import org.jdom2.Element;
 
 import ghidra.docking.settings.Settings;
 import ghidra.util.datastruct.WeakDataStructureFactory;
@@ -136,8 +136,7 @@ public class GTableColumnModel
 	}
 
 	private int findVisibleInsertionIndex(TableColumn column) {
-		int completeIndex = visibleColumns.indexOf(column);
-
+		int completeIndex = completeList.indexOf(column);
 		int size = visibleColumns.size();
 		for (int i = completeIndex + 1; i < size; i++) {
 			TableColumn nextColumn = completeList.get(i);
@@ -152,10 +151,7 @@ public class GTableColumnModel
 
 	@Override
 	public void addColumn(TableColumn aColumn) {
-		if (aColumn == null) {
-			throw new IllegalArgumentException("Object is null");
-		}
-
+		Objects.requireNonNull(aColumn);
 		removeColumnWithModelIndex(aColumn.getModelIndex()); // dedup
 
 		completeList.add(aColumn);
@@ -168,6 +164,18 @@ public class GTableColumnModel
 		// Post columnAdded event notification
 		fireColumnAdded(new TableColumnModelEvent(this, 0, getColumnCount() - 1));
 		columnModelState.restoreState();
+	}
+
+	/**
+	 * Adds a table column to this model that is not visible default.  This column may be made
+	 * visible later by the user or by the system restoring a previously used visible column state.
+	 * @param aColumn the column
+	 */
+	public void addHiddenColumn(TableColumn aColumn) {
+		Objects.requireNonNull(aColumn);
+		removeColumnWithModelIndex(aColumn.getModelIndex()); // dedup
+		completeList.add(aColumn);
+		aColumn.addPropertyChangeListener(this);
 	}
 
 	/** Finds the table's column with the given model index */
@@ -483,6 +491,10 @@ public class GTableColumnModel
 		columnModelState.saveState();
 	}
 
+	void forceSaveState() {
+		columnModelState.forceSaveState();
+	}
+
 	void restoreState() {
 		columnModelState.restoreState();
 	}
@@ -626,5 +638,4 @@ public class GTableColumnModel
 	public void restoreFromXML(Element element) {
 		columnModelState.restoreFromXML(element);
 	}
-
 }

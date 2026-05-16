@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,19 +18,27 @@ package ghidra.app.plugin.core.interpreter;
 import java.awt.*;
 import java.awt.event.*;
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.swing.*;
 import javax.swing.text.*;
 
+import org.apache.commons.io.output.WriterOutputStream;
+
 import docking.DockingUtils;
 import docking.actions.KeyBindingUtils;
+import generic.theme.*;
 import generic.util.WindowUtilities;
 import ghidra.app.plugin.core.console.CodeCompletion;
+import ghidra.app.script.DecoratingPrintWriter;
 import ghidra.framework.options.OptionsChangeListener;
 import ghidra.framework.options.ToolOptions;
 import ghidra.framework.plugintool.PluginTool;
-import ghidra.util.*;
+import ghidra.util.HelpLocation;
+import ghidra.util.Msg;
 
 public class InterpreterPanel extends JPanel implements OptionsChangeListener {
 
@@ -38,13 +46,15 @@ public class InterpreterPanel extends JPanel implements OptionsChangeListener {
 	private static final String COMPLETION_WINDOW_TRIGGER_DESCRIPTION =
 		"The key binding used to show the auto-complete window " +
 			"(for those consoles that have auto-complete).";
+	private static final String FONT_ID = "font.plugin.console";
 	private static final String FONT_OPTION_LABEL = "Font";
 	private static final String FONT_DESCRIPTION =
 		"This is the font that will be used in the Console.  " +
 			"Double-click the font example to change it.";
 
-	private static final Color NORMAL_COLOR = Color.black;
-	private static final Color ERROR_COLOR = Color.red;
+	private static final GColor NORMAL_COLOR = new GColor("color.fg.interpreterconsole");
+	private static final GColor ERROR_COLOR = new GColor("color.fg.interpreterconsole.error");
+	private static final GColor BG_COLOR = new GColor("color.bg.interpreterconsole");
 
 	public enum TextType {
 		STDOUT, STDERR, STDIN;
@@ -54,46 +64,30 @@ public class InterpreterPanel extends JPanel implements OptionsChangeListener {
 	private JScrollPane outputScrollPane;
 	private JTextPane outputTextPane;
 	private JTextPane promptTextPane;
-	private JTextPane inputTextPane;
+	/* junit */ JTextPane inputTextPane;
 
 	private CodeCompletionWindow codeCompletionWindow;
 	private HistoryManager history;
 
-	private IPStdin stdin;
+	/* junit */ IPStdin stdin;
 	private OutputStream stdout;
 	private OutputStream stderr;
-	private PrintWriter outWriter;
-	private PrintWriter errWriter;
+	private InterpreterPrintWriter outWriter;
+	private InterpreterPrintWriter errWriter;
 
-	private Font basicFont = getBasicFont();
-	private Font basicBoldFont = getBoldFont(basicFont);
+	private AnsiRenderer stdErrRenderer = new AnsiRenderer();
+	private AnsiRenderer stdInRenderer = new AnsiRenderer();
+	private AnsiRenderer stdOutRenderer = new AnsiRenderer();
+
 	private SimpleAttributeSet STDOUT_SET;
 	private SimpleAttributeSet STDERR_SET;
 	private SimpleAttributeSet STDIN_SET;
 
 	private CompletionWindowTrigger completionWindowTrigger = CompletionWindowTrigger.TAB;
-	private boolean highlightCompletion = false;
+	private int completionInsertionPosition;
 
 	private boolean caretGuard = true;
 	private PluginTool tool;
-
-	private static Font getBasicFont() {
-		return new Font(Font.MONOSPACED, Font.PLAIN, 20);
-	}
-
-	private static Font getBoldFont(Font font) {
-		return font.deriveFont(Font.BOLD);
-	}
-
-	private static SimpleAttributeSet createAttributes(Font font, Color color) {
-		SimpleAttributeSet attributeSet = new SimpleAttributeSet();
-		attributeSet.addAttribute(StyleConstants.FontFamily, font.getFamily());
-		attributeSet.addAttribute(StyleConstants.FontSize, font.getSize());
-		attributeSet.addAttribute(StyleConstants.Italic, font.isItalic());
-		attributeSet.addAttribute(StyleConstants.Bold, font.isBold());
-		attributeSet.addAttribute(StyleConstants.Foreground, color);
-		return attributeSet;
-	}
 
 	public InterpreterPanel(PluginTool tool, InterpreterConnection interpreter) {
 		this.tool = tool;
@@ -129,16 +123,25 @@ public class InterpreterPanel extends JPanel implements OptionsChangeListener {
 		inputTextPane = new JTextPane();
 		inputTextPane.setName("Interpreter Input Field");
 
+		outputTextPane.setBackground(BG_COLOR);
+		promptTextPane.setBackground(BG_COLOR);
+		inputTextPane.setBackground(BG_COLOR);
+
+		// Reduce the gap after the prompt text.  The UI will not calculate its preferred size with
+		// a minimum width if the insets have been set.
+		promptTextPane.setMargin(new Insets(0, 0, 0, 0));
+
 		history = new HistoryManagerImpl();
 
 		outputScrollPane.setFocusable(false);
 		promptTextPane.setFocusable(false);
 
+		outWriter = new InterpreterPrintWriter(TextType.STDOUT);
+		errWriter = new InterpreterPrintWriter(TextType.STDERR);
+
 		stdin = new IPStdin();
-		stdout = new IPOut(TextType.STDOUT);
-		stderr = new IPOut(TextType.STDERR);
-		outWriter = new PrintWriter(stdout, true);
-		errWriter = new PrintWriter(stderr, true);
+		stdout = outWriter.asOutputStream();
+		stderr = errWriter.asOutputStream();
 
 		outputTextPane.setEditable(false);
 		promptTextPane.setEditable(false);
@@ -199,101 +202,9 @@ public class InterpreterPanel extends JPanel implements OptionsChangeListener {
 			}
 		});
 
-		outputTextPane.addKeyListener(new KeyListener() {
-			private void handleEvent(KeyEvent e) {
+		outputTextPane.addKeyListener(new OutputTextPaneKeyListener());
 
-				// Ignore the copy event, as the output text pane knows how to copy its text
-				KeyStroke copyKeyStroke =
-					KeyStroke.getKeyStroke(KeyEvent.VK_C, DockingUtils.CONTROL_KEY_MODIFIER_MASK);
-				if (copyKeyStroke.equals(KeyStroke.getKeyStrokeForEvent(e))) {
-					return;
-				}
-
-				// Send everything else down to the inputTextPane.
-				KeyBindingUtils.retargetEvent(inputTextPane, e);
-			}
-
-			@Override
-			public void keyTyped(KeyEvent e) {
-				handleEvent(e);
-			}
-
-			@Override
-			public void keyReleased(KeyEvent e) {
-				handleEvent(e);
-			}
-
-			@Override
-			public void keyPressed(KeyEvent e) {
-				handleEvent(e);
-			}
-		});
-
-		inputTextPane.addKeyListener(new KeyAdapter() {
-			@Override
-			public void keyPressed(KeyEvent e) {
-				CodeCompletionWindow completionWindow = getCodeCompletionWindow();
-
-				switch (e.getKeyCode()) {
-					case KeyEvent.VK_ENTER:
-						if (completionWindow.isVisible()) {
-							/* As opposed to TAB, ENTER inserts the selected
-							 * completion (if there is one selected) then
-							 * *closes* the completionWindow
-							 */
-							insertCompletion(completionWindow.getCompletion());
-							completionWindow.setVisible(false);
-							e.consume();
-						}
-						else {
-							inputTextPane.setCaretPosition(inputTextPane.getDocument().getLength());
-						}
-						break;
-					case KeyEvent.VK_UP:
-						if (completionWindow.isVisible()) {
-							/* scroll up in the completion window */
-							completionWindow.selectPrevious();
-						}
-						else {
-							String historyUp = history.getHistoryUp();
-							if (historyUp != null) {
-								setInputTextPaneText(historyUp);
-							}
-						}
-						e.consume();
-						break;
-					case KeyEvent.VK_DOWN:
-						if (completionWindow.isVisible()) {
-							/* scroll down in the completion window */
-							completionWindow.selectNext();
-						}
-						else {
-							String historyDown = history.getHistoryDown();
-							if (historyDown != null) {
-								setInputTextPaneText(historyDown);
-							}
-						}
-						e.consume();
-						break;
-					case KeyEvent.VK_ESCAPE:
-						completionWindow.setVisible(false);
-						e.consume();
-						break;
-					default:
-
-						// Check for the completion window trigger on input that contains text
-						if (completionWindowTrigger.isTrigger(e) &&
-							!inputTextPane.getText().trim().isEmpty()) {
-							completionWindowTriggered(completionWindow);
-							e.consume();
-							break;
-						}
-
-						updateCompletionList();
-						// and let the key go through to the text input field
-				}
-			}
-		});
+		inputTextPane.addKeyListener(new InputTextPaneKeyListener());
 
 		outputTextPane.addCaretListener(e -> {
 			Caret caret = inputTextPane.getCaret();
@@ -364,41 +275,34 @@ public class InterpreterPanel extends JPanel implements OptionsChangeListener {
 		}
 	}
 
-	private void updateFontAttributes(Font newFont) {
-		basicFont = newFont;
-		basicBoldFont = getBoldFont(newFont);
-		STDOUT_SET = createAttributes(basicFont, NORMAL_COLOR);
-		STDERR_SET = createAttributes(basicFont, ERROR_COLOR);
-		STDIN_SET = createAttributes(basicBoldFont, NORMAL_COLOR);
+	private void updateFontAttributes(Font font) {
+		Font boldFont = font.deriveFont(Font.BOLD);
 
-		setTextPaneFont(inputTextPane, basicBoldFont);
-		setTextPaneFont(promptTextPane, basicFont);
+		STDOUT_SET = new GAttributes(font, NORMAL_COLOR);
+		STDERR_SET = new GAttributes(font, ERROR_COLOR);
+		STDIN_SET = new GAttributes(boldFont, NORMAL_COLOR);
+
+		setTextPaneFont(inputTextPane, boldFont);
+		setTextPaneFont(promptTextPane, font);
 		setPrompt(promptTextPane.getText());
 	}
 
 	private void createOptions() {
 		ToolOptions options = tool.getOptions("Console");
 
-// TODO: change help anchor name		
+// TODO: change help anchor name
 		HelpLocation help = new HelpLocation(getName(), "ConsolePlugin");
 		options.setOptionsHelpLocation(help);
 
-		options.registerOption(FONT_OPTION_LABEL, basicFont, help, FONT_DESCRIPTION);
+		options.registerThemeFontBinding(FONT_OPTION_LABEL, FONT_ID, help, FONT_DESCRIPTION);
 		options.registerOption(COMPLETION_WINDOW_TRIGGER_LABEL, CompletionWindowTrigger.TAB, help,
 			COMPLETION_WINDOW_TRIGGER_DESCRIPTION);
 
-		basicFont = options.getFont(FONT_OPTION_LABEL, basicFont);
-		basicFont = SystemUtilities.adjustForFontSizeOverride(basicFont);
-		updateFontAttributes(basicFont);
+		Font font = Gui.getFont(FONT_ID);
+		updateFontAttributes(font);
 
 		completionWindowTrigger =
 			options.getEnum(COMPLETION_WINDOW_TRIGGER_LABEL, CompletionWindowTrigger.TAB);
-
-// TODO		
-//		highlightCompletion =
-//			options.getBoolean(HIGHLIGHT_COMPLETION_OPTION_LABEL, DEFAULT_HIGHLIGHT_COMPLETION);
-//		options.setDescription(HIGHLIGHT_COMPLETION_OPTION_LABEL, HIGHLIGHT_COMPLETION_DESCRIPTION);
-//		options.addOptionsChangeListener(this);
 
 		options.addOptionsChangeListener(this);
 	}
@@ -407,16 +311,12 @@ public class InterpreterPanel extends JPanel implements OptionsChangeListener {
 	public void optionsChanged(ToolOptions options, String optionName, Object oldValue,
 			Object newValue) {
 		if (optionName.equals(FONT_OPTION_LABEL)) {
-			basicFont = SystemUtilities.adjustForFontSizeOverride((Font) newValue);
-			updateFontAttributes(basicFont);
+			Font font = Gui.getFont(FONT_ID);
+			updateFontAttributes(font);
 		}
 		else if (optionName.equals(COMPLETION_WINDOW_TRIGGER_LABEL)) {
 			completionWindowTrigger = (CompletionWindowTrigger) newValue;
 		}
-// TODO		
-//		else if (optionName.equals(HIGHLIGHT_COMPLETION_OPTION_LABEL)) {
-//			highlightCompletion = ((Boolean) newValue).booleanValue();
-//		}
 	}
 
 	@Override
@@ -479,9 +379,13 @@ public class InterpreterPanel extends JPanel implements OptionsChangeListener {
 				return;
 			}
 
+			// We save the position of the caret here in advance because the user can move it
+			// later (but before the insertion takes place) and make the completions invalid.
+			completionInsertionPosition = inputTextPane.getCaretPosition();
+
 			String text = getInputTextPaneText();
 			List<CodeCompletion> completions =
-				InterpreterPanel.this.interpreter.getCompletions(text);
+				InterpreterPanel.this.interpreter.getCompletions(text, completionInsertionPosition);
 			completionWindow.updateCompletionList(completions);
 		});
 	}
@@ -510,58 +414,64 @@ public class InterpreterPanel extends JPanel implements OptionsChangeListener {
 	}
 
 	private void repositionScrollpane() {
-		// NOTE:  CRAZY CODE!  subtract one to position short of final newline
-		outputTextPane.setCaretPosition(outputTextPane.getDocument().getLength() - 1);
+		outputTextPane.setCaretPosition(Math.max(0, outputTextPane.getDocument().getLength()));
 	}
 
-	void addText(String text, TextType type) {
-		StyledDocument document = outputTextPane.getStyledDocument();
+	private void addText(String text, TextType type) {
 		SimpleAttributeSet attributes;
+		AnsiRenderer renderer;
 		switch (type) {
 			case STDERR:
+				renderer = stdErrRenderer;
 				attributes = STDERR_SET;
 				break;
 			case STDIN:
+				renderer = stdInRenderer;
 				attributes = STDIN_SET;
 				break;
 			case STDOUT:
 			default:
+				renderer = stdOutRenderer;
 				attributes = STDOUT_SET;
 				break;
 		}
 		try {
-			document.insertString(document.getLength(), text, attributes);
+			StyledDocument document = outputTextPane.getStyledDocument();
+			renderer.renderString(document, text, attributes);
 			repositionScrollpane();
 		}
 		catch (BadLocationException e) {
-			Msg.error(this, "internal document positioning error", e);
+			// shouldn't happen
+			Msg.error(this, "Document positioning error", e);
 		}
 	}
 
-	private class IPOut extends OutputStream {
-		TextType type;
-		byte[] buffer = new byte[1];
+	private void addText(String text, Color c) {
 
-		IPOut(TextType type) {
-			this.type = type;
+		SimpleAttributeSet attributes = new GAttributes(getFont(), c);
+
+		try {
+			StyledDocument document = outputTextPane.getStyledDocument();
+			stdOutRenderer.renderString(document, text, attributes);
+			repositionScrollpane();
 		}
-
-		@Override
-		public void write(int b) throws IOException {
-			buffer[0] = (byte) b;
-			String text = new String(buffer);
-			addText(text, type);
-		}
-
-		@Override
-		public void write(byte[] b, int off, int len) throws IOException {
-			String text = new String(b, off, len);
-			addText(text, type);
+		catch (BadLocationException e) {
+			// shouldn't happen
+			Msg.error(this, "Document positioning error", e);
 		}
 	}
 
 	public void clear() {
 		outputTextPane.setText("");
+		stdin.resetStream();
+	}
+
+	public JTextPane getOutputTextPane() {
+		return outputTextPane;
+	}
+
+	public String getOutputText() {
+		return outputTextPane.getText();
 	}
 
 	public InputStream getStdin() {
@@ -584,6 +494,10 @@ public class InterpreterPanel extends JPanel implements OptionsChangeListener {
 		return errWriter;
 	}
 
+	public String getPrompt() {
+		return promptTextPane.getText();
+	}
+
 	public void setPrompt(String prompt) {
 		try {
 			final Document document = promptTextPane.getDocument();
@@ -601,43 +515,25 @@ public class InterpreterPanel extends JPanel implements OptionsChangeListener {
 		}
 
 		String text = getInputTextPaneText();
-		int position = inputTextPane.getCaretPosition();
+		int position = completionInsertionPosition;
 		String insertion = completion.getInsertion();
 
 		/* insert completion string */
-		setInputTextPaneText(text.substring(0, position) + insertion + text.substring(position));
-
-		/* Select what we inserted so that the user can easily
-		 * get rid of what they did (in case of a mistake). */
-		if (highlightCompletion) {
-			inputTextPane.setSelectionStart(position);
-		}
+		int insertedTextStart = Math.max(0, position - completion.getCharsToRemove());
+		int insertedTextEnd = insertedTextStart + insertion.length();
+		String inputText =
+			text.substring(0, insertedTextStart) + insertion + text.substring(position);
+		setInputTextPaneText(inputText);
 
 		/* Then put the caret right after what we inserted. */
-		inputTextPane.moveCaretPosition(position + insertion.length());
+		inputTextPane.setCaretPosition(insertedTextEnd);
+
 		updateCompletionList();
 	}
 
 	public void dispose() {
 
-		try {
-			stdin.close();
-		}
-		catch (IOException e) {
-			Msg.debug(this, "could not close stdin", e);
-		}
-//		try {
-//			stdout.close();
-//		}
-//		catch (IOException e) {
-//			Msg.warn(this, "could not close stdout", e);
-//		}
-//		try {
-//			stderr.close();
-//		}
-//		catch (IOException e) {
-//			Msg.warn(this, "could not close stderr", e);
-//		}
+		stdin.close();
 		setVisible(false);
 	}
 
@@ -654,111 +550,316 @@ public class InterpreterPanel extends JPanel implements OptionsChangeListener {
 		inputAttributes.addAttributes(attributes);
 	}
 
+	public boolean isInputPermitted() {
+		return inputTextPane.isEditable();
+	}
+
+	public void setInputPermitted(boolean permitted) {
+		inputTextPane.setEditable(permitted);
+	}
+
 //==================================================================================================
 // Inner Classes
 //==================================================================================================
 
-	private class IPStdin extends InputStream {
-		private byte[] bytes;
+	private class InterpreterPrintWriter extends DecoratingPrintWriter {
+
+		private InterpreterConsoleWriter writer;
+
+		InterpreterPrintWriter(TextType type) {
+			this(new InterpreterConsoleWriter(type));
+		}
+
+		private InterpreterPrintWriter(InterpreterConsoleWriter writer) {
+			super(writer);
+			this.writer = writer;
+		}
+
+		OutputStream asOutputStream() {
+			try {
+				return WriterOutputStream.builder().setWriter(writer).getOutputStream();
+			}
+			catch (IOException e) {
+				Msg.error(this, "Unable to create output stream", e);
+				return null;
+			}
+		}
+
+		@Override
+		public void println(String s, Color c) {
+			try {
+				writer.setColor(c);
+				print(s);
+				println();
+			}
+			finally {
+				writer.setColor(null);
+			}
+		}
+
+		@Override
+		public void print(String s, Color c) {
+			try {
+				writer.setColor(c);
+				print(s);
+			}
+			finally {
+				writer.setColor(null);
+			}
+		}
+	}
+
+	private class InterpreterConsoleWriter extends Writer {
+
+		private Color color;
+
+		TextType type;
+		byte[] buffer = new byte[1];
+
+		public InterpreterConsoleWriter(TextType type) {
+			this.type = type;
+		}
+
+		void setColor(Color color) {
+			this.color = color;
+		}
+
+		@Override
+		public void write(int b) throws IOException {
+			buffer[0] = (byte) b;
+			String text = new String(buffer);
+			if (color != null) {
+				addText(text, color);
+				return;
+			}
+
+			addText(text, type);
+		}
+
+		@Override
+		public void write(char[] b, int off, int len) throws IOException {
+			String text = new String(b, off, len);
+			if (color != null) {
+				addText(text, color);
+				return;
+			}
+
+			addText(text, type);
+		}
+
+		@Override
+		public void flush() throws IOException {
+			// stub
+		}
+
+		@Override
+		public void close() throws IOException {
+			clear();
+		}
+	}
+
+	/**
+	 * An {@link InputStream} that has as its source text strings being pushed into
+	 * it by a thread, and being read by another thread.
+	 * <p>
+	 * Not thread-safe for multiple readers, but is thread-safe for writers.
+	 * <p>
+	 * {@link #close() Closing} this stream (from any thread) will awaken the
+	 * blocked reader thread and give an EOF result to the read operation it was blocking on.
+	 */
+	/* junit vis */ static class IPStdin extends InputStream {
+		private static final byte[] EMPTY_BYTES = new byte[0];
+
+		// reader-thread only fields.  write operations may not access/modify these
+		// fields.
+		private byte[] bytes = EMPTY_BYTES;
 		private int position = 0;
-		private volatile boolean disposed;
+		// end reader-thread only fields
+
+		// shared reader / writer fields.  Any thread may access these as they
+		// are threadsafe on their own
+		private LinkedBlockingQueue<byte[]> queuedBytes = new LinkedBlockingQueue<>();
+		private AtomicBoolean isClosed = new AtomicBoolean(false);
+		// end shared fields
+
+		private boolean fetchBytesFromQueue(boolean blocking) {
+
+			try {
+				// if the current byte buffer is exhausted, loop until we get
+				// a new non-empty byte buffer.
+				while (!isClosed.get() && position >= bytes.length) {
+					byte[] newBytes = blocking ? queuedBytes.take() : queuedBytes.poll();
+					if (newBytes == null) {
+						// this only happens when blocking == false, ie. a poll() operation
+						break;
+					}
+					bytes = newBytes;
+					position = 0;
+				}
+			}
+			catch (InterruptedException e) {
+				// fall thru to return which will return false
+			}
+
+			return position < bytes.length;
+		}
 
 		@Override
 		public int read(byte[] b, int off, int len) throws IOException {
-			while (bytes == null) {
-				try {
-					synchronized (this) {
-						this.wait();
-					}
-				}
-				catch (InterruptedException e) {
-					// handled below
-				}
-
-				if (disposed) {
-					return -1;
-				}
+			if (!fetchBytesFromQueue(true)) {
+				return -1;
 			}
 
-			if (bytes != null) {
-				int length = Math.min(bytes.length - position, len);
-				System.arraycopy(bytes, position, b, off, length);
-				if (position + length == bytes.length) {
-					position = 0;
-					bytes = null;
-				}
-				else {
-					position += length;
-				}
-				return length;
-			}
-			return -1;
+			int length = Math.min(bytes.length - position, len);
+			System.arraycopy(bytes, position, b, off, length);
+			position += length;
+			return length;
 		}
 
 		@Override
 		public int read() throws IOException {
-			while (bytes == null) {
-				try {
-					synchronized (this) {
-						this.wait();
-					}
-				}
-				catch (InterruptedException e) {
-					// handled below
-				}
-
-				if (disposed) {
-					return -1;
-				}
-
+			byte[] buffer = new byte[1];
+			if (read(buffer, 0, 1) != 1) {
+				return -1;
 			}
-
-			if (bytes != null) {
-				int c = bytes[position] & 0xff;
-				position++;
-				if (position >= bytes.length) {
-					position = 0;
-					bytes = null;
-				}
-				return c;
-			}
-			return -1;
+			return buffer[0] & 0xff;
 		}
 
 		@Override
 		public int available() {
-			if (bytes == null) {
-				return 0;
+			fetchBytesFromQueue(false);
+			return bytes.length - position;
+		}
+
+		@Override
+		public void close() {
+			// this will wake up a blocked read-thread waiting on a read() operation
+			// and cause it to return a EOF result.
+			// All reads() after this close will return EOF value
+			isClosed.set(true);
+			queuedBytes.clear();
+			queuedBytes.offer(EMPTY_BYTES);
+		}
+
+		void addText(String text) {
+			if (!isClosed.get()) {
+				queuedBytes.offer(text.getBytes(StandardCharsets.UTF_8));
 			}
-			return bytes.length;
 		}
 
 		/**
-		 * Overridden to stop this stream from blocking.
-		 * @throws IOException not
+		 * Resets this stream from a closed/always-eof state to an open state.
+		 * <p>
+		 * Also clears any queued bytes.  Safe to call even when open.
 		 */
-		@Override
-		public void close() throws IOException {
-			disposed = true;
-
-			synchronized (this) {
-				notify(); // in case we are blocking
-			}
-		}
-
-		synchronized void addText(String text) {
-			if (bytes == null) {
-				bytes = text.getBytes();
-				position = 0;
-			}
-			else {
-				byte[] temp = text.getBytes();
-				byte[] newBytes = new byte[bytes.length + temp.length];
-				System.arraycopy(bytes, 0, newBytes, 0, bytes.length);
-				System.arraycopy(temp, 0, newBytes, bytes.length, temp.length);
-			}
-			this.notify();
+		void resetStream() {
+			isClosed.set(false);
+			queuedBytes.clear();
+			queuedBytes.offer(EMPTY_BYTES);
 		}
 	}
 
+	private class OutputTextPaneKeyListener implements KeyListener {
+
+		private final KeyStroke COPY_KEY_STROKE =
+			KeyStroke.getKeyStroke(KeyEvent.VK_C, DockingUtils.CONTROL_KEY_MODIFIER_MASK);
+		KeyStroke SELECT_ALL_KEY_STROKE =
+			KeyStroke.getKeyStroke(KeyEvent.VK_A, DockingUtils.CONTROL_KEY_MODIFIER_MASK);
+
+		private void handleEvent(KeyEvent e) {
+
+			// Ignore the events we wish for the output text pane to process
+			if (COPY_KEY_STROKE.equals(KeyStroke.getKeyStrokeForEvent(e))) {
+				return;
+			}
+
+			if (SELECT_ALL_KEY_STROKE.equals(KeyStroke.getKeyStrokeForEvent(e))) {
+				return;
+			}
+
+			// Send everything else down to the inputTextPane.
+			KeyBindingUtils.retargetEvent(inputTextPane, e);
+		}
+
+		@Override
+		public void keyTyped(KeyEvent e) {
+			handleEvent(e);
+		}
+
+		@Override
+		public void keyReleased(KeyEvent e) {
+			handleEvent(e);
+		}
+
+		@Override
+		public void keyPressed(KeyEvent e) {
+			handleEvent(e);
+		}
+	}
+
+	private class InputTextPaneKeyListener extends KeyAdapter {
+		@Override
+		public void keyPressed(KeyEvent e) {
+			CodeCompletionWindow completionWindow = getCodeCompletionWindow();
+
+			switch (e.getKeyCode()) {
+				case KeyEvent.VK_ENTER:
+					if (completionWindow.isVisible()) {
+						/* As opposed to TAB, ENTER inserts the selected
+						 * completion (if there is one selected) then
+						 * *closes* the completionWindow
+						 */
+						insertCompletion(completionWindow.getCompletion());
+						completionWindow.setVisible(false);
+						e.consume();
+					}
+					else {
+						inputTextPane.setCaretPosition(inputTextPane.getDocument().getLength());
+					}
+					break;
+				case KeyEvent.VK_UP:
+					if (completionWindow.isVisible()) {
+						/* scroll up in the completion window */
+						completionWindow.selectPrevious();
+					}
+					else {
+						String historyUp = history.getHistoryUp();
+						if (historyUp != null) {
+							setInputTextPaneText(historyUp);
+						}
+					}
+					e.consume();
+					break;
+				case KeyEvent.VK_DOWN:
+					if (completionWindow.isVisible()) {
+						/* scroll down in the completion window */
+						completionWindow.selectNext();
+					}
+					else {
+						String historyDown = history.getHistoryDown();
+						if (historyDown != null) {
+							setInputTextPaneText(historyDown);
+						}
+					}
+					e.consume();
+					break;
+				case KeyEvent.VK_ESCAPE:
+					completionWindow.setVisible(false);
+					e.consume();
+					break;
+				default:
+
+					// Check for the completion window trigger on input that contains text
+					if (completionWindowTrigger.isTrigger(e) &&
+						!inputTextPane.getText().trim().isEmpty()) {
+						completionWindowTriggered(completionWindow);
+						e.consume();
+						break;
+					}
+
+					updateCompletionList();
+					// and let the key go through to the text input field
+			}
+		}
+	}
 }

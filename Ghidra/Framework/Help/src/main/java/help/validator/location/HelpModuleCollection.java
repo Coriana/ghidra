@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,34 +20,33 @@ import java.net.*;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.stream.Collectors;
 
 import javax.help.HelpSet;
 import javax.help.Map.ID;
 import javax.help.TOCView;
 import javax.swing.tree.DefaultMutableTreeNode;
 
-import docking.help.CustomTOCView.CustomTreeItemDecorator;
-import help.HelpBuildUtils;
-import help.TOCItemProvider;
+import help.*;
+import help.CustomTOCView.CustomTreeItemDecorator;
 import help.validator.model.*;
 
 /**
- * A class that is meant to hold a single help <b>input</b> directory and 0 or more 
+ * A class that is meant to hold a single help <b>input</b> directory and 0 or more
  * <b>external, pre-built</b> help sources (i.e., jar file or directory).
- * <p>
  * <pre>
  * 						Note
  * 						Note
  * 						Note
- * 
+ *
  *  This class is a bit conceptually muddled.  Our build system is reflected in this class in that
- *  we currently build one help module at a time.  Thus, any dependencies of that module being 
+ *  we currently build one help module at a time.  Thus, any dependencies of that module being
  *  built can be passed into this "collection" at build time.   We used to build multiple help
- *  modules at once, resolving dependencies for all of the input modules after we built each 
+ *  modules at once, resolving dependencies for all of the input modules after we built each
  *  module.  This class will need to be tweaked in order to go back to a build system with
  *  multiple input builds.
- * 
- * </pre> 
+ *
+ * </pre>
  */
 public class HelpModuleCollection implements TOCItemProvider {
 
@@ -62,6 +61,8 @@ public class HelpModuleCollection implements TOCItemProvider {
 	/**
 	 * Creates a help module collection that contains only a singe help module from a help
 	 * directory, not a pre-built help jar.
+	 * @param dir the directory containing help
+	 * @return the help collection
 	 */
 	public static HelpModuleCollection fromHelpDirectory(File dir) {
 		return new HelpModuleCollection(toHelpLocations(Collections.singleton(dir)));
@@ -70,6 +71,8 @@ public class HelpModuleCollection implements TOCItemProvider {
 	/**
 	 * Creates a help module collection that assumes zero or more pre-built help jar files and
 	 * one help directory that is an input into the help building process.
+	 * @param files the files from which to get help
+	 * @return the help collection
 	 */
 	public static HelpModuleCollection fromFiles(Collection<File> files) {
 		return new HelpModuleCollection(toHelpLocations(files));
@@ -78,6 +81,8 @@ public class HelpModuleCollection implements TOCItemProvider {
 	/**
 	 * Creates a help module collection that assumes zero or more pre-built help jar files and
 	 * one help directory that is an input into the help building process.
+	 * @param locations the locations from which to get help
+	 * @return the help collection
 	 */
 	public static HelpModuleCollection fromHelpLocations(Collection<HelpModuleLocation> locations) {
 		return new HelpModuleCollection(locations);
@@ -92,7 +97,10 @@ public class HelpModuleCollection implements TOCItemProvider {
 	}
 
 	private HelpModuleCollection(Collection<HelpModuleLocation> locations) {
-		helpLocations = new LinkedHashSet<>(locations);
+
+		helpLocations = locations.stream()
+				.filter(l -> l != null)
+				.collect(Collectors.toCollection(LinkedHashSet::new));
 
 		loadTOCs();
 
@@ -100,13 +108,26 @@ public class HelpModuleCollection implements TOCItemProvider {
 
 		if (inputHelp == null && externalHelpSets.size() == 0) {
 			throw new IllegalArgumentException(
-				"Required TOC file does not exist.  " + "You must create a TOC_Source.xml file, " +
+				"Required TOC file does not exist.  You must create a TOC_Source.xml file, " +
 					"even if it is an empty template, or provide a pre-built TOC.  " +
 					"Help directories: " + locations.toString());
 		}
 	}
 
+	public void addGeneratedHelpLocation(File file) {
+		HelpModuleLocation location = new GeneratedDirectoryHelpModuleLocation(file);
+		helpLocations.add(location);
+		HelpSet helpSet = location.getHelpSet();
+		if (helpSet != null) {
+			externalHelpSets.add(helpSet);
+		}
+	}
+
 	public GhidraTOCFile getSourceTOCFile() {
+		if (inputHelp == null) {
+			// this collection of help modules is only external inputs (e.g., jar files)
+			return null;
+		}
 		return inputHelp.getSourceTOCFile();
 	}
 
@@ -130,17 +151,17 @@ public class HelpModuleCollection implements TOCItemProvider {
 
 		externalHelpSets = new ArrayList<>();
 		for (HelpModuleLocation location : helpLocations) {
-			if (location.isHelpInputSource()) {
-				continue; // help sets only exist in pre-built help 
-			}
+			doAddHelpSet(location);
+		}
+	}
 
-			HelpSet helpSet = location.getHelpSet();
-			externalHelpSets.add(helpSet);
+	private void doAddHelpSet(HelpModuleLocation location) {
+		if (location.isHelpInputSource()) {
+			return; // help sets only exist in pre-built help 
 		}
 
-		if (externalHelpSets.isEmpty()) {
-			return;
-		}
+		HelpSet helpSet = location.getHelpSet();
+		externalHelpSets.add(helpSet);
 	}
 
 	public boolean containsHelpFiles() {
@@ -200,7 +221,8 @@ public class HelpModuleCollection implements TOCItemProvider {
 	public Collection<AnchorDefinition> getAllAnchorDefinitions() {
 		List<AnchorDefinition> result = new ArrayList<>();
 		for (HelpModuleLocation location : helpLocations) {
-			result.addAll(location.getAllAnchorDefinitions());
+			Collection<AnchorDefinition> anchors = location.getAllAnchorDefinitions();
+			result.addAll(anchors);
 		}
 		return result;
 	}
@@ -220,7 +242,6 @@ public class HelpModuleCollection implements TOCItemProvider {
 		if (helpPath == null) {
 			return null;
 		}
-
 		Map<PathKey, HelpFile> map = getPathHelpFileMap();
 		return map.get(new PathKey(helpPath));
 	}
@@ -240,7 +261,12 @@ public class HelpModuleCollection implements TOCItemProvider {
 	}
 
 	@Override
-	public Map<String, TOCItemDefinition> getTOCItemDefinitionsByIDMapping() {
+	public Map<String, TOCItemDefinition> getTocDefinitionsByID() {
+		if (inputHelp == null) {
+			// this collection of help modules is only external inputs (e.g., jar files)
+			return Map.of();
+		}
+
 		Map<String, TOCItemDefinition> map = new HashMap<>();
 		GhidraTOCFile TOC = inputHelp.getSourceTOCFile();
 		map.putAll(TOC.getTOCDefinitionByIDMapping());
@@ -248,9 +274,8 @@ public class HelpModuleCollection implements TOCItemProvider {
 	}
 
 	@Override
-	public Map<String, TOCItemExternal> getTOCItemExternalsByDisplayMapping() {
+	public Map<String, TOCItemExternal> getExternalTocItemsById() {
 		Map<String, TOCItemExternal> map = new HashMap<>();
-
 		if (externalHelpSets.isEmpty()) {
 			return map;
 		}
@@ -282,18 +307,17 @@ public class HelpModuleCollection implements TOCItemProvider {
 			if (parent != null) {
 				CustomTreeItemDecorator dec = (CustomTreeItemDecorator) parent.getUserObject();
 				if (dec != null) {
-					parentItem = mapByDisplay.get(dec.getDisplayText());
+					parentItem = mapByDisplay.get(dec.getTocID());
 				}
 			}
 
 			ID targetID = item.getID();
-
 			String displayText = item.getDisplayText();
-			String tocID = item.getTocID();
+			String tocId = item.getTocID();
 			String target = targetID == null ? null : targetID.getIDString();
-			TOCItemExternal external = new TOCItemExternal(parentItem, tocPath, tocID, displayText,
+			TOCItemExternal external = new TOCItemExternal(parentItem, tocPath, tocId, displayText,
 				target, item.getName(), -1);
-			mapByDisplay.put(displayText, external);
+			mapByDisplay.put(tocId, external);
 		}
 
 		@SuppressWarnings("rawtypes")
@@ -304,8 +328,16 @@ public class HelpModuleCollection implements TOCItemProvider {
 		}
 	}
 
-	/** Input TOC items are those that we are building for the input help module of this collection */
+	/**
+	 * Input TOC items are those that we are building for the input help module of this collection
+	 * @return the items
+	 */
 	public Collection<TOCItem> getInputTOCItems() {
+		if (inputHelp == null) {
+			// this collection of help modules is only external inputs (e.g., jar files)
+			return List.of();
+		}
+
 		Collection<TOCItem> items = new ArrayList<>();
 		GhidraTOCFile TOC = inputHelp.getSourceTOCFile();
 		items.addAll(TOC.getAllTOCItems());
@@ -313,6 +345,11 @@ public class HelpModuleCollection implements TOCItemProvider {
 	}
 
 	public Collection<HREF> getTOC_HREFs() {
+		if (inputHelp == null) {
+			// this collection of help modules is only external inputs (e.g., jar files)
+			return List.of();
+		}
+
 		Collection<HREF> definitions = new ArrayList<>();
 		GhidraTOCFile TOC = inputHelp.getSourceTOCFile();
 		definitions.addAll(getTOC_HREFs(TOC));
@@ -342,47 +379,4 @@ public class HelpModuleCollection implements TOCItemProvider {
 		return helpLocations.toString();
 	}
 
-//==================================================================================================
-// Inner Classes
-//==================================================================================================
-
-	/** A class that wraps a Path and allows map lookup for paths from different file systems */
-	private class PathKey {
-		private String path;
-
-		PathKey(Path p) {
-			if (p == null) {
-				throw new IllegalArgumentException("Path cannot be null");
-			}
-			this.path = p.toString().replace('\\', '/');
-		}
-
-		@Override
-		public int hashCode() {
-			return path.hashCode();
-		}
-
-		@Override
-		public boolean equals(Object obj) {
-			if (this == obj) {
-				return true;
-			}
-			if (obj == null) {
-				return false;
-			}
-			if (getClass() != obj.getClass()) {
-				return false;
-			}
-
-			PathKey other = (PathKey) obj;
-
-			boolean result = path.equals(other.path);
-			return result;
-		}
-
-		@Override
-		public String toString() {
-			return path.toString();
-		}
-	}
 }

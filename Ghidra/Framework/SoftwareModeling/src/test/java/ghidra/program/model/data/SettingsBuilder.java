@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,8 +17,7 @@ package ghidra.program.model.data;
 
 import java.nio.charset.Charset;
 
-import ghidra.docking.settings.Settings;
-import ghidra.docking.settings.SettingsImpl;
+import ghidra.docking.settings.*;
 import ghidra.program.model.data.RenderUnicodeSettingsDefinition.RENDER_ENUM;
 import ghidra.program.model.data.TranslationSettingsDefinition.TRANSLATION_ENUM;
 
@@ -34,6 +33,16 @@ public class SettingsBuilder implements Settings {
 	 */
 	public SettingsBuilder() {
 		// nada
+	}
+
+	@Override
+	public boolean isImmutableSettings() {
+		return false;
+	}
+
+	@Override
+	public boolean isChangeAllowed(SettingsDefinition settingsDefinition) {
+		return settings.isChangeAllowed(settingsDefinition);
 	}
 
 	/**
@@ -69,6 +78,18 @@ public class SettingsBuilder implements Settings {
 		return this;
 	}
 
+	/**
+	 * Sets the {@link FormatSettingsDefinition} value.
+	 * 
+	 * @param formatEnum int such as {@link FormatSettingsDefinition#DECIMAL}
+	 * @param defaultSettings the default settings that apply
+	 * @return chainable SettingsBuilder
+	 */
+	public SettingsBuilder setFormat(int formatEnum, FormatSettingsDefinition defaultSettings) {
+		defaultSettings.setChoice(settings, formatEnum);
+		return this;
+	}
+
 	@Override
 	public Long getLong(String name) {
 		return settings.getLong(name);
@@ -77,11 +98,6 @@ public class SettingsBuilder implements Settings {
 	@Override
 	public String getString(String name) {
 		return settings.getString(name);
-	}
-
-	@Override
-	public byte[] getByteArray(String name) {
-		return settings.getByteArray(name);
 	}
 
 	@Override
@@ -97,11 +113,6 @@ public class SettingsBuilder implements Settings {
 	@Override
 	public void setString(String name, String value) {
 		settings.setString(name, value);
-	}
-
-	@Override
-	public void setByteArray(String name, byte[] value) {
-		settings.setByteArray(name, value);
 	}
 
 	@Override

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,7 +19,7 @@ import java.io.IOException;
 
 import db.*;
 import db.util.ErrorHandler;
-import ghidra.program.database.DBObjectCache;
+import ghidra.framework.data.OpenMode;
 import ghidra.program.database.ProgramDB;
 import ghidra.program.database.map.AddressMap;
 import ghidra.program.model.address.*;
@@ -32,17 +32,18 @@ abstract class FromAdapter implements RecordAdapter {
 
 	static final String FROM_REFS_TABLE_NAME = "FROM REFS";
 
-	static final Schema FROM_REFS_SCHEMA = new Schema(0, "From Address", new Class[] {
-		IntField.class, BinaryField.class }, new String[] { "Number of Refs", "Ref Data" });
+	static final Schema FROM_REFS_SCHEMA =
+		new Schema(0, "From Address", new Field[] { IntField.INSTANCE, BinaryField.INSTANCE },
+			new String[] { "Number of Refs", "Ref Data" });
 
 	static final int REF_COUNT_COL = 0;
 	static final int REF_DATA_COL = 1;
 
-	static FromAdapter getAdapter(DBHandle dbHandle, int openMode, AddressMap addrMap,
-			ErrorHandler errHandler, TaskMonitor monitor) throws VersionException,
-			CancelledException, IOException {
+	static FromAdapter getAdapter(DBHandle dbHandle, OpenMode openMode, AddressMap addrMap,
+			ErrorHandler errHandler, TaskMonitor monitor)
+			throws VersionException, CancelledException, IOException {
 
-		if (openMode == DBConstants.CREATE) {
+		if (openMode == OpenMode.CREATE) {
 			return new FromAdapterV0(dbHandle, true, addrMap, errHandler);
 		}
 
@@ -54,11 +55,11 @@ abstract class FromAdapter implements RecordAdapter {
 			return adapter;
 		}
 		catch (VersionException e) {
-			if (!e.isUpgradable() || openMode == DBConstants.UPDATE) {
+			if (!e.isUpgradable() || openMode == OpenMode.UPDATE) {
 				throw e;
 			}
 			FromAdapter adapter = findReadOnlyAdapter(dbHandle, addrMap, errHandler);
-			if (openMode == DBConstants.UPGRADE) {
+			if (openMode == OpenMode.UPGRADE) {
 				adapter = upgrade(dbHandle, addrMap, adapter, errHandler, monitor);
 			}
 			return adapter;
@@ -96,10 +97,10 @@ abstract class FromAdapter implements RecordAdapter {
 					throw new CancelledException();
 				}
 				Address from = addrIter.next();
-				RefListV0 refList = (RefListV0) oldAdapter.getRefList(null, null, from,
-					oldAddrMap.getKey(from, false));
+				long key = oldAddrMap.getKey(from, false);
+				RefListV0 refList = (RefListV0) oldAdapter.getRefList(null, from, key);
 				Reference[] refs = refList.getAllRefs();
-				RefListV0 newRefList = new RefListV0(from, tmpAdapter, addrMap, null, null, true);
+				RefListV0 newRefList = RefListV0.createNew(from, tmpAdapter, addrMap, null, true);
 				newRefList.addRefs(refs);
 				monitor.setProgress(++count);
 			}
@@ -114,7 +115,7 @@ abstract class FromAdapter implements RecordAdapter {
 				}
 				Address from = addrIter.next();
 				long fromAddr = addrMap.getKey(from, true);
-				RefListV0 refList = (RefListV0) tmpAdapter.getRefList(null, null, from, fromAddr);
+				RefListV0 refList = (RefListV0) tmpAdapter.getRefList(null, from, fromAddr);
 				newAdapter.createRecord(fromAddr, refList != null ? refList.getNumRefs() : 0,
 					(byte) -1, refList != null ? refList.getData() : null);
 				monitor.setProgress(++count);
@@ -128,11 +129,9 @@ abstract class FromAdapter implements RecordAdapter {
 
 	abstract int getRecordCount();
 
-	abstract RefList createRefList(ProgramDB program, DBObjectCache<RefList> cache,
-			Address fromAddr) throws IOException;
+	abstract RefList createRefList(ProgramDB program, Address fromAddr) throws IOException;
 
-	abstract RefList getRefList(ProgramDB program, DBObjectCache<RefList> cache, Address from,
-			long fromAddr) throws IOException;
+	abstract RefList getRefList(ProgramDB program, Address from, long fromAddr) throws IOException;
 
 	abstract boolean hasRefFrom(long fromAddr) throws IOException;
 

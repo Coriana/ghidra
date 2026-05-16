@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -32,7 +32,7 @@ import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
 
 /**
- * This command will create multiple RTTI4 data types all at one time. 
+ * This command will create multiple RTTI4 data types all at one time.
  * If there are any existing instructions in the areas to be made into data, the command will fail only on that RTTI4 entry.
  * Any data in the area will be replaced with the new dataType.
  */
@@ -46,10 +46,10 @@ public class CreateRtti4BackgroundCmd extends AbstractCreateDataBackgroundCmd<Rt
 	 * Constructs a command for applying an RTTI4 dataType at an address.
 	 * @param address the address where the data should be created using the data type.
 	 * @param vfTableBlocks a list of the only memory blocks to be searched for vf tables.
-	 * @param validationOptions the options for controlling how validation is performed when 
+	 * @param validationOptions the options for controlling how validation is performed when
 	 * determining whether or not to create the data structure at the indicated address.
 	 * @param applyOptions the options for creating the new data structure and its associated
-	 * markup in the program as well as whether to follow other data references and create their 
+	 * markup in the program as well as whether to follow other data references and create their
 	 * data too.
 	 */
 	public CreateRtti4BackgroundCmd(Address address, List<MemoryBlock> vfTableBlocks,
@@ -102,7 +102,7 @@ public class CreateRtti4BackgroundCmd extends AbstractCreateDataBackgroundCmd<Rt
 	@Override
 	protected boolean createAssociatedData() throws CancelledException {
 
-		monitor.checkCanceled();
+		monitor.checkCancelled();
 
 		boolean createRtti0Success;
 		try {
@@ -129,7 +129,7 @@ public class CreateRtti4BackgroundCmd extends AbstractCreateDataBackgroundCmd<Rt
 
 	private boolean createRtti0() throws CancelledException, InvalidDataTypeException {
 
-		monitor.checkCanceled();
+		monitor.checkCancelled();
 
 		CreateTypeDescriptorBackgroundCmd cmd =
 			new CreateTypeDescriptorBackgroundCmd(model.getRtti0Model(), applyOptions);
@@ -138,7 +138,7 @@ public class CreateRtti4BackgroundCmd extends AbstractCreateDataBackgroundCmd<Rt
 
 	private boolean createRtti3() throws CancelledException, InvalidDataTypeException {
 
-		monitor.checkCanceled();
+		monitor.checkCancelled();
 
 		CreateRtti3BackgroundCmd cmd =
 			new CreateRtti3BackgroundCmd(model.getRtti3Model(), applyOptions);
@@ -169,7 +169,7 @@ public class CreateRtti4BackgroundCmd extends AbstractCreateDataBackgroundCmd<Rt
 		// did the search, now process the results
 		boolean didSome = false;
 		for (Address rtti4Address : goodRtti4Locations) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 
 			VfTableModel vfTableModel = foundVFtables.get(rtti4Address);
 			if (vfTableModel == null) {
@@ -190,7 +190,7 @@ public class CreateRtti4BackgroundCmd extends AbstractCreateDataBackgroundCmd<Rt
 	/**
 	 * Add a search pattern, to the searcher, for the set of bytes representing an rtti4 location.
 	 * Only one VFTable for is allowed for an RTT4 location, last one in wins and gets created.
-	 * 
+	 *
 	 * @param searcher byte pattern searcher
 	 * @param foundVFtables list of addresses accumulated when actual search is performed
 	 * @param rtti4Address location of rttiAddress to find vfTable for
@@ -239,27 +239,30 @@ public class CreateRtti4BackgroundCmd extends AbstractCreateDataBackgroundCmd<Rt
 	@Override
 	protected boolean createMarkup() throws CancelledException, InvalidDataTypeException {
 
-		monitor.checkCanceled();
+		monitor.checkCancelled();
 
 		Program program = model.getProgram();
 		TypeDescriptorModel rtti0Model = model.getRtti0Model();
 
-		monitor.checkCanceled();
+		if (rtti0Model == null) {
+			return true;
+		}
 
-		if (rtti0Model != null) {
+		monitor.checkCancelled();
 
-			// Plate Comment
-			// Plate Comment
+		// Label
+		boolean shouldCreateComment = true;
+		if (applyOptions.shouldCreateLabel()) {
+			shouldCreateComment = RttiUtil.createSymbolFromDemangledType(program, getDataAddress(),
+				rtti0Model, RTTI_4_NAME);
+		}
+
+		// Plate Comment
+		if (shouldCreateComment) {
+			// comment created if a label was created, or createLabel option off
 			EHDataTypeUtilities.createPlateCommentIfNeeded(program, RttiUtil.CONST_PREFIX +
-				RttiUtil.getDescriptorTypeNamespace(rtti0Model) + Namespace.DELIMITER, RTTI_4_NAME,
-				null, getDataAddress(), applyOptions);
-			monitor.checkCanceled();
-
-			// Label
-			if (applyOptions.shouldCreateLabel()) {
-				RttiUtil.createSymbolFromDemangledType(program, getDataAddress(), rtti0Model,
-					RTTI_4_NAME);
-			}
+				RttiUtil.getOriginalDescriptorTypeNamespace(rtti0Model) + Namespace.DELIMITER,
+				RTTI_4_NAME, null, getDataAddress(), applyOptions);
 		}
 
 		return true;

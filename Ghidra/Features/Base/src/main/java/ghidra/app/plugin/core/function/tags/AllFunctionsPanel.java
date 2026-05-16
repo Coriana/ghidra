@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,83 +16,58 @@
 package ghidra.app.plugin.core.function.tags;
 
 import java.awt.BorderLayout;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 import java.util.stream.Collectors;
 
 import javax.swing.*;
 
-import org.apache.commons.lang3.StringUtils;
-
-import docking.widgets.table.GTableFilterPanel;
-import docking.widgets.table.columnfilter.ColumnBasedTableFilter;
-import docking.widgets.table.columnfilter.LogicOperation;
-import docking.widgets.table.constraint.*;
-import ghidra.app.services.GoToService;
 import ghidra.framework.plugintool.ComponentProviderAdapter;
 import ghidra.program.model.listing.*;
-import ghidra.util.table.GhidraTable;
-import ghidra.util.table.field.AddressBasedLocation;
+import ghidra.util.table.*;
 
 /**
  * Displays all functions that are associated with the selected tag in the
  * {@link SourceTagsPanel}
  */
 public class AllFunctionsPanel extends JPanel {
-
+	private static final String NAME = "Function Tags Applied Functions";
 	private FunctionTableModel model;
-	private FunctionTableModel filteredModel;
-	private JLabel titleLabel;
-	private String filterText;
 	private GhidraTable table;
+	private GhidraTableFilterPanel<Function> filterPanel;
+	private JLabel titleLabel;
 
 	/**
 	 * Constructor
 	 * 
 	 * @param program the current program
 	 * @param provider the component provider
-	 * @param title the title of the panel
 	 */
-	public AllFunctionsPanel(Program program, ComponentProviderAdapter provider, String title) {
+	public AllFunctionsPanel(Program program, ComponentProviderAdapter provider) {
 
-		model = new FunctionTableModel(title, provider.getTool(), program, null);
-		filteredModel = new FunctionTableModel(title, provider.getTool(), program, null);
+		model = new FunctionTableModel(NAME, provider.getTool(), program, null);
+		GhidraThreadedTablePanel<Function> tablePanel = new GhidraThreadedTablePanel<>(model);
 
-		table = new GhidraTable(filteredModel);
+		table = tablePanel.getTable();
+		filterPanel = new GhidraTableFilterPanel<>(table, model);
 		setLayout(new BorderLayout());
-
-		titleLabel = new JLabel(title);
+		titleLabel = new JLabel(NAME);
 		titleLabel.setBorder(BorderFactory.createEmptyBorder(3, 5, 0, 0));
 
+		table.setAccessibleNamePrefix(NAME);
+		filterPanel.setAccessibleNamePrefix(NAME);
+
 		add(titleLabel, BorderLayout.NORTH);
-		add(new JScrollPane(table), BorderLayout.CENTER);
+		add(tablePanel, BorderLayout.CENTER);
+		add(filterPanel, BorderLayout.SOUTH);
 
-		GoToService goToService = provider.getTool().getService(GoToService.class);
-		if (goToService != null) {
-			table.installNavigation(goToService, goToService.getDefaultNavigatable());
-		}
-	}
-
-	/**
-	 * Filters the table based on the given text
-	 * <p>
-	 * Note that this panel shares a filter with the other panels in the 
-	 * function tag dialog, so it doesn't use a dedicated 
-	 * {@link GTableFilterPanel}.
-	 * 
-	 * @param filterString the filter text
-	 */
-	public void setFilterText(String filter) {
-		this.filterText = filter;
-		applyFilter();
+		table.installNavigation(provider.getTool());
 	}
 
 	/**
 	 * Updates the table with whatever is in the {@link #model}
 	 */
 	public void refresh() {
-		applyFilter();
-		filteredModel.refresh();
+		model.reload();
 	}
 
 	/**
@@ -100,7 +75,7 @@ public class AllFunctionsPanel extends JPanel {
 	 * 
 	 * @param selectedTags the selected function tags
 	 */
-	public void refresh(List<FunctionTag> selectedTags) {
+	public void refresh(Set<FunctionTag> selectedTags) {
 		setSelectedTags(selectedTags);
 	}
 
@@ -111,7 +86,6 @@ public class AllFunctionsPanel extends JPanel {
 	 */
 	public void setProgram(Program program) {
 		model.setProgram(program);
-		filteredModel.setProgram(program);
 	}
 
 	/**
@@ -120,16 +94,18 @@ public class AllFunctionsPanel extends JPanel {
 	 * 
 	 * @param tags the selected tags
 	 */
-	public void setSelectedTags(List<FunctionTag> tags) {
-		String tagNames = tags.stream()
-				.map(t -> t.getName())
-				.collect(Collectors.joining(" or "))
-				.toString();
+	public void setSelectedTags(Set<FunctionTag> tags) {
+
+		Set<FunctionTag> currentTags = model.getTags();
+		if (Objects.equals(tags, currentTags)) {
+			return;
+		}
+
+		String tagNames =
+			tags.stream().map(t -> t.getName()).collect(Collectors.joining(" or ")).toString();
 
 		titleLabel.setText("Functions With Tag: " + tagNames);
-		model.setSelectedTags(tags);
-		filteredModel.setSelectedTags(tags);
-		applyFilter();
+		model.setTags(tags);
 	}
 
 	/**
@@ -152,50 +128,11 @@ public class AllFunctionsPanel extends JPanel {
 		return model;
 	}
 
-	private void applyFilter() {
-		if (StringUtils.isEmpty(filterText)) {
-			return;
-		}
-
-		ColumnBasedTableFilter<Function> tableFilter = new ColumnBasedTableFilter<>(filteredModel);
-		tableFilter.addConstraintSet(LogicOperation.OR, 0,
-			Arrays.asList(new StringContainsColumnConstraint(filterText)));
-		tableFilter.addConstraintSet(LogicOperation.OR, 1, Arrays.asList(
-			new LocationContainsColumnConstraint(new StringContainsColumnConstraint(filterText))));
-		tableFilter.addConstraintSet(LogicOperation.OR, 2,
-			Arrays.asList(new StringContainsColumnConstraint(filterText)));
-
-		filteredModel.setTableFilter(tableFilter);
-		filteredModel.reFilter();
-	}
-
 	/**
-	 * Converts an {@link AddressBasedLocation} to a string
+	 * Returns the underlying table.
+	 * @return table
 	 */
-	private class LocationToStringMapper
-			extends ColumnTypeMapper<AddressBasedLocation, String> {
-
-		@Override
-		public String convert(AddressBasedLocation value) {
-			return value.toString();
-		}
-
-	}
-
-	/**
-	 * Column constraint stipulating that a given {@link AddressBasedLocation}
-	 * contains a specified string
-	 */
-	private class LocationContainsColumnConstraint
-			extends MappedColumnConstraint<AddressBasedLocation, String> {
-
-		public LocationContainsColumnConstraint(ColumnConstraint<String> delegate) {
-			super(new LocationToStringMapper(), delegate);
-		}
-
-		@Override
-		public ColumnConstraint<AddressBasedLocation> copy(ColumnConstraint<String> value) {
-			return new LocationContainsColumnConstraint(value);
-		}
+	public GhidraTable getTable() {
+		return table;
 	}
 }

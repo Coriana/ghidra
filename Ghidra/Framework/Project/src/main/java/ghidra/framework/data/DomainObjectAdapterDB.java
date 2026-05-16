@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,11 +18,12 @@ package ghidra.framework.data;
 import java.io.File;
 import java.io.IOException;
 import java.util.*;
+import java.util.function.Function;
 
-import db.DBConstants;
-import db.DBHandle;
+import db.*;
 import db.util.ErrorHandler;
 import ghidra.framework.model.*;
+import ghidra.framework.model.TransactionInfo.Status;
 import ghidra.framework.options.Options;
 import ghidra.framework.options.SubOptions;
 import ghidra.framework.store.LockException;
@@ -31,46 +32,18 @@ import ghidra.util.Msg;
 import ghidra.util.ReadOnlyException;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
-import ghidra.util.task.TaskMonitorAdapter;
 
 /**
- * Database version of the DomainObjectAdapter; this version adds the
+ * Database version of the DomainObjectAdapter.  Adds the
  * concept of starting a transaction before a change is made to the
  * domain object and ending the transaction. The transaction allows for
  * undo/redo changes.
- *  
- * The implementation class must also satisfy the following requirements:
- * <pre>
- * 
- * 1. The following constructor signature must be implemented:
- * 
- * 		 **
- *		 * Constructs new Domain Object
- *		 * @param dbh a handle to an open domain object database.
- *		 * @param openMode one of:
- *		 * 		READ_ONLY: the original database will not be modified
- *		 * 		UPDATE: the database can be written to.
- *		 * 		UPGRADE: the database is upgraded to the latest schema as it is opened.
- *		 * @param monitor TaskMonitor that allows the open to be cancelled.
- *	     * @param consumer the object that keeping the program open.
- *		 *     
- *		 * @throws IOException if an error accessing the database occurs.
- *		 * @throws VersionException if database version does not match implementation. UPGRADE may be possible.
- *		 **
- *		 public DomainObjectAdapterDB(DBHandle dbh, int openMode, TaskMonitor monitor, Object consumer) throws IOException, VersionException 
- *
- * 2. The following static field must be provided:
- * 
- * 		 public static final String CONTENT_TYPE
- * 
- * </pre>
  */
-public abstract class DomainObjectAdapterDB extends DomainObjectAdapter
-		implements UndoableDomainObject, ErrorHandler, DBConstants {
+public abstract class DomainObjectAdapterDB extends DomainObjectAdapter implements ErrorHandler {
 
 	protected static final int NUM_UNDOS = 50;
 
-	protected DBHandle dbh;
+	protected final DBHandle dbh;
 
 	protected DomainObjectDBChangeSet changeSet;
 
@@ -82,20 +55,34 @@ public abstract class DomainObjectAdapterDB extends DomainObjectAdapter
 
 	private AbstractTransactionManager transactionMgr;
 
+	//
+	// This exception handler will sleep, allowing the startTransaction() method to ignore
+	// the exception and then try again, since it is using a while(true) loop.   This can
+	// happen if clients try to start a transaction during a long running operation, such as
+	// a program save.
+	//
+	Function<DomainObjectLockedException, Boolean> tryForeverExceptionHandler = e -> {
+		try {
+			Thread.sleep(100);
+		}
+		catch (InterruptedException ie) {
+			Msg.debug(this, "Thread interrupted while waiting for program lock: '" +
+				Thread.currentThread().getName() + "'", ie);
+		}
+		return true;
+	};
+
 	/**
 	 * Construct a new DomainObjectAdapterDB object.
-	 * If construction of this object fails, be sure to release with consumer
 	 * @param dbh database handle
 	 * @param name name of the domain object
-	 * @param timeInterval the time (in milliseconds) to wait before the
-	 * event queue is flushed.  If a new event comes in before the time expires,
-	 * the timer is reset.
-	 * @param bufSize initial size of event buffer
+	 * @param timeInterval the time (in milliseconds) to wait before the event queue is flushed.  
+	 * 			If a new event comes in before the time expires the timer is reset.
 	 * @param consumer the object that created this domain object
 	 */
-	protected DomainObjectAdapterDB(DBHandle dbh, String name, int timeInterval, int bufSize,
-			Object consumer) {
-		super(name, timeInterval, bufSize, consumer);
+	protected DomainObjectAdapterDB(DBHandle dbh, String name, int timeInterval, Object consumer) {
+		super(name, timeInterval, consumer);
+		Objects.requireNonNull(dbh, "DBHandle must not be null");
 		this.dbh = dbh;
 		options = new OptionsDB(this);
 		transactionMgr = new DomainObjectTransactionManager(this);
@@ -111,22 +98,24 @@ public abstract class DomainObjectAdapterDB extends DomainObjectAdapter
 
 	/**
 	 * Flush any pending database changes.
-	 * This method will be invoked by the transaction manager 
+	 * This method will be invoked by the transaction manager
 	 * prior to closing a transaction.
 	 */
 	public void flushWriteCache() {
+		// do nothing
 	}
 
 	/**
 	 * Invalidate (i.e., clear) any pending database changes not yet written.
-	 * This method will be invoked by the transaction manager 
+	 * This method will be invoked by the transaction manager
 	 * prior to aborting a transaction.
 	 */
 	public void invalidateWriteCache() {
+		// do nothing
 	}
 
 	/**
-	 * Return array of all domain objects synchronized with a 
+	 * Return array of all domain objects synchronized with a
 	 * shared transaction manager.
 	 * @return returns array of synchronized domain objects or
 	 * null if this domain object is not synchronized with others.
@@ -141,10 +130,10 @@ public abstract class DomainObjectAdapterDB extends DomainObjectAdapter
 
 	/**
 	 * Synchronize the specified domain object with this domain object
-	 * using a shared transaction manager.  If either or both is already shared, 
-	 * a transition to a single shared transaction manager will be 
-	 * performed.  
-	 * @param domainObj
+	 * using a shared transaction manager.  If either or both is already shared,
+	 * a transition to a single shared transaction manager will be
+	 * performed.
+	 * @param domainObj the domain object to synchronize with
 	 * @throws LockException if lock or open transaction is active on either
 	 * this or the specified domain object
 	 */
@@ -195,7 +184,7 @@ public abstract class DomainObjectAdapterDB extends DomainObjectAdapter
 	}
 
 	/**
-	 * Returns the open handle to the underlying database.
+	 * {@return the open handle to the underlying database}
 	 */
 	public DBHandle getDBHandle() {
 		return dbh;
@@ -216,9 +205,6 @@ public abstract class DomainObjectAdapterDB extends DomainObjectAdapter
 		return changeSet;
 	}
 
-	/**
-	 * @see db.util.ErrorHandler#dbError(java.io.IOException)
-	 */
 	@Override
 	public void dbError(IOException e) {
 		fatalErrorOccurred = true;
@@ -227,7 +213,7 @@ public abstract class DomainObjectAdapterDB extends DomainObjectAdapter
 
 	/**
 	 * Returns all properties lists contained by this domain object.
-	 * 
+	 *
 	 * @return all property lists contained by this domain object.
 	 */
 	@Override
@@ -240,16 +226,13 @@ public abstract class DomainObjectAdapterDB extends DomainObjectAdapter
 		return names;
 	}
 
-	/**
-	 * @see ghidra.framework.model.DomainObject#getOptions(java.lang.String)
-	 */
 	@Override
 	public Options getOptions(String propertyListName) {
 		return new SubOptions(options, propertyListName, propertyListName + Options.DELIMITER);
 	}
 
 	/**
-	 * This method can be used to perform property list alterations resulting from renamed or obsolete 
+	 * This method can be used to perform property list alterations resulting from renamed or obsolete
 	 * property paths.  This should only be invoked during an upgrade.
 	 * WARNING! Should only be called during construction of domain object
 	 * @see OptionsDB#performAlterations(Map)
@@ -261,41 +244,41 @@ public abstract class DomainObjectAdapterDB extends DomainObjectAdapter
 		options.performAlterations(propertyAlterations);
 	}
 
-	/**
-	 * @see ghidra.framework.model.DomainObject#canLock()
-	 */
 	@Override
 	public boolean canLock() {
-		return transactionMgr.getCurrentTransaction() == null && !closed;
+		return transactionMgr.getCurrentTransactionInfo() == null && !closed;
 	}
 
-	/**
-	 * @see ghidra.framework.model.DomainObject#isLocked()
-	 */
 	@Override
 	public boolean isLocked() {
 		return transactionMgr.isLocked();
 	}
 
-	/**
-	 * @see ghidra.framework.model.DomainObject#lock(String)
-	 */
 	@Override
 	public boolean lock(String reason) {
 		return transactionMgr.lock(reason);
 	}
 
-	void prepareToSave() {
-		int txId = transactionMgr.startTransaction(this, "Update Metadata", null, true, true);
-		try {
+	/**
+	 * Prepare to save and store any last minute DB data.  The default behavior is to invoke
+	 * {@link #updateMetadata()}.
+	 */
+	protected void prepareToSave() {
+		try (Transaction tx = openForcedTransaction("Update Metadata")) {
 			updateMetadata();
 		}
 		catch (IOException e) {
 			dbError(e);
 		}
-		finally {
-			transactionMgr.endTransaction(this, txId, true, true);
-		}
+	}
+
+	/**
+	 * Set instance as immutable by disabling use of transactions.  Attempts to start a transaction
+	 * will result in a {@link TerminatedTransactionException}.  This method should invoked at the end of 
+	 * instance instatiation {@link OpenMode#IMMUTABLE} was used.
+	 */
+	protected void setImmutable() {
+		transactionMgr.setImmutable();
 	}
 
 	/**
@@ -310,17 +293,11 @@ public abstract class DomainObjectAdapterDB extends DomainObjectAdapter
 		return transactionMgr.lockForSnapshot(this, hasProgress, title);
 	}
 
-	/**
-	 * @see ghidra.framework.model.DomainObject#forceLock(boolean, String)
-	 */
 	@Override
 	public void forceLock(boolean rollback, String reason) {
 		transactionMgr.forceLock(rollback, reason);
 	}
 
-	/**
-	 * @see ghidra.framework.model.DomainObject#unlock()
-	 */
 	@Override
 	public void unlock() {
 		transactionMgr.unlock();
@@ -333,40 +310,75 @@ public abstract class DomainObjectAdapterDB extends DomainObjectAdapter
 		transactionMgr.unlock(handler);
 	}
 
+	private class DomainObjectTransaction extends Transaction {
+		private final int txId;
+
+		DomainObjectTransaction(int txId) {
+			this.txId = txId;
+		}
+
+		@Override
+		protected boolean endTransaction(boolean commit) {
+			DomainObjectAdapterDB.this.endTransaction(txId, commit);
+			return commit;
+		}
+
+		@Override
+		public boolean isSubTransaction() {
+			return true;
+		}
+	}
+
+	/**
+	 * Open forced transaction which bypasses any lock checking, although method should only be
+	 * used in very controlled situations where a save lock is in place.
+	 * @param description transaction description
+	 * @return {@link AutoCloseable} transaction object
+	 */
+	protected Transaction openForcedTransaction(String description) {
+		int txId = transactionMgr.startTransaction(this, description, null, true, true);
+		return new DomainObjectTransaction(txId);
+	}
+
 	@Override
-	public int startTransaction(String description) {
+	public Transaction openTransaction(String description)
+			throws TerminatedTransactionException, IllegalStateException {
+		return new DomainObjectTransaction(startTransaction(description));
+	}
+
+	@Override
+	public int startTransaction(String description) throws TerminatedTransactionException {
 		return startTransaction(description, null);
 	}
 
-	/**
-	 * @see ghidra.framework.model.UndoableDomainObject#startTransaction(java.lang.String)
-	 */
 	@Override
-	public int startTransaction(String description, AbortedTransactionListener listener) {
-		int id = -1;
-		while (id == -1) {
+	public int startTransaction(String description, AbortedTransactionListener listener)
+			throws TerminatedTransactionException {
+		return startTransaction(description, listener, tryForeverExceptionHandler);
+	}
+
+	// open for testing
+	int startTransaction(String description, AbortedTransactionListener listener,
+			Function<DomainObjectLockedException, Boolean> exceptionHandler)
+			throws TerminatedTransactionException {
+
+		while (true) {
 			try {
-				id = transactionMgr.startTransaction(this, description, listener, true);
+				return transactionMgr.startTransactionChecked(this, description, listener,
+					true);
 			}
 			catch (DomainObjectLockedException e) {
-				// wait for lock to be removed (e.g., Save operation)
-				try {
-					Thread.sleep(100);
-				}
-				catch (InterruptedException e1) {
-					Msg.debug(this, "Unexpected thread interrupt", e1);
+				if (!exceptionHandler.apply(e)) {
+					return -1;
 				}
 			}
 		}
-		return id;
 	}
 
-	/**
-	 * @see ghidra.framework.model.UndoableDomainObject#endTransaction(int, boolean)
-	 */
 	@Override
-	public void endTransaction(int transactionID, boolean commit) {
-		transactionMgr.endTransaction(this, transactionID, commit, true);
+	public boolean endTransaction(int transactionID, boolean commit) throws IllegalStateException {
+		TransactionInfo txInfo = transactionMgr.endTransaction(this, transactionID, commit, true);
+		return txInfo.getStatus() == Status.COMMITTED;
 	}
 
 	/**
@@ -397,65 +409,51 @@ public abstract class DomainObjectAdapterDB extends DomainObjectAdapter
 		return transactionMgr.getUndoStackDepth();
 	}
 
-	/**
-	 * @see ghidra.framework.model.Undoable#canRedo()
-	 */
 	@Override
 	public boolean canRedo() {
 		return transactionMgr.canRedo();
 	}
 
-	/**
-	 * @see ghidra.framework.model.Undoable#canUndo()
-	 */
 	@Override
 	public boolean canUndo() {
 		return transactionMgr.canUndo();
 	}
 
-	/**
-	 * @see ghidra.framework.model.Undoable#getRedoName()
-	 */
 	@Override
 	public String getRedoName() {
 		return transactionMgr.getRedoName();
 	}
 
-	/**
-	 * @see ghidra.framework.model.Undoable#getUndoName()
-	 */
 	@Override
 	public String getUndoName() {
 		return transactionMgr.getUndoName();
 	}
 
-	/**
-	 * @see ghidra.framework.model.UndoableDomainObject#getCurrentTransaction()
-	 */
 	@Override
-	public Transaction getCurrentTransaction() {
-		return transactionMgr.getCurrentTransaction();
+	public List<String> getAllUndoNames() {
+		return transactionMgr.getAllUndoNames();
 	}
 
-	/**
-	 * @see ghidra.framework.model.Undoable#redo()
-	 */
+	@Override
+	public List<String> getAllRedoNames() {
+		return transactionMgr.getAllRedoNames();
+	}
+
+	@Override
+	public TransactionInfo getCurrentTransactionInfo() {
+		return transactionMgr.getCurrentTransactionInfo();
+	}
+
 	@Override
 	public void redo() throws IOException {
 		transactionMgr.redo();
 	}
 
-	/**
-	 * @see ghidra.framework.model.Undoable#undo()
-	 */
 	@Override
 	public void undo() throws IOException {
 		transactionMgr.undo();
 	}
 
-	/**
-	 * @see ghidra.framework.model.DomainObject#isChanged()
-	 */
 	@Override
 	public boolean isChanged() {
 		if (dbh == null) {
@@ -481,13 +479,11 @@ public abstract class DomainObjectAdapterDB extends DomainObjectAdapter
 	 */
 	protected boolean propertyChanged(String propertyName, Object oldValue, Object newValue) {
 		setChanged(true);
-		fireEvent(new DomainObjectChangeRecord(DomainObject.DO_PROPERTY_CHANGED, name, name));
+		fireEvent(new DomainObjectChangeRecord(DomainObjectEvent.PROPERTY_CHANGED, propertyName,
+			newValue));
 		return true;
 	}
 
-	/**
-	 * @see ghidra.framework.model.Undoable#clearUndo()
-	 */
 	@Override
 	public void clearUndo() {
 		clearUndo(true);
@@ -497,13 +493,24 @@ public abstract class DomainObjectAdapterDB extends DomainObjectAdapter
 		transactionMgr.clearUndo(notifyListeners);
 	}
 
+	@Override
+	public void invalidate() {
+		clearCache(false);
+		super.invalidate(); // fires RESTORED event
+	}
+
 	protected void clearCache(boolean all) {
 		options.clearCache();
 	}
 
 	/**
-	 * @see ghidra.framework.model.DomainObject#canSave()
+	 * Indicates that this domain object has been restored to a completely different state due
+	 * to a transaction undo/redo/rollback or a database merge operation.
 	 */
+	protected void domainObjectRestored() {
+		invalidate();
+	}
+
 	@Override
 	public synchronized boolean canSave() {
 		DomainFile df = getDomainFile();
@@ -513,9 +520,6 @@ public abstract class DomainObjectAdapterDB extends DomainObjectAdapter
 		return dbh.canUpdate();
 	}
 
-	/**
-	 * @see ghidra.framework.model.DomainObject#save(java.lang.String, ghidra.util.task.TaskMonitor)
-	 */
 	@Override
 	public void save(String comment, TaskMonitor monitor) throws IOException, CancelledException {
 		if (!canSave()) {
@@ -546,7 +550,7 @@ public abstract class DomainObjectAdapterDB extends DomainObjectAdapter
 		}
 
 		if (wasSaved) {
-			fireEvent(new DomainObjectChangeRecord(DomainObject.DO_OBJECT_SAVED));
+			fireEvent(new DomainObjectChangeRecord(DomainObjectEvent.SAVED));
 
 			DomainFile df = getDomainFile();
 			if (df instanceof GhidraFile) {
@@ -555,9 +559,6 @@ public abstract class DomainObjectAdapterDB extends DomainObjectAdapter
 		}
 	}
 
-	/**
-	 * @see ghidra.framework.model.DomainObject#saveToPackedFile(java.io.File, ghidra.util.task.TaskMonitor)
-	 */
 	@Override
 	public void saveToPackedFile(File outputFile, TaskMonitor monitor)
 			throws IOException, CancelledException {
@@ -569,12 +570,12 @@ public abstract class DomainObjectAdapterDB extends DomainObjectAdapter
 		}
 		try {
 
-			ContentHandler ch = DomainObjectAdapter.getContentHandler(this);
+			ContentHandler<?> ch = DomainObjectAdapter.getContentHandler(this);
 			PackedDatabase.packDatabase(dbh, name, ch.getContentType(), outputFile, monitor);
 
 			// TODO :( output method will cause Redo-able transactions to be cleared
 			// and may cause older Undo-able transactions to be cleared.
-			// Should implement transaction listener to properly maintain domain object 
+			// Should implement transaction listener to properly maintain domain object
 			// transaction sychronization
 
 		}
@@ -584,9 +585,9 @@ public abstract class DomainObjectAdapterDB extends DomainObjectAdapter
 	}
 
 	/**
-	 * This method is called before a save, saveAs, or saveToPackedFile 
+	 * This method is called before a save, saveAs, or saveToPackedFile
 	 * to update common meta data
-	 * @throws IOException 
+	 * @throws IOException
 	 */
 	protected void updateMetadata() throws IOException {
 		saveMetadata();
@@ -601,11 +602,16 @@ public abstract class DomainObjectAdapterDB extends DomainObjectAdapter
 		}
 
 		DomainObjectAdapterDB userData = getUserData();
-		if (userData != null && userData.isChanged() && (getDomainFile() instanceof GhidraFile)) {
+		if (canSave() && userData != null && userData.isChanged() &&
+			(getDomainFile() instanceof GhidraFile)) {
+			// Only save user data if this domain object was open for update and the
+			// user data was modified.
 			try {
-				userData.save(null, TaskMonitorAdapter.DUMMY_MONITOR);
+				userData.prepareToSave();
+				userData.save(null, TaskMonitor.DUMMY);
 			}
 			catch (CancelledException e) {
+				// ignore
 			}
 			catch (IOException e) {
 				Msg.warn(this, "Failed to save user data for: " + getDomainFile().getName());
@@ -620,17 +626,11 @@ public abstract class DomainObjectAdapterDB extends DomainObjectAdapter
 		}
 	}
 
-	/**
-	 * @see ghidra.framework.model.DomainObject#isClosed()
-	 */
 	@Override
 	public boolean isClosed() {
 		return closed;
 	}
 
-	/**
-	 * @see ghidra.framework.model.UndoableDomainObject#hasTerminatedTransaction()
-	 */
 	@Override
 	public boolean hasTerminatedTransaction() {
 		return transactionMgr.hasTerminatedTransaction();

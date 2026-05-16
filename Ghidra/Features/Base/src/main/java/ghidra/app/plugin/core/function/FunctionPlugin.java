@@ -23,9 +23,9 @@ import ghidra.app.CorePluginPackage;
 import ghidra.app.cmd.function.ApplyFunctionSignatureCmd;
 import ghidra.app.cmd.function.SetReturnDataTypeCmd;
 import ghidra.app.context.ListingActionContext;
+import ghidra.app.events.ProgramActivatedPluginEvent;
 import ghidra.app.plugin.PluginCategoryNames;
 import ghidra.app.services.*;
-import ghidra.app.util.AddEditDialog;
 import ghidra.framework.cmd.BackgroundCommand;
 import ghidra.framework.cmd.Command;
 import ghidra.framework.plugintool.*;
@@ -53,7 +53,8 @@ import ghidra.util.task.SwingUpdateManager;
 			"and the variables in them.  Users can change the signature, return type," +
 			"variable names, variable datatypes and comments.",
 	servicesRequired = { ProgramManager.class, DataTypeManagerService.class },
-	servicesProvided = { DataService.class }
+	servicesProvided = { DataService.class },
+	eventsConsumed = { ProgramActivatedPluginEvent.class }
 )
 //@formatter:on
 public class FunctionPlugin extends Plugin implements DataService {
@@ -116,8 +117,6 @@ public class FunctionPlugin extends Plugin implements DataService {
 	private List<DataAction> favoriteActions = new ArrayList<>();
 	private List<CycleGroupAction> cgActions = new ArrayList<>();
 
-	private AddEditDialog functionNameDialog;
-	private AddEditDialog variableNameDialog;
 	private VariableCommentDialog variableCommentDialog;
 	private DataTypeManagerChangeListenerAdapter adapter;
 	private EditFunctionAction editFunctionAction;
@@ -146,17 +145,17 @@ public class FunctionPlugin extends Plugin implements DataService {
 			dtmService.removeDataTypeManagerChangeListener(adapter);
 		}
 		super.dispose();
-		if (functionNameDialog != null) {
-			functionNameDialog.close();
-			functionNameDialog = null;
-		}
-		if (variableNameDialog != null) {
-			variableNameDialog.close();
-			variableNameDialog = null;
-		}
+
 		if (variableCommentDialog != null) {
 			variableCommentDialog.close();
 			variableCommentDialog = null;
+		}
+	}
+
+	@Override
+	public void processEvent(PluginEvent event) {
+		if (event instanceof ProgramActivatedPluginEvent) {
+			favoritesUpdateManager.updateLater();
 		}
 	}
 
@@ -164,8 +163,7 @@ public class FunctionPlugin extends Plugin implements DataService {
 	 * Add the cycle group actions
 	 */
 	private void addCycleGroupActions() {
-		for (int i = 0; i < cgActions.size(); i++) {
-			DockingAction action = cgActions.get(i);
+		for (CycleGroupAction action : cgActions) {
 			tool.removeAction(action);
 		}
 		cgActions.clear();
@@ -330,13 +328,13 @@ public class FunctionPlugin extends Plugin implements DataService {
 		return maxSize;
 	}
 
-	protected void execute(Program program, Command cmd) {
+	protected void execute(Program program, Command<Program> cmd) {
 		if (!tool.execute(cmd, program)) {
 			Msg.showError(this, tool.getToolFrame(), cmd.getName(), cmd.getStatusMsg());
 		}
 	}
 
-	protected void execute(Program program, BackgroundCommand cmd) {
+	protected void execute(Program program, BackgroundCommand<Program> cmd) {
 		tool.executeBackgroundCommand(cmd, program);
 	}
 
@@ -373,7 +371,8 @@ public class FunctionPlugin extends Plugin implements DataService {
 	/**
 	 * Get an iterator over all functions overlapping the current selection.
 	 * If there is no selection any functions overlapping the current location.
-	 *
+	 * 
+	 * @param context the context 
 	 * @return Iterator over functions
 	 */
 	public Iterator<Function> getFunctions(ListingActionContext context) {
@@ -423,7 +422,10 @@ public class FunctionPlugin extends Plugin implements DataService {
 
 	public boolean isCreateFunctionAllowed(ListingActionContext context, boolean allowExisting,
 			boolean createThunk) {
-
+		// Debugger traces do not support functions
+		if (context.getNavigatable().isDynamic()) {
+			return false;
+		}
 		// A program and location is needed for any create function action.
 		Program program = context.getProgram();
 		if (program == null) {
@@ -466,36 +468,9 @@ public class FunctionPlugin extends Plugin implements DataService {
 		return false;
 	}
 
-	/**
-	 * Lay down the specified dataType on a function return, parameter or local variable
-	 * based upon the programActionContext.  Pointer conversion will be handled
-	 * by merging the existing dataType with the specified dataType.
-	 * @param dataType The DataType to create.
-	 * @param programActionContext action context
-	 * @param promptForConflictRemoval if true and specified dataType results in a storage conflict,
-	 * user may be prompted for removal of conflicting variables (not applicable for return type)
-	 * @return True if the DataType could be created at the given location.
-	 */
 	@Override
-	public boolean createData(DataType dt, ListingActionContext programActionContext,
-			boolean enableConflictHandling) {
-		return createData(dt, programActionContext, true, enableConflictHandling);
-	}
-
-	/**
-	 * This method is the same as {@link #createData(DataType, ProgramLocation)}, except that this
-	 * method will use the given value of <tt>convertPointers</tt> to determine if the new
-	 * DataType should be made into a pointer if the existing DataType is a pointer.
-	 * @param dataType The DataType to create.
-	 * @param location The location at which to create the DataType.
-	 * @param convertPointers True signals to convert the given DataType to a pointer if there is
-	 *        an existing pointer at the specified location.
-	 * @param promptForConflictRemoval if true and specified dataType results in a storage conflict,
-	 * user may be prompted for removal of conflicting variables (not applicable for return type)
-	 * @return True if the DataType could be created at the given location.
-	 */
 	public boolean createData(DataType dataType, ListingActionContext context,
-			boolean convertPointers, boolean promptForConflictRemoval) {
+			boolean stackPointers, boolean promptForConflictRemoval) {
 		ProgramLocation location = context.getLocation();
 		Program program = context.getProgram();
 		if (!(location instanceof FunctionLocation)) {
@@ -521,7 +496,7 @@ public class FunctionPlugin extends Plugin implements DataService {
 		}
 
 		DataType existingDT = getCurrentDataType(context);
-		dataType = DataUtilities.reconcileAppliedDataType(existingDT, dataType, convertPointers);
+		dataType = DataUtilities.reconcileAppliedDataType(existingDT, dataType, stackPointers);
 
 		if (dataType.getLength() < 0) {
 			tool.setStatusInfo("Only fixed-length data-type permitted");
@@ -609,23 +584,12 @@ public class FunctionPlugin extends Plugin implements DataService {
 		return null;
 	}
 
-//	private boolean checkStackVarToFit(Function fun, StackVariable var, DataType dt) {
-//	    if (var.getDataType() instanceof Pointer) {
-//	        return true;
-//	    }
-//		int startOffset = var.getLength();
-//		if (startOffset < 0) startOffset = 1;
-//		int size = getMaxStackVariableSize(fun, var);
-//		if (size < 0) return true;
-//		return size >= dt.getLength();
-//	}
-
 	/**
-	 * Return the maximum data type length permitted
-	 * for the specified local variable.  A -1 returned
-	 * value indicates no limit imposed.
-	 * @param fun
-	 * @param var
+	 * Return the maximum data type length permitted for the specified local variable.  A -1 
+	 * returned value indicates no limit imposed.
+	 * 
+	 * @param fun the function
+	 * @param var the variable
 	 * @return maximum data type length permitted for var
 	 */
 	int getMaxStackVariableSize(Function fun, Variable var) {

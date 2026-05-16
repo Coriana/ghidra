@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,14 +18,12 @@ package ghidra.app.plugin.core.memory;
 import javax.swing.event.ChangeListener;
 
 import ghidra.app.cmd.memory.*;
-import ghidra.framework.cmd.Command;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.database.mem.ByteMappingScheme;
 import ghidra.program.database.mem.FileBytes;
 import ghidra.program.model.address.*;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.mem.*;
-import ghidra.util.NamingUtilities;
 import ghidra.util.datastruct.StringKeyIndexer;
 import ghidra.util.exception.AssertException;
 
@@ -56,13 +54,15 @@ class AddBlockModel {
 	private boolean isWrite;
 	private boolean isExecute;
 	private boolean isVolatile;
+	private boolean isArtificial;
 	private InitializedType initializedType;
 	private String comment;
 	private FileBytes fileBytes;
 	private long fileBytesOffset = -1;
+	private String addressErrorMessage;
 
 	enum InitializedType {
-		UNITIALIZED, INITIALIZED_FROM_VALUE, INITIALIZED_FROM_FILE_BYTES;
+		UNINITIALIZED, INITIALIZED_FROM_VALUE, INITIALIZED_FROM_FILE_BYTES;
 	}
 
 	AddBlockModel(PluginTool tool, Program program) {
@@ -91,6 +91,14 @@ class AddBlockModel {
 
 	void setStartAddress(Address addr) {
 		startAddr = addr;
+		addressErrorMessage = null;
+		validateInfo();
+		listener.stateChanged(null);
+	}
+
+	void setAddressError(String errorMessage) {
+		startAddr = null;
+		addressErrorMessage = errorMessage;
 		validateInfo();
 		listener.stateChanged(null);
 	}
@@ -126,9 +134,10 @@ class AddBlockModel {
 		isExecute = false;
 		isVolatile = false;
 		isOverlay = false;
+		isArtificial = false;
 		schemeDestByteCount = blockType == MemoryBlockType.BIT_MAPPED ? 8 : 1;
 		schemeSrcByteCount = 1;
-		initializedType = InitializedType.UNITIALIZED;
+		initializedType = InitializedType.UNINITIALIZED;
 		validateInfo();
 		listener.stateChanged(null);
 	}
@@ -147,6 +156,10 @@ class AddBlockModel {
 
 	void setVolatile(boolean b) {
 		this.isVolatile = b;
+	}
+
+	void setArtificial(boolean b) {
+		this.isArtificial = b;
 	}
 
 	void setOverlay(boolean b) {
@@ -227,6 +240,10 @@ class AddBlockModel {
 		return isVolatile;
 	}
 
+	boolean isArtificial() {
+		return isArtificial;
+	}
+
 	boolean isOverlay() {
 		return isOverlay;
 	}
@@ -241,7 +258,8 @@ class AddBlockModel {
 		if (!isValid) {
 			return false;
 		}
-		Command cmd = createAddBlockCommand();
+		AbstractAddMemoryBlockCmd cmd = createAddBlockCommand();
+		cmd.setArtificial(isArtificial);
 		if (!tool.execute(cmd, program)) {
 			message = cmd.getStatusMsg();
 			return false;
@@ -249,7 +267,7 @@ class AddBlockModel {
 		return true;
 	}
 
-	Command createAddBlockCommand() {
+	AbstractAddMemoryBlockCmd createAddBlockCommand() {
 		String source = "";
 		switch (blockType) {
 			case BIT_MAPPED:
@@ -268,7 +286,7 @@ class AddBlockModel {
 		}
 	}
 
-	private Command createNonMappedMemoryBlock(String source) {
+	private AbstractAddMemoryBlockCmd createNonMappedMemoryBlock(String source) {
 		switch (initializedType) {
 			case INITIALIZED_FROM_FILE_BYTES:
 				return new AddFileBytesMemoryBlockCmd(blockName, comment, source, startAddr, length,
@@ -276,7 +294,7 @@ class AddBlockModel {
 			case INITIALIZED_FROM_VALUE:
 				return new AddInitializedMemoryBlockCmd(blockName, comment, source, startAddr,
 					length, isRead, isWrite, isExecute, isVolatile, (byte) initialValue, isOverlay);
-			case UNITIALIZED:
+			case UNINITIALIZED:
 				return new AddUninitializedMemoryBlockCmd(blockName, comment, source, startAddr,
 					length, isRead, isWrite, isExecute, isVolatile, isOverlay);
 			default:
@@ -294,8 +312,8 @@ class AddBlockModel {
 	private void validateInfo() {
 		message = "";
 		isValid = hasValidName() && hasValidStartAddress() && hasValidLength() &&
-			hasNoMemoryConflicts() && hasMappedAddressIfNeeded() && hasUniqueNameIfOverlay() &&
-			hasInitialValueIfNeeded() && hasFileBytesInfoIfNeeded() && isOverlayIfOtherSpace();
+			hasNoMemoryConflicts() && hasMappedAddressIfNeeded() && hasInitialValueIfNeeded() &&
+			hasFileBytesInfoIfNeeded() && isOverlayIfOtherSpace();
 	}
 
 	private boolean hasFileBytesInfoIfNeeded() {
@@ -335,21 +353,6 @@ class AddBlockModel {
 		return false;
 	}
 
-	private boolean hasUniqueNameIfOverlay() {
-		if (!isOverlay) {
-			return true;
-		}
-		AddressFactory factory = program.getAddressFactory();
-		AddressSpace[] spaces = factory.getAddressSpaces();
-		for (AddressSpace space : spaces) {
-			if (space.getName().equals(blockName)) {
-				message = "Address Space named " + blockName + " already exists";
-				return false;
-			}
-		}
-		return true;
-	}
-
 	private boolean isOverlayIfOtherSpace() {
 		if (startAddr.getAddressSpace().equals(AddressSpace.OTHER_SPACE)) {
 			if (!isOverlay) {
@@ -366,20 +369,40 @@ class AddBlockModel {
 			return true;
 		}
 		if (baseAddr == null) {
-			String blockTypeStr =
-				(blockType == MemoryBlockType.BIT_MAPPED) ? "bit-mapped" : "byte-mapped";
-			message = "Please enter a source address for the " + blockTypeStr + " block";
+			message = "Please enter a valid mapped region Source Address";
 			return false;
 		}
+
 		if (blockType == MemoryBlockType.BYTE_MAPPED) {
 			if (schemeDestByteCount <= 0 || schemeDestByteCount > Byte.MAX_VALUE ||
 				schemeSrcByteCount <= 0 || schemeSrcByteCount > Byte.MAX_VALUE) {
-				message = "Mapping ratio values must be within range: 1 to 127";
+				message = "Mapping Ratio values must be within range: 1 to 127";
 				return false;
 			}
 			if (schemeDestByteCount > schemeSrcByteCount) {
 				message =
-					"Mapping ratio destination byte count (left-value) must be less than or equal the source byte count (right-value)";
+					"Mapping Ratio destination byte count (left-value) must be less than or equal the source byte count (right-value)";
+				return false;
+			}
+			try {
+				long lastOffset = length - 1;
+				long sourceOffset = (schemeSrcByteCount * (lastOffset / schemeDestByteCount)) +
+					(lastOffset % schemeDestByteCount);
+				baseAddr.addNoWrap(sourceOffset);
+			}
+			catch (AddressOverflowException e) {
+				message =
+					"Insufficient space in byte-mapped source region at " + baseAddr.toString(true);
+				return false;
+			}
+		}
+		else if (blockType == MemoryBlockType.BIT_MAPPED) {
+			try {
+				baseAddr.addNoWrap((length - 1) / 8);
+			}
+			catch (AddressOverflowException e) {
+				message =
+					"Insufficient space in bit-mapped source region at " + baseAddr.toString(true);
 				return false;
 			}
 		}
@@ -401,11 +424,15 @@ class AddBlockModel {
 	}
 
 	private boolean hasValidLength() {
-		long sizeLimit = Memory.MAX_BLOCK_SIZE;
-		if (length > 0 && length <= sizeLimit) {
+		long limit = Memory.MAX_BLOCK_SIZE;
+		long spaceLimit = startAddr.getAddressSpace().getMaxAddress().subtract(startAddr);
+		if (spaceLimit >= 0) {
+			limit = Math.min(limit, spaceLimit + 1);
+		}
+		if (length > 0 && length <= limit) {
 			return true;
 		}
-		message = "Please enter a valid length between 0 and 0x" + Long.toHexString(sizeLimit);
+		message = "Please enter a valid Length: 1 to 0x" + Long.toHexString(limit);
 		return false;
 	}
 
@@ -413,22 +440,24 @@ class AddBlockModel {
 		if (startAddr != null) {
 			return true;
 		}
-		message = "Please enter a valid starting address";
+		message = "Please enter a valid Start Address";
+		if (addressErrorMessage != null) {
+			message = "Invalid Address: " + addressErrorMessage;
+		}
 		return false;
 	}
 
 	private boolean hasValidName() {
 		if (blockName == null || blockName.length() == 0) {
-			message = "Please enter a name";
+			message = "Please enter a Block Name";
+			return false;
+		}
+		if (!Memory.isValidMemoryBlockName(blockName)) {
+			message = "Block Name is invalid";
 			return false;
 		}
 		if (nameExists(blockName)) {
-			message = "Block name already exists";
-			return false;
-		}
-		if (!NamingUtilities.isValidName(blockName)) {
-			message = "Block name is invalid";
-			return false;
+			message = "Warning! Duplicate Block Name";
 		}
 		return true;
 	}

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,25 +15,24 @@
  */
 package ghidra.feature.vt.api.db;
 
-import static ghidra.feature.vt.api.db.VTMatchTagDBAdapter.ColumnDescription.TAG_NAME_COL;
+import static ghidra.feature.vt.api.db.VTMatchTagDBAdapter.ColumnDescription.*;
 
 import java.io.IOException;
 
-import db.Record;
+import db.DBRecord;
 import ghidra.feature.vt.api.main.VTMatchTag;
-import ghidra.program.database.DBObjectCache;
-import ghidra.program.database.DatabaseObject;
+import ghidra.program.database.DbObject;
 
 /**
  * The database object for a user defined tag on a version tracking match.
  */
-public class VTMatchTagDB extends DatabaseObject implements VTMatchTag {
+public class VTMatchTagDB extends DbObject implements VTMatchTag {
 
 	private VTSessionDB sessionDB;
-	private Record record;
+	private DBRecord record;
 
-	VTMatchTagDB(VTSessionDB sessionDB, DBObjectCache<VTMatchTagDB> cache, Record record) {
-		super(cache, record.getKey());
+	VTMatchTagDB(VTSessionDB sessionDB, DBRecord record) {
+		super(record.getKey());
 		this.sessionDB = sessionDB;
 		this.record = record;
 	}
@@ -47,7 +46,7 @@ public class VTMatchTagDB extends DatabaseObject implements VTMatchTag {
 	 * Update associated record
 	 * @param rec the new record information
 	 */
-	void setRecord(Record rec) {
+	void setRecord(DBRecord rec) {
 		if (rec.getKey() != key) {
 			throw new IllegalArgumentException("Key mismatch");
 		}
@@ -56,7 +55,7 @@ public class VTMatchTagDB extends DatabaseObject implements VTMatchTag {
 
 	@Override
 	protected boolean refresh() {
-		Record rec = null;
+		DBRecord rec = null;
 		try {
 			rec = sessionDB.getTagRecord(key);
 		}
@@ -74,8 +73,8 @@ public class VTMatchTagDB extends DatabaseObject implements VTMatchTag {
 	 * Returns record associated with this match tag or
 	 * null if the match tag has been deleted.
 	 */
-	Record getRecord() {
-		return checkIsValid() ? record : null;
+	DBRecord getRecord() {
+		return refreshIfNeeded() ? record : null;
 	}
 
 	@Override
@@ -83,6 +82,7 @@ public class VTMatchTagDB extends DatabaseObject implements VTMatchTag {
 		return record.getString(TAG_NAME_COL.column());
 	}
 
+	@Override
 	public int compareTo(VTMatchTag otherTag) {
 		return getName().compareTo(otherTag.getName());
 	}

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -38,9 +38,9 @@ public class VisualGraphEventForwardingGraphMousePlugin<V extends VisualVertex,
 
 	private boolean isHandlingEvent = false;
 
-	// TODO for deprecated usage note, see the VisualGraphMousePlugin interface
 	public VisualGraphEventForwardingGraphMousePlugin() {
-		this(InputEvent.BUTTON1_MASK | InputEvent.BUTTON2_MASK | InputEvent.BUTTON3_MASK);
+		this(InputEvent.BUTTON1_DOWN_MASK | InputEvent.BUTTON2_DOWN_MASK |
+			InputEvent.BUTTON3_DOWN_MASK);
 	}
 
 	public VisualGraphEventForwardingGraphMousePlugin(int modifiers) {
@@ -50,18 +50,18 @@ public class VisualGraphEventForwardingGraphMousePlugin<V extends VisualVertex,
 
 	@Override
 	public boolean checkModifiers(MouseEvent e) {
-		int eventModifiers = e.getModifiers();
+		int eventModifiers = e.getModifiersEx();
 		eventModifiers = turnOffControlKey(eventModifiers);
 		return ((eventModifiers & getModifiers()) == eventModifiers);
 	}
 
 	private int turnOffControlKey(int eventModifiers) {
-		return eventModifiers & (~DockingUtils.CONTROL_KEY_MODIFIER_MASK_DEPRECATED);
+		return eventModifiers & (~DockingUtils.CONTROL_KEY_MODIFIER_MASK);
 	}
 
 	private boolean isControlClick(MouseEvent e) {
-		int allModifiers = e.getModifiers();
-		int osSpecificMask = DockingUtils.CONTROL_KEY_MODIFIER_MASK_DEPRECATED;
+		int allModifiers = e.getModifiersEx();
+		int osSpecificMask = DockingUtils.CONTROL_KEY_MODIFIER_MASK;
 		return (allModifiers & osSpecificMask) == osSpecificMask;
 
 		// can't use this until we fix the old modifiers usage
@@ -265,6 +265,7 @@ public class VisualGraphEventForwardingGraphMousePlugin<V extends VisualVertex,
 		currentMouseEnteredInfo = mouseMovedMouseInfo;
 
 		mouseMovedMouseInfo.forwardEvent();
+		updateCursor(mouseMovedMouseInfo);
 	}
 
 	private void triggerMouseExited(VertexMouseInfo<V, E> currentInfo,

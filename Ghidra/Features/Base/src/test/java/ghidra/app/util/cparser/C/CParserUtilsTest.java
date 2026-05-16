@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,33 +15,30 @@
  */
 package ghidra.app.util.cparser.C;
 
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
 import org.junit.Assert;
 import org.junit.Test;
 
 import generic.test.AbstractGenericTest;
+import generic.theme.GThemeDefaults.Colors.Messages;
 
 public class CParserUtilsTest extends AbstractGenericTest {
 
-	public CParserUtilsTest() {
-		super();
-	}
-
 	@Test
-    public void testUserMessage_OnTokenMgrError() {
+	public void testUserMessage_OnTokenMgrError() {
 		String function = "void bob@12(int a)";
 		Throwable t = getParseError(function);
 		String message = CParserUtils.handleParseProblem(t, function);
 
 		String characterInfo = "near character 8";
-		String invalidInfo = "<font color=\"red\"><b>@";
+		String invalidInfo = "<font color=\"" + Messages.ERROR + "\"><b>@";
 		assertTrue(message.contains(characterInfo));
 		assertTrue(message.contains(invalidInfo));
 	}
 
 	@Test
-    public void testUserMessage_OnParseException() {
+	public void testUserMessage_OnParseException() {
 		String function = "void bob(int a)()";
 		Throwable t = getParseError(function);
 		String message = CParserUtils.handleParseProblem(t, function);
@@ -58,7 +55,7 @@ public class CParserUtilsTest extends AbstractGenericTest {
 		catch (Throwable t) {
 			return t;
 		}
-		Assert.fail("Funcion text did not trigger a parse problem: " + function);
+		Assert.fail("Function text did not trigger a parse problem: " + function);
 		return null;// can't get here
 	}
 }

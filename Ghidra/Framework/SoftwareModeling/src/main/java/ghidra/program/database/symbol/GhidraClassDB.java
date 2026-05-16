@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,8 +18,7 @@ package ghidra.program.database.symbol;
 import ghidra.program.model.address.AddressSetView;
 import ghidra.program.model.listing.CircularDependencyException;
 import ghidra.program.model.listing.GhidraClass;
-import ghidra.program.model.symbol.Namespace;
-import ghidra.program.model.symbol.Symbol;
+import ghidra.program.model.symbol.*;
 import ghidra.util.exception.DuplicateNameException;
 import ghidra.util.exception.InvalidInputException;
 
@@ -29,7 +27,7 @@ import ghidra.util.exception.InvalidInputException;
  */
 
 class GhidraClassDB implements GhidraClass {
-	private SymbolDB symbol;
+	private ClassSymbol symbol;
 	private NamespaceManager namespaceMgr;
 
 	/**
@@ -37,7 +35,7 @@ class GhidraClassDB implements GhidraClass {
 	 * @param symbol the symbol for this GhidraClass
 	 * @param namespaceMgr the namespace manager
 	 */
-	GhidraClassDB(SymbolDB symbol, NamespaceManager namespaceMgr) {
+	GhidraClassDB(ClassSymbol symbol, NamespaceManager namespaceMgr) {
 		this.symbol = symbol;
 		this.namespaceMgr = namespaceMgr;
 	}
@@ -61,6 +59,19 @@ class GhidraClassDB implements GhidraClass {
 	@Override
 	public String getName() {
 		return symbol.getName();
+	}
+
+	public void setName(String name, SourceType source, boolean checkForDuplicates)
+			throws DuplicateNameException, InvalidInputException {
+
+		try {
+			symbol.doSetNameAndNamespace(name, symbol.getParentNamespace(), source,
+				checkForDuplicates);
+		}
+		catch (CircularDependencyException e) {
+			// can't happen since we are not changing the namespace
+		}
+
 	}
 
 	/**
@@ -115,8 +126,8 @@ class GhidraClassDB implements GhidraClass {
 	 * @see ghidra.program.model.symbol.Namespace#setParentNamespace(ghidra.program.model.symbol.Namespace)
 	 */
 	@Override
-	public void setParentNamespace(Namespace parentNamespace) throws DuplicateNameException,
-			InvalidInputException, CircularDependencyException {
+	public void setParentNamespace(Namespace parentNamespace)
+			throws DuplicateNameException, InvalidInputException, CircularDependencyException {
 		symbol.setNamespace(parentNamespace);
 	}
 

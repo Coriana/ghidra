@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -32,9 +32,10 @@ import docking.widgets.fieldpanel.*;
 import docking.widgets.fieldpanel.field.Field;
 import docking.widgets.fieldpanel.support.*;
 import docking.widgets.table.GTable;
-import generic.test.TestUtils;
 import ghidra.app.cmd.data.CreateDataCmd;
+import ghidra.app.events.OpenProgramPluginEvent;
 import ghidra.app.events.ProgramSelectionPluginEvent;
+import ghidra.app.plugin.core.codebrowser.SelectEndpointsAction.RangeEndpoint;
 import ghidra.app.plugin.core.navigation.NextPrevAddressPlugin;
 import ghidra.app.plugin.core.symtable.SymbolTablePlugin;
 import ghidra.app.plugin.core.table.TableComponentProvider;
@@ -49,7 +50,10 @@ import ghidra.program.util.InteriorSelection;
 import ghidra.program.util.ProgramSelection;
 import ghidra.test.AbstractGhidraHeadedIntegrationTest;
 import ghidra.test.TestEnv;
+import ghidra.util.exception.CancelledException;
 import ghidra.util.table.AddressPreviewTableModel;
+import ghidra.util.table.GhidraProgramTableModel;
+import ghidra.util.task.TaskMonitor;
 
 public class CodeBrowserTest extends AbstractGhidraHeadedIntegrationTest {
 	private TestEnv env;
@@ -81,7 +85,7 @@ public class CodeBrowserTest extends AbstractGhidraHeadedIntegrationTest {
 		cb = env.getPlugin(CodeBrowserPlugin.class);
 		fp = cb.getFieldPanel();
 
-		adjustFieldPanelSize(15);
+		adjustFieldPanelSize(20);
 		env.showTool();
 		cb.updateNow();
 
@@ -132,6 +136,7 @@ public class CodeBrowserTest extends AbstractGhidraHeadedIntegrationTest {
 	private void setUpCodeBrowserTool(PluginTool tool) throws Exception {
 		tool.addPlugin(CodeBrowserPlugin.class.getName());
 		tool.addPlugin(NextPrevAddressPlugin.class.getName());
+		tool.addPlugin(CodeBrowserSelectionPlugin.class.getName());
 		addPlugin(tool, SymbolTablePlugin.class);
 	}
 
@@ -157,17 +162,18 @@ public class CodeBrowserTest extends AbstractGhidraHeadedIntegrationTest {
 	public void testTableFromSelection() {
 		ProgramSelection ps = dragToMakeSelection();
 
-		DockingActionIf createTableAction = getAction(cb, "Create Table From Selection");
+		DockingActionIf createTableAction = getAction(tool, "Create Table From Selection");
 		performAction(createTableAction, true);
 
 		TableComponentProvider<?> tableProvider =
-			waitForComponentProvider(tool.getToolFrame(), TableComponentProvider.class, 2000);
-		Object threadedPanel = TestUtils.getInstanceField("threadedPanel", tableProvider);
-		GTable table = (GTable) TestUtils.getInstanceField("table", threadedPanel);
-		ListSelectionModel selectionModel = table.getSelectionModel();
+			waitForComponentProvider(TableComponentProvider.class);
+		GhidraProgramTableModel<?> model = tableProvider.getModel();
+		waitForTableModel(model);
+		GTable table = tableProvider.getThreadedTablePanel().getTable();
 
 		// select all the rows
-		selectionModel.setSelectionInterval(0, table.getRowCount() - 1);
+		ListSelectionModel selectionModel = table.getSelectionModel();
+		runSwing(() -> selectionModel.setSelectionInterval(0, table.getRowCount() - 1));
 		AddressPreviewTableModel addressModel = (AddressPreviewTableModel) tableProvider.getModel();
 
 		// get a selection from the model and make sure it matches the original selection
@@ -182,6 +188,54 @@ public class CodeBrowserTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	@Test
+	public void testAddressRangeTableFromSelection() throws CancelledException {
+		AddressSet undefined = new AddressSet(program.getListing()
+				.getUndefinedRanges(program.getMemory().getAllInitializedAddressSet(), true,
+					TaskMonitor.DUMMY));
+		setSelection(undefined);
+		DockingActionIf createTableAction =
+			getAction(tool, CodeBrowserSelectionPlugin.CREATE_ADDRESS_RANGE_TABLE_ACTION_NAME);
+		performAction(createTableAction, true);
+		TableComponentProvider<?> tableProvider =
+			waitForComponentProvider(TableComponentProvider.class);
+		GhidraProgramTableModel<?> model = tableProvider.getModel();
+		waitForTableModel(model);
+		GTable table = tableProvider.getThreadedTablePanel().getTable();
+		assertEquals(7, table.getRowCount());
+
+		// select all the rows
+		ListSelectionModel selectionModel = table.getSelectionModel();
+		runSwing(() -> selectionModel.setSelectionInterval(0, table.getRowCount() - 1));
+		AddressRangeTableModel addressModel = (AddressRangeTableModel) tableProvider.getModel();
+
+		// get a selection from the model and make sure it matches the original selection
+		ProgramSelection tableProgramSelection =
+			addressModel.getProgramSelection(table.getSelectedRows());
+
+		AddressSet fromTable = new AddressSet();
+		tableProgramSelection.getAddressRanges().forEach(r -> fromTable.add(r));
+		assertEquals(fromTable, undefined);
+
+		DockingActionIf selectMinsAction = getAction(tool, "Select " + RangeEndpoint.MIN.name());
+		assertNotNull(selectMinsAction);
+		performAction(selectMinsAction, true);
+		ProgramSelection minSelect = getCurrentSelection();
+		assertEquals(7, minSelect.getNumAddresses());
+		for (AddressRange range : fromTable.getAddressRanges()) {
+			assertTrue(minSelect.contains(range.getMinAddress()));
+		}
+
+		DockingActionIf selectMaxesAction = getAction(tool, "Select " + RangeEndpoint.MAX.name());
+		assertNotNull(selectMaxesAction);
+		performAction(selectMaxesAction, true);
+		ProgramSelection maxSelect = getCurrentSelection();
+		assertEquals(7, maxSelect.getNumAddresses());
+		for (AddressRange range : fromTable.getAddressRanges()) {
+			assertTrue(maxSelect.contains(range.getMaxAddress()));
+		}
+	}
+
+	@Test
 	public void testSimpleDragToCreateSelection() {
 		ProgramSelection ps = dragToMakeSelection();
 
@@ -192,7 +246,7 @@ public class CodeBrowserTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	@Test
-	public void testSelectionOnStructureInOffcutView_SCR_8089() throws DataTypeConflictException {
+	public void testSelectionOnStructureInOffcutView_SCR_8089() {
 		// create offcut view, the view will contain 3 bytes, but the structure will be 4 bytes
 		cb.getListingPanel().setView(new AddressSet(addr("0100101c"), addr("0100101e")));
 
@@ -279,7 +333,7 @@ public class CodeBrowserTest extends AbstractGhidraHeadedIntegrationTest {
 
 		clickMouse(fp, 1, p2.x, p2.y, 1, DockingUtils.CONTROL_KEY_MODIFIER_MASK);
 
-// TODO		
+// TODO
 		ProgramSelection ps = getCurrentSelection();
 		assertEquals(26, ps.getNumAddresses());
 //		assertEquals(2, ps.getNumAddressRanges());
@@ -328,6 +382,9 @@ public class CodeBrowserTest extends AbstractGhidraHeadedIntegrationTest {
 		CodeBrowserPlugin cb2 = getPlugin(tool2, CodeBrowserPlugin.class);
 
 		env.connectTools(tool, tool2);
+
+		// open same program in second tool - cannot rely on tool connection for this
+		tool2.firePluginEvent(new OpenProgramPluginEvent("Test", program));
 
 		cb.goToField(addr("0x1003a50"), "Bytes", 0, 4);
 		Point p1 = getCursorPoint();
@@ -472,7 +529,7 @@ public class CodeBrowserTest extends AbstractGhidraHeadedIntegrationTest {
 
 	@Test
 	public void testSelectAll() {
-		DockingActionIf action = getAction(cb, "Select All");
+		DockingActionIf action = getAction(tool, "Select All");
 		performAction(action, cb.getProvider(), true);
 		ProgramSelection ps = getCurrentSelection();
 		AddressSet set1 = new AddressSet(program.getMemory());
@@ -482,7 +539,7 @@ public class CodeBrowserTest extends AbstractGhidraHeadedIntegrationTest {
 
 	@Test
 	public void testSelectComplementOnAllProgram() {
-		DockingActionIf action = getAction(cb, "Select Complement");
+		DockingActionIf action = getAction(tool, "Select Complement");
 		ProgramSelection allSelection = new ProgramSelection(program.getMemory());
 		ProgramSelection noneSelection = new ProgramSelection();
 		assertEquals(noneSelection, cb.getCurrentSelection());
@@ -499,7 +556,7 @@ public class CodeBrowserTest extends AbstractGhidraHeadedIntegrationTest {
 
 	@Test
 	public void testSelectComplementOnAllView() {
-		DockingActionIf action = getAction(cb, "Select Complement");
+		DockingActionIf action = getAction(tool, "Select Complement");
 		AddressSet viewSet = new AddressSet(addr("0x1001000"), addr("0x10012ff"));
 		setView(viewSet);
 		ProgramSelection allSelection = new ProgramSelection(viewSet);
@@ -515,7 +572,7 @@ public class CodeBrowserTest extends AbstractGhidraHeadedIntegrationTest {
 
 	@Test
 	public void testSelectComplementOnSomeOfProgram() {
-		DockingActionIf action = getAction(cb, "Select Complement");
+		DockingActionIf action = getAction(tool, "Select Complement");
 		AddressSetView programSet = program.getMemory();
 		AddressSet initialSelectSet = new AddressSet();
 		initialSelectSet.addRange(addr("0x10011e8"), addr("0x10011ef"));
@@ -537,7 +594,7 @@ public class CodeBrowserTest extends AbstractGhidraHeadedIntegrationTest {
 
 	@Test
 	public void testSelectComplementOnSomeOfView() {
-		DockingActionIf action = getAction(cb, "Select Complement");
+		DockingActionIf action = getAction(tool, "Select Complement");
 		AddressSet viewSet = new AddressSet(addr("0x1001000"), addr("0x10012ff"));
 		setView(viewSet);
 		AddressSet initialSelectSet = new AddressSet();
@@ -607,7 +664,7 @@ public class CodeBrowserTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	private void setView(AddressSet addrSet) {
-		runSwing(() -> cb.viewChanged(addrSet), true);
+		runSwing(() -> cb.setView(addrSet), true);
 	}
 
 	private void setSelection(final AddressSet addrSet) {

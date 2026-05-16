@@ -15,7 +15,6 @@
  */
 package ghidra.app.util.opinion;
 
-import generic.continues.RethrowContinuesFactory;
 import ghidra.app.util.bin.ByteArrayProvider;
 import ghidra.app.util.bin.format.elf.ElfHeader;
 import ghidra.docking.settings.Settings;
@@ -36,6 +35,7 @@ public class ElfDataType extends FactoryStructureDataType {
 		super("ELF", dtm);
 	}
 
+	@Override
 	public String getMnemonic(Settings settings) {
 		return "ELF";
 	}
@@ -44,13 +44,6 @@ public class ElfDataType extends FactoryStructureDataType {
     public String getDescription() { 
         return "ELF Data Type";
     }
-	
-	/**
-	 * @see ghidra.program.model.data.DataType#isDynamicallySized()
-	 */
-	public boolean isDynamicallySized() {
-		return true;
-	}
 
 	@Override
 	protected void populateDynamicStructure(MemBuffer buf, Structure struct) {
@@ -62,13 +55,13 @@ public class ElfDataType extends FactoryStructureDataType {
 
 	        ByteArrayProvider bap = new ByteArrayProvider(bytes);
 
-	        ElfHeader elf = ElfHeader.createElfHeader(RethrowContinuesFactory.INSTANCE, bap);
-	        elf.parse();
+			ElfHeader elf = new ElfHeader(bap, null);
+			elf.parse();
 
 	        struct.add(elf.toDataType());
 		}
 		catch (Exception e) {
-			
+			// ignore
 		}
 	}
 

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -34,47 +34,150 @@ public class GnuDemanglerOptions extends DemanglerOptions {
 	public static final String GNU_DEMANGLER_V2_24 = "demangler_gnu_v2_24";
 
 	/**
-	 * Version 2.33.1 of the GNU demangler.  This version supports less formats than older versions.
+	 * Version 2.41 of the GNU demangler.  This version supports less formats than 
+	 * {@link #GNU_DEMANGLER_V2_24}.
 	 */
-	public static final String GNU_DEMANGLER_V2_33_1 = "demangler_gnu_v2_33_1";
+	public static final String GNU_DEMANGLER_V2_41 = "demangler_gnu_v2_41";
 
 	/**
 	 * The default version to use of the GNU demangler
 	 */
-	public static final String GNU_DEMANGLER_DEFAULT = GNU_DEMANGLER_V2_33_1;
+	public static final String GNU_DEMANGLER_DEFAULT = GNU_DEMANGLER_V2_41;
 
-	private String demanglerName = GNU_DEMANGLER_DEFAULT;
-	private String demanglerApplicationArguments;
+	/**
+	 * The default GNU demangler timeout (in seconds)
+	 */
+	public static final long DEFAULT_TIMEOUT_SECONDS = 3;
 
+	private final GnuDemanglerFormat format;
+	private final boolean isDeprecated;
+	private boolean useStandardReplacements;
+	private long timeout;
+
+	/**
+	 * Default constructor to use the modern demangler with auto-detect for the format.  This
+	 * constructor will limit demangling to only known symbols.
+	 */
 	public GnuDemanglerOptions() {
-		// use default values
+		this(GnuDemanglerFormat.AUTO);
 	}
 
-	public GnuDemanglerOptions(DemanglerOptions copy) {
-		super(copy);
+	/**
+	 * Constructor to specify a particular format
+	 *
+	 * @param format signals to use the given format
+	 */
+	public GnuDemanglerOptions(GnuDemanglerFormat format) {
+		this(format, !format.isModernFormat());
+	}
 
-		if (copy instanceof GnuDemanglerOptions) {
-			GnuDemanglerOptions gCopy = (GnuDemanglerOptions) copy;
-			demanglerName = gCopy.demanglerName;
-			demanglerApplicationArguments = gCopy.demanglerApplicationArguments;
+	/**
+	 * Constructor to specify the format to use and whether to prefer the deprecated format when
+	 * both deprecated and modern are available
+	 *
+	 * @param format the format
+	 * @param isDeprecated true if the format is not available in the modern demangler
+	 * @throws IllegalArgumentException if the given format is not available in the deprecated
+	 *         demangler
+	 */
+	public GnuDemanglerOptions(GnuDemanglerFormat format, boolean isDeprecated) {
+		this(format, isDeprecated, GnuDemanglerOptions.DEFAULT_TIMEOUT_SECONDS);
+	}
+	
+	/**
+	 * Constructor to specify the format to use, whether to prefer the deprecated format when
+	 * both deprecated and modern are available, and the timeout
+	 *
+	 * @param format the format
+	 * @param isDeprecated true if the format is not available in the modern demangler
+	 * @param timeoutSeconds the demangler timeout in seconds
+	 * @throws IllegalArgumentException if the given format is not available in the deprecated
+	 *         demangler
+	 */
+	public GnuDemanglerOptions(GnuDemanglerFormat format, boolean isDeprecated,
+			long timeoutSeconds) {
+		this.format = format;
+		this.isDeprecated = isDeprecated;
+		this.useStandardReplacements = true;
+		this.timeout = timeoutSeconds;
+		if (!format.isAvailable(isDeprecated)) {
+			throw new IllegalArgumentException(
+				format.name() + " is not available in the " + getDemanglerName());
 		}
 	}
 
 	/**
-	 * Returns the external demangler executable name to be used for demangling.  The 
+	 * Copy constructor to create a version of this class from a more generic set of options
+	 * @param copy the options to copy
+	 */
+	public GnuDemanglerOptions(DemanglerOptions copy) {
+		super(copy);
+
+		if (copy instanceof GnuDemanglerOptions gCopy) {
+			format = gCopy.format;
+			isDeprecated = gCopy.isDeprecated;
+			timeout = gCopy.timeout;
+		}
+		else {
+			format = GnuDemanglerFormat.AUTO;
+			isDeprecated = false;
+			timeout = DEFAULT_TIMEOUT_SECONDS;
+		}
+
+		this.useStandardReplacements = true;
+	}
+
+	private GnuDemanglerOptions(GnuDemanglerOptions copy, GnuDemanglerFormat format,
+			boolean deprecated, long timeoutSeconds) {
+		this(copy, format, deprecated, true, timeoutSeconds);
+	}
+
+	private GnuDemanglerOptions(GnuDemanglerOptions copy, GnuDemanglerFormat format,
+			boolean deprecated, boolean useStandardReplacements, long timeoutSeconds) {
+		super(copy);
+		this.format = format;
+		this.isDeprecated = deprecated;
+		this.useStandardReplacements = useStandardReplacements;
+		this.timeout = timeoutSeconds;
+	}
+
+	/**
+	 * Changes this options value of {@link #shouldUseStandardReplacements()}
+	 * @param replace true to replace
+	 */
+	public void setUseStandardReplacements(boolean replace) {
+		this.useStandardReplacements = replace;
+	}
+
+	/**
+	 * Returns the external demangler executable name to be used for demangling.  The
 	 * default value is {@link #GNU_DEMANGLER_DEFAULT}.
 	 * @return the name
 	 */
 	public String getDemanglerName() {
-		return demanglerName;
+		return isDeprecated ? GNU_DEMANGLER_V2_24 : GNU_DEMANGLER_V2_41;
 	}
 
 	/**
-	 * Sets the external demangler executable name to be used for demangling
-	 * @param name the name
+	 * A convenience method to copy the state of this options object, changing the
+	 * demangler executable name and demangler format to the specified values
+	 *
+	 * @param demanglerFormat the demangling format to use
+	 * @param useDeprecated true to use the deprecated gnu demangler, else false
+	 * @return the new options
+	 * @throws IllegalArgumentException if the current format is not available in the
+	 * selected demangler.
 	 */
-	public void setDemanglerName(String name) {
-		this.demanglerName = name;
+	public GnuDemanglerOptions withDemanglerFormat(GnuDemanglerFormat demanglerFormat,
+			boolean useDeprecated) throws IllegalArgumentException {
+		if (this.format == demanglerFormat && this.isDeprecated == useDeprecated) {
+			return this;
+		}
+		if (demanglerFormat.isAvailable(useDeprecated)) {
+			return new GnuDemanglerOptions(this, demanglerFormat, useDeprecated, this.timeout);
+		}
+		throw new IllegalArgumentException(
+			demanglerFormat.name() + " is not available in the " + getDemanglerName());
 	}
 
 	/**
@@ -82,26 +185,36 @@ public class GnuDemanglerOptions extends DemanglerOptions {
 	 * @return the arguments
 	 */
 	public String getDemanglerApplicationArguments() {
-		return demanglerApplicationArguments;
+		if (format == GnuDemanglerFormat.AUTO) {
+			// no format argument
+			return "";
+		}
+		return "-s " + format.getFormat();
 	}
 
 	/**
-	 * Sets the arguments to be passed to the external demangler executable
-	 * @param args the arguments
+	 * Gets the current demangler format
+	 * @return the demangler format
 	 */
-	public void setDemanglerApplicationArguments(String args) {
-		this.demanglerApplicationArguments = args;
+	public GnuDemanglerFormat getDemanglerFormat() {
+		return format;
 	}
 
 	/**
-	 * A convenience method to copy the state of this options object, changing the 
-	 * demangler executable name to the deprecated demangler
-	 * @return the new options
+	 * Returns whether the gnu demangler parser should replace demangler output with standard text
+	 * replacements defined in {@code GnuDemangler/data/default.gnu.demangler.replacements.txt}.
+	 * 
+	 * @return true to use replacements; false to not replace text
 	 */
-	public GnuDemanglerOptions withDeprecatedDemangler() {
-		GnuDemanglerOptions newOptions = new GnuDemanglerOptions(this);
-		newOptions.setDemanglerName(GNU_DEMANGLER_V2_24);
-		return newOptions;
+	public boolean shouldUseStandardReplacements() {
+		return useStandardReplacements;
+	}
+
+	/**
+	 * {@return the demangler timeout (in seconds)}
+	 */
+	public long getTimeoutSeconds() {
+		return timeout;
 	}
 
 	@Override
@@ -110,9 +223,11 @@ public class GnuDemanglerOptions extends DemanglerOptions {
 		return "{\n" +
 			"\tdoDisassembly: " + doDisassembly() + ",\n" +
 			"\tapplySignature: " + applySignature() + ",\n" +
+			"\tuseStandardReplacements: " + useStandardReplacements + ",\n" +
 			"\tdemangleOnlyKnownPatterns: " + demangleOnlyKnownPatterns() + ",\n" +
-			"\tdemanglerName: " + demanglerName + ",\n" +
-			"\tdemanglerApplicationArguments: " + demanglerApplicationArguments + ",\n" +
+			"\ttimeout (sec): " + timeout + ",\n" +
+			"\tdemanglerName: " + getDemanglerName() + ",\n" +
+			"\tdemanglerApplicationArguments: " + getDemanglerApplicationArguments() + ",\n" +
 		"}";
 		//@formatter:on
 	}

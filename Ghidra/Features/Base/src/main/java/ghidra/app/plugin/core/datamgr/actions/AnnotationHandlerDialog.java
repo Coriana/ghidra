@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,10 +16,7 @@
 package ghidra.app.plugin.core.datamgr.actions;
 
 import java.awt.BorderLayout;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.util.List;
-import java.util.Vector;
 
 import javax.swing.JPanel;
 
@@ -39,28 +36,28 @@ class AnnotationHandlerDialog extends DialogComponentProvider {
 	private AnnotationHandler handler;
 
 	private boolean success;
-		
+
 	AnnotationHandlerDialog(List<AnnotationHandler> handlerList) {
 		super("Export Format");
 		this.handlerList = handlerList;
-			
+
 		addWorkPanel(create());
 		addOKButton();
 		addCancelButton();
 		setOkEnabled(true);
 		setHelpLocation(new HelpLocation(HelpTopics.DATA_MANAGER, "Export_To"));
-        setRememberSize( false );
+		setRememberSize(false);
 
 	}
-	
+
 	@Override
-    protected void cancelCallback() {
+	protected void cancelCallback() {
 		close();
 	}
 
 	@Override
-    protected void okCallback() {
-		Object [] objs = handlerComboBox.getSelectedObjects();
+	protected void okCallback() {
+		Object[] objs = handlerComboBox.getSelectedObjects();
 		if (objs != null && objs.length > 0) {
 			handler = (AnnotationHandler) objs[0];
 		}
@@ -70,18 +67,18 @@ class AnnotationHandlerDialog extends DialogComponentProvider {
 
 	JPanel create() {
 		JPanel outerPanel = new JPanel(new BorderLayout());
-		
-		handlerComboBox = new GhidraComboBox<>(new Vector<AnnotationHandler>(handlerList));
-		handlerComboBox.addActionListener(new ActionListener() {
-			public void actionPerformed(ActionEvent evt) {
-				okCallback();
-			}
-		});
+		outerPanel.getAccessibleContext().setAccessibleName("Annotation Handler");
+		handlerComboBox = new GhidraComboBox<>(handlerList);
+		handlerComboBox.getAccessibleContext().setAccessibleName("Combo Box");
 		outerPanel.add(handlerComboBox, BorderLayout.NORTH);
 		return outerPanel;
 	}
-	
-	public AnnotationHandler getHandler() { return handler; }
-	
-	public boolean wasSuccessful()        { return success; }
+
+	public AnnotationHandler getHandler() {
+		return handler;
+	}
+
+	public boolean wasSuccessful() {
+		return success;
+	}
 }

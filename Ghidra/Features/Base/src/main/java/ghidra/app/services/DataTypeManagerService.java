@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,19 +15,14 @@
  */
 package ghidra.app.services;
 
-import java.io.File;
-import java.io.IOException;
 import java.util.List;
 import java.util.Set;
 
 import javax.swing.tree.TreePath;
 
 import ghidra.app.plugin.core.datamgr.DataTypeManagerPlugin;
-import ghidra.app.plugin.core.datamgr.archive.Archive;
-import ghidra.app.plugin.core.datamgr.archive.DuplicateIdException;
 import ghidra.framework.plugintool.ServiceInfo;
 import ghidra.program.model.data.*;
-import ghidra.program.model.listing.DataTypeArchive;
 import ghidra.util.HelpLocation;
 
 /**
@@ -35,19 +30,18 @@ import ghidra.util.HelpLocation;
  * "favorites." Favorites will show up on the popup menu for creating
  * data and defining function return types and parameters.
  */
-@ServiceInfo(defaultProvider = DataTypeManagerPlugin.class, description = "Service to provide list of cycle groups and data types identified as 'Favorites.'")
-public interface DataTypeManagerService extends DataTypeQueryService {
-
-	/**
-	 * Get the data type manager that has all of the built in types.
-	 * @return data type manager for built in data types
-	 */
-	public DataTypeManager getBuiltInDataTypesManager();
+//@formatter:off
+@ServiceInfo(
+	defaultProvider = DataTypeManagerPlugin.class, 
+	description = "Service to provide list of cycle groups and data types identified as 'Favorites.'"
+)
+//@formatter:on
+public interface DataTypeManagerService extends DataTypeQueryService, DataTypeArchiveService {
 
 	/**
 	 * Get the data types marked as favorites that will show up on
 	 * a popup menu.
-	 * @return list of favorite datatypess
+	 * @return list of favorite datatypes
 	 */
 	public List<DataType> getFavorites();
 
@@ -93,55 +87,23 @@ public interface DataTypeManagerService extends DataTypeQueryService {
 	public boolean isEditable(DataType dt);
 
 	/**
-	 * Pop up an editor dialog for the given data type.
+	 * Pop up an editor window for the given data type.
 	 * 
-	 * @param dt data type that either a Structure or a Union; built in types cannot be edited
+	 * @param dt the data type; built in types cannot be edited
 	 * @throws IllegalArgumentException if the given has not been resolved by a DataTypeManager;
-	 *         in other words, if {@link DataType#getDataTypeManager()} returns null.
+	 *         in other words, if {@link DataType#getDataTypeManager()} returns null
 	 */
 	public void edit(DataType dt);
 
 	/**
-	 * Closes the archive for the given {@link DataTypeManager}.  This will ignore request to 
-	 * close the open Program's manager and the built-in manager.  
+	 * Pop up an editor window for the given structure or union
 	 * 
-	 * @param dtm the data type manager of the archive to close
+	 * @param composite the structure or union
+	 * @param fieldName the optional field name to select in the editor window
+	 * @throws IllegalArgumentException if the given has not been resolved by a DataTypeManager;
+	 *         in other words, if {@link DataType#getDataTypeManager()} returns null
 	 */
-	public void closeArchive(DataTypeManager dtm);
-
-	/**
-	 * Opens the specified data type archive contained within the Ghidra installation.
-	 * NOTE: This is predicated upon all archive files having a unique name within the installation.
-	 * Any path prefix specified may prevent the file from opening (or reopening) correctly.
-	 * @param archiveName archive file name (i.e., "generic_C_lib")
-	 * @return the data type archive or null if an archive with the specified name
-	 * can not be found.
-	 * @throws IOException if an i/o error occurs opening the data type archive
-	 * @throws DuplicateIdException if another archive with the same ID is already open
-	 */
-	public DataTypeManager openDataTypeArchive(String archiveName)
-			throws IOException, DuplicateIdException;
-
-	/** 
-	 * A method to open an Archive for the given, pre-existing DataTypeArchive (like one that
-	 * was opened during the import process.
-	 * 
-	 * @param dataTypeArchive the archive from which to create an Archive
-	 * @return an Archive based upon the given DataTypeArchive
-	 */
-	public Archive openArchive(DataTypeArchive dataTypeArchive);
-
-	/**
-	 * A method to open an Archive for the given, pre-existing archive file (*.gdt)
-	 * 
-	 * @param file data type archive file
-	 * @param acquireWriteLock true if write lock should be acquired (i.e., open for update)
-	 * @return an Archive based upon the given archive files
-	 * @throws IOException if an i/o error occurs opening the data type archive
-	 * @throws DuplicateIdException if another archive with the same ID is already open
-	 */
-	public Archive openArchive(File file, boolean acquireWriteLock)
-			throws IOException, DuplicateIdException;
+	public void edit(Composite composite, String fieldName);
 
 	/**
 	 * Selects the given data type in the display of data types.  A null <code>dataType</code>
@@ -152,6 +114,21 @@ public interface DataTypeManagerService extends DataTypeQueryService {
 	public void setDataTypeSelected(DataType dataType);
 
 	/**
+	 * Selects the given data type category in the tree of data types.  This method will cause the
+	 * data type tree to come to the front, scroll to the category and then to select the tree
+	 * node that represents the category.  If the category is null, the selection is cleared.
+	 *
+	 * @param category the category to select; may be null
+	 */
+	public void setCategorySelected(Category category);
+
+	/**
+	 * Returns the list of data types that are currently selected in the data types tree
+	 * @return  the list of data types that are currently selected in the data types tree
+	 */
+	public List<DataType> getSelectedDatatypes();
+
+	/**
 	 * Shows the user a dialog that allows them to choose a data type from a tree of all available
 	 * data types.
 	 * 
@@ -159,6 +136,15 @@ public interface DataTypeManagerService extends DataTypeQueryService {
 	 * @return A data type chosen by the user
 	 */
 	public DataType getDataType(TreePath selectedPath);
+
+	/**
+	 * Shows the user a dialog that allows them to choose a category path from a tree of all 
+	 * available categories.
+	 * 
+	 * @param selectedPath An optional tree path to select in the tree
+	 * @return A category path chosen by the user
+	 */
+	public CategoryPath getCategoryPath(TreePath selectedPath);
 
 	/**
 	 * Examines all enum dataTypes for items that match the given value. Returns a list of Strings

@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,10 +22,11 @@ import ghidra.program.model.listing.BookmarkType;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.util.*;
 import ghidra.util.exception.DuplicateNameException;
+import ghidra.util.map.TypeMismatchException;
 
 import java.util.*;
 
-import db.Record;
+import db.DBRecord;
 
 /**
  * Interface to manage bookmarks on a program.
@@ -41,7 +41,7 @@ class OldBookmarkManager {
 	private Program program;
 	private PropertyMapManager propertyMgr;
 
-	private HashMap<String, Record> bookmarkTypes = new HashMap<String, Record>();  // maps type to record
+	private HashMap<String, DBRecord> bookmarkTypes = new HashMap<String, DBRecord>();  // maps type to record
 
 //	private ArrayList bookmarks = new ArrayList();
 //	private LongIntHashedList bookmarkAddrIndex = new LongIntHashedList();
@@ -56,7 +56,7 @@ class OldBookmarkManager {
 		// Create type records
 		String[] types = getTypes();
 		for (int i = 0; i < types.length; i++) {
-			Record rec = BookmarkTypeDBAdapter.SCHEMA.createRecord(i);
+			DBRecord rec = BookmarkTypeDBAdapter.SCHEMA.createRecord(i);
 			rec.setString(BookmarkTypeDBAdapter.TYPE_NAME_COL, types[i]);
 			bookmarkTypes.put(types[i], rec);
 		}
@@ -165,7 +165,7 @@ class OldBookmarkManager {
 		OldBookmark bookmark = null;
 		ObjectPropertyMap map = getMap(type, false);
 		if (map != null) {
-			bookmark = (OldBookmark) map.getObject(addr);
+			bookmark = (OldBookmark) map.get(addr);
 			if (bookmark != null) {
 				bookmark.setContext(program, type);
 			}
@@ -189,9 +189,9 @@ class OldBookmarkManager {
 	/**
 	 * Returns array of bookmark type records
 	 */
-	public Record[] getTypeRecords() {
-		Collection<Record> c = bookmarkTypes.values();
-		Record[] recs = new Record[c.size()];
+	public DBRecord[] getTypeRecords() {
+		Collection<DBRecord> c = bookmarkTypes.values();
+		DBRecord[] recs = new DBRecord[c.size()];
 		c.toArray(recs);
 		return recs;
 	}

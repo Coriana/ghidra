@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,12 +15,13 @@
  */
 package ghidra.program.database.data;
 
-import ghidra.util.exception.VersionException;
-import ghidra.util.task.TaskMonitor;
-
 import java.io.IOException;
 
 import db.*;
+import ghidra.framework.data.OpenMode;
+import ghidra.util.exception.CancelledException;
+import ghidra.util.exception.VersionException;
+import ghidra.util.task.TaskMonitor;
 
 /**
  * Adapter to access the Function Signature Definition Parameters database table.
@@ -41,30 +41,32 @@ abstract class FunctionParameterAdapter {
 		FunctionParameterAdapterV1.V1_PARAMETER_DT_LENGTH_COL;
 
 	/**
-	 * Gets an adapter for working with the function definition parameters database table. The adapter is based 
-	 * on the version of the database associated with the specified database handle and the openMode.
+	 * Gets an adapter for working with the function definition parameters database table.
 	 * @param handle handle to the database to be accessed.
 	 * @param openMode the mode this adapter is to be opened for (CREATE, UPDATE, READ_ONLY, UPGRADE).
+	 * @param tablePrefix prefix to be used with default table name
 	 * @param monitor the monitor to use for displaying status or for canceling.
 	 * @return the adapter for accessing the table of function definition parameters.
 	 * @throws VersionException if the database handle's version doesn't match the expected version.
 	 * @throws IOException if there is trouble accessing the database.
+	 * @throws CancelledException if task is cancelled
 	 */
-	static FunctionParameterAdapter getAdapter(DBHandle handle, int openMode, TaskMonitor monitor)
-			throws VersionException, IOException {
-		if (openMode == DBConstants.CREATE) {
-			return new FunctionParameterAdapterV1(handle, true);
+	static FunctionParameterAdapter getAdapter(DBHandle handle, OpenMode openMode,
+			String tablePrefix, TaskMonitor monitor)
+			throws VersionException, IOException, CancelledException {
+		if (openMode == OpenMode.CREATE) {
+			return new FunctionParameterAdapterV1(handle, tablePrefix, true);
 		}
 		try {
-			return new FunctionParameterAdapterV1(handle, false);
+			return new FunctionParameterAdapterV1(handle, tablePrefix, false);
 		}
 		catch (VersionException e) {
-			if (!e.isUpgradable() || openMode == DBConstants.UPDATE) {
+			if (!e.isUpgradable() || openMode == OpenMode.UPDATE) {
 				throw e;
 			}
 			FunctionParameterAdapter adapter = findReadOnlyAdapter(handle);
-			if (openMode == DBConstants.UPGRADE) {
-				adapter = upgrade(handle, adapter);
+			if (openMode == OpenMode.UPGRADE) {
+				adapter = upgrade(handle, adapter, tablePrefix, monitor);
 			}
 			return adapter;
 		}
@@ -76,7 +78,8 @@ abstract class FunctionParameterAdapter {
 	 * @return the read only Function Definition Parameters table adapter
 	 * @throws VersionException if a read only adapter can't be obtained for the database handle's version.
 	 */
-	static FunctionParameterAdapter findReadOnlyAdapter(DBHandle handle) throws VersionException {
+	private static FunctionParameterAdapter findReadOnlyAdapter(DBHandle handle)
+			throws VersionException {
 		try {
 			return new FunctionParameterAdapterV0(handle);
 		}
@@ -93,29 +96,36 @@ abstract class FunctionParameterAdapter {
 	 * current version.
 	 * @param handle handle to the database whose table is to be upgraded to a newer version.
 	 * @param oldAdapter the adapter for the existing table to be upgraded.
+	 * @param tablePrefix prefix to be used with default table name
+	 * @param monitor task monitor
 	 * @return the adapter for the new upgraded version of the table.
-	 * @throws VersionException if the the table's version does not match the expected version
+	 * @throws VersionException if the table's version does not match the expected version
 	 * for this adapter.
 	 * @throws IOException if the database can't be read or written.
+	 * @throws CancelledException if task is cancelled
 	 */
-	static FunctionParameterAdapter upgrade(DBHandle handle, FunctionParameterAdapter oldAdapter)
-			throws VersionException, IOException {
+	private static FunctionParameterAdapter upgrade(DBHandle handle,
+			FunctionParameterAdapter oldAdapter, String tablePrefix, TaskMonitor monitor)
+			throws VersionException, IOException, CancelledException {
 
 		DBHandle tmpHandle = new DBHandle();
 		long id = tmpHandle.startTransaction();
 		FunctionParameterAdapter tmpAdapter = null;
 		try {
-			tmpAdapter = new FunctionParameterAdapterV1(tmpHandle, true);
+			tmpAdapter = new FunctionParameterAdapterV1(tmpHandle, tablePrefix, true);
 			RecordIterator it = oldAdapter.getRecords();
 			while (it.hasNext()) {
-				Record rec = it.next();
+				monitor.checkCancelled();
+				DBRecord rec = it.next();
 				tmpAdapter.updateRecord(rec);
 			}
 			oldAdapter.deleteTable(handle);
-			FunctionParameterAdapterV1 newAdapter = new FunctionParameterAdapterV1(handle, true);
+			FunctionParameterAdapterV1 newAdapter =
+				new FunctionParameterAdapterV1(handle, tablePrefix, true);
 			it = tmpAdapter.getRecords();
 			while (it.hasNext()) {
-				Record rec = it.next();
+				monitor.checkCancelled();
+				DBRecord rec = it.next();
 				newAdapter.updateRecord(rec);
 			}
 			return newAdapter;
@@ -134,40 +144,40 @@ abstract class FunctionParameterAdapter {
 	abstract protected RecordIterator getRecords() throws IOException;
 
 	/**
-	 * 
-	 * @param handle
-	 * @throws IOException
+	 * Delete underlying database table
+	 * @param handle database handle
+	 * @throws IOException if IO error occurs
 	 */
 	abstract protected void deleteTable(DBHandle handle) throws IOException;
 
 	/**
-	 * 
-	 * @param dataTypeID
-	 * @param parentID
-	 * @param ordinal
-	 * @param name
-	 * @param comment
-	 * @param dtLength
-	 * @return
-	 * @throws IOException
+	 * Create new parameter definition record
+	 * @param dataTypeID parameter datatype ID
+	 * @param parentID parent function definition ID
+	 * @param ordinal parameter ordinal
+	 * @param name parameter name
+	 * @param comment parameter comment
+	 * @param dtLength datatype length if required, else -1
+	 * @return new record
+	 * @throws IOException if IO error occurs
 	 */
-	abstract Record createRecord(long dataTypeID, long parentID, int ordinal, String name,
+	abstract DBRecord createRecord(long dataTypeID, long parentID, int ordinal, String name,
 			String comment, int dtLength) throws IOException;
 
 	/**
-	 * 
-	 * @param parameterID
-	 * @return
-	 * @throws IOException
+	 * Get parameter definition record
+	 * @param parameterID parameter record ID
+	 * @return parameter definition record or null
+	 * @throws IOException if IO error occurs
 	 */
-	abstract Record getRecord(long parameterID) throws IOException;
+	abstract DBRecord getRecord(long parameterID) throws IOException;
 
 	/**
 	 * Updates the function definition parameter data type table with the provided record.
 	 * @param record the new record
 	 * @throws IOException if the database can't be accessed.
 	 */
-	abstract void updateRecord(Record record) throws IOException;
+	abstract void updateRecord(DBRecord record) throws IOException;
 
 	/**
 	 * Removes the function definition parameter data type record with the specified ID.
@@ -178,11 +188,11 @@ abstract class FunctionParameterAdapter {
 	abstract boolean removeRecord(long parameterID) throws IOException;
 
 	/**
-	 * 
-	 * @param functionDefID
-	 * @return
-	 * @throws IOException
+	 * Get parameter definition IDs for specified function definition
+	 * @param functionDefID function definition ID
+	 * @return parameter definition IDs as LongField values within Field array
+	 * @throws IOException if IO error occurs
 	 */
-	abstract long[] getParameterIdsInFunctionDef(long functionDefID) throws IOException;
+	abstract Field[] getParameterIdsInFunctionDef(long functionDefID) throws IOException;
 
 }

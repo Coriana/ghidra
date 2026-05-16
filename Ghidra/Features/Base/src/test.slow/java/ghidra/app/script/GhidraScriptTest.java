@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -44,17 +44,12 @@ import ghidra.test.AbstractGhidraHeadedIntegrationTest;
 import ghidra.test.TestEnv;
 import ghidra.util.Msg;
 import ghidra.util.exception.AssertException;
-import ghidra.util.task.TaskMonitor;
 
 public class GhidraScriptTest extends AbstractGhidraHeadedIntegrationTest {
 
 	private TestEnv env;
 	private Program program;
 	private GhidraState state;
-
-	public GhidraScriptTest() {
-		super();
-	}
 
 	@Before
 	public void setUp() throws Exception {
@@ -522,8 +517,10 @@ public class GhidraScriptTest extends AbstractGhidraHeadedIntegrationTest {
 		// Try to set a valid option to an invalid value and verify that the invalid value was not stored.
 		String invalidValue = "d";
 		script.setAnalysisOption(program, validOptionName, invalidValue);
-		assertFalse(script.getCurrentAnalysisOptionsAndValues(program).get(validOptionName).equals(
-			invalidValue));
+		assertFalse(script.getCurrentAnalysisOptionsAndValues(program)
+				.get(validOptionName)
+				.equals(
+					invalidValue));
 
 		// Try to set an invalid option and verify that the option is not successfully set.
 		String invalidOption = "invalidOption";
@@ -775,7 +772,7 @@ public class GhidraScriptTest extends AbstractGhidraHeadedIntegrationTest {
 				// test stub
 			}
 		};
-		script.set(state, TaskMonitor.DUMMY, null);
+		script.set(state, ScriptControls.NONE);
 		return script;
 	}
 
@@ -826,7 +823,7 @@ public class GhidraScriptTest extends AbstractGhidraHeadedIntegrationTest {
 
 //==================================================================================================
 // Inner Classes
-//==================================================================================================	
+//==================================================================================================
 
 	public enum TestEnum {
 		a, b, c

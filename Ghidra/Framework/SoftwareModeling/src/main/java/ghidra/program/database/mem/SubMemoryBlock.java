@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,7 +17,7 @@ package ghidra.program.database.mem;
 
 import java.io.IOException;
 
-import db.Record;
+import db.DBRecord;
 import ghidra.program.model.mem.*;
 
 /**
@@ -27,11 +27,11 @@ import ghidra.program.model.mem.*;
 abstract class SubMemoryBlock implements Comparable<SubMemoryBlock> {
 
 	protected final MemoryMapDBAdapter adapter;
-	protected final Record record;
+	protected final DBRecord record;
 	protected long subBlockLength;
 	protected long subBlockOffset;
 
-	protected SubMemoryBlock(MemoryMapDBAdapter adapter, Record record) {
+	protected SubMemoryBlock(MemoryMapDBAdapter adapter, DBRecord record) {
 		this.adapter = adapter;
 		this.record = record;
 		this.subBlockOffset = record.getLongValue(MemoryMapDBAdapter.SUB_START_OFFSET_COL);
@@ -89,13 +89,15 @@ abstract class SubMemoryBlock implements Comparable<SubMemoryBlock> {
 	 * 
 	 * @param memBlockOffset the offset from the start of the containing {@link MemoryBlockDB}
 	 * @return the byte at the given containing block offset.
+	 * @throws IndexOutOfBoundsException if invalid offset is specified
 	 * @throws MemoryAccessException if the block is uninitialized.
 	 * @throws IOException if there is a problem reading from the database
 	 */
-	public abstract byte getByte(long memBlockOffset) throws MemoryAccessException, IOException;
+	public abstract byte getByte(long memBlockOffset)
+			throws IndexOutOfBoundsException, MemoryAccessException, IOException;
 
 	/**
-	 * Tries to get len bytes from this block at the given offset (relative to the containing
+	 * Tries to get {@code len} bytes from this block at the given offset (relative to the containing
 	 * {@link MemoryBlockDB} and put them into the given byte array at the specified offset.  
 	 * May return fewer bytes if the requested length is beyond the end of the block.
 	 * @param memBlockOffset the offset relative to the containing {@link MemoryBlockDB}
@@ -103,13 +105,14 @@ abstract class SubMemoryBlock implements Comparable<SubMemoryBlock> {
 	 * @param off the offset into the byte array.
 	 * @param len the number of bytes to get.
 	 * @return the number of bytes actually populated.
+	 * @throws IndexOutOfBoundsException if invalid offset is specified
 	 * @throws MemoryAccessException if any of the requested bytes are
 	 * uninitialized.
 	 * @throws IOException if there is a problem reading from the database
 	 * @throws IllegalArgumentException if the offset is not in this block.
 	 */
 	public abstract int getBytes(long memBlockOffset, byte[] b, int off, int len)
-			throws MemoryAccessException, IOException;
+			throws IndexOutOfBoundsException, MemoryAccessException, IOException;
 
 	/**
 	 * Stores the byte in this sub block at the given offset relative to the containing
@@ -118,15 +121,16 @@ abstract class SubMemoryBlock implements Comparable<SubMemoryBlock> {
 	 * 
 	 * @param memBlockOffset the offset from the start of the containing {@link MemoryBlockDB}
 	 * @param b the byte value to store at the given offset.
+	 * @throws IndexOutOfBoundsException if invalid offset is specified
 	 * @throws MemoryAccessException if the block is uninitialized
 	 * @throws IOException if there is a problem writing to the database
 	 * @throws IllegalArgumentException if the offset is not in this block.
 	 */
 	public abstract void putByte(long memBlockOffset, byte b)
-			throws MemoryAccessException, IOException;
+			throws IndexOutOfBoundsException, MemoryAccessException, IOException;
 
 	/**
-	 * Tries to write len bytes to this block at the given offset (relative to the containing
+	 * Tries to write {@code len} bytes to this block at the given offset (relative to the containing
 	 * {@link MemoryBlockDB} using the bytes contained in the given byte array at the specified byte
 	 * array offset.  
 	 * May write fewer bytes if the requested length is beyond the end of the block.
@@ -136,12 +140,13 @@ abstract class SubMemoryBlock implements Comparable<SubMemoryBlock> {
 	 * @param off the offset into the byte array.
 	 * @param len the number of bytes to write.
 	 * @return the number of bytes actually written
+	 * @throws IndexOutOfBoundsException if invalid offset is specified
 	 * @throws MemoryAccessException if this block is uninitialized.
 	 * @throws IOException if there is a problem writing to the database
 	 * @throws IllegalArgumentException if the offset is not in this block.
 	 */
 	public abstract int putBytes(long memBlockOffset, byte[] b, int off, int len)
-			throws MemoryAccessException, IOException;
+			throws IndexOutOfBoundsException, MemoryAccessException, IOException;
 
 	/**
 	 * Deletes this SumMemoryBlock
@@ -152,7 +157,7 @@ abstract class SubMemoryBlock implements Comparable<SubMemoryBlock> {
 	}
 
 	/**
-	 * Sets the length of a subblock (Used by the split command)
+	 * Sets the length of a sub-block (Used by the split command)
 	 * @param length the new length of the block
 	 * @throws IOException if a database error occurs
 	 */
@@ -204,9 +209,11 @@ abstract class SubMemoryBlock implements Comparable<SubMemoryBlock> {
 	 * To get the offset relative to this SubMemoryBlock, you have to subtract this sub blocks 
 	 * starting offset.
 	 * @return the new SubMemoryBlock that contains the back half of this block
+	 * @throws IndexOutOfBoundsException if invalid offset is specified
 	 * @throws IOException if a database error occurs.
 	 */
-	protected abstract SubMemoryBlock split(long memBlockOffset) throws IOException;
+	protected abstract SubMemoryBlock split(long memBlockOffset)
+			throws IndexOutOfBoundsException, IOException;
 
 	/**
 	 * Updates this SubMemoryBlock to have a new owning MemoryBlock and offset within that block. 

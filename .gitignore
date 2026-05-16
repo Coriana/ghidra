@@ -3,6 +3,7 @@ ghidra.repos.config
 
 # Misc files produced while executing application
 repositories/
+dependencies/
 flatRepo/
 Ghidra/.ghidraSvrKeys
 wrapper.log*
@@ -53,7 +54,9 @@ Release
 *.aps
 *.vcproj.*
 *.vcxproj.*
+*.mdmp
 .vs/
+.editorconfig/
 
 # Ignore UNIX backup files
 *~
@@ -63,6 +66,8 @@ Release
 .project
 .classpath
 .settings/
+.prefs
+.pydevproject
 
 # Ignore XTEXT generated dirs/files
 */*/*/*/xtend-gen
@@ -71,14 +76,17 @@ Release
 */*/*/*/test-bin
 
 # Ignore Intellij metadata
-**/*.iml
-**/.idea
 *.iml
-.idea
+.idea/
 
-# Ignore gradle wrapper files
-gradle/wrapper
-gradlew
-gradlew.*
+# Ignore logs and core dumps
+*.log
+core.*
+!core.png
+!core.py
 
+# python files
+*.egg-info
+__pycache__
 
+gradle.lockfile

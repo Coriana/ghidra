@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,22 +15,22 @@
  */
 package ghidra.app.merge.listing;
 
-import ghidra.app.merge.tool.ListingMergePanel;
-import ghidra.app.merge.util.ConflictUtility;
-import ghidra.app.merge.util.MergeUtilities;
-import ghidra.program.model.address.*;
-import ghidra.program.model.listing.CodeUnit;
-import ghidra.program.model.mem.MemoryAccessException;
-import ghidra.program.util.*;
-import ghidra.util.Msg;
-import ghidra.util.exception.CancelledException;
-import ghidra.util.task.TaskMonitor;
-
 import java.lang.reflect.InvocationTargetException;
 
 import javax.swing.SwingUtilities;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
+
+import ghidra.app.merge.MergeManager;
+import ghidra.app.merge.tool.ListingMergePanel;
+import ghidra.app.merge.util.ConflictUtility;
+import ghidra.app.merge.util.MergeUtilities;
+import ghidra.program.model.address.*;
+import ghidra.program.model.listing.CommentType;
+import ghidra.program.model.mem.MemoryAccessException;
+import ghidra.program.util.*;
+import ghidra.util.exception.CancelledException;
+import ghidra.util.task.TaskMonitor;
 
 /**
  * Class for merging comment changes. This class can merge non-conflicting
@@ -88,6 +87,7 @@ class CommentMerger extends AbstractListingMerger {
 	/* (non-Javadoc)
 	 * @see ghidra.app.merge.listing.ListingMerger#getConflictType()
 	 */
+	@Override
 	public String getConflictType() {
 		return "Comment";
 	}
@@ -108,6 +108,7 @@ class CommentMerger extends AbstractListingMerger {
 	/* (non-Javadoc)
 	 * @see ghidra.app.merge.listing.ListingMerger#autoMerge(ghidra.util.task.TaskMonitor)
 	 */
+	@Override
 	public void autoMerge(int progressMin, int progressMax, TaskMonitor monitor)
 			throws ProgramConflictException, MemoryAccessException, CancelledException {
 
@@ -134,9 +135,8 @@ class CommentMerger extends AbstractListingMerger {
 
 	private void autoMerge(int diffType, AddressSet conflictSet, TaskMonitor monitor)
 			throws ProgramConflictException, CancelledException {
-		AddressSetView latestDetailSet =
-			listingMergeMgr.diffOriginalLatest.getDifferences(new ProgramDiffFilter(diffType),
-				monitor);
+		AddressSetView latestDetailSet = listingMergeMgr.diffOriginalLatest
+				.getDifferences(new ProgramDiffFilter(diffType), monitor);
 		AddressSetView myDetailSet =
 			listingMergeMgr.diffOriginalMy.getDifferences(new ProgramDiffFilter(diffType), monitor);
 		AddressSet autoSet = new AddressSet();
@@ -176,6 +176,7 @@ class CommentMerger extends AbstractListingMerger {
 	/* (non-Javadoc)
 	 * @see ghidra.app.merge.listing.ListingMerger#hasConflict(ghidra.program.model.address.Address)
 	 */
+	@Override
 	public boolean hasConflict(Address addr) {
 		return hasConflict(addr, ProgramMergeFilter.PLATE_COMMENTS) ||
 			hasConflict(addr, ProgramMergeFilter.PRE_COMMENTS) ||
@@ -187,6 +188,7 @@ class CommentMerger extends AbstractListingMerger {
 	/* (non-Javadoc)
 	 * @see ghidra.app.merge.listing.ListingMerger#getConflictCount(ghidra.program.model.address.Address)
 	 */
+	@Override
 	public int getConflictCount(Address addr) {
 		int count = 0;
 		if (hasConflict(addr, ProgramMergeFilter.PLATE_COMMENTS)) {
@@ -217,7 +219,7 @@ class CommentMerger extends AbstractListingMerger {
 		else {
 			conflictPanel.clear();
 		}
-		int type = getCodeUnitCommentType(programMergeType);
+		CommentType type = getCodeUnitCommentType(programMergeType);
 		int choice = getChoiceForCommentType(programMergeType);
 		boolean useForAll = (choice != ASK_USER);
 		conflictPanel.setUseForAll(useForAll);
@@ -235,9 +237,8 @@ class CommentMerger extends AbstractListingMerger {
 		String msg;
 		conflictPanel.setRowHeader(new String[] { "Option", "Comment" });
 		if (latestComment == null || myComment == null) {
-			String[] latestStrings =
-				new String[] { createButtonText(LATEST_TITLE, programMergeType, latestComment),
-					latestTrunc };
+			String[] latestStrings = new String[] {
+				createButtonText(LATEST_TITLE, programMergeType, latestComment), latestTrunc };
 			String[] myStrings =
 				new String[] { createButtonText(MY_TITLE, programMergeType, myComment), myTrunc };
 			conflictPanel.addRadioButtonRow(latestStrings, LATEST_BUTTON_NAME, KEEP_LATEST,
@@ -247,20 +248,19 @@ class CommentMerger extends AbstractListingMerger {
 			msg = conflictTypeText + " comments differ. Select whether or not to keep the comment.";
 		}
 		else {
-			String[] latestStrings =
-				new String[] { createCheckBoxText(LATEST_TITLE, programMergeType, latestComment),
-					latestTrunc };
+			String[] latestStrings = new String[] {
+				createCheckBoxText(LATEST_TITLE, programMergeType, latestComment), latestTrunc };
 			String[] myStrings =
 				new String[] { createCheckBoxText(MY_TITLE, programMergeType, myComment), myTrunc };
 			conflictPanel.addCheckBoxRow(latestStrings, LATEST_CHECK_BOX_NAME, KEEP_LATEST,
 				changeListener);
 			conflictPanel.addCheckBoxRow(myStrings, CHECKED_OUT_CHECK_BOX_NAME, KEEP_MY,
 				changeListener);
-			msg =
-				getTypeName(programMergeType) +
-					" comments differ. Select either or both of the comments.";
+			msg = getTypeName(programMergeType) +
+				" comments differ. Select either or both of the comments.";
 		}
-		conflictPanel.addInfoRow(new String[] { "'" + ORIGINAL_TITLE + "' version", originalTrunc });
+		conflictPanel
+				.addInfoRow(new String[] { "'" + ORIGINAL_TITLE + "' version", originalTrunc });
 		conflictPanel.setHeader(msg);
 
 	}
@@ -268,9 +268,10 @@ class CommentMerger extends AbstractListingMerger {
 	/* (non-Javadoc)
 	 * @see ghidra.app.merge.listing.ListingMerger#mergeConflicts(ghidra.app.merge.tool.ListingMergePanel, ghidra.program.model.address.Address, int, ghidra.util.task.TaskMonitor)
 	 */
+	@Override
 	public void mergeConflicts(ListingMergePanel listingPanel, Address addr,
-			int chosenConflictOption, TaskMonitor monitor) throws CancelledException,
-			MemoryAccessException {
+			int chosenConflictOption, TaskMonitor monitor)
+			throws CancelledException, MemoryAccessException {
 		mergeConflicts(ProgramMergeFilter.PLATE_COMMENTS, listingPanel, addr, chosenConflictOption,
 			monitor);
 		mergeConflicts(ProgramMergeFilter.PRE_COMMENTS, listingPanel, addr, chosenConflictOption,
@@ -288,8 +289,8 @@ class CommentMerger extends AbstractListingMerger {
 		if (!hasConflict(addr, programMergeFilterCommentType)) {
 			return;
 		}
-		monitor.setMessage("Resolving " + getTypeName(programMergeFilterCommentType) +
-			" Comment conflicts.");
+		monitor.setMessage(
+			"Resolving " + getTypeName(programMergeFilterCommentType) + " Comment conflicts.");
 		int choiceForCommentType = getChoiceForCommentType(programMergeFilterCommentType);
 		if (choiceForCommentType != ASK_USER) {
 			merge(addr, programMergeFilterCommentType, choiceForCommentType, monitor);
@@ -297,7 +298,7 @@ class CommentMerger extends AbstractListingMerger {
 		}
 		if (chosenConflictOption == ASK_USER && mergeManager != null) {
 			showMergePanel(listingPanel, addr, programMergeFilterCommentType, monitor);
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 		}
 		else {
 			merge(addr, programMergeFilterCommentType, chosenConflictOption, monitor);
@@ -324,20 +325,20 @@ class CommentMerger extends AbstractListingMerger {
 		}
 	}
 
-	private int getCodeUnitCommentType(int programMergeCommentType) {
+	private CommentType getCodeUnitCommentType(int programMergeCommentType) {
 		switch (programMergeCommentType) {
 			case ProgramMergeFilter.PLATE_COMMENTS:
-				return CodeUnit.PLATE_COMMENT;
+				return CommentType.PLATE;
 			case ProgramMergeFilter.PRE_COMMENTS:
-				return CodeUnit.PRE_COMMENT;
+				return CommentType.PRE;
 			case ProgramMergeFilter.EOL_COMMENTS:
-				return CodeUnit.EOL_COMMENT;
+				return CommentType.EOL;
 			case ProgramMergeFilter.REPEATABLE_COMMENTS:
-				return CodeUnit.REPEATABLE_COMMENT;
+				return CommentType.REPEATABLE;
 			case ProgramMergeFilter.POST_COMMENTS:
-				return CodeUnit.POST_COMMENT;
+				return CommentType.POST;
 			default:
-				return -1;
+				return null;
 		}
 	}
 
@@ -393,7 +394,7 @@ class CommentMerger extends AbstractListingMerger {
 				postCommentChoice = choiceForCommentType;
 				break;
 			default:
-				Msg.showError(this, listingMergePanel, "Unrecognized Comment Type",
+				MergeManager.showBlockingError("Unrecognized Comment Type",
 					"Unrecognized indicator (" + programMergeCommentType +
 						") for comment type to merge.");
 		}
@@ -406,6 +407,7 @@ class CommentMerger extends AbstractListingMerger {
 		this.currentMonitor = monitor;
 		try {
 			final ChangeListener changeListener = new ChangeListener() {
+				@Override
 				public void stateChanged(ChangeEvent e) {
 					conflictOption = conflictPanel.getSelectedOptions();
 					if (conflictOption == ASK_USER) {
@@ -433,6 +435,7 @@ class CommentMerger extends AbstractListingMerger {
 				}
 			};
 			SwingUtilities.invokeAndWait(new Runnable() {
+				@Override
 				public void run() {
 					setupConflictsPanel(listingPanel, CommentMerger.this.currentAddress,
 						CommentMerger.this.programMergeType, changeListener);
@@ -440,6 +443,7 @@ class CommentMerger extends AbstractListingMerger {
 				}
 			});
 			SwingUtilities.invokeLater(new Runnable() {
+				@Override
 				public void run() {
 					Address addressToShow = CommentMerger.this.currentAddress;
 					listingPanel.clearAllBackgrounds();
@@ -507,6 +511,7 @@ class CommentMerger extends AbstractListingMerger {
 	/* (non-Javadoc)
 	 * @see ghidra.app.merge.listing.ListingMerger#getConflicts()
 	 */
+	@Override
 	public AddressSetView getConflicts() {
 		AddressSet conflicts = new AddressSet();
 		conflicts.add(conflictPlate);

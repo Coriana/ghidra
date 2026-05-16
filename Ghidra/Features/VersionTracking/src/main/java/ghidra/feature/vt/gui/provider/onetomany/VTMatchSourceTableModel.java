@@ -74,20 +74,22 @@ public class VTMatchSourceTableModel extends VTMatchOneToManyTableModel {
 			throws CancelledException {
 		List<VTMatchSet> matchSets = session.getMatchSets();
 		VTAssociationManager associationManager = session.getAssociationManager();
-		if (address != null && associationManager != null) {
-			Collection<VTAssociation> associations =
-				associationManager.getRelatedAssociationsBySourceAddress(address);
-			monitor.initialize(associations.size());
-			for (VTAssociation vtAssociation : associations) {
-				monitor.checkCanceled();
-				monitor.incrementProgress(1);
-				for (VTMatchSet matchSet : matchSets) {
-					monitor.checkCanceled();
-					Collection<VTMatch> matches = matchSet.getMatches(vtAssociation);
-					for (VTMatch match : matches) {
-						monitor.checkCanceled();
-						accumulator.add(match);
-					}
+		if (address == null || associationManager == null) {
+			return;
+		}
+
+		Collection<VTAssociation> associations =
+			associationManager.getRelatedAssociationsBySourceAddress(address);
+		monitor.initialize(associations.size());
+		for (VTAssociation vtAssociation : associations) {
+			monitor.checkCancelled();
+			monitor.incrementProgress(1);
+			for (VTMatchSet matchSet : matchSets) {
+				monitor.checkCancelled();
+				Collection<VTMatch> matches = matchSet.getMatches(vtAssociation);
+				for (VTMatch match : matches) {
+					monitor.checkCancelled();
+					accumulator.add(match);
 				}
 			}
 		}
@@ -96,14 +98,14 @@ public class VTMatchSourceTableModel extends VTMatchOneToManyTableModel {
 	@Override
 	protected Comparator<VTMatch> createSortComparator(int columnIndex) {
 
-		// 
-		// Unusual Code Alert!: since we define some of our columns for this table model as 
-		//                      off/hidden by default, we cannot rely on the ordinal of the 
-		//                      ColumnDescriptor to match the 'columnIndex' parameter.  Instead, 
+		//
+		// Unusual Code Alert!: since we define some of our columns for this table model as
+		//                      off/hidden by default, we cannot rely on the ordinal of the
+		//                      ColumnDescriptor to match the 'columnIndex' parameter.  Instead,
 		//                      we have to lookup the model's index for the given ColumnDescriptor
-		//                      and test that value against the index parameter (which is the 
+		//                      and test that value against the index parameter (which is the
 		//                      value used by the column model.
-		// 
+		//
 
 		int destinationAddressColumnIndex = getColumnIndex(DestinationAddressTableColumn.class);
 		if (destinationAddressColumnIndex == columnIndex) {

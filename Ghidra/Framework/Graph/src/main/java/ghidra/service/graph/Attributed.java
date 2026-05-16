@@ -18,6 +18,7 @@ package ghidra.service.graph;
 import java.util.*;
 
 public class Attributed {
+	private static final String DESCRIPTION = "Description";
 
 	/**
 	 * the {@link HashMap} to contain attribute mappings
@@ -29,7 +30,7 @@ public class Attributed {
 	 * @return an unmodifiable view of the attribute map
 	 */
 
-	public Map<String, String> getAttributeMap() {
+	public Map<String, String> getAttributes() {
 		return Collections.unmodifiableMap(attributes);
 	}
 
@@ -76,7 +77,7 @@ public class Attributed {
 
 	/**
 	 * Returns the number of attributes defined
-	 * 
+	 *
 	 * @return the number of attributes defined
 	 */
 	public int size() {
@@ -133,6 +134,26 @@ public class Attributed {
 	 */
 	public Set<Map.Entry<String, String>> entrySet() {
 		return attributes.entrySet();
+	}
+
+	/**
+	 * Sets a description for this Attributed object
+	 *
+	 * @param value text that provides a description for this Attributed object. 
+	 * The text can be either a plain string or an HTML string.
+	 * @return the previously set description
+	 */
+	public String setDescription(String value) {
+		return attributes.put(DESCRIPTION, value);
+	}
+
+	/**
+	 * gets the description of this Attributed object.
+	 *
+	 * @return the description of this Attributed object.
+	 */
+	public String getDescription() {
+		return getAttribute(DESCRIPTION);
 	}
 
 }

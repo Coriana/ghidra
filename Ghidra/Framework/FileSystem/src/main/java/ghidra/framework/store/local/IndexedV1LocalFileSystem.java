@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,16 +18,14 @@ package ghidra.framework.store.local;
 import java.io.*;
 import java.util.HashMap;
 
-import ghidra.framework.store.FolderItem;
 import ghidra.util.Msg;
-import ghidra.util.PropertyFile;
 import ghidra.util.exception.NotFoundException;
 
 /**
- * <code>IndexedLocalFileSystem</code> implements a case-sensitive indexed filesystem
+ * <code>IndexedV1LocalFileSystem</code> implements a case-sensitive indexed filesystem
  * which uses a shallow storage hierarchy with no restriction on file name or path 
  * length.  This filesystem is identified by the existence of an index file (~index.dat) 
- * and recovery journal (~index.jrn).
+ * and recovery journal (~index.jrn).  File system also maintains a file-ID mapping.
  */
 public class IndexedV1LocalFileSystem extends IndexedLocalFileSystem {
 
@@ -37,16 +35,18 @@ public class IndexedV1LocalFileSystem extends IndexedLocalFileSystem {
 
 	/**
 	 * Constructor.
-	 * @param file path path for root directory.
+	 * @param rootPath path for root directory.
 	 * @param isVersioned if true item versioning will be enabled.
 	 * @param readOnly if true modifications within this file-system will not be allowed
 	 * and result in an ReadOnlyException
 	 * @param enableAsyncronousDispatching if true a separate dispatch thread will be used
 	 * to notify listeners.  If false, blocking notification will be performed.
+	 * @param create if true a new folder will be created.
 	 * @throws FileNotFoundException if specified rootPath does not exist
+	 * @throws IndexReadException failure occured reading index file
 	 * @throws IOException if error occurs while reading/writing index files
 	 */
-	IndexedV1LocalFileSystem(String rootPath, boolean isVersioned, boolean readOnly,
+	protected IndexedV1LocalFileSystem(String rootPath, boolean isVersioned, boolean readOnly,
 			boolean enableAsyncronousDispatching, boolean create) throws IOException {
 		super(rootPath, isVersioned, readOnly, enableAsyncronousDispatching, create);
 	}
@@ -94,7 +94,7 @@ public class IndexedV1LocalFileSystem extends IndexedLocalFileSystem {
 	}
 
 	@Override
-	protected synchronized void fileIdChanged(PropertyFile pfile, String oldFileId)
+	protected synchronized void fileIdChanged(ItemPropertyFile pfile, String oldFileId)
 			throws IOException {
 		indexJournal.open();
 		try {
@@ -133,7 +133,9 @@ public class IndexedV1LocalFileSystem extends IndexedLocalFileSystem {
 	}
 
 	@Override
-	public FolderItem getItem(String fileID) throws IOException, UnsupportedOperationException {
+	public LocalFolderItem getItem(String fileID)
+			throws IOException, UnsupportedOperationException {
+		checkDisposed();
 		if (fileIdMap == null) {
 			return null;
 		}
@@ -141,11 +143,18 @@ public class IndexedV1LocalFileSystem extends IndexedLocalFileSystem {
 		if (item == null) {
 			return null;
 		}
+		ItemStorage itemStorage = item.itemStorage;
 		try {
-			PropertyFile propertyFile = item.itemStorage.getPropertyFile();
+			ItemPropertyFile propertyFile = itemStorage.getPropertyFile();
 			if (propertyFile.exists()) {
 				return LocalFolderItem.getFolderItem(this, propertyFile);
 			}
+		}
+		catch (InvalidObjectException e) {
+			// Use unknown placeholder item on failure
+			InvalidPropertyFile invalidFile = new InvalidPropertyFile(itemStorage.dir,
+				itemStorage.storageName, itemStorage.folderPath, itemStorage.itemName);
+			return new LocalUnknownFolderItem(this, invalidFile);
 		}
 		catch (FileNotFoundException e) {
 			// ignore

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,36 +17,63 @@ package docking.widgets.fieldpanel.field;
 
 import java.awt.*;
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.List;
 
 import javax.swing.JComponent;
 
+import org.apache.commons.lang3.StringUtils;
+
 import docking.widgets.fieldpanel.internal.FieldBackgroundColorManager;
 import docking.widgets.fieldpanel.internal.PaintContext;
 import docking.widgets.fieldpanel.support.*;
+import generic.json.Json;
 
 /**
  * This class provides a TextField implementation that takes multiple FieldElements and places
- * each on its own line within the field.  It also can take a single FieldElements and 
- * word wrap,creating new FieldElements (one per line).
+ * each on its own line within the field.
  */
 public class VerticalLayoutTextField implements TextField {
 
-	protected FieldElement[] textElements;
-	protected List<Field> subFields;  // list of fields for FieldElements
+	//
+	// The sub-fields of this text field.  Each FieldRow has a Field, a screen row and a data row.
+	//
+	protected List<FieldRow> subFields;
 	protected int startX;
 	protected int width;
 	protected int preferredWidth;
-	protected HighlightFactory hlFactory;
+	protected FieldHighlightFactory hlFactory;
 
 	private int height;
 	private int heightAbove;
+	private int numDataRows;
 	private boolean isPrimary;
-	private String text;
+
+	// full text is all text with line separators, *but not with line delimiters*
+	private String fullText;
+	private List<String> lines;
+
+	// used in the getText() method to separate rows without adding newlines
+	private String rowSeparator;
 
 	protected boolean isClipped;
-	private String lineDelimiter; // used in the getText() method to separate lines
+
+	/**
+	 * This constructor will create a text field from an array of FieldElements, putting each
+	 * element on its own line.
+	 * 
+	 * @param textElements the FieldElements to display
+	 * @param startX  the x position to draw the element
+	 * @param width   the max width allocated to this field
+	 * @param maxLines the max number of lines to display
+	 * @param hlFactory the highlight factory
+	 * @deprecated use the constructor that takes a list
+	 */
+	@Deprecated(since = "10.1", forRemoval = true)
+	public VerticalLayoutTextField(FieldElement[] textElements, int startX, int width, int maxLines,
+			FieldHighlightFactory hlFactory) {
+		this(Arrays.asList(textElements), startX, width, maxLines, hlFactory, " ");
+	}
 
 	/**
 	 * This constructor will create a text field from an array of FieldElements, putting each
@@ -58,8 +85,9 @@ public class VerticalLayoutTextField implements TextField {
 	 * @param maxLines the max number of lines to display
 	 * @param hlFactory the highlight factory
 	 */
-	public VerticalLayoutTextField(FieldElement[] textElements, int startX, int width, int maxLines,
-			HighlightFactory hlFactory) {
+	public VerticalLayoutTextField(List<FieldElement> textElements, int startX, int width,
+			int maxLines,
+			FieldHighlightFactory hlFactory) {
 		this(textElements, startX, width, maxLines, hlFactory, " ");
 	}
 
@@ -72,51 +100,73 @@ public class VerticalLayoutTextField implements TextField {
 	 * @param width   the max width allocated to this field
 	 * @param maxLines the max number of lines to display
 	 * @param hlFactory the highlight factory
-	 * @param lineDelimiter The string to space lines of text when concatenated by the 
+	 * @param rowSeparator The string used to space lines of text when concatenated by the
 	 *        getText() method.
 	 */
-	protected VerticalLayoutTextField(FieldElement[] textElements, int startX, int width,
-			int maxLines, HighlightFactory hlFactory, String lineDelimiter) {
+	protected VerticalLayoutTextField(List<FieldElement> textElements, int startX, int width,
+			int maxLines, FieldHighlightFactory hlFactory, String rowSeparator) {
 
-		this.textElements = textElements;
 		this.startX = startX;
 		this.width = width;
-
 		this.hlFactory = hlFactory;
-		this.lineDelimiter = lineDelimiter;
+		this.rowSeparator = rowSeparator;
 
-		subFields = layoutElements(maxLines);
+		lines = generateLines(textElements);
+		fullText = generateText(textElements, rowSeparator);
+		subFields = layoutElements(textElements, maxLines);
+		numDataRows = textElements.size();
 
-		this.preferredWidth = calculatePreferredWidth();
+		preferredWidth = calculatePreferredWidth();
 		calculateHeight();
 	}
 
+	private List<String> generateLines(List<FieldElement> textElements) {
+
+		List<String> list = new ArrayList<>();
+		for (FieldElement field : textElements) {
+			list.add(field.getText());
+		}
+		return list;
+	}
+
+	private String generateText(List<FieldElement> elements, String delimiter) {
+
+		StringBuilder buf = new StringBuilder();
+		int n = elements.size() - 1;
+		for (int i = 0; i < n; i++) {
+			String text = elements.get(i).getText();
+			buf.append(text);
+			if (!text.endsWith(delimiter)) { // prevent 2 delimiters between merged lines
+				buf.append(delimiter);
+			}
+		}
+		buf.append(elements.get(n).getText());
+		return buf.toString();
+	}
+
 	protected void calculateHeight() {
-		heightAbove = (subFields.get(0)).getHeightAbove();
-		for (Field field : subFields) {
-			height += field.getHeight();
+		heightAbove = (subFields.get(0)).field.getHeightAbove();
+		for (FieldRow fieldRow : subFields) {
+			height += fieldRow.field.getHeight();
 		}
 	}
 
 	private int calculatePreferredWidth() {
 		int widest = 0;
-		for (Field field : subFields) {
-			widest = Math.max(widest, field.getPreferredWidth());
+		for (FieldRow fieldRow : subFields) {
+			widest = Math.max(widest, fieldRow.field.getPreferredWidth());
 		}
 		return widest;
 	}
 
 	@Override
 	public String getText() {
-		if (text == null) {
-			text = generateText();
-		}
-		return text;
+		return fullText;
 	}
 
 	@Override
 	public String getTextWithLineSeparators() {
-		return generateText("\n");
+		return StringUtils.join(lines, '\n');
 	}
 
 	@Override
@@ -145,54 +195,66 @@ public class VerticalLayoutTextField implements TextField {
 	}
 
 	@Override
+	public int getNumDataRows() {
+		return numDataRows;
+	}
+
+	@Override
 	public int getNumRows() {
 		return subFields.size();
 	}
 
 	@Override
 	public int getNumCols(int row) {
-		Field f = subFields.get(row);
+		Field f = getField(row);
 		return f.getNumCols(0);
 	}
 
 	@Override
 	public int getRow(int y) {
-		if (y < -heightAbove) {
+
+		// our start y value is our baseline - the heigh above the baseline
+		int startY = -heightAbove;
+		if (y < startY) {
 			return 0;
 		}
-		int heightSoFar = -heightAbove;
 
+		int ySoFar = startY;
 		int n = subFields.size();
 		for (int i = 0; i < n; i++) {
-			Field f = subFields.get(i);
-			heightSoFar += f.getHeight();
-			if (heightSoFar > y) {
+			Field f = getField(i);
+			ySoFar += f.getHeight();
+			if (ySoFar > y) {
 				return i;
 			}
 		}
+
 		return n - 1;
 	}
 
 	@Override
 	public int getCol(int row, int x) {
-		Field f = subFields.get(row);
+		Field f = getField(row);
 		return f.getCol(0, x);
 	}
 
 	@Override
 	public int getY(int row) {
 
-		int y = -heightAbove;
-		for (int i = 0; i < row; i++) {
-			Field f = subFields.get(row);
+		int startY = -heightAbove;
+		int y = startY;
+		int n = Math.min(row, subFields.size() - 1);
+		for (int i = 0; i < n; i++) {
+			Field f = getField(i);
 			y += f.getHeight();
 		}
+
 		return y;
 	}
 
 	@Override
 	public int getX(int row, int col) {
-		Field f = subFields.get(row);
+		Field f = getField(row);
 		return f.getX(0, col);
 	}
 
@@ -202,7 +264,7 @@ public class VerticalLayoutTextField implements TextField {
 		if ((row < 0) || (row >= subFields.size())) {
 			return false;
 		}
-		Field f = subFields.get(row);
+		Field f = getField(row);
 		return f.isValid(0, col);
 	}
 
@@ -222,7 +284,7 @@ public class VerticalLayoutTextField implements TextField {
 			cursorRow = cursorLoc.row();
 		}
 
-		Highlight[] highlights = hlFactory.getHighlights(this, getText(), cursorTextOffset);
+		Highlight[] highlights = hlFactory.createHighlights(this, getText(), cursorTextOffset);
 		int columns = 0;
 		int n = subFields.size();
 
@@ -247,9 +309,9 @@ public class VerticalLayoutTextField implements TextField {
 
 		int startY = myStartY;
 		int translatedY = 0;
-
+		int extraSpace = rowSeparator.length();
 		for (int i = 0; i < n; i++) {
-			ClippingTextField subField = (ClippingTextField) subFields.get(i);
+			ClippingTextField subField = (ClippingTextField) getField(i);
 			int subFieldHeight = subField.getHeight();
 			int endY = startY + subFieldHeight;
 
@@ -264,7 +326,7 @@ public class VerticalLayoutTextField implements TextField {
 				for (Highlight highlight : highlights) {
 					highlight.setOffset(-columns);
 				}
-				subField.paintSelection(g, colorManager, i, rowHeight);
+				subField.paintSelection(g, colorManager, i, subFieldHeight);
 				subField.paintHighlights(g, highlights);
 				subField.paintText(c, g, context);
 				if (cursorRow == i) {
@@ -276,7 +338,7 @@ public class VerticalLayoutTextField implements TextField {
 			startY += subFieldHeight;
 			g.translate(0, subFieldHeight);
 			translatedY += subFieldHeight;
-			columns += subField.getText().length() + lineDelimiter.length();
+			columns += subField.getText().length() + extraSpace;
 		}
 
 		// restore the graphics to where it was when we started.
@@ -286,7 +348,7 @@ public class VerticalLayoutTextField implements TextField {
 	private void print(Graphics g, PaintContext context) {
 		int n = subFields.size();
 		for (int i = 0; i < n; i++) {
-			ClippingTextField clippingField = (ClippingTextField) subFields.get(i);
+			ClippingTextField clippingField = (ClippingTextField) getField(i);
 
 			clippingField.print(g, context);
 
@@ -300,10 +362,10 @@ public class VerticalLayoutTextField implements TextField {
 		if ((row < 0) || (row >= subFields.size())) {
 			return null;
 		}
-		Field f = subFields.get(row);
+		Field f = getField(row);
 		Rectangle r = f.getCursorBounds(0, col);
 		for (int i = 0; i < row; i++) {
-			f = subFields.get(row);
+			f = getField(i);
 			r.y += f.getHeight();
 		}
 		return r;
@@ -324,10 +386,11 @@ public class VerticalLayoutTextField implements TextField {
 		if ((topOfScreen < -heightAbove) || (topOfScreen > height - heightAbove)) {
 			return max;
 		}
+
 		int row = getRow(topOfScreen);
 		int y = getY(row);
 		int rowOffset = topOfScreen - y;
-		int rowHeight = (subFields.get(row)).getHeight();
+		int rowHeight = getField(row).getHeight();
 		if (direction > 0) { // if scrolling down
 			return rowHeight - rowOffset;
 		}
@@ -353,13 +416,6 @@ public class VerticalLayoutTextField implements TextField {
 		isPrimary = state;
 	}
 
-	/**
-	 * Returns the list of subfields in this field.
-	 */
-	public List<Field> getSubfields() {
-		return Collections.unmodifiableList(subFields);
-	}
-
 	@Override
 	public int getHeightAbove() {
 		return heightAbove;
@@ -372,121 +428,172 @@ public class VerticalLayoutTextField implements TextField {
 
 	@Override
 	public void rowHeightChanged(int heightAbove1, int heightBelow) {
-		// most fields don't care		
+		// most fields don't care
 	}
 
 	@Override
 	public FieldElement getFieldElement(int screenRow, int screenColumn) {
 
-		FieldElement clickedField = textElements[screenRow];
-		return clickedField.getFieldElement(screenColumn);
+		TextField f = getField(screenRow);
+
+		int fieldRow = 0; // each field is on a single row
+		return f.getFieldElement(fieldRow, screenColumn);
 	}
 
-	protected List<Field> layoutElements(int maxLines) {
-		List<Field> newSubFields = new ArrayList<>();
+	protected List<FieldRow> layoutElements(List<FieldElement> textElements, int maxLines) {
+		List<FieldRow> newSubFields = new ArrayList<>();
 
-		boolean tooManyLines = textElements.length > maxLines;
-
-		for (int i = 0; i < textElements.length && i < maxLines; i++) {
-			FieldElement element = textElements[i];
+		boolean tooManyLines = textElements.size() > maxLines;
+		int currentRow = 0;
+		for (int i = 0; i < textElements.size() && i < maxLines; i++) {
+			FieldElement element = textElements.get(i);
 			if (tooManyLines && (i == maxLines - 1)) {
 				FieldElement[] elements = new FieldElement[2];
 				elements[0] = element;
-				elements[1] = new EmptyFieldElement(500);
+				elements[1] = new StrutFieldElement(element, 500);
 				element = new CompositeFieldElement(elements);
 			}
-			TextField field = new ClippingTextField(startX, width, element, hlFactory);
-			newSubFields.add(field);
+			TextField field = createFieldForLine(element);
+			int modelRow = currentRow;
+			int screenRow = newSubFields.size();
+			newSubFields.add(new FieldRow(field, modelRow, screenRow));
 			isClipped |= field.isClipped();
+
+			currentRow += field.getNumRows();
 		}
 
 		isClipped |= tooManyLines;
-
 		return newSubFields;
 	}
 
 	/**
-	 * Translates the row and column to a String index and character offset into 
-	 * that string.
-	 * @param screenRow the row containing the location.
-	 * @param screenColumn the character position in the row of the location
-	 * @return a MultiStringLocation containing the string index and position 
-	 * within that string.
+	 * Create the text field for given field element
+	 * @param element the element
+	 * @return the field
 	 */
+	protected TextField createFieldForLine(FieldElement element) {
+		return new ClippingTextField(startX, width, element, hlFactory);
+	}
+
 	@Override
 	public RowColLocation screenToDataLocation(int screenRow, int screenColumn) {
 
-		screenRow = Math.min(screenRow, textElements.length - 1);
+		screenRow = Math.min(screenRow, subFields.size() - 1);
 		screenRow = Math.max(screenRow, 0);
 
-		screenColumn = Math.min(screenColumn, textElements[screenRow].length());
+		TextField field = getField(screenRow);
+		screenColumn = Math.min(screenColumn, field.getText().length());
 		screenColumn = Math.max(screenColumn, 0);
 
-		return textElements[screenRow].getDataLocationForCharacterIndex(screenColumn);
+		int dataRow = getDataRow(field);
+		return field.screenToDataLocation(dataRow, screenColumn);
 	}
 
-	/**
-	 * Finds the corresponding row, column for string index, and offset
-	 * @param dataRow index into the string array
-	 * @param dataColumn offset into the indexed string.
-	 */
 	@Override
 	public RowColLocation dataToScreenLocation(int dataRow, int dataColumn) {
-		for (int screenRow = textElements.length - 1; screenRow >= 0; screenRow--) {
-			FieldElement element = textElements[screenRow];
-			int screenColumn = element.getCharacterIndexForDataLocation(dataRow, dataColumn);
-			if (screenColumn >= 0) {
-				return new RowColLocation(screenRow, screenColumn);
+
+		// search each line looking for a match for the given row and column
+		for (int i = 0; i < subFields.size(); i++) {
+			FieldRow row = subFields.get(i);
+			RowColLocation loc = row.field.dataToScreenLocation(dataRow, dataColumn);
+
+			// A DefaultRowColLocation means that the line did not have an exact match for
+			// the dataRow and dataColumn, so need to keep looking at each line.
+			if (!(loc instanceof DefaultRowColLocation)) {
+				return new RowColLocation(i, loc.col());
 			}
 		}
 
-		return new RowColLocation(0, 0); // give up
-	}
-
-	protected String generateText() {
-		return generateText(lineDelimiter);
-	}
-
-	protected String generateText(String delimiter) {
-		StringBuffer buf = new StringBuffer();
-		int n = textElements.length - 1;
-		for (int i = 0; i < n; i++) {
-			buf.append(textElements[i].getText()).append(delimiter);
-		}
-		buf.append(textElements[n].getText());
-		return buf.toString();
+		return new DefaultRowColLocation();
 	}
 
 	@Override
 	public int screenLocationToTextOffset(int row, int col) {
-		if (row >= textElements.length) {
+		if (row >= subFields.size()) {
 			return getText().length();
 		}
-		int extraSpace = lineDelimiter.length();
-		int len = 0;
+		int extraSpace = rowSeparator.length();
+		int offset = 0;
 		for (int i = 0; i < row; i++) {
-			len += textElements[i].getText().length() + extraSpace;
+			String line = lines.get(i);
+			int len = line.length();
+			if (!line.endsWith(rowSeparator)) {
+				len += extraSpace; // getText() performs this same check; be consistent
+			}
+
+			offset += len;
 		}
-		len += Math.min(col, textElements[row].getText().length());
-		return len;
+		offset += Math.min(col, lines.get(row).length());
+		return offset;
 	}
 
 	@Override
 	public RowColLocation textOffsetToScreenLocation(int textOffset) {
-		int extraSpace = lineDelimiter.length();
-		int n = textElements.length;
+		int absoluteOffset = textOffset;
+		int extraSpace = rowSeparator.length();
+		int n = subFields.size();
 		for (int i = 0; i < n; i++) {
-			int len = textElements[i].getText().length();
-			if (textOffset < len + extraSpace) {
-				return new RowColLocation(i, textOffset);
+			String line = lines.get(i);
+			int len = line.length();
+			if (!line.endsWith(rowSeparator)) {
+				len += extraSpace; // getText() performs this same check; be consistent
 			}
-			textOffset -= len + extraSpace;
+			if (absoluteOffset < len) {
+				return new RowColLocation(i, absoluteOffset);
+			}
+			absoluteOffset -= len;
 		}
-		return new RowColLocation(n - 1, textElements[n - 1].getText().length());
+
+		int lastRow = n - 1;
+		TextField field = getField(lastRow);
+		int lastColumn = field.getText().length();
+		return new DefaultRowColLocation(lastRow, lastColumn);
 	}
 
 	@Override
 	public boolean isClipped() {
 		return isClipped;
+	}
+
+	/**
+	 * Returns the view's text lines of this field
+	 * @return the lines
+	 */
+	protected List<String> getLines() {
+		return lines;
+	}
+
+	private TextField getField(int screenRow) {
+		if (screenRow >= subFields.size()) {
+			return null;
+		}
+		return subFields.get(screenRow).field;
+	}
+
+	private int getDataRow(TextField field) {
+		for (FieldRow fieldRow : subFields) {
+			if (fieldRow.field == field) {
+				return fieldRow.dataRow;
+			}
+		}
+		return 0;
+	}
+
+	private class FieldRow {
+		private TextField field;
+		private int dataRow;
+		@SuppressWarnings("unused") // used by Json
+		private int screenRow;
+
+		FieldRow(TextField field, int dataRow, int screenRow) {
+			this.field = field;
+			this.dataRow = dataRow;
+			this.screenRow = screenRow;
+		}
+
+		@Override
+		public String toString() {
+			return Json.toString(this);
+		}
 	}
 }

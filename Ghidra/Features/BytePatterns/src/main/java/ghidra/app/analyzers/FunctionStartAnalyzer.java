@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,8 +16,8 @@
 package ghidra.app.analyzers;
 
 import java.math.BigInteger;
-import java.util.ArrayList;
-import java.util.Iterator;
+import java.util.*;
+import java.util.regex.Matcher;
 
 import generic.jar.ResourceFile;
 import ghidra.app.cmd.function.CreateFunctionCmd;
@@ -29,7 +29,8 @@ import ghidra.app.util.PseudoDisassemblerContext;
 import ghidra.app.util.importer.MessageLog;
 import ghidra.framework.options.Options;
 import ghidra.program.model.address.*;
-import ghidra.program.model.lang.*;
+import ghidra.program.model.lang.Register;
+import ghidra.program.model.lang.RegisterValue;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.mem.MemoryBlock;
 import ghidra.program.model.symbol.*;
@@ -44,7 +45,7 @@ import ghidra.xml.XmlElement;
 import ghidra.xml.XmlPullParser;
 
 public class FunctionStartAnalyzer extends AbstractAnalyzer implements PatternFactory {
-	private static final String FUNCTION_START_SEARCH = "Function Start Search";
+	protected static final String FUNCTION_START_SEARCH = "Function Start Search";
 	protected static final String NAME = FUNCTION_START_SEARCH;
 	private static final String DESCRIPTION =
 		"Search for architecture specific byte patterns: typically starts of functions";
@@ -59,9 +60,9 @@ public class FunctionStartAnalyzer extends AbstractAnalyzer implements PatternFa
 	private final static boolean OPTION_DEFAULT_BOOKMARKS = false;
 
 	private static ProgramDecisionTree patternDecisitionTree;
-	// always need to initialize the root.
-	SequenceSearchState rootState = null;
-	SequenceSearchState explicitState = null;  //for use during dynamic function start pattern discovery
+	// always need to initialize the pattern searcher.
+	BulkPatternSearcher<Pattern> patternSearcher = null;
+	BulkPatternSearcher<Pattern> explicitSearcher = null;  //for use during dynamic function start pattern discovery
 
 	private boolean executableBlocksOnly = true; // true if we only analyze executable blocks
 
@@ -84,11 +85,15 @@ public class FunctionStartAnalyzer extends AbstractAnalyzer implements PatternFa
 	protected AddressSet postreqFailedResult = null; // Discovered pattern, but a post req failed (not following a defined thing)
 	protected ArrayList<RegisterValue> contextValueList = null;
 
-	private static ProgramDecisionTree getPatternDecisionTree() {
+	private static ProgramDecisionTree initializePatternDecisionTree() {
 		if (patternDecisitionTree == null) {
 			patternDecisitionTree = Patterns.getPatternDecisionTree();
 		}
 		return patternDecisitionTree;
+	}
+
+	public ProgramDecisionTree getPatternDecisionTree() {
+		return initializePatternDecisionTree();
 	}
 
 	public FunctionStartAnalyzer() {
@@ -96,36 +101,35 @@ public class FunctionStartAnalyzer extends AbstractAnalyzer implements PatternFa
 	}
 
 	public FunctionStartAnalyzer(String name, AnalyzerType analyzerType) {
-		super(name, DESCRIPTION, analyzerType);
+		this(name, DESCRIPTION, analyzerType);
+
+	}
+
+	public FunctionStartAnalyzer(String name, String description, AnalyzerType analyzerType) {
+		super(name, description, analyzerType);
+
 		setPriority(AnalysisPriority.CODE_ANALYSIS.after().after());
 		setDefaultEnablement(true);
 		setSupportsOneTimeAnalysis();
 	}
 
 	/**
-	 * Sets the {@link SequenceSearchState}. Use this method when you've created a 
-	 * {@link SequenceSearchState} that you want to apply to the program. If you don't set
-	 * the state explicitly, Ghidra will create one from the appropriate pattern file in
-	 * {@link SequenceSearchState#initialize}
-	 * @param explicit
+	 * Sets the {@link BulkPatternSearcher}. Use this method when you've created a 
+	 * {@link BulkPatternSearcher} that you want to apply to the program. If you don't set
+	 * the state explicitly, Ghidra will create one from the appropriate pattern file.
+	 * @param searcher the explicit BulkPatternSearcher to use
 	 */
-	public void setExplicitState(SequenceSearchState explicit) {
-		explicitState = explicit;
+	public void setExplicitState(BulkPatternSearcher<Pattern> searcher) {
+		explicitSearcher = searcher;
 	}
 
 	/**
-	 * Clears the explict state.
+	 * Clears the explicit state.
 	 */
 	public void clearExplicitState() {
-		explicitState = null;
+		explicitSearcher = null;
 	}
 
-	/**
-	 * apply any latent context at the location
-	 *
-	 * @param program
-	 * @param addr
-	 */
 	private void setCurrentContext(Program program, Address addr) {
 		if (contextValueList == null) {
 			return;
@@ -148,27 +152,22 @@ public class FunctionStartAnalyzer extends AbstractAnalyzer implements PatternFa
 		contextValueList = null;
 	}
 
-	private void setDisassemblerContext(Program program, DisassemblerContext pcont) {
+	private void setDisassemblerContext(Program program, PseudoDisassemblerContext pcont,
+			Address addr) {
 		if (contextValueList == null) {
 			return;
 		}
 		Iterator<RegisterValue> iterator = contextValueList.iterator();
 		while (iterator.hasNext()) {
 			RegisterValue contextValue = iterator.next();
-
-			try {
-				pcont.setRegisterValue(contextValue);
-			}
-			catch (ContextChangeException e) {
-				// context conflicts cause problems, let already layed down context win.
-			}
+			pcont.setValue(contextValue.getRegister(), addr, contextValue.getUnsignedValue());
 		}
 	}
 
 	public class CodeBoundaryAction implements MatchAction {
 
 		@Override
-		public void apply(Program program, Address addr, Match match) {
+		public void apply(Program program, Address addr, Match<Pattern> match) {
 			Listing listing = program.getListing();
 			CodeUnit cu = listing.getCodeUnitContaining(addr);
 			if (cu != null) {
@@ -195,23 +194,45 @@ public class FunctionStartAnalyzer extends AbstractAnalyzer implements PatternFa
 
 	public class FunctionStartAction implements MatchAction {
 
+		private static final int MUST_HAVE_VALID_INSTRUCTIONS_NO_MIN = -1;  // no minimum
+		private static final int VALID_INSTRUCTIONS_NO_MAX = -1;            // no maximum on instructions to check
+		private static final int NO_VALID_INSTRUCTIONS_REQUIRED = 0;
+
 		private String afterName = null;
-		private int validcode = 0; // -1 means in a valid subroutine
+		private int validCodeMin = NO_VALID_INSTRUCTIONS_REQUIRED;
+		private int validCodeMax = VALID_INSTRUCTIONS_NO_MAX;
 		private String label = null;
-		private boolean isThunk = false;  // true if this function should be turned into a thunk
-		private boolean noreturn = false; // true to set function non-returning
-		boolean validFunction = false; // must be defined at a function
+		private boolean isThunk = false;    // true if this function should be turned into a thunk
+		private boolean noreturn = false;   // true to set function non-returning
+		private java.util.regex.Pattern sectionNamePattern = null;  // required section name as a regex pattern
+		boolean validFunction = false;      // must be defined at a function
+		private boolean contiguous = true;  // require validcode instructions be contiguous
 
 		@Override
-		public void apply(Program program, Address addr, Match match) {
+		public void apply(Program program, Address addr, Match<Pattern> match) {
 			if (!checkPreRequisites(program, addr)) {
+				// didn't match, get rid of contextValueList
+				contextValueList = null;
 				return;
 			}
 
 			applyActionToSet(program, addr, funcResult, match);
+			contextValueList = null;
 		}
 
 		protected boolean checkPreRequisites(Program program, Address addr) {
+			// check required section name
+			if (sectionNamePattern != null) {
+				MemoryBlock block = program.getMemory().getBlock(addr);
+				if (block == null) {
+					return false;
+				}
+				Matcher m = sectionNamePattern.matcher(block.getName());
+				if (!m.matches()) {
+					return false;
+				}
+			}
+
 			/**
 			 * If the match's mark point occurs in undefined data, schedule disassembly
 			 * and a function start at that address. If the match's mark point occurs at an instruction, but that
@@ -233,29 +254,40 @@ public class FunctionStartAnalyzer extends AbstractAnalyzer implements PatternFa
 			}
 
 			// do we require some number of valid instructions
-			if (validcode != 0) {
+			if (validCodeMin != 0) {
 				PseudoDisassembler pseudoDisassembler = new PseudoDisassembler(program);
 				PseudoDisassemblerContext pcont =
 					new PseudoDisassemblerContext(program.getProgramContext());
-				setDisassemblerContext(program, pcont);
+
+				setDisassemblerContext(program, pcont, addr);
 				boolean isvalid = false;
-				if (validcode == -1) {
-					isvalid = pseudoDisassembler.checkValidSubroutine(addr, pcont, true, true);
+				if (validCodeMin == -1) {
+					if (validCodeMax > 0) {  // check at most N instructions
+						pseudoDisassembler.setMaxInstructions(validCodeMax);
+					}
+					isvalid = pseudoDisassembler.checkValidSubroutine(addr, pcont, true, true,
+						contiguous);
 				}
 				else {
-					pseudoDisassembler.setMaxInstructions(validcode);
-					isvalid = pseudoDisassembler.checkValidSubroutine(addr, pcont, true, false);
+					if (validCodeMax > 0) { // check at most N instructions
+						pseudoDisassembler.setMaxInstructions(validCodeMax);
+					}
+					// disassemble only fallthru, must have validcode number of instructions
+					isvalid = pseudoDisassembler.checkValidSubroutine(addr, pcont, true, false,
+						contiguous);
+					int instrCount = pseudoDisassembler.getLastCheckValidInstructionCount();
+					if (instrCount < validCodeMin) {
+						isvalid = false;
+					}
 				}
-				if (!isvalid) {
-					return false;
-				}
+				return isvalid;
 			}
 
 			return true;
 		}
 
 		protected void applyActionToSet(Program program, Address addr, AddressSet resultSet,
-				Match match) {
+				Match<Pattern> match) {
 
 			if ((addr.getOffset() % program.getLanguage().getInstructionAlignment()) != 0) {
 				return; // addr is not properly aligned
@@ -365,7 +397,11 @@ public class FunctionStartAnalyzer extends AbstractAnalyzer implements PatternFa
 
 				// if this place is already in a function, we shouldn't start one
 				if (name.startsWith("func")) {
-					if (checkAlreadyInFunctionAbove(program, addr)) {
+					Function funcAbove = getFunctionAbove(program, addr);
+					if (funcAbove == null) {
+						return false;
+					}
+					if (checkAlreadyInFunctionAbove(program, addr, funcAbove)) {
 						return false;
 					}
 				}
@@ -383,6 +419,10 @@ public class FunctionStartAnalyzer extends AbstractAnalyzer implements PatternFa
 						return false;
 					}
 				}
+				else if (name.startsWith("ptr")) {
+					// if there are only pure data references to the location
+					return pureDataReferencesOnly(program, addr);
+				}
 				else if (name.startsWith("def")) {
 					// make sure there is something at location to check
 					Instruction instr = program.getListing().getInstructionContaining(addrToCheck);
@@ -396,51 +436,121 @@ public class FunctionStartAnalyzer extends AbstractAnalyzer implements PatternFa
 					if (data != null) {
 						return true;
 					}
-					return false;
+					// if there are only pure data references to the location
+					return pureDataReferencesOnly(program, addr);
 				}
+
 			}
 			return true;
 		}
 
-		private boolean checkAlreadyInFunctionAbove(Program program, Address addr) {
-			// make sure there is an end of function before this one, and if just an instruction, doesn't fall into this one.
-			Function func = null;
-			Address addrBefore = addr.previous();
-			func = program.getFunctionManager().getFunctionContaining(addrBefore);
-			if (func == null) {
-				Instruction instr = program.getListing().getInstructionContaining(addrBefore);
-				if (instr != null && addr.equals(instr.getFallThrough())) {
-					return true;
+		/**
+		 * Check if there are only pure data references to the location
+		 * 
+		 * @param program program to check
+		 * @param addrToCheck location to check
+		 * @return true if there are only pure data references (no flow, or r/w)
+		 */
+		private boolean pureDataReferencesOnly(Program program, Address addrToCheck) {
+			ReferenceIterator referencesTo =
+				program.getReferenceManager().getReferencesTo(addrToCheck);
+			if (!referencesTo.hasNext()) {
+				return false;
+			}
+			for (Reference reference : referencesTo) {
+				RefType refType = reference.getReferenceType();
+				if (refType.isFlow()) {
+					return false;
 				}
-				// check for references to this function, address
-				ReferenceIterator referencesTo =
-					program.getReferenceManager().getReferencesTo(addr);
-				for (Reference reference : referencesTo) {
-					// someone flows to or reads/writes this location, shouldn't be a start
-					RefType referenceType = reference.getReferenceType();
-					if (referenceType.isData() &&
-						!(referenceType.isRead() || referenceType.isWrite())) {
-						continue;
-					}
-					// any other reference to here is bad, since a function or other flow should
-					//   have created the location
-					return true;
+				if (refType.isRead() || refType.isWrite()) {
+					return false;
+				}
+				if (refType.isData()) {
+					continue;
 				}
 				return false;
 			}
-			// don't do it if I'm in a function
-			Function myfunc = program.getFunctionManager().getFunctionContaining(addr);
-			if (myfunc != null && myfunc.getEntryPoint().equals(func.getEntryPoint())) {
+			return true;
+		}
+
+		/*
+		 * Check if address if addr is already part of a function just preceding this address.
+		 * If the address is part of another function that is different than the function right
+		 * above, then the pattern should be applied, because it is most likely a unique function
+		 * that is being used by another function as a shared return.
+		 */
+		private boolean checkAlreadyInFunctionAbove(Program program, Address addr) {
+			Function funcAbove = getFunctionAbove(program, addr);
+			return checkAlreadyInFunctionAbove(program, addr, funcAbove);
+		}
+
+		/*
+		 * Check if in a function above
+		 * return true if already in function above, false otherwise even if in another function
+		 */
+		private boolean checkAlreadyInFunctionAbove(Program program, Address addr,
+				Function funcAbove) {
+			// if no funcAbove, make sure an instruction, doesn't fall into this one.
+			Address addrBefore = addr.previous();
+			if (addrBefore == null) {
+				return false;
+			}
+			if (funcAbove != null) {
+				// check if in function right above
+				Function myfunc = program.getFunctionManager().getFunctionContaining(addr);
+				if (myfunc != null && myfunc.getEntryPoint().equals(funcAbove.getEntryPoint())) {
+					return true;
+				}
+				// I could be in a different function, just not one above
+				return false;
+			}
+
+			// no function above, but check for references, that would make this a function
+			// or references that would imply it is part of another function.
+			Instruction instr = program.getListing().getInstructionContaining(addrBefore);
+			if (instr != null && addr.equals(instr.getFallThrough())) {
 				return true;
 			}
+			// check for references to this function, address
+			ReferenceIterator referencesTo =
+				program.getReferenceManager().getReferencesTo(addr);
+			for (Reference reference : referencesTo) {
+				// someone flows to or reads/writes this location, shouldn't be a start
+				RefType referenceType = reference.getReferenceType();
+				if (referenceType.isData() &&
+					!(referenceType.isRead() || referenceType.isWrite())) {
+					continue;
+				}
+				// any other reference to here is bad, since a function or other flow should
+				//   have created the location
+				return true;
+			}
+
 			return false;
 		}
 
-		void bookmarkAction(Program program, Address addr, Match match) {
+		/**
+		 * Get an existing function right above the addr.
+		 * @param program program to check
+		 * @param addr address to check
+		 * @return true if there is an existing function above addr
+		 */
+		private Function getFunctionAbove(Program program, Address addr) {
+			// make sure there is an end of function before this one, and addr is not in the function
+			Function func = null;
+			Address addrBefore = addr.previous();
+			if (addrBefore == null) {
+				return null;
+			}
+			func = program.getFunctionManager().getFunctionContaining(addrBefore);
+			return func;
+		}
+
+		void bookmarkAction(Program program, Address addr, Match<Pattern> match) {
 			if (setbookmark) {
 				BookmarkManager bookmarkManager = program.getBookmarkManager();
 				bookmarkManager.setBookmark(addr, BookmarkType.ANALYSIS, getName(),
-					"Match pattern " + match.getSequenceIndex());
+					"Match pattern " + match.getPattern().getIndex());
 			}
 		}
 
@@ -452,52 +562,119 @@ public class FunctionStartAnalyzer extends AbstractAnalyzer implements PatternFa
 		}
 
 		protected void restoreXmlAttributes(XmlElement el) {
-			if (el.hasAttribute("after")) {
-				afterName = el.getAttribute("after");
-				if (afterName.startsWith("func")) {
-					hasCodeConstraints = true;
+			Map<String, String> attributes = el.getAttributes();
+			Set<String> keySet = attributes.keySet();
+			for (String attrName : keySet) {
+				String attrValue = attributes.get(attrName);
+				attrName = attrName.toLowerCase();
+				switch (attrName) {
+					case "after":
+						afterName = attrValue;
+						if (afterName.startsWith("func")) {
+							hasCodeConstraints = true;
+						}
+						else if (afterName.startsWith("inst")) {
+							hasCodeConstraints = true;
+						}
+						else if (afterName.startsWith("data")) {
+							hasDataConstraints = true;
+						}
+						else if (afterName.startsWith("ptr")) {
+							hasDataConstraints = true;
+						}
+						else if (afterName.startsWith("def")) {
+							hasCodeConstraints = hasDataConstraints = true;
+						}
+						else {
+							Msg.error(this,
+								"funcstart pattern attribute 'after' must be one of 'function', 'instruction', 'data', 'defined'");
+						}
+						break;
+
+					// set check for valid code and the minimum number of instructions required
+					// if no maximum is set, then the instructions MUST be fallthru instructions, don't check branch flows
+					case "validcode":
+						String validcodeStr = attrValue;
+						if (validcodeStr.equals("0") || validcodeStr.equals("false")) {
+							validCodeMin = NO_VALID_INSTRUCTIONS_REQUIRED;
+						}
+						else if (validcodeStr.equalsIgnoreCase("true") ||
+							validcodeStr.equalsIgnoreCase("subroutine")) { // must be a valid subroutine
+							validCodeMin = MUST_HAVE_VALID_INSTRUCTIONS_NO_MIN;
+						}
+						else if (validcodeStr.equalsIgnoreCase("function")) { // must be at a defined function
+							validFunction = true;
+							hasFunctionStartConstraints = true;  // enable FunctionStartFuncAnalyzer to run
+							validCodeMin = NO_VALID_INSTRUCTIONS_REQUIRED;
+						}
+						else { // must have <N> valid fallthru instruction to match
+							validCodeMin = Integer.parseInt(validcodeStr);
+						}
+						if (validCodeMax == VALID_INSTRUCTIONS_NO_MAX) {
+							// if no maximum instructions to check, only check the minimum number
+							validCodeMax = validCodeMin;
+						}
+						break;
+
+					// set the maximum number of instructions to check
+					// if maximum is set, then allow non fallthru instructions while flowing
+					case "validcodemax":
+						String validcodeMaxStr = attrValue;
+						// check up <N> instructions for valid code
+						validCodeMax = Integer.parseInt(validcodeMaxStr);
+						if (validCodeMin == NO_VALID_INSTRUCTIONS_REQUIRED) {
+							// if set a max and no minimum yet, must have some number of instructions
+							// if a validcode minimum is set later, will override this default
+							validCodeMin = MUST_HAVE_VALID_INSTRUCTIONS_NO_MIN;
+						}
+						break;
+
+					// minimum number of instructions for validcode must be contiguous instructions
+					case "contiguous":
+						String fallThruOnlyStr = attrValue;
+						// check up <N> instructions for valid code
+						contiguous = true;
+						if (fallThruOnlyStr.equalsIgnoreCase("false")) {
+							contiguous = false;
+						}
+						else if (fallThruOnlyStr.equalsIgnoreCase("true")) {
+							contiguous = true;
+						}
+						else {
+							Msg.error(this, "Bad contiguous option (true,false): " + attrName +
+								" = " + attrValue);
+						}
+						break;
+
+					case "label":
+						String name = attrValue;
+						label = name;
+						break;
+
+					case "thunk":
+						isThunk = true;
+						break;
+
+					case "section":
+						sectionNamePattern = java.util.regex.Pattern.compile(attrValue);
+						break;
+
+					case "noreturn":
+						noreturn = true;
+						break;
+
+					// TODO: add the ability to make data based on a pattern of bytes
+					// useful after defined instructions/functions to take up filler byte patterns
+					// will allow more finding of code that is after defined data
+//					case "data":
+//						String validcodeDataStr = attrValue;
+//						// create undefined data of the given size
+//						makeData = Integer.parseInt(validcodeDataStr);
+//						break;
+
+					default:
+						Msg.error(this, "Unknown Patten option: " + attrName + " = " + attrValue);
 				}
-				else if (afterName.startsWith("inst")) {
-					hasCodeConstraints = true;
-				}
-				else if (afterName.startsWith("data")) {
-					hasDataConstraints = true;
-				}
-				else if (afterName.startsWith("def")) {
-					hasCodeConstraints = hasDataConstraints = true;
-				}
-				else {
-					Msg.error(this,
-						"funcstart pattern attribute 'after' must be one of 'function', 'instruction', 'data', 'defined'");
-				}
-			}
-			if (el.hasAttribute("validcode")) {
-				validcode = 8;
-				String validcodeStr = el.getAttribute("validcode");
-				if (validcodeStr.equals("0") || validcodeStr.equals("false")) {
-					validcode = 0;
-				}
-				else if (validcodeStr.equalsIgnoreCase("true") ||
-					validcodeStr.equalsIgnoreCase("subroutine")) { // must be a valid subroutine
-					validcode = -1;
-				}
-				else if (validcodeStr.equalsIgnoreCase("function")) { // must be at a defined subroutine
-					validFunction = true;
-					hasFunctionStartConstraints = true;
-				}
-				else { // must have <N> valid instruction run
-					validcode = Integer.parseInt(validcodeStr);
-				}
-			}
-			if (el.hasAttribute("label")) {
-				String name = el.getAttribute("label");
-				label = name;
-			}
-			if (el.hasAttribute("thunk")) {
-				isThunk = true;
-			}
-			if (el.hasAttribute("noreturn")) {
-				noreturn = true;
 			}
 		}
 
@@ -505,7 +682,7 @@ public class FunctionStartAnalyzer extends AbstractAnalyzer implements PatternFa
 
 	public class PossibleFunctionStartAction extends FunctionStartAction {
 		@Override
-		public void apply(Program program, Address addr, Match match) {
+		public void apply(Program program, Address addr, Match<Pattern> match) {
 			if (!checkPreRequisites(program, addr)) {
 				return;
 			}
@@ -513,11 +690,11 @@ public class FunctionStartAnalyzer extends AbstractAnalyzer implements PatternFa
 		}
 
 		@Override
-		void bookmarkAction(Program program, Address addr, Match match) {
+		void bookmarkAction(Program program, Address addr, Match<Pattern> match) {
 			if (setbookmark) {
 				BookmarkManager bookmarkManager = program.getBookmarkManager();
 				bookmarkManager.setBookmark(addr, BookmarkType.ANALYSIS, "Possible " + getName(),
-					"Match pattern " + match.getSequenceIndex());
+					"Match pattern " + match.getPattern().getIndex());
 			}
 		}
 
@@ -543,7 +720,7 @@ public class FunctionStartAnalyzer extends AbstractAnalyzer implements PatternFa
 		}
 
 		@Override
-		public void apply(Program program, Address addr, Match match) {
+		public void apply(Program program, Address addr, Match<Pattern> match) {
 			Listing listing = program.getListing();
 			CodeUnit cu = listing.getCodeUnitContaining(addr);
 			if (cu != null) {
@@ -618,8 +795,8 @@ public class FunctionStartAnalyzer extends AbstractAnalyzer implements PatternFa
 	public boolean added(Program program, AddressSetView set, TaskMonitor monitor, MessageLog log)
 			throws CancelledException {
 
-		SequenceSearchState root = initialize(program);
-		if (root == null) {
+		BulkPatternSearcher<Pattern> searcher = initialize(program);
+		if (searcher == null) {
 			String message = "Could not initialize a search state.";
 			log.appendMsg(getName(), message);
 			log.setStatus(message);
@@ -633,31 +810,38 @@ public class FunctionStartAnalyzer extends AbstractAnalyzer implements PatternFa
 		//   this will keep cruft from accumulating in the property map.
 		getOrCreatePotentialMatchPropertyMap(program).remove(set);
 
-		MemoryBytePatternSearcher patternSearcher;
-		patternSearcher = new MemoryBytePatternSearcher("Function Starts", root) {
+		MemoryBytePatternSearcher memorySearcher =
+			new MemoryBytePatternSearcher("Function Starts", searcher) {
 
-			@Override
-			public void preMatchApply(MatchAction[] actions, Address addr) {
-				contextValueList = null; // make sure, only context from these actions used
-			}
-
-			@Override
-			public void postMatchApply(MatchAction[] actions, Address addr) {
-				// Actions might have set context, check if postcondition failed first
-				if (!postreqFailedResult.contains(addr)) {
-					setCurrentContext(program, addr);
+				@Override
+				public void preMatchApply(MatchAction[] actions, Address addr) {
+					contextValueList = null; // make sure, only context from these actions used
 				}
-				// get rid of the context list.
-				contextValueList = null;
-			}
-		};
-		patternSearcher.setSearchExecutableOnly(doExecutableBlocksOnly);
 
-		patternSearcher.search(program, set, monitor);
+				@Override
+				public void postMatchApply(MatchAction[] actions, Address addr) {
+					// Actions might have set context, check if postcondition failed first
+					if (!postreqFailedResult.contains(addr)) {
+						setCurrentContext(program, addr);
+					}
+					// get rid of the context list.
+					contextValueList = null;
+				}
+			};
+		memorySearcher.setSearchExecutableOnly(doExecutableBlocksOnly);
+
+		memorySearcher.search(program, set, monitor);
 
 		AutoAnalysisManager analysisManager = AutoAnalysisManager.getAnalysisManager(program);
 		if (!disassemResult.isEmpty()) {
-			analysisManager.disassemble(disassemResult);
+			// disassemble known function starts now
+			AddressSet doNowDisassembly = disassemResult.intersect(funcResult);
+			// this will disassemble at this analyzers priority
+			analysisManager.disassemble(doNowDisassembly);
+
+			// delay disassemble of possible function starts
+			AddressSet delayedDisassembly = disassemResult.subtract(funcResult);
+			analysisManager.disassemble(delayedDisassembly, AnalysisPriority.DISASSEMBLY);
 		}
 		analysisManager.setProtectedLocations(codeLocations);
 
@@ -665,43 +849,9 @@ public class FunctionStartAnalyzer extends AbstractAnalyzer implements PatternFa
 			// could be a pattern that said this is a function start, so it isn't potentially anymore
 			potentialFuncResult = potentialFuncResult.subtract(funcResult);
 
-			// kick off a later analyzer to create the functions after all the fallout
-			//       it should check that the function is not already part of another function
-			analysisManager.scheduleOneTimeAnalysis(new AnalyzerAdapter(
-				FUNCTION_START_SEARCH + " delayed", AnalysisPriority.DATA_ANALYSIS.after()) {
-				@Override
-				public boolean added(Program addedProgram, AddressSetView addedSet,
-						TaskMonitor addedMonitor, MessageLog addedLog) throws CancelledException {
-					AddressIterator addresses = addedSet.getAddresses(true);
-					while (addresses.hasNext() && !addedMonitor.isCancelled()) {
-						Address address = addresses.next();
-						// if there are any conditional references, then this can't be a function start
-						ReferenceIterator referencesTo =
-							addedProgram.getReferenceManager().getReferencesTo(address);
-						while (referencesTo.hasNext()) {
-							Reference reference = referencesTo.next();
-							if (reference.getReferenceType().isConditional()) {
-								continue;
-							}
-
-						}
-						Function funcAt =
-							addedProgram.getFunctionManager().getFunctionContaining(address);
-						if (funcAt != null) {
-							if (funcAt.getEntryPoint().equals(address)) {
-								continue;
-							}
-							BookmarkManager bookmarkManager = addedProgram.getBookmarkManager();
-							bookmarkManager.setBookmark(address, BookmarkType.ANALYSIS,
-								getName() + " Overlap",
-								"Function exists at probable good function start");
-							continue;
-						}
-						new CreateFunctionCmd(address, false).applyTo(addedProgram, addedMonitor);
-					}
-					return true;
-				}
-			}, potentialFuncResult);
+			// kick off a later analyzer to create the functions after all the fallout from disassemlby
+			PossibleDelayedFunctionCreator analyzer = new PossibleDelayedFunctionCreator();
+			analysisManager.scheduleOneTimeAnalysis(analyzer, potentialFuncResult);
 		}
 
 		if (!funcResult.isEmpty()) {
@@ -744,7 +894,7 @@ public class FunctionStartAnalyzer extends AbstractAnalyzer implements PatternFa
 		setbookmark = options.getBoolean(OPTION_NAME_BOOKMARKS, setbookmark);
 	}
 
-	protected SequenceSearchState initialize(Program program) {
+	protected BulkPatternSearcher<Pattern> initialize(Program program) {
 
 		potentialFuncResult = new AddressSet();
 		disassemResult = new AddressSet();
@@ -752,15 +902,15 @@ public class FunctionStartAnalyzer extends AbstractAnalyzer implements PatternFa
 		postreqFailedResult = new AddressSet();
 		funcResult = new AddressSet();
 
-		if (explicitState != null) {
-			return explicitState;
+		if (explicitSearcher != null) {
+			return explicitSearcher;
 		}
 
 		// TODO: Check the times on the patterns files, maybe reload them!
 		//       could get times of all files and record them to check times.
 		//       filelist keeps getting re-parsed...!
-		if (rootState != null) {
-			return rootState;
+		if (patternSearcher != null) {
+			return patternSearcher;
 		}
 
 		ArrayList<Pattern> patternlist = new ArrayList<>();
@@ -780,9 +930,8 @@ public class FunctionStartAnalyzer extends AbstractAnalyzer implements PatternFa
 			return null;
 		}
 
-		SequenceSearchState root = SequenceSearchState.buildStateMachine(patternlist);
-
-		return root;
+		BulkPatternSearcher<Pattern> searcher = new BulkPatternSearcher<>(patternlist);
+		return searcher;
 	}
 
 	private ArrayList<Pattern> readPatterns(ResourceFile[] filelist, Program program) {
@@ -828,4 +977,61 @@ public class FunctionStartAnalyzer extends AbstractAnalyzer implements PatternFa
 		return null;
 	}
 
+}
+
+/**
+ * 
+ * One time analyzer used to delay function creation until disassembly has settled.
+ */
+final class PossibleDelayedFunctionCreator extends AnalyzerAdapter {
+
+	PossibleDelayedFunctionCreator() {
+		super(FunctionStartAnalyzer.FUNCTION_START_SEARCH + " delayed",
+			AnalysisPriority.DATA_ANALYSIS.after());
+	}
+
+	@Override
+	public boolean added(Program addedProgram, AddressSetView addedSet,
+			TaskMonitor addedMonitor, MessageLog addedLog) throws CancelledException {
+		AddressIterator addresses = addedSet.getAddresses(true);
+		AddressSet functionStarts = new AddressSet();
+		while (addresses.hasNext() && !addedMonitor.isCancelled()) {
+			Address address = addresses.next();
+			// if there are any conditional references, then this can't be a function start
+			if (hasConditionalReferences(addedProgram, address)) {
+				continue;
+			}
+
+			// Check for any function containing the potential start detected earlier in analysis
+			Function funcAt =
+				addedProgram.getFunctionManager().getFunctionContaining(address);
+			if (funcAt != null) {
+				if (funcAt.getEntryPoint().equals(address)) {
+					continue;
+				}
+				BookmarkManager bookmarkManager = addedProgram.getBookmarkManager();
+				bookmarkManager.setBookmark(address, BookmarkType.ANALYSIS,
+					getName() + " Overlap",
+					"Function exists at probable good function start");
+				continue;
+			}
+			functionStarts.add(address);
+		}
+
+		// create functions that still don't exist/overlap
+		new CreateFunctionCmd(functionStarts, false).applyTo(addedProgram, addedMonitor);
+		return true;
+	}
+
+	private boolean hasConditionalReferences(Program addedProgram, Address address) {
+		ReferenceIterator refsTo =
+			addedProgram.getReferenceManager().getReferencesTo(address);
+		while (refsTo.hasNext()) {
+			Reference reference = refsTo.next();
+			if (reference.getReferenceType().isConditional()) {
+				return true;
+			}
+		}
+		return false;
+	}
 }

@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,13 +15,14 @@
  */
 package ghidra.app.util.bin.format.macho.commands;
 
-import ghidra.app.util.bin.*;
-import ghidra.app.util.bin.format.*;
-import ghidra.app.util.bin.format.macho.*;
-import ghidra.program.model.data.*;
-import ghidra.util.exception.*;
+import java.io.IOException;
 
-import java.io.*;
+import ghidra.app.util.bin.BinaryReader;
+import ghidra.app.util.bin.StructConverter;
+import ghidra.app.util.bin.format.macho.MachConstants;
+import ghidra.app.util.bin.format.macho.MachHeader;
+import ghidra.program.model.data.*;
+import ghidra.util.exception.DuplicateNameException;
 
 public class DynamicLibraryModule implements StructConverter {
     private int module_name;            // the module name (index into string table)
@@ -42,20 +42,7 @@ public class DynamicLibraryModule implements StructConverter {
     private boolean is32bit;
     private String moduleName;
 
-    public static DynamicLibraryModule createDynamicLibraryModule(
-            FactoryBundledWithBinaryReader reader, MachHeader header)
-            throws IOException {
-        DynamicLibraryModule dynamicLibraryModule = (DynamicLibraryModule) reader.getFactory().create(DynamicLibraryModule.class);
-        dynamicLibraryModule.initDynamicLibraryModule(reader, header);
-        return dynamicLibraryModule;
-    }
-
-    /**
-     * DO NOT USE THIS CONSTRUCTOR, USE create*(GenericFactory ...) FACTORY METHODS INSTEAD.
-     */
-    public DynamicLibraryModule() {}
-
-	private void initDynamicLibraryModule(FactoryBundledWithBinaryReader reader, MachHeader header) throws IOException {
+	public DynamicLibraryModule(BinaryReader reader, MachHeader header) throws IOException {
 		this.is32bit = header.is32bit();
 
 		module_name                = reader.readNextInt();
@@ -70,7 +57,7 @@ public class DynamicLibraryModule implements StructConverter {
 		iinit_iterm                = reader.readNextInt();
 		ninit_nterm                = reader.readNextInt();
 		if (is32bit) {
-			objc_module_info_addr  = reader.readNextInt() & 0xffffffffL;
+			objc_module_info_addr  = reader.readNextUnsignedInt();
 		    objc_module_info_size  = reader.readNextInt();
 		}
 		else {
@@ -112,17 +99,22 @@ public class DynamicLibraryModule implements StructConverter {
 	public int getExternalRelocationCount() {
 		return nextrel;
 	}
+	
 	/**
-	 * low 16 bits are the index into the init section, 
-	 * high 16 bits are the index into the term section
+	 * Low 16 bits are the index into the init section, high 16 bits are the index into the term 
+	 * section
+	 * 
+	 * @return The init term index
 	 */
 	public int getInitTermIndex() {
 		return iinit_iterm;
 	}
+	
 	/**
-	 * low 16 bits are the number of init section entries, 
-	 * high 16 bits are the number of term section entries
-	 * @return
+	 * Low 16 bits are the number of init section entries, high 16 bits are the number of term 
+	 * section entries
+	 * 
+	 * @return The init term count
 	 */
 	public int getInitTermCount() {
 		return ninit_nterm;
@@ -134,6 +126,7 @@ public class DynamicLibraryModule implements StructConverter {
 		return objc_module_info_addr;
 	}
 
+	@Override
 	public DataType toDataType() throws DuplicateNameException, IOException {
 	    StructureDataType struct = new StructureDataType("dylib_module", 0);
 	    struct.add(DWORD, "module_name", "the module name (index into string table)");

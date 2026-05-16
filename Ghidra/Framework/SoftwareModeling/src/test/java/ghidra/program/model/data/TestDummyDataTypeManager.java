@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,6 +17,10 @@ package ghidra.program.model.data;
 
 import java.util.*;
 
+import db.Transaction;
+import ghidra.program.database.map.AddressMap;
+import ghidra.program.model.lang.ProgramArchitecture;
+import ghidra.program.model.lang.PrototypeModel;
 import ghidra.util.InvalidNameException;
 import ghidra.util.UniversalID;
 import ghidra.util.exception.CancelledException;
@@ -83,6 +87,12 @@ public class TestDummyDataTypeManager implements DataTypeManager {
 
 	@Override
 	public Iterator<Composite> getAllComposites() {
+		// stub
+		return null;
+	}
+
+	@Override
+	public Iterator<FunctionDefinition> getAllFunctionDefinitions() {
 		// stub
 		return null;
 	}
@@ -156,12 +166,6 @@ public class TestDummyDataTypeManager implements DataTypeManager {
 	}
 
 	@Override
-	public void dataTypeChanged(DataType dataType) {
-		// stub
-
-	}
-
-	@Override
 	public void addDataTypeManagerListener(DataTypeManagerChangeListener l) {
 		// stub
 
@@ -186,9 +190,14 @@ public class TestDummyDataTypeManager implements DataTypeManager {
 	}
 
 	@Override
-	public boolean remove(DataType dataType, TaskMonitor monitor) {
+	public boolean remove(DataType dataType) {
 		// stub
 		return false;
+	}
+
+	@Override
+	public void remove(List<DataType> dataTypes, TaskMonitor monitor) throws CancelledException {
+		// stub
 	}
 
 	@Override
@@ -222,6 +231,11 @@ public class TestDummyDataTypeManager implements DataTypeManager {
 	}
 
 	@Override
+	public Transaction openTransaction(String description) throws IllegalStateException {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
 	public int startTransaction(String description) {
 		// stub
 		return 0;
@@ -234,9 +248,9 @@ public class TestDummyDataTypeManager implements DataTypeManager {
 	}
 
 	@Override
-	public void endTransaction(int transactionID, boolean commit) {
+	public boolean endTransaction(int transactionID, boolean commit) {
 		// stub
-
+		return false;
 	}
 
 	@Override
@@ -372,6 +386,23 @@ public class TestDummyDataTypeManager implements DataTypeManager {
 	}
 
 	@Override
+	public AddressMap getAddressMap() {
+		// stub
+		return null;
+	}
+
+	@Override
+	public ProgramArchitecture getProgramArchitecture() {
+		// stub
+		return null;
+	}
+
+	@Override
+	public String getProgramArchitectureSummary() {
+		return null;
+	}
+
+	@Override
 	public DataOrganization getDataOrganization() {
 		// stub
 		return null;
@@ -399,6 +430,38 @@ public class TestDummyDataTypeManager implements DataTypeManager {
 	public Set<DataType> getDataTypesContaining(DataType dataType) {
 		// stub
 		return null;
+	}
+
+	@Override
+	public boolean allowsDefaultBuiltInSettings() {
+		// stub
+		return false;
+	}
+
+	@Override
+	public boolean allowsDefaultComponentSettings() {
+		// stub
+		return false;
+	}
+
+	@Override
+	public Collection<String> getKnownCallingConventionNames() {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public Collection<String> getDefinedCallingConventionNames() {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public PrototypeModel getDefaultCallingConvention() {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public PrototypeModel getCallingConvention(String name) {
+		throw new UnsupportedOperationException();
 	}
 
 }

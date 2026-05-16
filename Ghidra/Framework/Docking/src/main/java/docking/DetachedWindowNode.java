@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -24,7 +24,7 @@ import java.util.Map.Entry;
 
 import javax.swing.*;
 
-import org.jdom.Element;
+import org.jdom2.Element;
 
 import generic.util.WindowUtilities;
 import ghidra.framework.OperatingSystem;
@@ -37,13 +37,12 @@ import ghidra.util.bean.GGlassPane;
 class DetachedWindowNode extends WindowNode {
 
 	private Window window;
-	//private String title;
 	private Node child;
-	private Rectangle bounds;
 	private StatusBar statusBar;
 	private JComponent childComp;
 	private DropTargetHandler dropTargetHandler;
 	private DropTargetFactory dropTargetFactory;
+	private Rectangle restoreBounds = new Rectangle();
 
 	/**
 	 * Constructs a new WindowNode
@@ -59,7 +58,6 @@ class DetachedWindowNode extends WindowNode {
 		this.child = child;
 		this.dropTargetFactory = factory;
 		child.parent = this;
-		bounds = new Rectangle(0, 0, 0, 0);
 	}
 
 	/**
@@ -76,20 +74,36 @@ class DetachedWindowNode extends WindowNode {
 		this.parent = parent;
 		this.dropTargetFactory = factory;
 
-		//title = elem.getAttributeValue("TITLE");
 		int x = Integer.parseInt(elem.getAttributeValue("X_POS"));
 		int y = Integer.parseInt(elem.getAttributeValue("Y_POS"));
 		int width = Integer.parseInt(elem.getAttributeValue("WIDTH"));
 		int height = Integer.parseInt(elem.getAttributeValue("HEIGHT"));
-		bounds = new Rectangle(x, y, width, height);
+		restoreBounds = new Rectangle(x, y, width, height);
 		Element childElement = (Element) elem.getChildren().get(0);
 		child = processChildElement(childElement, mgr, this, list);
-
 	}
 
-	void setInitialLocation(int x, int y) {
-		bounds.x = x;
-		bounds.y = y;
+	// Set the bounds for the component that is being placed in this window when the window is first
+	// created.  This is useful when dragging a component provider out of an existing window into
+	// its own window.
+	void setWindowContentsBounds(Rectangle r) {
+		// The rectangle will be empty when there is no size information for the component being
+		// added to this window node.
+		if (r == null) {
+			r = new Rectangle();
+		}
+
+		if (!r.isEmpty()) {
+			// We need to create window bounds from the given component bounds.  The window has
+			// extra size for the toolbar and menus.
+			int nonComponentWidth = 12;
+			int nonComponentHeight = 120;
+
+			r.width += nonComponentWidth;
+			r.height += nonComponentHeight;
+		}
+
+		restoreBounds = r;
 	}
 
 	void updateTitle() {
@@ -99,6 +113,11 @@ class DetachedWindowNode extends WindowNode {
 		else if (window instanceof JFrame) {
 			((JFrame) window).setTitle(generateTitle());
 		}
+	}
+
+	@Override
+	int getComponentCount() {
+		return child.getComponentCount();
 	}
 
 	@Override
@@ -139,7 +158,7 @@ class DetachedWindowNode extends WindowNode {
 	}
 
 	private void setFrameIcon(Frame frame, Image image) {
-		List<Image> list = new ArrayList<Image>();
+		List<Image> list = new ArrayList<>();
 		list.add(image);
 		setFrameIcon(frame, list);
 	}
@@ -222,7 +241,7 @@ class DetachedWindowNode extends WindowNode {
 	}
 
 	private String getTitleOfChildren() {
-		List<ComponentPlaceholder> placeholders = new ArrayList<ComponentPlaceholder>();
+		List<ComponentPlaceholder> placeholders = new ArrayList<>();
 
 		child.populateActiveComponents(placeholders);
 
@@ -242,23 +261,23 @@ class DetachedWindowNode extends WindowNode {
 
 	/**
 	 * Creates a list of titles from the given component providers and placeholders.  The utility
-	 * of this method is that it will group like component providers into one title value 
+	 * of this method is that it will group like component providers into one title value
 	 * instead of having one value for each placeholder.
 	 */
 	private List<String> generateTitles(List<ComponentPlaceholder> placeholders) {
 
 		//
-		// Decompose the given placeholders into a mapping of provider names to placeholders 
+		// Decompose the given placeholders into a mapping of provider names to placeholders
 		// that share that name.  This lets us group placeholders that are multiple instances of
 		// the same provider.
 		//
 		Map<String, List<ComponentPlaceholder>> providerNameToPlacholdersMap =
-			new HashMap<String, List<ComponentPlaceholder>>();
+			new HashMap<>();
 		for (ComponentPlaceholder placeholder : placeholders) {
 			String providerName = placeholder.getProvider().getName();
 			List<ComponentPlaceholder> list = providerNameToPlacholdersMap.get(providerName);
 			if (list == null) {
-				list = new ArrayList<ComponentPlaceholder>();
+				list = new ArrayList<>();
 				providerNameToPlacholdersMap.put(providerName, list);
 			}
 			list.add(placeholder);
@@ -267,13 +286,13 @@ class DetachedWindowNode extends WindowNode {
 		//
 		// Turn the created mapping into a mapping of providers names to sub-titles
 		//
-		Map<String, List<String>> providerNameToTitlesMap = new HashMap<String, List<String>>();
+		Map<String, List<String>> providerNameToTitlesMap = new HashMap<>();
 		Set<Entry<String, List<ComponentPlaceholder>>> entrySet =
 			providerNameToPlacholdersMap.entrySet();
 		for (Entry<String, List<ComponentPlaceholder>> entry : entrySet) {
 			String providerName = entry.getKey();
 			List<ComponentPlaceholder> placeholdersList = entry.getValue();
-			List<String> titles = new ArrayList<String>();
+			List<String> titles = new ArrayList<>();
 			if (placeholdersList.size() == 1) {
 				titles.add(placeholdersList.get(0).getTitle());
 			}
@@ -290,7 +309,7 @@ class DetachedWindowNode extends WindowNode {
 		// Use the created mapping to create an individual title based on a single provider
 		// or a group of providers.
 		//
-		List<String> finalTitles = new ArrayList<String>();
+		List<String> finalTitles = new ArrayList<>();
 		Set<Entry<String, List<String>>> providersEntrySet = providerNameToTitlesMap.entrySet();
 		for (Entry<String, List<String>> entry : providersEntrySet) {
 			String providerName = entry.getKey();
@@ -361,16 +380,40 @@ class DetachedWindowNode extends WindowNode {
 			}
 		});
 
-		if (bounds.height == 0 || bounds.width == 0) {
-			window.pack();
-			Dimension d = window.getSize();
-			bounds.height = d.height;
-			bounds.width = d.width;
-		}
-
-		WindowUtilities.ensureOnScreen(winMgr.getRootFrame(), bounds);
+		Rectangle bounds = getNewBounds(window);
 		window.setBounds(bounds);
 		window.setVisible(true);
+	}
+
+	private Rectangle getNewBounds(Window newWindow) {
+
+		Rectangle updatedBounds = new Rectangle(restoreBounds);
+		restoreBounds = null;
+		if (updatedBounds.isEmpty()) {
+			// No bounds to restore; pick something reasonable
+			window.pack();
+			Dimension d = newWindow.getSize();
+			updatedBounds.height = d.height;
+			updatedBounds.width = d.width;
+		}
+
+		ensureValidLocation(updatedBounds);
+		WindowUtilities.ensureEntirelyOnScreen(newWindow, updatedBounds);
+
+		return updatedBounds;
+	}
+
+	private void ensureValidLocation(Rectangle r) {
+
+		Window activeWindow = winMgr.getActiveWindow();
+		Point p = r.getLocation();
+		if (p.x == 0 && p.y == 0) {
+			// assume that 0,0 means that we have not yet been placed at any preferred location
+			p = WindowUtilities.centerOnScreen(activeWindow, r.getSize());
+			r.setLocation(p);
+		}
+
+		WindowUtilities.ensureOnScreen(activeWindow, r);
 	}
 
 	private JFrame createFrame() {
@@ -413,7 +456,7 @@ class DetachedWindowNode extends WindowNode {
 	void updateDialog() {
 
 		if (window != null && childComp != null) {
-			bounds = window.getBounds();
+			restoreBounds = window.getBounds();
 			winMgr.getMainWindow().requestFocus();
 			getContentPane().remove(childComp);
 			window.dispose();
@@ -444,7 +487,7 @@ class DetachedWindowNode extends WindowNode {
 			}
 		}
 		else if (window != null) {
-			bounds = window.getBounds();
+			restoreBounds = window.getBounds();
 			window.setVisible(false);
 			window.dispose();
 			window = null;
@@ -455,12 +498,19 @@ class DetachedWindowNode extends WindowNode {
 		((RootNode) parent).notifyWindowChanged(this);
 	}
 
-	/**
-	 * Releases all resources and makes this node unusable.
-	 *
-	 */
 	@Override
 	void dispose() {
+
+		disposeWindow();
+
+		if (child != null) {
+			child.parent = null;
+			child.dispose();
+			child = null;
+		}
+	}
+
+	private void disposeWindow() {
 		if (dropTargetHandler != null) {
 			dropTargetHandler.dispose();
 		}
@@ -472,9 +522,24 @@ class DetachedWindowNode extends WindowNode {
 			window.dispose();
 			window = null;
 		}
+	}
 
-		child.parent = null;
-		child = null;
+	/**
+	 * An oddly named method for an odd use case.  This method is meant to take an existing window,
+	 * such as that created by default when loading plugins, and hide it.   Clients cannot simply
+	 * call dispose(), as that would also dispose the entire child hierarchy of this class.  This
+	 * method is intended to keep all children not disposed while allowing this window node to go
+	 * away.
+	 */
+	void disconnect() {
+
+		// note: do not call child.dispose() here
+		if (child != null) {
+			child.parent = null;
+			child = null;
+		}
+
+		disposeWindow();
 	}
 
 	@Override
@@ -514,16 +579,14 @@ class DetachedWindowNode extends WindowNode {
 	@Override
 	Element saveToXML() {
 		if (window != null) {
-			bounds = window.getBounds();
+			restoreBounds = window.getBounds();
 		}
+
 		Element root = new Element("WINDOW_NODE");
-//		if (title != null) {
-//			root.setAttribute("TITLE", title);
-//		}
-		root.setAttribute("X_POS", "" + bounds.x);
-		root.setAttribute("Y_POS", "" + bounds.y);
-		root.setAttribute("WIDTH", "" + bounds.width);
-		root.setAttribute("HEIGHT", "" + bounds.height);
+		root.setAttribute("X_POS", "" + restoreBounds.x);
+		root.setAttribute("Y_POS", "" + restoreBounds.y);
+		root.setAttribute("WIDTH", "" + restoreBounds.width);
+		root.setAttribute("HEIGHT", "" + restoreBounds.height);
 		root.addContent(child.saveToXML());
 		return root;
 
@@ -539,12 +602,11 @@ class DetachedWindowNode extends WindowNode {
 
 	/**
 	 * Set the status text
-	 * @param text
+	 * @param text the text
 	 */
 	public void setStatusText(String text) {
 		if (statusBar != null) {
-			boolean isActive = window == null ? false : window.isActive();
-			statusBar.setStatusText(text, isActive);
+			statusBar.setStatusText(text);
 		}
 	}
 

@@ -216,8 +216,7 @@ public class PackedDatabaseCache {
 		ItemDeserializer itemDeserializer = null;
 		boolean success = false;
 		try {
-			long dbTime = packedDbFile.lastModified();
-			if (dbTime == 0 || !packedDbFile.isFile()) {
+			if (!packedDbFile.isFile()) {
 				throw new FileNotFoundException("File not found: " + packedDbFile);
 			}
 			itemDeserializer = new ItemDeserializer(packedDbFile);
@@ -364,7 +363,7 @@ public class PackedDatabaseCache {
 				else {
 					Msg.debug(this, "Using cached packed database: " + cachedDb.packedDbFilePath);
 				}
-				return new PackedDatabase(packedDbFile, packedDbLock, cachedDb, monitor);
+				return new PackedDatabase(cachedDb, packedDbFile, packedDbLock, monitor);
 			}
 			finally {
 				if (packedDbLock != null && packedDbLock.haveLock()) {

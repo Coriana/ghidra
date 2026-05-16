@@ -17,29 +17,27 @@ package ghidra.app.util.pcodeInject;
 
 import java.io.IOException;
 
-import ghidra.app.plugin.processors.sleigh.PcodeEmit;
 import ghidra.app.plugin.processors.sleigh.SleighLanguage;
 import ghidra.javaclass.format.ClassFileAnalysisState;
 import ghidra.javaclass.format.ClassFileJava;
 import ghidra.javaclass.format.constantpool.AbstractConstantPoolInfoJava;
-import ghidra.program.model.lang.InjectContext;
 import ghidra.program.model.lang.InjectPayload;
+import ghidra.program.model.lang.InjectPayloadCallother;
 import ghidra.program.model.listing.Program;
 
 /**
- * Subclasses of this class are used to generate pcode to inject for modeling
- * java bytecode in pcode.
+ * Subclasses of this class are used to generate p-code to inject for modeling
+ * java bytecode in p-code. Each is attached to CALLOTHER p-code op.
  *
  */
 
-public abstract class InjectPayloadJava implements InjectPayload {
+public abstract class InjectPayloadJava extends InjectPayloadCallother {
 	protected SleighLanguage language;
 	protected long uniqueBase;
-	private String sourceName;
 
 	public InjectPayloadJava(String sourceName, SleighLanguage language, long uniqBase) {
+		super(sourceName);
 		this.language = language;
-		this.sourceName = sourceName;
 		this.uniqueBase = uniqBase;
 	}
 
@@ -56,37 +54,14 @@ public abstract class InjectPayloadJava implements InjectPayload {
 	}
 
 	@Override
-	public int getType() {
-		return InjectPayload.CALLOTHERFIXUP_TYPE;
-	}
-
-	@Override
-	public String getSource() {
-		return sourceName;
-	}
-
-	@Override
-	public int getParamShift() {
-		return 0;
-	}
-
-	@Override
-	public void inject(InjectContext context, PcodeEmit emit) {
-		// Not used
-	}
-
-	@Override
-	public boolean isFallThru() {
-		return true;
-	}
-
-	@Override
-	public InjectParameter[] getInput() {
-		return null;
-	}
-
-	@Override
-	public InjectParameter[] getOutput() {
-		return null;
+	public boolean isEquivalent(InjectPayload obj) {
+		if (this.getClass() != obj.getClass()) {
+			return false;
+		}
+		InjectPayloadJava op2 = (InjectPayloadJava) obj;
+		if (uniqueBase != op2.uniqueBase) {
+			return false;
+		}
+		return super.isEquivalent(obj);
 	}
 }

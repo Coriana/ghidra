@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,6 +18,8 @@ package ghidra.program.model.data;
 import java.util.*;
 
 import ghidra.docking.settings.*;
+import ghidra.util.charset.CharsetInfo;
+import ghidra.util.charset.CharsetInfoManager;
 
 /**
  *  {@link SettingsDefinition} for setting the charset of a string instance.
@@ -49,7 +51,6 @@ public class CharsetSettingsDefinition implements EnumSettingsDefinition {
 	/**
 	 * Backward compatibility to map old MBCS (language_index, charset_index) tuples to a
 	 * simple charset_name value.
-	 * <p>
 	 */
 	private static Map<Long, List<String>> languageToCharsetIndexMap = new HashMap<>();
 
@@ -57,7 +58,7 @@ public class CharsetSettingsDefinition implements EnumSettingsDefinition {
 	private final Map<String, Integer> stringToOrdinal = new HashMap<>();
 
 	private CharsetSettingsDefinition() {
-		ordinalToString = CharsetInfo.getInstance().getCharsetNames();
+		ordinalToString = CharsetInfoManager.getInstance().getCharsetNames().toArray(String[]::new);
 		for (int i = 0; i < ordinalToString.length; i++) {
 			stringToOrdinal.put(ordinalToString[i], i);
 		}
@@ -69,6 +70,11 @@ public class CharsetSettingsDefinition implements EnumSettingsDefinition {
 			cs = getDeprecatedEncodingValue(settings);
 		}
 		return (cs != null) ? cs : defaultValue;
+	}
+
+	@Override
+	public String getValueString(Settings settings) {
+		return getCharset(settings, null);
 	}
 
 	private String getDeprecatedEncodingValue(Settings settings) {
@@ -121,6 +127,11 @@ public class CharsetSettingsDefinition implements EnumSettingsDefinition {
 	@Override
 	public String getName() {
 		return CHARSET_NAME;
+	}
+
+	@Override
+	public String getStorageKey() {
+		return CHARSET_SETTING_NAME;
 	}
 
 	@Override

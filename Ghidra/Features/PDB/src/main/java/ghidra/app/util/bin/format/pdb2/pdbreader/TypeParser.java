@@ -18,7 +18,6 @@ package ghidra.app.util.bin.format.pdb2.pdbreader;
 import java.util.Objects;
 
 import ghidra.app.util.bin.format.pdb2.pdbreader.type.*;
-import ghidra.util.exception.AssertException;
 import ghidra.util.exception.CancelledException;
 
 /**
@@ -28,33 +27,27 @@ import ghidra.util.exception.CancelledException;
 public class TypeParser {
 
 	//==============================================================================================
-	// Internals
-	//==============================================================================================
-	protected AbstractPdb pdb;
-
-	//==============================================================================================
 	// API
 	//==============================================================================================
 	/**
 	 * Constructor.
-	 * @param pdb {@link AbstractPdb} that owns the Symbols to be parsed.
 	 */
-	public TypeParser(AbstractPdb pdb) {
-		Objects.requireNonNull(pdb, "pdb cannot be null");
-		this.pdb = pdb;
+	private TypeParser() {
 	}
 
 	/**
 	 * Deserializes an {@link AbstractMsType} from the {@link PdbByteReader} and returns it.
+	 * @param pdb {@link AbstractPdb} that owns the Types to be parsed.
 	 * @param reader {@link PdbByteReader} from which to deserialize the data.
 	 * @param recordNumber {@link RecordNumber} of the record.
 	 * @return {@link AbstractMsType} parsed.
 	 * @throws PdbException upon error parsing a field.
 	 * @throws CancelledException Upon user cancellation.
 	 */
-	public AbstractMsType parseRecord(PdbByteReader reader, RecordNumber recordNumber)
-			throws PdbException, CancelledException {
-		AbstractMsType result = parse(reader, AbstractMsType.class);
+	public static AbstractMsType parseRecord(AbstractPdb pdb, PdbByteReader reader,
+			RecordNumber recordNumber) throws PdbException, CancelledException {
+		Objects.requireNonNull(pdb, "pdb cannot be null");
+		AbstractMsType result = parse(pdb, reader, AbstractMsType.class);
 		result.setRecordNumber(recordNumber);
 		return result;
 	}
@@ -62,25 +55,29 @@ public class TypeParser {
 	/**
 	 * Deserializes an {@link AbstractMsType} from the {@link PdbByteReader} and returns it
 	 * as a {@link MsTypeField}.
+	 * @param pdb {@link AbstractPdb} that owns the Types to be parsed.
 	 * @param reader {@link PdbByteReader} from which to deserialize the data.
 	 * @return {@link MsTypeField} parsed.
 	 * @throws PdbException upon error parsing a field.
 	 * @throws CancelledException Upon user cancellation.
 	 */
-	public MsTypeField parseField(PdbByteReader reader) throws PdbException, CancelledException {
-		MsTypeField result = parse(reader, MsTypeField.class);
+	public static MsTypeField parseField(AbstractPdb pdb, PdbByteReader reader)
+			throws PdbException, CancelledException {
+		MsTypeField result = parse(pdb, reader, MsTypeField.class);
 		return result;
 	}
 
 	/**
 	 * Deserializes an {@link AbstractMsType} from the {@link PdbByteReader} and returns it.
+	 * @param pdb {@link AbstractPdb} that owns the Types to be parsed.
 	 * @param reader {@link PdbByteReader} from which to deserialize the data.
 	 * @return {@link AbstractMsType} parsed.
 	 * @throws PdbException upon error parsing dataTypeId.
 	 * @throws CancelledException Upon user cancellation.
 	 */
-	public AbstractMsType parse(PdbByteReader reader) throws PdbException, CancelledException {
-		AbstractMsType result = parse(reader, AbstractMsType.class);
+	public static AbstractMsType parse(AbstractPdb pdb, PdbByteReader reader)
+			throws PdbException, CancelledException {
+		AbstractMsType result = parse(pdb, reader, AbstractMsType.class);
 		return result;
 	}
 
@@ -90,18 +87,19 @@ public class TypeParser {
 	 * @param <T> the required type to be returned.  IMPORTANT:  T must only be one of:
 	 *  {@link AbstractMsType} or {@link MsTypeField} or something else in common with
 	 *  {@link BadMsType}, otherwise a Bad Cast Exception might occur.
+	 * @param pdb {@link AbstractPdb} that owns the Types to be parsed.
 	 * @param reader {@link PdbByteReader} from which to deserialize the data.
-	 * @param requiredClass the required type to be returned. 
+	 * @param requiredClass the required type to be returned.
 	 * @return an instance of type T or type T version of BadMsType. IMPORTANT: See restriction
 	 *  on T.
 	 * @throws PdbException upon error parsing dataTypeId.
 	 * @throws CancelledException Upon user cancellation.
 	 */
-	private <T> T parse(PdbByteReader reader, Class<T> requiredClass)
+	private static <T> T parse(AbstractPdb pdb, PdbByteReader reader, Class<T> requiredClass)
 			throws PdbException, CancelledException {
 		int dataTypeId = reader.parseUnsignedShortVal();
 		try {
-			IdMsParsable parsable = parse(reader, dataTypeId);
+			IdMsParsable parsable = parse(pdb, reader, dataTypeId);
 			if (requiredClass.isInstance(parsable)) {
 				return requiredClass.cast(parsable);
 			}
@@ -115,13 +113,14 @@ public class TypeParser {
 
 	/**
 	 * Deserializes an {@link AbstractMsType} from the {@link PdbByteReader} and returns it.
+	 * @param pdb {@link AbstractPdb} that owns the Types to be parsed.
 	 * @param reader {@link PdbByteReader} from which to deserialize the data.
 	 * @param dataTypeId the PDB ID for the symbol type to be parsed.
 	 * @return {@link AbstractMsType} parsed.
 	 * @throws PdbException upon error parsing a field.
 	 * @throws CancelledException Upon user cancellation.
 	 */
-	private IdMsParsable parse(PdbByteReader reader, int dataTypeId)
+	private static IdMsParsable parse(AbstractPdb pdb, PdbByteReader reader, int dataTypeId)
 			throws PdbException, CancelledException {
 
 		pdb.getPdbReaderMetrics().witnessDataTypeId(dataTypeId);
@@ -419,7 +418,7 @@ public class TypeParser {
 				type = new ManagedStMsType(pdb, reader);
 				break;
 
-			// 0x1500 block 
+			// 0x1500 block
 			case TypeServerMsType.PDB_ID:
 				type = new TypeServerMsType(pdb, reader);
 				break;
@@ -508,7 +507,7 @@ public class TypeParser {
 				type = new VirtualFunctionTableMsType(pdb, reader);
 				break;
 
-			// 0x1600 block 
+			// 0x1600 block
 			case FunctionIdMsType.PDB_ID:
 				type = new FunctionIdMsType(pdb, reader);
 				break;
@@ -531,6 +530,25 @@ public class TypeParser {
 				type = new UserDefinedTypeModuleSourceAndLineMsType(pdb, reader);
 				//TODO: more work
 				break;
+			case Class19MsType.PDB_ID:
+				type = new Class19MsType(pdb, reader);
+				break;
+			case Structure19MsType.PDB_ID:
+				type = new Structure19MsType(pdb, reader);
+				break;
+			// TODO: the following three types are only hypothetical and might be in the wrong
+			// order with the wrong PDB_IDs and the wrong internal elements and parsing.
+			// These are here as partial implementations until they are seen and can be
+			// cleaned up and put into service.
+//			case Union19MsType.PDB_ID:
+//				type = new Union19MsType(pdb, reader);
+//				break;
+//			case Enum19MsType.PDB_ID:
+//				type = new Enum19MsType(pdb, reader);
+//				break;
+//			case Interface19MsType.PDB_ID:
+//				type = new Interface19MsType(pdb, reader);
+//				break;
 			default:
 				// This should never happen (unless we missed something
 				// or MSFT has added new in a version we do not handle.

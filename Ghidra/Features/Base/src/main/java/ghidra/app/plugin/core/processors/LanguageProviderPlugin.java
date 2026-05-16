@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,6 +17,7 @@ package ghidra.app.plugin.core.processors;
 
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
+import java.util.List;
 
 import javax.swing.SwingUtilities;
 
@@ -26,8 +27,8 @@ import docking.action.MenuData;
 import docking.widgets.OptionDialog;
 import ghidra.app.CorePluginPackage;
 import ghidra.app.plugin.PluginCategoryNames;
+import ghidra.framework.main.ApplicationLevelPlugin;
 import ghidra.framework.main.FrontEndTool;
-import ghidra.framework.main.FrontEndable;
 import ghidra.framework.main.datatable.ProjectDataContext;
 import ghidra.framework.model.*;
 import ghidra.framework.plugintool.*;
@@ -47,12 +48,12 @@ import ghidra.util.task.*;
 @PluginInfo(
 	status = PluginStatus.RELEASED,
 	packageName = CorePluginPackage.NAME,
-	category = PluginCategoryNames.SUPPORT,
+	category = PluginCategoryNames.COMMON,
 	shortDescription = "Set Language",
 	description = "This plugin provides the set language feature."
 )
 //@formatter:on
-public final class LanguageProviderPlugin extends Plugin implements FrontEndable {
+public final class LanguageProviderPlugin extends Plugin implements ApplicationLevelPlugin {
 
 	private DockingAction setLanguageAction;
 
@@ -87,6 +88,10 @@ public final class LanguageProviderPlugin extends Plugin implements FrontEndable
 					return false;
 				}
 
+				if (file.isLink() && file.getLinkInfo().isExternalLink()) {
+					return false;
+				}
+
 				return file.isInWritableProject() &&
 					Program.class.isAssignableFrom(file.getDomainObjectClass());
 			}
@@ -104,20 +109,20 @@ public final class LanguageProviderPlugin extends Plugin implements FrontEndable
 			}
 
 		};
-		setLanguageAction.setPopupMenuData(
-			new MenuData(new String[] { "Set Language..." }, "Language"));
+		setLanguageAction
+				.setPopupMenuData(new MenuData(new String[] { "Set Language..." }, "Language"));
 
 		setLanguageAction.setEnabled(true);
-		setLanguageAction.setHelpLocation(
-			new HelpLocation("LanguageProviderPlugin", "set language"));
+		setLanguageAction
+				.setHelpLocation(new HelpLocation("LanguageProviderPlugin", "set language"));
 		tool.addAction(setLanguageAction);
 	}
 
-	//////////////////////////////////////////////////////////////////////
+	//--------------------------------------------------------------------
 	//                                                                  //
 	// methods overriding Plugin                                        //
 	//                                                                  //
-	//////////////////////////////////////////////////////////////////////
+	//--------------------------------------------------------------------
 
 	@Override
 	public void dispose() {
@@ -220,7 +225,8 @@ public final class LanguageProviderPlugin extends Plugin implements FrontEndable
 				Program program = (Program) dobj;
 
 				monitor.setMessage("Identify Language...");
-				SetLanguageDialog dialog = new SetLanguageDialog(tool, program);
+				SetLanguageDialog dialog = new SetLanguageDialog(tool, program,
+					"Set Language: " + program.getDomainFile().getName());
 				LanguageID langDescID = dialog.getLanguageDescriptionID();
 				CompilerSpecID compilerSpecDescID = dialog.getCompilerSpecDescriptionID();
 				if ((langDescID == null) || (compilerSpecDescID == null)) {
@@ -316,18 +322,9 @@ public final class LanguageProviderPlugin extends Plugin implements FrontEndable
 			try {
 				SwingUtilities.invokeAndWait(() -> {
 					ToolServices toolServices = tool.getToolServices();
-					String defaultToolName = toolServices.getDefaultToolTemplate(file).getName();
-					for (PluginTool t : toolServices.getRunningTools()) {
-						if (t.getName().equals(defaultToolName)) {
-							openTool = t;
-							break;
-						}
-					}
-					if (openTool != null) {
-						openTool.acceptDomainFiles(new DomainFile[] { file });
-					}
-					else {
-						openTool = tool.getToolServices().launchDefaultTool(file);
+					if (toolServices.launchDefaultTool(List.of(domainFile)) == null) {
+						Msg.showError(this, tool.getToolFrame(), "Failed to Open Program",
+							"A suitable default tool could not found!");
 					}
 				});
 			}
@@ -336,7 +333,7 @@ public final class LanguageProviderPlugin extends Plugin implements FrontEndable
 			}
 			catch (InvocationTargetException e) {
 				Throwable t = e.getCause();
-				Msg.showError(this, tool.getToolFrame(), "Tool Launch Failed",
+				Msg.showError(this, tool.getToolFrame(), "Failed to Open Program",
 					"An error occurred while attempting to launch your default tool!", t);
 			}
 		}

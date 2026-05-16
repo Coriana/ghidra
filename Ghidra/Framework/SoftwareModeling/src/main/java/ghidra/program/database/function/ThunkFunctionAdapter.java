@@ -18,6 +18,7 @@ package ghidra.program.database.function;
 import java.io.IOException;
 
 import db.*;
+import ghidra.framework.data.OpenMode;
 import ghidra.program.database.map.AddressMap;
 import ghidra.util.exception.VersionException;
 import ghidra.util.task.TaskMonitor;
@@ -31,25 +32,25 @@ abstract class ThunkFunctionAdapter {
 	static final int LINKED_FUNCTION_ID_COL = 0;
 
 	final static Schema THUNK_FUNCTION_SCHEMA = new Schema(CURRENT_VERSION, "ID",
-		new Class[] { LongField.class }, new String[] { "Linked Function ID" });
+		new Field[] { LongField.INSTANCE }, new String[] { "Linked Function ID" });
 
 	protected AddressMap addrMap;
 
-	static ThunkFunctionAdapter getAdapter(DBHandle handle, int openMode, AddressMap map,
+	static ThunkFunctionAdapter getAdapter(DBHandle handle, OpenMode openMode, AddressMap map,
 			TaskMonitor monitor) throws VersionException, IOException {
 
-		if (openMode == DBConstants.CREATE) {
+		if (openMode == OpenMode.CREATE) {
 			return new ThunkFunctionAdapterV0(handle, map, true);
 		}
 		try {
 			return new ThunkFunctionAdapterV0(handle, map, false);
 		}
 		catch (VersionException e) {
-			if (!e.isUpgradable() || openMode == DBConstants.UPDATE) {
+			if (!e.isUpgradable() || openMode == OpenMode.UPDATE) {
 				throw e;
 			}
 			ThunkFunctionAdapter adapter = findReadOnlyAdapter(handle, map);
-			if (openMode == DBConstants.UPGRADE) {
+			if (openMode == OpenMode.UPGRADE) {
 				adapter = upgrade(handle, adapter, map, monitor);
 			}
 			return adapter;
@@ -75,13 +76,13 @@ abstract class ThunkFunctionAdapter {
 
 	abstract RecordIterator iterateThunkRecords(long linkedFunctionKey) throws IOException;
 
-	abstract Record getThunkRecord(long functionKey) throws IOException;
+	abstract DBRecord getThunkRecord(long functionKey) throws IOException;
 
 	abstract void removeThunkRecord(long functionKey) throws IOException;
 
-	abstract void updateThunkRecord(Record rec) throws IOException;
+	abstract void updateThunkRecord(DBRecord rec) throws IOException;
 
-	abstract Record createThunkRecord(long thunkFunctionId, long referencedFunctionId)
+	abstract DBRecord createThunkRecord(long thunkFunctionId, long referencedFunctionId)
 			throws IOException;
 
 }

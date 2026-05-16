@@ -29,7 +29,6 @@ import ghidra.app.plugin.PluginCategoryNames;
 import ghidra.app.util.bean.SetEquateDialog;
 import ghidra.app.util.bean.SetEquateDialog.SelectionType;
 import ghidra.app.util.datatype.ApplyEnumDialog;
-import ghidra.framework.cmd.BackgroundCommand;
 import ghidra.framework.cmd.CompoundBackgroundCommand;
 import ghidra.framework.plugintool.*;
 import ghidra.framework.plugintool.util.PluginStatus;
@@ -41,8 +40,7 @@ import ghidra.program.model.scalar.Scalar;
 import ghidra.program.model.symbol.Equate;
 import ghidra.program.model.symbol.EquateTable;
 import ghidra.program.util.*;
-import ghidra.util.HelpLocation;
-import ghidra.util.Msg;
+import ghidra.util.*;
 import ghidra.util.task.*;
 
 /**
@@ -69,29 +67,20 @@ public class EquatePlugin extends Plugin {
 	private DockingAction renameAction;
 	private DockingAction removeAction;
 	private DockingAction applyEnumAction;
-	private SetEquateDialog setEquateDialog;
-	private ApplyEnumDialog applyEnumDialog;
 
 	public EquatePlugin(PluginTool tool) {
 		super(tool);
 		createActions();
 	}
 
-	/*
-	 * Returns the GUI for the {@link SetEquateDialog}.  Note that this function will close
-	 * any instance of the dialog that is currently open and construct a new one.
-	 */
 	private SetEquateDialog createEquateDialog(ListingActionContext context, Scalar scalar) {
-		if (setEquateDialog != null) {
-			setEquateDialog.close();
-		}
 
 		InitializeDialogTask task = new InitializeDialogTask(context.getProgram(), scalar);
 		TaskLauncher.launch(task);
 
-		setEquateDialog = task.getDialog();
-		setEquateDialog.setHelpLocation(new HelpLocation(getName(), "Set_Equate"));
-		return setEquateDialog;
+		SetEquateDialog dialog = task.getDialog();
+		dialog.setHelpLocation(new HelpLocation(getName(), "Set_Equate"));
+		return dialog;
 	}
 
 	/*
@@ -100,20 +89,10 @@ public class EquatePlugin extends Plugin {
 	 */
 	private ApplyEnumDialog applyEnumDialog(ListingActionContext context) {
 		DataTypeManager dtm = context.getProgram().getDataTypeManager();
-		if (applyEnumDialog != null) {
-			applyEnumDialog.close();
-		}
-		applyEnumDialog = new ApplyEnumDialog(tool, dtm);
+		ApplyEnumDialog applyEnumDialog = new ApplyEnumDialog(tool, dtm);
 		applyEnumDialog.setHelpLocation(new HelpLocation(getName(), "Apply_Enum"));
 		tool.showDialog(applyEnumDialog);
 		return applyEnumDialog;
-	}
-
-	private void dispose(SetEquateDialog dialog) {
-		if (setEquateDialog == dialog) {
-			setEquateDialog.dispose();
-			setEquateDialog = null;
-		}
 	}
 
 	/**
@@ -168,39 +147,27 @@ public class EquatePlugin extends Plugin {
 	 */
 	private void setEquate(ListingActionContext context) {
 
-		// Get the scalar item that was selected.  If this returns null, then something
-		// invalid was selected, so exit.
-		Scalar curScalar = getScalar(context);
-		if (curScalar == null) {
+		Scalar scalar = getScalar(context);
+		if (scalar == null) {
 			return;
 		}
 
 		// Create the dialog that will allow the user to select options.
-		createEquateDialog(context, curScalar);
+		SetEquateDialog dialog = createEquateDialog(context, scalar);
 
-		// Set the state of the some buttons on the dialog.  ie: if the user has selected
-		// a range of addresses we should automatically set the "selection" radio button
-		// to the selected state.
-		setEquateDialog.setHasSelection(context);
-
-		// If the user has selected the cancel button, exit.
-		if (setEquateDialog.showSetDialog() == SetEquateDialog.CANCELED) {
+		// Set the state of the some buttons on the dialog.  ie: if the user has selected a range
+		// of addresses we should automatically set the "selection" radio button to the selected
+		// state.
+		dialog.setHasSelection(context);
+		if (dialog.showSetDialog() == SetEquateDialog.CANCELED) {
 			return;
 		}
 
 		// Define an iterator for the task.  We're using a CodeUnitIterator to make sure we inspect
 		// all Data and Instruction instances.
 		CodeUnitIterator iter = null;
-
-		// Get the program listing.  This is what allows us to get an iterator for the
-		// addresses we're interested in.
 		Listing listing = context.getProgram().getListing();
-
-		// Now we have to 'populate' the iterator with the proper addresses.  Once we have the
-		// iterator, we'll create a background task to process them.
-		//
-		SelectionType selectionType = setEquateDialog.getSelectionType();
-
+		SelectionType selectionType = dialog.getSelectionType();
 		if (selectionType == SelectionType.CURRENT_ADDRESS) {
 			AddressSet addrSet = new AddressSet(context.getAddress());
 			iter = listing.getCodeUnits(addrSet, false);
@@ -214,21 +181,11 @@ public class EquatePlugin extends Plugin {
 			iter = listing.getCodeUnits(context.getProgram().getMemory(), true);
 		}
 
-		BackgroundCommand cmd;
-		if (setEquateDialog.getEnumDataType() != null) {
-			// Now set up a command to run in the background, and execute the task.
-			cmd = new CreateEquateCmd(curScalar, iter, setEquateDialog.getEnumDataType(),
-				setEquateDialog.getOverwriteExisting(), context);
-		}
-		else {
-			// Now set up a command to run in the background, and execute the task.
-			cmd = new CreateEquateCmd(curScalar, iter, setEquateDialog.getEquateName(),
-				setEquateDialog.getOverwriteExisting(), context);
-		}
+		CreateEquateCmd cmd = new CreateEquateCmd(scalar, iter, dialog.getEquateName(),
+			dialog.getOverwriteExisting(), context);
 		tool.executeBackgroundCommand(cmd, context.getProgram());
 
-		// Finally, blow away the dialog.
-		dispose(setEquateDialog);
+		dialog.dispose();
 	}
 
 	/**
@@ -237,40 +194,34 @@ public class EquatePlugin extends Plugin {
 	 * @param context the action context
 	 */
 	private void applyEnum(ListingActionContext context) {
-		applyEnumDialog = applyEnumDialog(context);
-		DataType dataType = applyEnumDialog.getUserChosenDataType();
-
+		ApplyEnumDialog dialog = applyEnumDialog(context);
+		DataType dataType = dialog.getUserChosenDataType();
 		if (dataType == null) {
 			return;
 		}
+
 		if (!(dataType instanceof Enum)) {
 			Msg.showError(this, null, "Input Error", "Data Type must be an enum");
 			return;
 		}
 
-		boolean shouldDoOnSubOps = applyEnumDialog.shouldApplyOnSubOps();
-
 		AddressSetView addresses = context.getSelection();
 		if (addresses.isEmpty()) {
 			addresses = new AddressSet(context.getAddress());
 		}
+		boolean shouldDoOnSubOps = dialog.shouldApplyOnSubOps();
 		Program program = context.getProgram();
 		CreateEnumEquateCommand cmd =
-			new CreateEnumEquateCommand(program, addresses, (Enum) dataType, shouldDoOnSubOps);
+			new CreateEnumEquateCommand(addresses, (Enum) dataType, shouldDoOnSubOps);
 		tool.executeBackgroundCommand(cmd, program);
+
+		dialog.dispose();
 	}
 
-	/**
-	 * Called in response to the user activating rename action from the context menu.
-	 *
-	 * @param context the action context
-	 */
 	private void renameEquate(ListingActionContext context) {
 
-		// Get the scalar item that was selected.  If this returns null, then something
-		// invalid was selected, so exit.
-		Scalar curScalar = getScalar(context);
-		if (curScalar == null) {
+		Scalar scalar = getScalar(context);
+		if (scalar == null) {
 			return;
 		}
 
@@ -280,54 +231,48 @@ public class EquatePlugin extends Plugin {
 		Listing listing = context.getProgram().getListing();
 
 		// Create the dialog that will allow the user to select options.
-		createEquateDialog(context, curScalar);
+		SetEquateDialog dialog = createEquateDialog(context, scalar);
 
-		// Set the state of the some buttons on the dialog.  ie: if the user has selected
-		// a range of addresses we should automatically set the "selection" radio button
-		// to the selected state.
-		setEquateDialog.setHasSelection(context);
-
-		// Check for user-cancel action.
-		int result = setEquateDialog.showRenameDialog();
+		// Set the state of the some buttons on the dialog.  ie: if the user has selected a range
+		// of addresses we should automatically set the "selection" radio button to the selected
+		// state.
+		dialog.setHasSelection(context);
+		int result = dialog.showRenameDialog();
 		if (result == SetEquateDialog.CANCELED) {
 			return;
 		}
 
-		// Retrieve the name we want to change the equate(s) to.  If the name is null,
-		// it means it's not a name that's already in the table, so just remove the
-		// equate.
-		String equateName = setEquateDialog.getEquateName();
+		// Retrieve the name we want to change the equate(s) to.  If the name is null, it means
+		// it's not a name that's already in the table, so just remove the equate.
+		String equateName = dialog.getEquateName();
 
 		// Define an iterator for the task.  We're using a CodeUnitIterator to make sure we inspect
 		// all Data and Instruction instances.
 		CodeUnitIterator iter = null;
 
-		SelectionType selectionType = setEquateDialog.getSelectionType();
-
+		SelectionType selectionType = dialog.getSelectionType();
 		if (selectionType == SelectionType.CURRENT_ADDRESS) {
 			AddressSet addrSet = new AddressSet(context.getAddress());
 			iter = listing.getCodeUnits(addrSet, false);
 		}
-
 		else if (selectionType == SelectionType.SELECTION) {
 			iter = listing.getCodeUnits(context.getSelection(), true);
 		}
-
 		else if (selectionType == SelectionType.ENTIRE_PROGRAM) {
 			iter = listing.getCodeUnits(context.getProgram().getMemory(), true);
 		}
 
-		// Determine if this is a remove or rename. If the user has left the "new equate name" field
-		// blank in the dialog, then remove the equate entirely.
+		// Determine if this is a remove or rename. If the user has left the "new equate name"
+		// field blank in the dialog, then remove the equate entirely.
+		Enum enoom = dialog.getEnumDataType();
 		if (equateName == null) {
 			removeEquateOverRange(context, equate, iter);
 		}
 		else {
-			renameEquate(context, equate, equateName, iter);
+			renameEquate(context, enoom, equate, equateName, iter);
 		}
 
-		// Destroy the dialog.
-		dispose(setEquateDialog);
+		dialog.dispose();
 	}
 
 	private Equate getEquate(ListingActionContext context) {
@@ -339,8 +284,8 @@ public class EquatePlugin extends Plugin {
 		return equateTable.getEquate(context.getAddress(), getOperandIndex(context), s.getValue());
 	}
 
-	private void renameEquate(ListingActionContext context, Equate oldEquate, String newEquateName,
-			CodeUnitIterator iter) {
+	private void renameEquate(ListingActionContext context, Enum enoom, Equate oldEquate,
+			String newEquateName, CodeUnitIterator iter) {
 
 		// First do a sanity check to make sure we're not trying to change to a duplicate
 		// name.
@@ -351,21 +296,22 @@ public class EquatePlugin extends Plugin {
 
 		// Set up a background task that we'll populate with all the rename tasks we need
 		// to perform.
-		CompoundBackgroundCommand bckCmd =
-			new CompoundBackgroundCommand("Rename Equates in Selection", false, true);
+		CompoundBackgroundCommand<Program> bckCmd =
+			new CompoundBackgroundCommand<>("Rename Equates in Selection", false, true);
 
 		// Now loop over all the code units and search for matching scalars...
 		while (iter.hasNext()) {
 			CodeUnit cu = iter.next();
-			renameEquateForCodeUnit(context, oldEquate, newEquateName, oldEquateName, bckCmd, cu);
+			renameEquateForCodeUnit(context, enoom, oldEquate, newEquateName, oldEquateName, bckCmd,
+				cu);
 		}
 
 		// Finally, execute all the rename tasks.
 		tool.executeBackgroundCommand(bckCmd, context.getProgram());
 	}
 
-	private void renameEquateForCodeUnit(ListingActionContext context, Equate equate,
-			String newName, String oldName, CompoundBackgroundCommand bgCmd, CodeUnit cu) {
+	private void renameEquateForCodeUnit(ListingActionContext context, Enum enoom, Equate equate,
+			String newName, String oldName, CompoundBackgroundCommand<Program> bgCmd, CodeUnit cu) {
 
 		if (cu instanceof Instruction) {
 
@@ -374,7 +320,7 @@ public class EquatePlugin extends Plugin {
 			List<Integer> opIndices = getInstructionMatches(program, inst, equate);
 			Address addr = inst.getAddress();
 			for (Integer opIndice : opIndices) {
-				bgCmd.add(createRenameCmd(oldName, newName, addr, opIndice));
+				bgCmd.add(createRenameCmd(enoom, oldName, newName, addr, opIndice));
 			}
 		}
 		else if (cu instanceof Data) {
@@ -382,15 +328,14 @@ public class EquatePlugin extends Plugin {
 			Data data = (Data) cu;
 			if (isDataMatch(data, context, equate)) {
 				Address addr = data.getAddress();
-				bgCmd.add(createRenameCmd(oldName, newName, addr, getOperandIndex(context)));
+				bgCmd.add(createRenameCmd(enoom, oldName, newName, addr, getOperandIndex(context)));
 			}
 		}
 	}
 
-	private RenameEquateCmd createRenameCmd(String oldName, String newName, Address addr,
-			int opIndex) {
+	private RenameEquateCmd createRenameCmd(Enum enoom, String oldName, String newName,
+			Address addr, int opIndex) {
 
-		Enum enoom = getEnumDataType();
 		if (enoom != null) {
 			return new RenameEquateCmd(oldName, enoom, addr, opIndex);
 		}
@@ -398,16 +343,12 @@ public class EquatePlugin extends Plugin {
 		return new RenameEquateCmd(oldName, newName, addr, opIndex);
 	}
 
-	public Enum getEnumDataType() {
-		return setEquateDialog.getEnumDataType();
-	}
-
 	private void removeEquateOverRange(ListingActionContext context, Equate equate,
 			CodeUnitIterator iter) {
 
 		// Create a background task to process all the remove tasks.
-		CompoundBackgroundCommand bckCmd =
-			new CompoundBackgroundCommand("Remove Equates in Selection", false, true);
+		CompoundBackgroundCommand<Program> bckCmd =
+			new CompoundBackgroundCommand<>("Remove Equates in Selection", false, true);
 
 		// Now iterate over all code units in the iterator.
 		while (iter.hasNext()) {
@@ -420,7 +361,7 @@ public class EquatePlugin extends Plugin {
 	}
 
 	private void removeEquateForCodeUnit(ListingActionContext context, Equate equate,
-			CompoundBackgroundCommand bckCmd, CodeUnit cu) {
+			CompoundBackgroundCommand<Program> bckCmd, CodeUnit cu) {
 		// A code unit can be either an instruction or data; we need to handle each
 		// separately.
 		if (cu instanceof Instruction) {
@@ -429,8 +370,7 @@ public class EquatePlugin extends Plugin {
 			Program program = context.getProgram();
 			List<Integer> opIndexes = getInstructionMatches(program, instr, equate);
 			for (Integer opIndexe : opIndexes) {
-				bckCmd.add(
-					new ClearEquateCmd(equate.getName(), instr.getAddress(), opIndexe));
+				bckCmd.add(new ClearEquateCmd(equate.getName(), instr.getAddress(), opIndexe));
 			}
 		}
 		else if (cu instanceof Data) {
@@ -609,7 +549,7 @@ public class EquatePlugin extends Plugin {
 	 * @param subOpIndex sub-operand index
 	 * @return scalar value or null
 	 */
-	private Scalar getScalar(CodeUnit cu, int opIndex, int subOpIndex) {
+	Scalar getScalar(CodeUnit cu, int opIndex, int subOpIndex) {
 		if (cu == null) {
 			return null;
 		}
@@ -770,7 +710,7 @@ public class EquatePlugin extends Plugin {
 
 		@Override
 		public void run(TaskMonitor monitor) {
-			dialog = new SetEquateDialog(tool, program, scalar);
+			dialog = Swing.runNow(() -> new SetEquateDialog(tool, program, scalar));
 		}
 
 		SetEquateDialog getDialog() {

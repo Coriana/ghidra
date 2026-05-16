@@ -8,6 +8,11 @@
 
   <stackpointer register="sp" space="ram"/>
 
+  <prefersplit style="inhalf">
+    <register name="r2sp"/>
+    <register name="r4r5"/>
+  </prefersplit>
+  
   <default_proto>
     <prototype name="__stdcall" extrapop="0" stackshift="0">
       
@@ -56,6 +61,10 @@
         <register name="r29"/>
         <register name="ep"/>
         <register name="lp"/>
+        <register name="sp"/>
+        <register name="gp"/>
+        <register name="tp"/>
+        <register name="ctbp"/>
       </unaffected>
     
     </prototype>

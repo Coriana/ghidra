@@ -763,6 +763,28 @@ public class AddressSetTest extends AbstractGenericTest {
 	}
 
 	@Test
+	public void testForwardRangeIteratorRemove() {
+		AddressSet set = set(0x100, 0x110, 0x200, 0x210, 0x300, 0x305);
+		assertEquals(40, set.getNumAddresses());
+		assertEquals(3, set.getNumAddressRanges());
+
+		Iterator<AddressRange> it = set.iterator(true);
+		Assert.assertEquals(range(0x100, 0x110), it.next());
+		Assert.assertEquals(range(0x200, 0x210), it.next());
+		it.remove();
+		Assert.assertEquals(range(0x300, 0x305), it.next());
+		assertTrue(!it.hasNext());
+
+		it = set.iterator(true);
+		Assert.assertEquals(range(0x100, 0x110), it.next());
+		Assert.assertEquals(range(0x300, 0x305), it.next());
+		assertTrue(!it.hasNext());
+
+		assertEquals(23, set.getNumAddresses());
+		assertEquals(2, set.getNumAddressRanges());
+	}
+
+	@Test
 	public void testBackwardRangeIterator() {
 		AddressSet set = set(0x100, 0x110, 0x200, 0x210, 0x300, 0x305);
 		Iterator<AddressRange> it = set.iterator(false);
@@ -770,6 +792,28 @@ public class AddressSetTest extends AbstractGenericTest {
 		Assert.assertEquals(range(0x200, 0x210), it.next());
 		Assert.assertEquals(range(0x100, 0x110), it.next());
 		assertTrue(!it.hasNext());
+	}
+
+	@Test
+	public void testBackwardRangeIteratorRemove() {
+		AddressSet set = set(0x100, 0x110, 0x200, 0x210, 0x300, 0x305);
+		assertEquals(40, set.getNumAddresses());
+		assertEquals(3, set.getNumAddressRanges());
+
+		Iterator<AddressRange> it = set.iterator(false);
+		Assert.assertEquals(range(0x300, 0x305), it.next());
+		Assert.assertEquals(range(0x200, 0x210), it.next());
+		it.remove();
+		Assert.assertEquals(range(0x100, 0x110), it.next());
+		assertTrue(!it.hasNext());
+
+		it = set.iterator(false);
+		Assert.assertEquals(range(0x300, 0x305), it.next());
+		Assert.assertEquals(range(0x100, 0x110), it.next());
+		assertTrue(!it.hasNext());
+
+		assertEquals(23, set.getNumAddresses());
+		assertEquals(2, set.getNumAddressRanges());
 	}
 
 	@Test
@@ -827,6 +871,49 @@ public class AddressSetTest extends AbstractGenericTest {
 	}
 
 	@Test
+	public void testdeleteFromMin() {
+		AddressSet set = set(0x10, 0x20, 0x30, 0x40);
+		set.add(space2.getAddress(0x10), space2.getAddress(0x20));
+		set.add(space2.getAddress(0x30), space2.getAddress(0x40));
+
+		set.deleteFromMin(addr(0x15));
+
+		AddressSet expectedSet = set(0x16, 0x20, 0x30, 0x40);
+		expectedSet.add(space2.getAddress(0x10), space2.getAddress(0x20));
+		expectedSet.add(space2.getAddress(0x30), space2.getAddress(0x40));
+		assertEquals(expectedSet, set);
+
+		set = set(0x10, 0x20, 0x30, 0x40);
+		set.add(space2.getAddress(0x10), space2.getAddress(0x20));
+		set.add(space2.getAddress(0x30), space2.getAddress(0x40));
+
+		set.deleteFromMin(space2.getAddress(0x15));
+
+		expectedSet = new AddressSet(space2.getAddress(0x16), space2.getAddress(0x20));
+		expectedSet.add(space2.getAddress(0x30), space2.getAddress(0x40));
+		assertEquals(expectedSet, set);
+
+		set = set(0x10, 0x20, 0x30, 0x40);
+		set.add(space2.getAddress(0x10), space2.getAddress(0x20));
+		set.add(space2.getAddress(0x30), space2.getAddress(0x40));
+
+		set.deleteFromMin(space2.getAddress(0x50));
+		assertTrue(set.isEmpty());
+
+		set = set(0x10, 0x20, 0x30, 0x40);
+		set.add(space2.getAddress(0x10), space2.getAddress(0x20));
+		set.add(space2.getAddress(0x30), space2.getAddress(0x40));
+
+		set.deleteFromMin(space2.getAddress(0x40));
+		assertTrue(set.isEmpty());
+
+		// make sure handles empty set
+		set = new AddressSet();
+		set.deleteFromMin(addr(0x30));
+		assertTrue(set.isEmpty());
+	}
+
+	@Test
 	public void testTrimEnd() {
 		AddressSet set = set(0x10, 0x20, 0x30, 0x40);
 		set.add(space2.getAddress(0x10), space2.getAddress(0x20));
@@ -842,6 +929,51 @@ public class AddressSetTest extends AbstractGenericTest {
 		expectedSet = set(0x10, 0x20, 0x30, 0x40);
 		expectedSet.add(space2.getAddress(0x10), space2.getAddress(0x14));
 		assertEquals(expectedSet, trimSet);
+	}
+
+	@Test
+	public void testDeleteFrom() {
+		AddressSet set = set(0x10, 0x20, 0x30, 0x40);
+		set.add(space2.getAddress(0x10), space2.getAddress(0x20));
+		set.add(space2.getAddress(0x30), space2.getAddress(0x40));
+
+		AddressSet origSet = new AddressSet(set);
+		set.deleteToMax(space2.getAddress(0x50));
+		assertEquals(origSet, set);
+
+		set.deleteToMax(addr(0x15));
+
+		AddressSet expectedSet = set(0x10, 0x14);
+		assertEquals(expectedSet, set);
+
+		set = set(0x10, 0x20, 0x30, 0x40);
+		set.add(space2.getAddress(0x10), space2.getAddress(0x20));
+		set.add(space2.getAddress(0x30), space2.getAddress(0x40));
+
+		set.deleteToMax(space2.getAddress(0x15));
+
+		expectedSet = set(0x10, 0x20, 0x30, 0x40);
+		expectedSet.add(space2.getAddress(0x10), space2.getAddress(0x14));
+		assertEquals(expectedSet, set);
+
+		set = set(0x10, 0x20, 0x30, 0x40);
+		set.add(space2.getAddress(0x10), space2.getAddress(0x20));
+		set.add(space2.getAddress(0x30), space2.getAddress(0x40));
+
+		set.deleteToMax(addr(0x0));
+		assertTrue(set.isEmpty());
+
+		set = set(0x10, 0x20, 0x30, 0x40);
+		set.add(space2.getAddress(0x10), space2.getAddress(0x20));
+		set.add(space2.getAddress(0x30), space2.getAddress(0x40));
+
+		set.deleteToMax(addr(0x10));
+		assertTrue(set.isEmpty());
+
+		// make sure handles empty set
+		set = new AddressSet();
+		set.deleteToMax(addr(0x30));
+		assertTrue(set.isEmpty());
 	}
 
 //

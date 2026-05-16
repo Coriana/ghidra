@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,7 +21,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import db.DBHandle;
-import db.Record;
+import db.DBRecord;
 import ghidra.feature.fid.hash.FidHashQuad;
 import ghidra.framework.store.db.PackedDBHandle;
 import ghidra.framework.store.db.PackedDatabase;
@@ -31,7 +31,6 @@ import ghidra.util.Msg;
 import ghidra.util.ReadOnlyException;
 import ghidra.util.exception.*;
 import ghidra.util.task.TaskMonitor;
-import ghidra.util.task.TaskMonitorAdapter;
 
 public class FidDB implements Closeable {
 	private static final String FID_CONTENT_TYPE = "Function ID Database";
@@ -132,11 +131,11 @@ public class FidDB implements Closeable {
 	private DBHandle openPackedDatabase() throws IOException {
 		try {
 			PackedDatabase pdb = PackedDatabase.getPackedDatabase(fidFile.getFile(), false,
-				TaskMonitorAdapter.DUMMY_MONITOR);
+				TaskMonitor.DUMMY);
 			if (openForUpdate) {
-				return pdb.openForUpdate(TaskMonitorAdapter.DUMMY_MONITOR);
+				return pdb.openForUpdate(TaskMonitor.DUMMY);
 			}
-			return pdb.open(TaskMonitorAdapter.DUMMY_MONITOR);
+			return pdb.open(TaskMonitor.DUMMY);
 		}
 		catch (CancelledException e) {
 			// using dummy monitor - can't happen
@@ -183,7 +182,7 @@ public class FidDB implements Closeable {
 	}
 
 	/**
-	 * Indicates the the user of this FidDB no longer needs it open.  This will decrement the
+	 * Indicates that the user of this FidDB no longer needs it open.  This will decrement the
 	 * "open count" and if the "open count is 0, the database will be closed.
 	 */
 	@Override
@@ -384,7 +383,7 @@ public class FidDB implements Closeable {
 	public boolean getSuperiorFullRelation(FunctionRecord superiorFunction,
 			FidHashQuad inferiorFunction) {
 		try {
-			Record libraryByID = librariesTable.getLibraryByID(superiorFunction.getLibraryID());
+			DBRecord libraryByID = librariesTable.getLibraryByID(superiorFunction.getLibraryID());
 			if (libraryByID != null) {
 				return relationsTable.getSuperiorFullRelation(superiorFunction, inferiorFunction);
 			}
@@ -405,7 +404,7 @@ public class FidDB implements Closeable {
 	public boolean getInferiorFullRelation(FidHashQuad superiorFunction,
 			FunctionRecord inferiorFunction) {
 		try {
-			Record libraryByID = librariesTable.getLibraryByID(inferiorFunction.getLibraryID());
+			DBRecord libraryByID = librariesTable.getLibraryByID(inferiorFunction.getLibraryID());
 			if (libraryByID != null) {
 				return relationsTable.getInferiorFullRelation(superiorFunction, inferiorFunction);
 			}
@@ -439,7 +438,7 @@ public class FidDB implements Closeable {
 	 */
 	public LibraryRecord getLibraryForFunction(FunctionRecord functionRecord) {
 		try {
-			Record record = librariesTable.getLibraryByID(functionRecord.getLibraryID());
+			DBRecord record = librariesTable.getLibraryByID(functionRecord.getLibraryID());
 			if (record == null) {
 				return null;
 			}
@@ -473,7 +472,7 @@ public class FidDB implements Closeable {
 
 		try {
 			checkUpdateAllowed();
-			Record record = librariesTable.createLibrary(libraryFamilyName, libraryVersion,
+			DBRecord record = librariesTable.createLibrary(libraryFamilyName, libraryVersion,
 				libraryVariant, ghidraVersion, languageID, languageVersion, languageMinorVersion,
 				compilerSpecID);
 			return new LibraryRecord(record);

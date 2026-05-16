@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,9 +19,8 @@ import java.io.IOException;
 
 import ghidra.app.util.bin.BinaryReader;
 import ghidra.app.util.bin.StructConverter;
-import ghidra.app.util.bin.format.ClampPropertiesLookup;
-import ghidra.app.util.bin.format.FactoryBundledWithBinaryReader;
 import ghidra.program.model.data.*;
+import ghidra.util.NumericUtilities;
 import ghidra.util.exception.DuplicateNameException;
 
 /**
@@ -29,7 +28,6 @@ import ghidra.util.exception.DuplicateNameException;
  * struct as defined in <b><code>winbase.h</code></b>.
  * <p>
  * This structure encapsulates a signature used in verifying executables.
- * <p>
  * <pre>
  * typedef struct _WIN_CERTIFICATE {
  *     DWORD       dwLength;
@@ -78,34 +76,40 @@ public class SecurityCertificate implements StructConverter {
     private short wCertificateType;
     private byte [] bCertificate;
 
-    static SecurityCertificate createSecurityCertificate(
-            FactoryBundledWithBinaryReader reader, int index)
-            throws IOException {
-        SecurityCertificate securityCertificate = (SecurityCertificate) reader.getFactory().create(SecurityCertificate.class);
-        securityCertificate.initSecurityCertificate(reader, index);
-        return securityCertificate;
-    }
+	/**
+	 * Read a SecurityCertificate.
+	 * 
+	 * @param reader BinaryReader to use
+	 * @param index offset where the SecurityCertificate starts
+	 * @param sizeLimit maximum number of bytes that can be read from the reader
+	 * @return new SecurityCertificate, or null if invalid or bad data
+	 * @throws IOException if io error when reading data
+	 */
+	static SecurityCertificate read(BinaryReader reader, long index, int sizeLimit)
+			throws IOException {
+		if (sizeLimit < 8) {
+			return null;
+		}
+		reader = reader.clone(index);
 
-    /**
-     * DO NOT USE THIS CONSTRUCTOR, USE create*(GenericFactory ...) FACTORY METHODS INSTEAD.
-     */
-    public SecurityCertificate() {}
+		SecurityCertificate result = new SecurityCertificate();
+		result.dwLength = reader.readNextInt();
+		result.wRevision = reader.readNextShort();
+		result.wCertificateType = reader.readNextShort();
 
-    private void initSecurityCertificate(FactoryBundledWithBinaryReader reader, int index) throws IOException {
-        int i = index;
+		if (result.dwLength < 8 || sizeLimit < result.dwLength) {
+			return null;
+		}
 
-		int maxDwLength = (int) ClampPropertiesLookup.getClampValue("ghidra.app.util.bin.format.pe.SecurityCertificate.dwLength.max", 30000);
-        dwLength         = reader.readInt  (i, 8, maxDwLength); i += BinaryReader.SIZEOF_INT;
-		if (dwLength < 0)  return;
-		wRevision        = reader.readShort(i); i += BinaryReader.SIZEOF_SHORT;
-		wCertificateType = reader.readShort(i); i += BinaryReader.SIZEOF_SHORT;
-		bCertificate     = reader.readByteArray(i, dwLength-4-2-2);
-    }
+		int certByteCount = result.dwLength - 4 - 2 - 2;
+		result.bCertificate = reader.readNextByteArray(certByteCount);
 
-    int getNumberOfBytesConsumed() {
-        return dwLength + BinaryReader.SIZEOF_INT +
-                    2 * BinaryReader.SIZEOF_SHORT;
-    }
+		return result;
+	}
+
+	int getNumberOfBytesConsumed() {
+		return (int) NumericUtilities.getUnsignedAlignedValue(dwLength, 8);
+	}
 
 	/**
 	 * Returns the length, in bytes, of the signature.
@@ -166,7 +170,8 @@ public class SecurityCertificate implements StructConverter {
     /**
      * @see ghidra.app.util.bin.StructConverter#toDataType()
      */
-    public DataType toDataType() throws DuplicateNameException {
+    @Override
+	public DataType toDataType() throws DuplicateNameException {
         StructureDataType struct = new StructureDataType(NAME+"_"+dwLength, 0);
         struct.add(DWORD,"dwLength",null);
         struct.add( WORD,"wRevision",null);

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,7 +15,7 @@
  */
 package ghidra.formats.gfilesystem;
 
-import ghidra.util.SystemUtilities;
+import java.util.Objects;
 
 /**
  * Base implementation of file in a {@link GFileSystem filesystem}.
@@ -38,7 +38,6 @@ public class GFileImpl implements GFile {
 	 * to create GFile instances if you can supply the parent value as that will
 	 * allow reuse of the parent objects instead of duplicates of them being created
 	 * for each file with the same parent path.
-	 * <p>
 	 *
 	 * @param fileSystem the {@link GFileSystem} that owns this file
 	 * @param path forward slash '/' separated path and filename string.
@@ -63,7 +62,6 @@ public class GFileImpl implements GFile {
 	 * to create GFile instances if you can supply the parent value as that will
 	 * allow reuse of the parent objects instead of duplicates of them being created
 	 * for each file with the same parent path.
-	 * <p>
 	 *
 	 * @param fileSystem the {@link GFileSystem} that owns this file
 	 * @param parent the parent of the new GFile or null if child-of-root.
@@ -76,6 +74,12 @@ public class GFileImpl implements GFile {
 	public static GFileImpl fromPathString(GFileSystem fileSystem, GFile parent, String path,
 			FSRL fsrl, boolean isDirectory, long length) {
 		String[] split = path.split(FSUtilities.SEPARATOR);
+		if (split.length >= 3 && split[0].isEmpty() && split[1].isEmpty() && !split[2].isEmpty()) {
+			// The path was in UNC format, either //unc or \\unc.
+			// Put a unc prefix "//" back into the element that has the unc name.  The leading empty
+			// elements will be skipped when building the parentage.
+			split[2] = "//" + split[2];
+		}
 		for (int i = 0; i < split.length - 1; ++i) {
 			if (split[i].length() == 0) {
 				continue;
@@ -83,7 +87,8 @@ public class GFileImpl implements GFile {
 			parent = fromFilename(fileSystem, parent, split[i], true, -1, null);
 		}
 		if (fsrl == null) {
-			fsrl = getFSRLFromParent(fileSystem, parent, split[split.length - 1]);
+			String filename = split.length > 0 ? split[split.length - 1] : "/";
+			fsrl = getFSRLFromParent(fileSystem, parent, filename);
 		}
 		return new GFileImpl(fileSystem, parent, isDirectory, length, fsrl);
 	}
@@ -107,7 +112,7 @@ public class GFileImpl implements GFile {
 	 * and as a child of the specified parent.
 	 * <p>
 	 * The filename is accepted without checking or validation.
-	 * <p>
+	 * 
 	 * @param fileSystem the {@link GFileSystem} that owns this file
 	 * @param parent the parent of the new GFile or null if child-of-root.
 	 * @param filename the file's name, not used if FSRL param specified.
@@ -127,7 +132,7 @@ public class GFileImpl implements GFile {
 	/**
 	 * Creates a GFile for a filesystem using the information in a FSRL as the file's name
 	 * and as a child of the specified parent.
-	 * <p>
+	 * 
 	 * @param fileSystem the {@link GFileSystem} that owns this file
 	 * @param parent the parent of the new GFile or null if child-of-root.
 	 * @param fsrl {@link FSRL} to assign to the file.
@@ -140,17 +145,16 @@ public class GFileImpl implements GFile {
 		return new GFileImpl(fileSystem, parent, isDirectory, length, fsrl);
 	}
 
-	private GFileSystem fileSystem;
-	private GFile parentFile;
-	private boolean isDirectory = false;
-	private long length = -1;
-	private FSRL fsrl;
+	private final GFileSystem fileSystem;
+	private final GFile parentFile;
+	private final boolean isDirectory;
+	private long length;
+	private final FSRL fsrl;
 
 	/**
 	 * Protected constructor, use static helper methods to create new instances.
 	 * <p>
 	 * Creates a new GFile instance without any name parsing.
-	 * <p>
 	 *
 	 * @param fileSystem the {@link GFileSystem} that owns this file
 	 * @param parentFile the parent of the new GFile or null if child-of-root.
@@ -198,21 +202,6 @@ public class GFileImpl implements GFile {
 	}
 
 	@Override
-	public boolean equals(Object obj) {
-		if (!(obj instanceof GFile)) {
-			return false;
-		}
-
-		GFile other = (GFile) obj;
-		return SystemUtilities.isEqual(fsrl, other.getFSRL()) && isDirectory == other.isDirectory();
-	}
-
-	@Override
-	public int hashCode() {
-		return fsrl.hashCode() ^ Boolean.hashCode(isDirectory());
-	}
-
-	@Override
 	public String getPath() {
 		return fsrl.getPath();
 	}
@@ -226,7 +215,22 @@ public class GFileImpl implements GFile {
 		return fsrl;
 	}
 
-	public void setFSRL(FSRL fsrl) {
-		this.fsrl = fsrl;
+	@Override
+	public int hashCode() {
+		return Objects.hash(fileSystem, fsrl.getPath(), isDirectory);
+	}
+
+	@Override
+	public boolean equals(Object obj) {
+		if (this == obj) {
+			return true;
+		}
+		if (!(obj instanceof GFile)) {
+			return false;
+		}
+		GFile other = (GFile) obj;
+		return Objects.equals(fileSystem, other.getFilesystem()) &&
+			Objects.equals(fsrl.getPath(), other.getFSRL().getPath()) &&
+			isDirectory == other.isDirectory();
 	}
 }

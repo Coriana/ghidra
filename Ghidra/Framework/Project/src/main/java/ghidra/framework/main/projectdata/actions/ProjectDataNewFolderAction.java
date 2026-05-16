@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,30 +16,27 @@
 package ghidra.framework.main.projectdata.actions;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
 
 import javax.swing.Icon;
 
 import docking.action.ContextSpecificAction;
 import docking.action.MenuData;
 import docking.widgets.tree.GTreeNode;
+import generic.theme.GIcon;
 import ghidra.framework.main.datatable.ProjectTreeContext;
-import ghidra.framework.main.datatree.DataTree;
-import ghidra.framework.model.DomainFile;
-import ghidra.framework.model.DomainFolder;
+import ghidra.framework.main.datatree.*;
+import ghidra.framework.model.*;
 import ghidra.util.InvalidNameException;
-import ghidra.util.Swing;
 import ghidra.util.exception.AssertException;
-import resources.ResourceManager;
 
-public class ProjectDataNewFolderAction<T extends ProjectTreeContext> extends ContextSpecificAction<T> {
+public class ProjectDataNewFolderAction<T extends ProjectTreeContext>
+		extends ContextSpecificAction<T> {
 
-	private static Icon icon = ResourceManager.loadImage("images/folder_add.png");
+	private static final Icon ICON = new GIcon("icon.projectdata.new.folder");
 
 	public ProjectDataNewFolderAction(String owner, String group, Class<T> contextClass) {
 		super("New Folder", owner, contextClass);
-		setPopupMenuData(new MenuData(new String[] { "New Folder" }, icon, group));
+		setPopupMenuData(new MenuData(new String[] { "New Folder" }, ICON, group));
 		markHelpUnnecessary();
 	}
 
@@ -49,62 +46,34 @@ public class ProjectDataNewFolderAction<T extends ProjectTreeContext> extends Co
 	}
 
 	@Override
-	public boolean isAddToPopup(T context) {
-		return (context.getFolderCount() + context.getFileCount()) == 1;
-	}
-
-	/**
-	 * Create a new folder for the selected node that represents
-	 * a folder.
-	 */
-	private void createNewFolder(T context) {
-		DomainFolder parentFolder = getFolder(context);
-
-		DomainFolder newFolder = createNewFolderWithDefaultName(parentFolder);
-		DataTree tree = context.getTree();
-
-		Swing.runLater(() -> {
-			GTreeNode node = findNodeForFolder(tree, newFolder);
-			if (node != null) {
-				tree.setEditable(true);
-				tree.startEditing(node.getParent(), node.getName());
-			}
-		});
-
-	}
-
-	private DomainFolder createNewFolderWithDefaultName(DomainFolder parentFolder) {
-		String name = getNewFolderName(parentFolder);
+	protected boolean isEnabledForContext(T context) {
 		try {
+			return getFolder(context).isInWritableProject();
+		}
+		catch (IOException e) {
+			return false;
+		}
+	}
+
+	private void createNewFolder(T context) {
+		DomainFolder newFolder = createNewFolderWithDefaultName(context);
+		GTreeNode parent = getParentNode(context);
+		DataTree tree = context.getTree();
+		tree.setEditable(true);
+		tree.startEditing(parent, newFolder.getName());
+	}
+
+	private DomainFolder createNewFolderWithDefaultName(T context) {
+		String errName = "";
+		try {
+			DomainFolder parentFolder = getFolder(context);
+			String name = getNewFolderName(parentFolder);
+			errName = ": " + name;
 			return parentFolder.createFolder(name);
 		}
 		catch (InvalidNameException | IOException e) {
-			throw new AssertException("Unexpected Error creating new folder: "+name, e);
+			throw new AssertException("Unexpected Error creating new folder" + errName, e);
 		}
-	}
-
-	/**
-	 * Get folder path as list with top-level folder being first in the list.  
-	 * Root folder is not included in list.
-	 * @param folder
-	 * @param folderPathList folder path list
-	 */
-	private static final void getFolderPath(DomainFolder folder, List<String> folderPathList) {
-		if (folder.getParent() != null) {
-			// don't recurse if we are the root, don't add our 'name' to the list
-			getFolderPath(folder.getParent(), folderPathList);
-			folderPathList.add(folder.getName());
-		}
-	}
-
-	private GTreeNode findNodeForFolder(DataTree tree, DomainFolder newFolder) {
-		List<String> folderPathList = new ArrayList<>();
-		getFolderPath(newFolder, folderPathList);
-		GTreeNode node = tree.getModelRoot();
-		for (int i = 0; node != null && i < folderPathList.size(); i++) {
-			node = node.getChild(folderPathList.get(i));
-		}
-		return node;
 	}
 
 	private String getNewFolderName(DomainFolder parent) {
@@ -118,14 +87,48 @@ public class ProjectDataNewFolderAction<T extends ProjectTreeContext> extends Co
 		return name;
 	}
 
-	private DomainFolder getFolder(T context) {
-		// the following code relies on the isAddToPopup to ensure that there is exactly one
+	private DomainFolder getFolder(T context) throws IOException {
+		// the following code relied upon by the isAddToPopup to ensure that there is exactly one
 		// file or folder selected
-		if (context.getFolderCount() > 0) {
-			return context.getSelectedFolders().get(0);
+		DomainFolder folder = null;
+		if (context.getFolderCount() == 1 && context.getFileCount() == 0) {
+			folder = context.getSelectedFolders().get(0);
 		}
-		DomainFile file = context.getSelectedFiles().get(0);
-		return file.getParent();
+		else if (context.getFileCount() == 1 && context.getFolderCount() == 0) {
+			DomainFile file = context.getSelectedFiles().get(0);
+			LinkFileInfo linkInfo = file.getLinkInfo();
+			if (linkInfo != null && linkInfo.isFolderLink()) {
+				folder = linkInfo.getLinkedFolder();
+			}
+			else {
+				folder = file.getParent();
+			}
+		}
+		if (folder instanceof LinkedDomainFolder linkedFolder) {
+			// Use real folder associated with linked file/folder selection
+			folder = linkedFolder.getRealFolder();
+		}
+		if (folder == null) {
+			// Use root folder if valid selection not found
+			DomainFolderNode rootNode = (DomainFolderNode) context.getTree().getModelRoot();
+			folder = rootNode.getDomainFolder();
+		}
+		return folder;
 	}
 
+	private GTreeNode getParentNode(T context) {
+
+		GTreeNode node = context.getContextNode();
+		if (node == null) {
+			// no node selected in the tree
+			return context.getTree().getModelRoot();
+		}
+
+		if (node instanceof DomainFileNode fileNode) {
+			if (!fileNode.isFolderLink()) {
+				return node.getParent();
+			}
+		}
+		return node;
+	}
 }

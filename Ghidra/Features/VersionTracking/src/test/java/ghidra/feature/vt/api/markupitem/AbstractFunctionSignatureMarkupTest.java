@@ -15,14 +15,13 @@
  */
 package ghidra.feature.vt.api.markupitem;
 
-import static ghidra.feature.vt.db.VTTestUtils.addr;
+import static ghidra.feature.vt.db.VTTestUtils.*;
 import static ghidra.feature.vt.gui.util.VTOptionDefines.*;
 import static org.junit.Assert.*;
 
 import java.util.*;
 
-import org.apache.logging.log4j.*;
-import org.apache.logging.log4j.core.config.Configurator;
+import org.apache.logging.log4j.Level;
 import org.junit.After;
 import org.junit.Before;
 
@@ -51,9 +50,9 @@ import ghidra.util.Msg;
 import ghidra.util.exception.DuplicateNameException;
 import ghidra.util.exception.InvalidInputException;
 import ghidra.util.task.TaskMonitor;
-import ghidra.util.task.TaskMonitorAdapter;
 
-public abstract class AbstractFunctionSignatureMarkupTest extends AbstractGhidraHeadedIntegrationTest {
+public abstract class AbstractFunctionSignatureMarkupTest
+		extends AbstractGhidraHeadedIntegrationTest {
 
 	// Default Apply Markup Options
 	// ============================
@@ -97,14 +96,8 @@ public abstract class AbstractFunctionSignatureMarkupTest extends AbstractGhidra
 	protected Function sourceFunction;
 	protected Function destinationFunction;
 
-	public AbstractFunctionSignatureMarkupTest() {
-		super();
-	}
-
 	@Before
 	public void setUp() throws Exception {
-
-//		setErrorGUIEnabled(false);
 
 		vtTestEnv = new VTTestEnv();
 		session = vtTestEnv.createSession(TEST_SOURCE_PROGRAM_NAME, TEST_DESTINATION_PROGRAM_NAME);
@@ -125,11 +118,8 @@ public abstract class AbstractFunctionSignatureMarkupTest extends AbstractGhidra
 		controller = vtTestEnv.getVTController();
 		vtTestEnv.showTool();
 
-		Logger functionLogger = LogManager.getLogger(FunctionDB.class);
-		Configurator.setLevel(functionLogger.getName(), Level.TRACE);
-
-		Logger variableLogger = LogManager.getLogger(VariableSymbolDB.class);
-		Configurator.setLevel(variableLogger.getName(), Level.TRACE);
+		setLogLevel(FunctionDB.class, Level.TRACE);
+		setLogLevel(VariableSymbolDB.class, Level.TRACE);
 	}
 
 	private void disableAutoAnalysis(Program program) {
@@ -141,14 +131,21 @@ public abstract class AbstractFunctionSignatureMarkupTest extends AbstractGhidra
 
 	@After
 	public void tearDown() throws Exception {
-		sourceProgram = null;
-		destinationProgram = null;
-		session = null;
+		if (sourceProgram != null) {
+			vtTestEnv.release(sourceProgram);
+			sourceProgram = null;
+		}
+		if (destinationProgram != null) {
+			vtTestEnv.release(destinationProgram);
+			destinationProgram = null;
+		}
+		if (session != null) {
+			session.release(vtTestEnv);
+			session = null;
+		}
 		controller = null;
 		correlator = null;
-		vtTestEnv.releaseSession();
 		vtTestEnv.dispose();
-
 	}
 
 	public static void setApplyMarkupOptionsToDefaults(ToolOptions applyOptions) {
@@ -388,7 +385,7 @@ public abstract class AbstractFunctionSignatureMarkupTest extends AbstractGhidra
 	protected VTMarkupItem getFunctionSignatureMarkup(VTMatch match) {
 		MatchInfo matchInfo = controller.getMatchInfo(match);
 		Collection<VTMarkupItem> appliableMarkupItems =
-			matchInfo.getAppliableMarkupItems(TaskMonitorAdapter.DUMMY_MONITOR);
+			matchInfo.getAppliableMarkupItems(TaskMonitor.DUMMY);
 		for (VTMarkupItem vtMarkupItem : appliableMarkupItems) {
 			if (vtMarkupItem.getMarkupType() instanceof FunctionSignatureMarkupType) {
 				return vtMarkupItem;
@@ -402,7 +399,7 @@ public abstract class AbstractFunctionSignatureMarkupTest extends AbstractGhidra
 		List<VTMarkupItem> list = new ArrayList<>();
 		MatchInfo matchInfo = controller.getMatchInfo(match);
 		Collection<VTMarkupItem> appliableMarkupItems =
-			matchInfo.getAppliableMarkupItems(TaskMonitorAdapter.DUMMY_MONITOR);
+			matchInfo.getAppliableMarkupItems(TaskMonitor.DUMMY);
 		for (VTMarkupItem vtMarkupItem : appliableMarkupItems) {
 			if (vtMarkupItem.getMarkupType().getClass() == markupTypeClass) {
 				if (!onlyUnapplied || vtMarkupItem.getStatus() == VTMarkupItemStatus.UNAPPLIED) {
@@ -412,32 +409,6 @@ public abstract class AbstractFunctionSignatureMarkupTest extends AbstractGhidra
 		}
 		return list;
 	}
-
-// There is no longer a NoReturn markup
-//	protected VTMarkupItem getNoReturnMarkup(VTMatch match) {
-//		MatchInfo matchInfo = controller.getMatchInfo(match);
-//		Collection<VTMarkupItem> appliableMarkupItems =
-//			matchInfo.getAppliableMarkupItems(TaskMonitorAdapter.DUMMY_MONITOR);
-//		for (VTMarkupItem vtMarkupItem : appliableMarkupItems) {
-//			if (vtMarkupItem.getMarkupType() instanceof FunctionNoReturnMarkupType) {
-//				return vtMarkupItem;
-//			}
-//		}
-//		return null;
-//	}
-//
-// There is no longer a ParameterNames markup
-//	protected VTMarkupItem getParameterNamesMarkup(VTMatch match) {
-//		MatchInfo matchInfo = controller.getMatchInfo(match);
-//		Collection<VTMarkupItem> appliableMarkupItems =
-//			matchInfo.getAppliableMarkupItems(TaskMonitorAdapter.DUMMY_MONITOR);
-//		for (VTMarkupItem vtMarkupItem : appliableMarkupItems) {
-//			if (vtMarkupItem.getMarkupType() instanceof ParameterNamesMarkupType) {
-//				return vtMarkupItem;
-//			}
-//		}
-//		return null;
-//	}
 
 	protected VTMatch getMatch(Address source, Address destination) {
 		List<VTMatchSet> matchSets = session.getMatchSets();

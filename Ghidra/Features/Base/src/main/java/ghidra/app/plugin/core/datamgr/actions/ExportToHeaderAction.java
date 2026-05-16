@@ -15,7 +15,6 @@
  */
 package ghidra.app.plugin.core.datamgr.actions;
 
-import java.awt.Component;
 import java.io.*;
 import java.lang.reflect.Constructor;
 import java.util.*;
@@ -138,7 +137,7 @@ public class ExportToHeaderAction extends DockingAction {
 		if (!list.isEmpty()) {
 			list.add(0, new DefaultAnnotationHandler());
 			AnnotationHandlerDialog dlg = new AnnotationHandlerDialog(list);
-			plugin.getTool().showDialog(dlg, (Component) null);
+			plugin.getTool().showDialog(dlg);
 			if (!dlg.wasSuccessful()) {
 				return;
 			}
@@ -177,6 +176,8 @@ public class ExportToHeaderAction extends DockingAction {
 				new DataTypeWriterTask(gTree, programDataTypeMgr, dataTypeList, handler, file),
 				gTree);
 		}
+
+		fileChooser.dispose();
 	}
 
 	private class DataTypeWriterTask extends Task {
@@ -260,9 +261,9 @@ public class ExportToHeaderAction extends DockingAction {
 
 		String lastDirSelected = Preferences.getProperty(LAST_DATA_TYPE_EXPORT_DIRECTORY);
 		if (lastDirSelected != null) {
-			File file = new File(lastDirSelected);
-			if (file.exists()) {
-				fileChooser.setCurrentDirectory(file);
+			File dir = new File(lastDirSelected);
+			if (dir.isDirectory()) {
+				fileChooser.setCurrentDirectory(dir);
 			}
 		}
 

@@ -128,7 +128,7 @@ public class PERichTableDataType extends DynamicDataType {
 		}
 
 		@Override
-		public boolean isDynamicallySized() {
+		public boolean hasLanguageDependantLength() {
 			return false;
 		}
 
@@ -193,7 +193,7 @@ public class PERichTableDataType extends DynamicDataType {
 		}
 
 		@Override
-		public boolean isDynamicallySized() {
+		public boolean hasLanguageDependantLength() {
 			return false;
 		}
 
@@ -259,7 +259,7 @@ public class PERichTableDataType extends DynamicDataType {
 		}
 
 		@Override
-		public boolean isDynamicallySized() {
+		public boolean hasLanguageDependantLength() {
 			return false;
 		}
 
@@ -299,7 +299,7 @@ public class PERichTableDataType extends DynamicDataType {
 		@Override
 		public String getRepresentation(MemBuffer buf, Settings settings, int length) {
 			try {
-				return new Integer(buf.getInt(0) ^ mask).toString();
+				return Integer.valueOf(buf.getInt(0) ^ mask).toString();
 			}
 			catch (MemoryAccessException mae) {
 				return "0";

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,60 +16,68 @@
 package ghidra.framework.main.datatree;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.List;
 
 import javax.swing.Icon;
 
-import docking.widgets.tree.GTreeLazyNode;
+import docking.widgets.tree.GTree;
 import docking.widgets.tree.GTreeNode;
 import ghidra.framework.model.*;
-import ghidra.util.InvalidNameException;
-import ghidra.util.Msg;
+import ghidra.util.*;
+import ghidra.util.exception.CancelledException;
+import ghidra.util.task.TaskMonitor;
 import resources.ResourceManager;
 
 /**
  * Class to represent a node in the Data tree.
  */
-public class DomainFolderNode extends GTreeLazyNode implements Cuttable {
-	private static final Icon ENABLED_OPEN_FOLDER =
-		ResourceManager.loadImage("images/openSmallFolder.png");
-	private static final Icon ENABLED_CLOSED_FOLDER =
-		ResourceManager.loadImage("images/closedSmallFolder.png");
+public class DomainFolderNode extends DataTreeNode {
+
+	private static final Icon ENABLED_OPEN_FOLDER = DomainFolder.OPEN_FOLDER_ICON;
+	private static final Icon ENABLED_CLOSED_FOLDER = DomainFolder.CLOSED_FOLDER_ICON;
+
 	private static final Icon DISABLED_OPEN_FOLDER =
 		ResourceManager.getDisabledIcon(ENABLED_OPEN_FOLDER);
 	private static final Icon DISABLED_CLOSED_FOLDER =
 		ResourceManager.getDisabledIcon(ENABLED_CLOSED_FOLDER);
 
 	private DomainFolder domainFolder;
-	private boolean isCut;
 	private DomainFileFilter filter;
 
 	// variables that are accessed in with a lock on the filesystem in the underlying folder
 	private String toolTipText;
 	private boolean isEditable;
 
-	/**
-	 * Construct a node for a domain folder.
-	 */
 	DomainFolderNode(DomainFolder domainFolder, DomainFileFilter filter) {
+
 		this.domainFolder = domainFolder;
 		this.filter = filter;
 
 		// TODO: how can the folder be null?...doesn't really make sense...I don't think it ever is
 		if (domainFolder != null) {
-			toolTipText = domainFolder.getPathname();
+			setToolTipText();
 			isEditable = domainFolder.isInWritableProject();
 		}
 	}
 
+	@Override
+	public boolean isAutoExpandPermitted() {
+		// Prevent auto-expansion through linked-folders
+		return !domainFolder.isLinked();
+	}
+
 	/**
-	 * Get the domain folder; returns null if this node represents a
-	 * domain file.
+	 * Get the domain folder; returns null if this node represents a domain file.
 	 *
 	 * @return DomainFolder
 	 */
 	public DomainFolder getDomainFolder() {
 		return domainFolder;
+	}
+
+	@Override
+	public String getPathname() {
+		return domainFolder.getPathname();
 	}
 
 	/**
@@ -80,30 +88,12 @@ public class DomainFolderNode extends GTreeLazyNode implements Cuttable {
 		return false;
 	}
 
-	/**
-	 * Set this node to be deleted so that it can be
-	 * rendered as such.
-	 */
-	@Override
-	public void setIsCut(boolean isCut) {
-		this.isCut = isCut;
-		fireNodeChanged(getParent(), this);
-	}
-
-	/**
-	 * Returns whether this node is marked as deleted.
-	 */
-	@Override
-	public boolean isCut() {
-		return isCut;
-	}
-
 	@Override
 	public Icon getIcon(boolean expanded) {
-		if (expanded) {
-			return isCut ? DISABLED_OPEN_FOLDER : ENABLED_OPEN_FOLDER;
+		if (isCut()) {
+			return expanded ? DISABLED_OPEN_FOLDER : DISABLED_CLOSED_FOLDER;
 		}
-		return isCut ? DISABLED_CLOSED_FOLDER : ENABLED_CLOSED_FOLDER;
+		return expanded ? ENABLED_OPEN_FOLDER : ENABLED_CLOSED_FOLDER;
 	}
 
 	@Override
@@ -121,24 +111,20 @@ public class DomainFolderNode extends GTreeLazyNode implements Cuttable {
 		return toolTipText;
 	}
 
-	@Override
-	protected List<GTreeNode> generateChildren() {
-		List<GTreeNode> children = new ArrayList<GTreeNode>();
-		if (domainFolder != null) {
-			DomainFolder[] folders = domainFolder.getFolders();
-			for (DomainFolder folder : folders) {
-				children.add(new DomainFolderNode(folder, filter));
-			}
-
-			DomainFile[] files = domainFolder.getFiles();
-			for (DomainFile domainFile : files) {
-				if (filter == null || filter.accept(domainFile)) {
-					children.add(new DomainFileNode(domainFile));
-				}
-			}
+	private void setToolTipText() {
+		String newToolTipText;
+		if (domainFolder instanceof LinkedDomainFolder) {
+			newToolTipText = domainFolder.toString();
 		}
-		Collections.sort(children);
-		return children;
+		else {
+			newToolTipText = domainFolder.getPathname();
+		}
+		toolTipText = HTMLUtilities.toLiteralHTML(newToolTipText, 0);
+	}
+
+	@Override
+	public List<GTreeNode> generateChildren(TaskMonitor monitor) throws CancelledException {
+		return generateChildren(domainFolder, filter, monitor);
 	}
 
 	@Override
@@ -159,7 +145,7 @@ public class DomainFolderNode extends GTreeLazyNode implements Cuttable {
 			return false;
 		}
 		DomainFolderNode node = (DomainFolderNode) obj;
-		if (domainFolder == node.domainFolder) {
+		if (domainFolder.equals(node.domainFolder)) {
 			return true;
 		}
 		return false;
@@ -167,7 +153,7 @@ public class DomainFolderNode extends GTreeLazyNode implements Cuttable {
 
 	@Override
 	public int hashCode() {
-		return System.identityHashCode(domainFolder);
+		return domainFolder.hashCode();
 	}
 
 	public DomainFileFilter getDomainFileFilter() {
@@ -176,10 +162,7 @@ public class DomainFolderNode extends GTreeLazyNode implements Cuttable {
 
 	@Override
 	public int compareTo(GTreeNode node) {
-		if (node instanceof DomainFileNode) {
-			return -1;
-		}
-		return super.compareTo(node);
+		return DATA_NODE_SORT_COMPARATOR.compare(this, node);
 	}
 
 	@Override
@@ -199,5 +182,15 @@ public class DomainFolderNode extends GTreeLazyNode implements Cuttable {
 				Msg.showError(this, getTree(), "Rename Failed", e.getMessage());
 			}
 		}
+	}
+
+	@Override
+	public GTreeNode getChild(String name, NodeType type) {
+		return getChild(children(), name, type);
+	}
+
+	@Override
+	public ProjectData getProjectData() {
+		return domainFolder.getProjectData();
 	}
 }

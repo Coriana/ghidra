@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,63 +16,110 @@
 package ghidra.util.table.actions;
 
 import java.awt.Component;
+import java.util.Objects;
 
 import javax.swing.KeyStroke;
 
 import docking.ActionContext;
 import docking.action.*;
 import ghidra.app.events.ProgramSelectionPluginEvent;
+import ghidra.app.nav.Navigatable;
 import ghidra.framework.plugintool.Plugin;
 import ghidra.framework.plugintool.PluginEvent;
 import ghidra.program.model.listing.Program;
+import ghidra.program.util.ProgramLocation;
 import ghidra.program.util.ProgramSelection;
 import ghidra.util.HelpLocation;
 import ghidra.util.table.GhidraTable;
 import resources.Icons;
 
 /**
- * An action to make a program selection based on the given table's selection.  For the context to
- * work, the provider using this action must create an {@link ActionContext} that returns a 
- * context object that is the table passed to this action's constructor; otherwise, this action 
- * will not be enabled correctly.
+ * An action to make a program selection based on the given table's selection. For the context to
+ * work, the provider using this action must create an {@link ActionContext} that returns a context
+ * object that is the table passed to this action's constructor; otherwise, this action will not be
+ * enabled correctly.
  */
 public class MakeProgramSelectionAction extends DockingAction {
 
-	// we will have one of these fields be non-null after construction
+	// The plugin and or the navigatable may be null.  If both are null , then clients must 
+	// override the makeProgramSelection() method to do any work themselves.
 	private Plugin plugin;
+	private Navigatable navigatable;
 	private GhidraTable table;
 
 	/**
-	 * Special constructor for clients that do not have a plugin.  Clients using this 
-	 * constructor must override {@link #makeSelection(ActionContext)}.
+	 * Special constructor for clients that do not have a plugin.
+	 * <p>
+	 * Clients using this constructor must override
+	 * {@link #makeProgramSelection(ProgramSelection, ActionContext)}.
+	 * 
+	 * <p>
+	 * Update: the preferred constructor for clients without a plugin is
+	 * {@link #MakeProgramSelectionAction(Navigatable, String, GhidraTable)}.
 	 * 
 	 * @param owner the action's owner
 	 * @param table the table needed for this action
+	 * @deprecated use either of the other constructors
 	 */
+	@Deprecated(forRemoval = true, since = "10.2")
 	public MakeProgramSelectionAction(String owner, GhidraTable table) {
 		super("Make Selection", owner, KeyBindingType.SHARED);
-		this.table = table;
-		init();
+		this.table = Objects.requireNonNull(table);
+		init(null);
 	}
 
 	/**
-	 * This normal constructor for this action.  The given plugin will be used along with the
-	 * given table to fire program selection events as the action is executed.
+	 * Special constructor for clients that do not have a plugin.
+	 * <p>
+	 * Clients using this constructor must override
+	 * {@link #makeProgramSelection(ProgramSelection, ActionContext)}.
+	 * 
+	 * @param navigatable the navigatable that will be used to make selections; may not be null
+	 * @param owner the action's owner
+	 * @param table the table needed for this action
+	 */
+	public MakeProgramSelectionAction(Navigatable navigatable, String owner, GhidraTable table) {
+		this(navigatable, owner, table, null);
+	}
+
+	/**
+	 * Special constructor for clients that do not have a plugin.
+	 * <p>
+	 * Clients using this constructor must override
+	 * {@link #makeProgramSelection(ProgramSelection, ActionContext)}.
+	 * 
+	 * @param navigatable the navigatable that will be used to make selections; may not be null
+	 * @param owner the action's owner
+	 * @param table the table needed for this action
+	 * @param menuGroup The popup menu group for this action
+	 */
+	public MakeProgramSelectionAction(Navigatable navigatable, String owner, GhidraTable table,
+			String menuGroup) {
+		super("Make Selection", owner, KeyBindingType.SHARED);
+		this.navigatable = Objects.requireNonNull(navigatable);
+		this.table = Objects.requireNonNull(table);
+		init(menuGroup);
+	}
+
+	/**
+	 * The normal constructor for this action.
+	 * <p>
+	 * The given plugin will be used along with the given table to fire program selection events as
+	 * the action is executed.
 	 * 
 	 * @param plugin the plugin
 	 * @param table the table
 	 */
 	public MakeProgramSelectionAction(Plugin plugin, GhidraTable table) {
 		super("Make Selection", plugin.getName(), KeyBindingType.SHARED);
-		this.plugin = plugin;
-		this.table = table;
-
-		init();
+		this.plugin = Objects.requireNonNull(plugin);
+		this.table = Objects.requireNonNull(table);
+		init(null);
 	}
 
-	private void init() {
+	private void init(String menuGroup) {
 		setPopupMenuData(
-			new MenuData(new String[] { "Make Selection" }, Icons.MAKE_SELECTION_ICON));
+			new MenuData(new String[] { "Make Selection" }, Icons.MAKE_SELECTION_ICON, menuGroup));
 		setToolBarData(new ToolBarData(Icons.MAKE_SELECTION_ICON));
 		setDescription("Make a program selection from the selected rows");
 
@@ -119,20 +166,31 @@ public class MakeProgramSelectionAction extends DockingAction {
 
 	@Override
 	public void actionPerformed(ActionContext context) {
-		makeSelection(context);
+		ProgramSelection selection = table.getProgramSelection();
+		makeProgramSelection(selection, context);
 	}
 
-	protected ProgramSelection makeSelection(ActionContext context) {
-		ProgramSelection selection = table.getProgramSelection();
+	protected void makeProgramSelection(ProgramSelection selection, ActionContext context) {
+
+		if (selection.isEmpty()) {
+			return;
+		}
+
+		if (navigatable != null) {
+			Program program = table.getProgram();
+			navigatable.goTo(program, new ProgramLocation(program, selection.getMinAddress()));
+			navigatable.setSelection(selection);
+			navigatable.requestFocus();
+			return;
+		}
 
 		if (plugin == null) {
 			throw new IllegalStateException("The Make Program Selection action cannot be used " +
-				"without a plugin unless the client overrides this method");
+				"without a plugin or a navigatable unless the client overrides this method");
 		}
 
 		PluginEvent event =
 			new ProgramSelectionPluginEvent(plugin.getName(), selection, table.getProgram());
 		plugin.firePluginEvent(event);
-		return selection;
 	}
 }

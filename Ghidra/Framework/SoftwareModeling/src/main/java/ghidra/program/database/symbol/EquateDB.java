@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,10 +16,11 @@
 package ghidra.program.database.symbol;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
-import db.Record;
-import ghidra.program.database.DBObjectCache;
-import ghidra.program.database.DatabaseObject;
+import db.DBRecord;
+import ghidra.program.database.DbObject;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.DataTypeManager;
 import ghidra.program.model.data.Enum;
@@ -29,6 +30,7 @@ import ghidra.program.model.scalar.Scalar;
 import ghidra.program.model.symbol.Equate;
 import ghidra.program.model.symbol.EquateReference;
 import ghidra.util.Lock;
+import ghidra.util.Lock.Closeable;
 import ghidra.util.UniversalID;
 import ghidra.util.exception.*;
 
@@ -37,26 +39,25 @@ import ghidra.util.exception.*;
  * 
  * 
  */
-public class EquateDB extends DatabaseObject implements Equate {
+public class EquateDB extends DbObject implements Equate {
 
-	private Record record;
+	private DBRecord record;
 	private EquateManager equateMgr;
 
 	/**
 	 * Constructor
 	 * @param equateMgr the equate manager
-	 * @param cache EquateDB cache
 	 * @param record the record for this equate.
 	 */
-	public EquateDB(EquateManager equateMgr, DBObjectCache<EquateDB> cache, Record record) {
-		super(cache, record.getKey());
+	EquateDB(EquateManager equateMgr, DBRecord record) {
+		super(record.getKey());
 		this.equateMgr = equateMgr;
 		this.record = record;
 	}
 
 	@Override
 	protected boolean refresh() {
-		Record rec = equateMgr.getEquateRecord(key);
+		DBRecord rec = equateMgr.getEquateRecord(key);
 		if (rec == null) {
 			return false;
 		}
@@ -64,39 +65,37 @@ public class EquateDB extends DatabaseObject implements Equate {
 		return true;
 	}
 
-	/**
-	 * @see ghidra.program.model.symbol.Equate#addReference(ghidra.program.model.address.Address, int)
-	 */
 	@Override
 	public void addReference(Address refAddr, int opIndex) {
-		checkDeleted();
-		try {
+		try (Closeable c = equateMgr.getLock().write()) {
+			checkDeleted();
 			Instruction instr = equateMgr.getProgram().getCodeManager().getInstructionAt(refAddr);
 			long dynamicHash;
-			if (instr == null)
+			if (instr == null) {
 				dynamicHash = 0;
+			}
 			else {
 				long value = record.getLongValue(EquateDBAdapter.VALUE_COL);
-			    long hashArray[] = DynamicHash.calcConstantHash(instr, value);
-			    if (hashArray.length != 1)
-			    	dynamicHash = 0;
-			    else
-			    	dynamicHash = hashArray[0];
+				long hashArray[] = DynamicHash.calcConstantHash(instr, value);
+				if (hashArray.length != 1) {
+					dynamicHash = 0;
+				}
+				else {
+					dynamicHash = hashArray[0];
+				}
 			}
 			equateMgr.addReference(key, refAddr, (short) opIndex, dynamicHash);
 		}
 		catch (IOException e) {
 			equateMgr.dbError(e);
 		}
+
 	}
 
-	/**
-	 * @see ghidra.program.model.symbol.Equate#addReference(long, ghidra.program.model.address.Address)
-	 */
 	@Override
 	public void addReference(long dynamicHash, Address refAddr) {
-		checkDeleted();
-		try {
+		try (Closeable c = equateMgr.getLock().write()) {
+			checkDeleted();
 			short opIndex = findOpIndex(refAddr, dynamicHash);
 			equateMgr.addReference(key, refAddr, opIndex, dynamicHash);
 		}
@@ -112,9 +111,11 @@ public class EquateDB extends DatabaseObject implements Equate {
 		}
 		long value = record.getLongValue(EquateDBAdapter.VALUE_COL);
 		long checkHash[] = DynamicHash.calcConstantHash(instr, value);
-		for (long element : checkHash)
-			if (element == dynamicHash)
+		for (long element : checkHash) {
+			if (element == dynamicHash) {
 				return findScalarOpIndex(instr);
+			}
+		}
 		return -1;
 	}
 
@@ -138,12 +139,9 @@ public class EquateDB extends DatabaseObject implements Equate {
 		return opIndex;
 	}
 
-	/**
-	 * @see ghidra.program.model.symbol.Equate#getName()
-	 */
 	@Override
 	public String getName() {
-		checkIsValid();
+		validate(equateMgr.getLock());
 		return record.getString(EquateDBAdapter.NAME_COL);
 	}
 
@@ -171,28 +169,22 @@ public class EquateDB extends DatabaseObject implements Equate {
 		return null;
 	}
 
-	/**
-	 * @see ghidra.program.model.symbol.Equate#getReferenceCount()
-	 */
 	@Override
 	public int getReferenceCount() {
-		checkIsValid();
-		try {
-			return equateMgr.getReferenceCount(key);
-		}
-		catch (IOException e) {
-			equateMgr.dbError(e);
+		try (Closeable c = equateMgr.getLock().read()) {
+			try {
+				return equateMgr.getReferenceCount(key);
+			}
+			catch (IOException e) {
+				equateMgr.dbError(e);
+			}
 		}
 		return 0;
 	}
 
-	/**
-	 * @see ghidra.program.model.symbol.Equate#getReferences()
-	 */
 	@Override
 	public EquateReference[] getReferences() {
-		checkIsValid();
-		try {
+		try (Closeable c = equateMgr.getLock().read()) {
 			return equateMgr.getReferences(key);
 		}
 		catch (IOException e) {
@@ -201,27 +193,32 @@ public class EquateDB extends DatabaseObject implements Equate {
 		return new EquateReference[0];
 	}
 
-	/**
-	 * @see ghidra.program.model.symbol.Equate#getValue()
-	 */
+	@Override
+	public List<EquateReference> getReferences(Address refAddr) {
+		Lock lock = equateMgr.getLock();
+		try (Closeable c = lock.read()) {
+			if (refreshIfNeeded()) {
+				return equateMgr.getReferences(key, refAddr);
+			}
+		}
+		catch (IOException e) {
+			equateMgr.getProgram().dbError(e);
+		}
+		return new ArrayList<>();
+	}
+
 	@Override
 	public long getValue() {
-		checkIsValid();
+		validate(equateMgr.getLock());
 		return record.getLongValue(EquateDBAdapter.VALUE_COL);
 	}
 
-	/**
-	 * @see ghidra.program.model.symbol.Equate#getDisplayValue()
-	 */
 	@Override
 	public String getDisplayValue() {
 		long val = getValue();
 		return ((val < 0) ? "-" : "") + "0x" + Long.toHexString(Math.abs(val));
 	}
 
-	/**
-	 * @see ghidra.program.model.symbol.Equate#removeReference(ghidra.program.model.address.Address, int)
-	 */
 	@Override
 	public void removeReference(Address refAddr, int opIndex) {
 		checkDeleted();
@@ -233,9 +230,6 @@ public class EquateDB extends DatabaseObject implements Equate {
 		}
 	}
 
-	/**
-	 * @see ghidra.program.model.symbol.Equate#removeReference(long, ghidra.program.model.address.Address)
-	 */
 	@Override
 	public void removeReference(long dynamicHash, Address refAddr) {
 		checkDeleted();
@@ -247,14 +241,10 @@ public class EquateDB extends DatabaseObject implements Equate {
 		}
 	}
 
-	/**
-	 * @see ghidra.program.model.symbol.Equate#renameEquate(java.lang.String)
-	 */
 	@Override
 	public void renameEquate(String newName) throws DuplicateNameException, InvalidInputException {
 		Lock lock = equateMgr.getLock();
-		lock.acquire();
-		try {
+		try (Closeable c = lock.write()) {
 			checkDeleted();
 
 			String oldName = getName();
@@ -266,6 +256,7 @@ public class EquateDB extends DatabaseObject implements Equate {
 				throw new DuplicateNameException("Equate named " + newName + " already exists");
 			}
 			catch (NotFoundException e) {
+				// this is expected, since an existing name will be an unwanted duplicate
 			}
 			catch (IOException e) {
 				equateMgr.dbError(e);
@@ -276,9 +267,6 @@ public class EquateDB extends DatabaseObject implements Equate {
 			record.setString(EquateDBAdapter.NAME_COL, newName);
 			updateRecord();
 			equateMgr.equateNameChanged(oldName, newName);
-		}
-		finally {
-			lock.release();
 		}
 	}
 
@@ -305,10 +293,6 @@ public class EquateDB extends DatabaseObject implements Equate {
 		return getName().startsWith(EquateManager.DATATYPE_TAG);
 	}
 
-	/**
-	 * 
-	 * @see java.lang.Object#equals(Object)
-	 */
 	@Override
 	public boolean equals(Object obj) {
 
@@ -322,26 +306,19 @@ public class EquateDB extends DatabaseObject implements Equate {
 		if (getClass() != obj.getClass()) {
 			return false;
 		}
-		Equate eq = (Equate) obj;
 
+		Equate eq = (Equate) obj;
 		if (getValue() != eq.getValue()) {
 			return false;
 		}
 		return getName().equals(eq.getName());
 	}
 
-	/**
-	 * 
-	 * @see java.lang.Object#hashCode()
-	 */
 	@Override
 	public int hashCode() {
 		return getName().hashCode();
 	}
 
-	/**
-	 * @see java.lang.Object#toString()
-	 */
 	@Override
 	public String toString() {
 		return getDisplayName();

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,7 +15,9 @@
  */
 package ghidra.pcodeCPort.sleighbase;
 
-import java.io.PrintStream;
+import static ghidra.pcode.utils.SlaFormat.*;
+
+import java.io.IOException;
 import java.util.ArrayList;
 
 import generic.stl.*;
@@ -26,15 +28,18 @@ import ghidra.pcodeCPort.slghsymbol.*;
 import ghidra.pcodeCPort.space.AddrSpace;
 import ghidra.pcodeCPort.space.spacetype;
 import ghidra.pcodeCPort.translate.Translate;
-import ghidra.pcodeCPort.utils.XmlUtils;
+import ghidra.program.model.pcode.Encoder;
+import ghidra.sleigh.grammar.SourceFileIndexer;
 
 public abstract class SleighBase extends Translate implements NamedSymbolProvider {
 
-	// NOTE: restoreXml method removed as it is only used by the decompiler's
-	// implementation
+	/**
+	 * Note: The value of {@link #MAX_UNIQUE_SIZE}  must match the corresponding value
+	 * defined by sleighbase.cc
+	 */
+	public static final long MAX_UNIQUE_SIZE = 256;  //Maximum size of a varnode in the unique space.  
+													//Should match value in sleighbase.cc
 
-	public static final int SLA_FORMAT_VERSION = 2;	// What format of the .sla file this produces
-													// This value should always match SleighLanguage.SLA_FORMAT_VERSION
 	private VectorSTL<String> userop = new VectorSTL<>();
 	private address_set varnode_xref = new address_set(); // Cross-reference registers by address
 	protected SubtableSymbol root;
@@ -42,6 +47,8 @@ public abstract class SleighBase extends Translate implements NamedSymbolProvide
 	protected int maxdelayslotbytes;	// Maximum number of bytes in a delayslot directive
 	protected int unique_allocatemask;	// Bits that are guaranteed to be zero in the unique allocation scheme
 	protected int numSections;		// Number of named sections
+	protected SourceFileIndexer indexer;  //indexer for source files
+										//used to provide source file info for constructors
 
 	@Override
 	public SleighSymbol findSymbol(String nm) {
@@ -61,6 +68,7 @@ public abstract class SleighBase extends Translate implements NamedSymbolProvide
 		maxdelayslotbytes = 0;
 		unique_allocatemask = 0;
 		numSections = 0;
+		indexer = new SourceFileIndexer();
 	}
 
 	public boolean isInitialized() {
@@ -74,18 +82,21 @@ public abstract class SleighBase extends Translate implements NamedSymbolProvide
 		for (iter = glb.begin(); !iter.isEnd(); iter.increment()) {
 			SleighSymbol sym = iter.get();
 			if (sym.getType() == symbol_type.varnode_symbol) {
-				Pair<IteratorSTL<VarnodeSymbol>, Boolean> res = varnode_xref.insert((VarnodeSymbol) sym);
+				Pair<IteratorSTL<VarnodeSymbol>, Boolean> res =
+					varnode_xref.insert((VarnodeSymbol) sym);
 				if (!res.second) {
 					errorPairs.add(sym);
 					errorPairs.add(res.first.get());
 				}
-			} else if (sym.getType() == symbol_type.userop_symbol) {
+			}
+			else if (sym.getType() == symbol_type.userop_symbol) {
 				int index = ((UserOpSymbol) sym).getIndex();
 				while (userop.size() <= index) {
 					userop.push_back("");
 				}
 				userop.set(index, sym.getName());
-			} else if (sym.getType() == symbol_type.context_symbol) {
+			}
+			else if (sym.getType() == symbol_type.context_symbol) {
 				ContextSymbol csym = (ContextSymbol) sym;
 				ContextField field = (ContextField) csym.getPatternValue();
 				int startbit = field.getStartBit();
@@ -111,12 +122,6 @@ public abstract class SleighBase extends Translate implements NamedSymbolProvide
 				registerContext(csym.getName(), startbit, endbit);
 			}
 		}
-	}
-
-	@Override
-	public void addRegister(String nm, AddrSpace base, long offset, int size) {
-		VarnodeSymbol sym = new VarnodeSymbol(null, nm, base, offset, size);
-		symtab.addSymbol(sym);
 	}
 
 	@Override
@@ -173,36 +178,35 @@ public abstract class SleighBase extends Translate implements NamedSymbolProvide
 		}
 	}
 
-	public void saveXml(PrintStream s) {
-		s.append("<sleigh");
-		XmlUtils.a_v_i(s, "version", SLA_FORMAT_VERSION);
-		XmlUtils.a_v_b(s, "bigendian", isBigEndian());
-		XmlUtils.a_v_i(s, "align", alignment);
-		XmlUtils.a_v_u(s, "uniqbase", getUniqueBase());
+	public void encode(Encoder encoder) throws IOException {
+		encoder.openElement(ELEM_SLEIGH);
+		encoder.writeSignedInteger(ATTRIB_VERSION, FORMAT_VERSION);
+		encoder.writeBool(ATTRIB_BIGENDIAN, isBigEndian());
+		encoder.writeSignedInteger(ATTRIB_ALIGN, alignment);
+		encoder.writeUnsignedInteger(ATTRIB_UNIQBASE, getUniqueBase());
 		if (maxdelayslotbytes > 0) {
-			XmlUtils.a_v_u(s, "maxdelay", maxdelayslotbytes);
+			encoder.writeUnsignedInteger(ATTRIB_MAXDELAY, maxdelayslotbytes);
 		}
 		if (unique_allocatemask != 0) {
-			XmlUtils.a_v_u(s, "uniqmask", unique_allocatemask);
+			encoder.writeUnsignedInteger(ATTRIB_UNIQMASK, unique_allocatemask);
 		}
 		if (numSections != 0) {
-			XmlUtils.a_v_u(s, "numsections", numSections);
+			encoder.writeUnsignedInteger(ATTRIB_NUMSECTIONS, numSections);
 		}
-		s.append(">\n");
-		s.append("<spaces");
-		XmlUtils.a_v(s, "defaultspace", getDefaultSpace().getName());
-		s.append(">\n");
+		indexer.encode(encoder);
+		encoder.openElement(ELEM_SPACES);
+		encoder.writeString(ATTRIB_DEFAULTSPACE, getDefaultSpace().getName());
 		for (int i = 0; i < numSpaces(); ++i) {
 			AddrSpace spc = getSpace(i);
-			if ((spc.getType() == spacetype.IPTR_CONSTANT) || (spc.getType() == spacetype.IPTR_FSPEC)
-					|| (spc.getType() == spacetype.IPTR_IOP)) {
+			if ((spc.getType() == spacetype.IPTR_CONSTANT) ||
+				(spc.getType() == spacetype.IPTR_FSPEC) || (spc.getType() == spacetype.IPTR_IOP)) {
 				continue;
 			}
-			spc.saveXml(s);
+			spc.encode(encoder);
 		}
-		s.append("</spaces>\n");
-		symtab.saveXml(s);
-		s.append("</sleigh>\n");
+		encoder.closeElement(ELEM_SPACES);
+		symtab.encode(encoder);
+		encoder.closeElement(ELEM_SLEIGH);
 	}
 
 }

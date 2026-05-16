@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -23,7 +23,7 @@ import docking.widgets.dialogs.NumberInputDialog;
 import ghidra.program.model.data.*;
 
 public class StructureEditorUnlockedActions2Test
-		extends AbstractStructureEditorUnlockedActionsTest {
+		extends AbstractStructureEditorTest {
 
 	@Test
 	public void testCreatePointerOnStructPointer() {
@@ -119,14 +119,14 @@ public class StructureEditorUnlockedActions2Test
 		checkSelection(new int[] { 0 });
 
 		invoke(action);
-		assertEquals(1, model.getNumComponents());
+		assertEquals(8, model.getNumComponents());
 		assertTrue(getDataType(0).isEquivalent(new ByteDataType()));
 		assertEquals(1, getLength(0));
 		checkSelection(new int[] { 0 });
 
 		CycleGroupAction floatAction = getCycleGroup(new FloatDataType());
 		invoke(floatAction);
-		assertEquals(1, model.getNumComponents());
+		assertEquals(5, model.getNumComponents());
 		assertTrue(getDataType(0).isEquivalent(new FloatDataType()));
 		assertEquals(4, getLength(0));
 		checkSelection(new int[] { 0 });
@@ -139,6 +139,12 @@ public class StructureEditorUnlockedActions2Test
 
 		invoke(floatAction);
 		assertEquals(1, model.getNumComponents());
+		assertTrue(getDataType(0).isEquivalent(new LongDoubleDataType()));
+		assertEquals(8, getLength(0));
+		checkSelection(new int[] { 0 });
+
+		invoke(floatAction);
+		assertEquals(5, model.getNumComponents());
 		assertTrue(getDataType(0).isEquivalent(new FloatDataType()));
 		assertEquals(4, getLength(0));
 		checkSelection(new int[] { 0 });
@@ -165,8 +171,8 @@ public class StructureEditorUnlockedActions2Test
 		assertEquals(getDataType(3), DataType.DEFAULT);
 		assertEquals(getDataType(4), dt3);
 
-		invoke(action);
-		dialog = env.waitForDialogComponent(NumberInputDialog.class, 1000);
+		invoke(action, false);
+		dialog = waitForDialogComponent(NumberInputDialog.class);
 		assertNotNull(dialog);
 		okInput(dialog, 2);
 		dialog = null;
@@ -179,8 +185,8 @@ public class StructureEditorUnlockedActions2Test
 		assertEquals(getDataType(3), dt3);
 
 		setSelection(new int[] { 2 });
-		invoke(action);
-		dialog = env.waitForDialogComponent(NumberInputDialog.class, 1000);
+		invoke(action, false);
+		dialog = waitForDialogComponent(NumberInputDialog.class);
 		assertNotNull(dialog);
 		okInput(dialog, 2);
 		dialog = null;
@@ -223,7 +229,7 @@ public class StructureEditorUnlockedActions2Test
 		assertEquals(getDataType(1), dt1);
 		assertEquals(getDataType(2), dt2);
 		assertEquals(getDataType(3), dt3);
-		assertTrue(!"".equals(model.getStatus()));
+		assertNotEquals("", model.getStatus());
 	}
 
 	@Test

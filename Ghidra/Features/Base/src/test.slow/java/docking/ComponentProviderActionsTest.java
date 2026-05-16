@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,7 +17,6 @@ package docking;
 
 import static org.junit.Assert.*;
 
-import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.util.Set;
 
@@ -29,18 +28,19 @@ import docking.action.*;
 import docking.actions.KeyEntryDialog;
 import docking.actions.ToolActions;
 import docking.tool.util.DockingToolConstants;
+import generic.theme.GIcon;
+import ghidra.framework.options.ActionTrigger;
 import ghidra.framework.options.ToolOptions;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.test.AbstractGhidraHeadedIntegrationTest;
 import ghidra.test.TestEnv;
 import ghidra.util.*;
 import resources.Icons;
-import resources.ResourceManager;
 
 public class ComponentProviderActionsTest extends AbstractGhidraHeadedIntegrationTest {
 
 	// note: this has to happen after the test framework is initialized, so it cannot be static
-	private final Icon ICON = ResourceManager.loadImage("images/refresh.png");
+	private final Icon ICON = Icons.REFRESH_ICON;
 	private static final String PROVIDER_NAME = "Test Action Provider";
 	private static final KeyStroke CONTROL_T =
 		KeyStroke.getKeyStroke(KeyEvent.VK_T, DockingUtils.CONTROL_KEY_MODIFIER_MASK);
@@ -271,7 +271,7 @@ public class ComponentProviderActionsTest extends AbstractGhidraHeadedIntegratio
 
 		try {
 			setErrorsExpected(true);
-			runSwingWithExceptions(this::showProvider, true);
+			runSwingWithException(this::showProvider);
 			setErrorsExpected(false);
 			fail();
 		}
@@ -289,7 +289,7 @@ public class ComponentProviderActionsTest extends AbstractGhidraHeadedIntegratio
 
 		try {
 			setErrorsExpected(true);
-			runSwingWithExceptions(() -> provider.setIcon(null), true);
+			runSwingWithException(() -> provider.setIcon(null));
 			setErrorsExpected(false);
 			fail("Expected an exception passing a null icon when specifying a toolbar action");
 		}
@@ -352,7 +352,7 @@ public class ComponentProviderActionsTest extends AbstractGhidraHeadedIntegratio
 		PlaceholderManager pm = dwm.getPlaceholderManager();
 		Set<ComponentProvider> allProviders = pm.getActiveProviders();
 		for (ComponentProvider cp : allProviders) {
-			ActionContext context = cp.getActionContext(null);
+			ActionContext context = createActionContext(cp);
 			if (context == null) {
 				continue; // a null context is allowed
 			}
@@ -443,7 +443,8 @@ public class ComponentProviderActionsTest extends AbstractGhidraHeadedIntegratio
 		ToolOptions keyOptions = tool.getOptions(DockingToolConstants.KEY_BINDINGS);
 
 		// shared option name/format: "Provider Name (Shared)" - the shared action's owner is the Tool
-		runSwing(() -> keyOptions.setKeyStroke(provider.getName() + " (Shared)", newKs));
+		runSwing(() -> keyOptions.setActionTrigger(provider.getName() + " (Shared)",
+			new ActionTrigger(newKs)));
 		waitForSwing();
 	}
 
@@ -491,15 +492,30 @@ public class ComponentProviderActionsTest extends AbstractGhidraHeadedIntegratio
 
 		// Option name: the action name with the 'Shared' owner
 		String fullName = provider.getName() + " (Shared)";
-		KeyStroke optionsKs = runSwing(() -> options.getKeyStroke(fullName, null));
+		ActionTrigger actionTrigger = runSwing(() -> options.getActionTrigger(fullName, null));
+		KeyStroke optionsKs = null;
+		if (actionTrigger != null) {
+			optionsKs = actionTrigger.getKeyStroke();
+		}
 		assertEquals("Key stroke in options does not match expected key stroke", expectedKs,
 			optionsKs);
 	}
 
 	private void assertWindowMenuActionHasIcon(Icon expected) {
 		DockingActionIf action = getWindowMenuShowProviderAction();
+		Icon menuIcon = action.getMenuBarData().getMenuIcon();
 		assertEquals("Windows menu icons for provider does not match the value set on the provider",
-			expected, action.getMenuBarData().getMenuIcon());
+			getDescription(expected), getDescription(menuIcon));
+	}
+
+	private String getDescription(Icon icon) {
+		if (icon instanceof GIcon) {
+			return ((GIcon) icon).getUrl().toString();
+		}
+		if (icon instanceof ImageIcon) {
+			return ((ImageIcon) icon).getDescription();
+		}
+		return icon.toString();
 	}
 
 	private void assertToolbarActionHasIcon(Icon expected) {
@@ -522,7 +538,7 @@ public class ComponentProviderActionsTest extends AbstractGhidraHeadedIntegratio
 		DockingWindowManager.setMouseOverAction(windowMenuAction);
 
 		performLaunchKeyStrokeDialogAction();
-		DialogComponentProvider warningDialog = waitForDialogComponent("Unable to Set Keybinding");
+		DialogComponentProvider warningDialog = waitForDialogComponent("Unable to Set Key Binding");
 		close(warningDialog);
 	}
 
@@ -605,10 +621,14 @@ public class ComponentProviderActionsTest extends AbstractGhidraHeadedIntegratio
 	}
 
 	private void performLaunchKeyStrokeDialogAction() {
-		ToolActions toolActions = (ToolActions) ((AbstractDockingTool) tool).getToolActions();
+		ToolActions toolActions = (ToolActions) tool.getToolActions();
 		Action action = toolActions.getAction(KeyStroke.getKeyStroke("F4"));
 		assertNotNull(action);
-		runSwing(() -> action.actionPerformed(new ActionEvent(this, 0, "")), false);
+		runSwing(() -> {
+			SystemKeyBindingAction sysAction = (SystemKeyBindingAction) action;
+			ExecutableAction executableAction = sysAction.getExecutableAction(null);
+			executableAction.execute();
+		}, false);
 	}
 
 	private ToolOptions getKeyBindingOptions() {

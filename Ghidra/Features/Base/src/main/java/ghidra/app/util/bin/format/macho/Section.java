@@ -20,8 +20,8 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 
+import ghidra.app.util.bin.BinaryReader;
 import ghidra.app.util.bin.StructConverter;
-import ghidra.app.util.bin.format.FactoryBundledWithBinaryReader;
 import ghidra.app.util.bin.format.macho.commands.SegmentNames;
 import ghidra.program.model.data.*;
 import ghidra.util.exception.DuplicateNameException;
@@ -29,7 +29,7 @@ import ghidra.util.exception.DuplicateNameException;
 /**
  * Represents a section and section_64 structure.
  * 
- * @see <a href="https://opensource.apple.com/source/xnu/xnu-4570.71.2/EXTERNAL_HEADERS/mach-o/loader.h.auto.html">mach-o/loader.h</a> 
+ * @see <a href="https://github.com/apple-oss-distributions/xnu/blob/main/EXTERNAL_HEADERS/mach-o/loader.h">EXTERNAL_HEADERS/mach-o/loader.h</a> 
  */
 public class Section implements StructConverter {
 
@@ -46,33 +46,19 @@ public class Section implements StructConverter {
 	private int reserved2;
 	private int reserved3;//only used for 64 bit
 
-	private FactoryBundledWithBinaryReader reader;
+	private BinaryReader reader;
 	private boolean is32bit;
-	private List<RelocationInfo> relocations = new ArrayList<RelocationInfo>();
+	private List<RelocationInfo> relocations = new ArrayList<>();
 
-	public static Section createSection(FactoryBundledWithBinaryReader reader, boolean is32bit)
-			throws IOException {
-		Section section = (Section) reader.getFactory().create(Section.class);
-		section.initSection(reader, is32bit);
-		return section;
-	}
-
-	/**
-	 * DO NOT USE THIS CONSTRUCTOR, USE create*(GenericFactory ...) FACTORY METHODS INSTEAD.
-	 */
-	public Section() {
-	}
-
-	private void initSection(FactoryBundledWithBinaryReader reader, boolean is32bit)
-			throws IOException {
+	public Section(BinaryReader reader, boolean is32bit) throws IOException {
 		this.reader = reader;
 		this.is32bit = is32bit;
 
 		sectname = reader.readNextAsciiString(MachConstants.NAME_LENGTH);
 		segname = reader.readNextAsciiString(MachConstants.NAME_LENGTH);
 		if (is32bit) {
-			addr = reader.readNextInt() & 0xffffffffL;
-			size = reader.readNextInt() & 0xffffffffL;
+			addr = reader.readNextUnsignedInt();
+			size = reader.readNextUnsignedInt();
 		}
 		else {
 			addr = reader.readNextLong();
@@ -93,7 +79,7 @@ public class Section implements StructConverter {
 		long index = reader.getPointerIndex();
 		reader.setPointerIndex(reloff);
 		for (int i = 0; i < nrelocs; ++i) {
-			relocations.add(RelocationFactory.readRelocation(reader, is32bit));
+			relocations.add(new RelocationInfo(reader));
 		}
 		reader.setPointerIndex(index);
 	}
@@ -160,6 +146,8 @@ public class Section implements StructConverter {
 
 	/**
 	 * Returns an input stream to underlying bytes of this section.
+	 * 
+	 * @param header The Mach-O header
 	 * @return an input stream to underlying bytes of this section
 	 * @throws IOException if an i/o error occurs.
 	 */
@@ -171,18 +159,30 @@ public class Section implements StructConverter {
 			header.getFileType() == MachHeaderFileTypes.MH_EXECUTE) {
 			return new SectionInputStream(getSize(), (byte) 0xf4);
 		}
-		return reader.getByteProvider().getInputStream(header.getStartIndexInProvider() + offset);
+		return reader.getByteProvider().getInputStream(header.getStartIndex() + offset);
 	}
 
 	public String getSectionName() {
 		return sectname;
 	}
 
+	public void setSectionName(String name) {
+		this.sectname = name;
+	}
+
 	public String getSegmentName() {
 		return segname;
 	}
 
+	public void setSegmentName(String name) {
+		this.segname = name;
+	}
+
 	public long getAddress() {
+		// Mask off possible chained fixup found in kernelcache section addresses
+		if ((addr & 0xfff000000000L) == 0xfff000000000L) {
+			return addr | 0xffff000000000000L;
+		}
 		return addr;
 	}
 
@@ -228,6 +228,17 @@ public class Section implements StructConverter {
 
 	public int getReserved3() {
 		return reserved3;
+	}
+
+	/**
+	 * Returns true if the section contains the given address
+	 * 
+	 * @param address The address to check
+	 * @return True if the section contains the given address; otherwise, false
+	 */
+	public boolean contains(long address) {
+		return Long.compareUnsigned(address, addr) >= 0 &&
+			Long.compareUnsigned(address, addr + size) < 0;
 	}
 
 	@Override

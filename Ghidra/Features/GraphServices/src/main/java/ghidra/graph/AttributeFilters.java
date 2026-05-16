@@ -30,6 +30,7 @@ import javax.swing.event.EventListenerList;
 import com.google.common.collect.HashMultiset;
 import com.google.common.collect.Multiset;
 
+import generic.theme.GThemeDefaults.Colors;
 import ghidra.service.graph.Attributed;
 
 /**
@@ -60,8 +61,7 @@ public class AttributeFilters implements ItemSelectable {
 		/**
 		 * a {@link Function} to allow custom coloring of the individual toolkit button foreground
 		 */
-		private Function<String, Paint> paintFunction = v -> Color.black;
-
+		private Function<String, Paint> paintFunction = v -> Colors.FOREGROUND;
 
 		/**
 		 * @param excluded ignored keys
@@ -155,7 +155,7 @@ public class AttributeFilters implements ItemSelectable {
 
 		// count up the unique attribute values (skipping the 'precluded names' we know we don't want)
 		for (Attributed element : elements) {
-			Map<String, String> attributeMap = new HashMap<>(element.getAttributeMap());
+			Map<String, String> attributeMap = new HashMap<>(element.getAttributes());
 			for (Map.Entry<String, String> entry : attributeMap.entrySet()) {
 				if (!precludedNames.contains(entry.getKey())) {
 					multiset.add(entry.getValue());

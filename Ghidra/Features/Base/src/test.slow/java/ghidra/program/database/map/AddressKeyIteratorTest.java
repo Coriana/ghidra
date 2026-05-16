@@ -32,7 +32,7 @@ import ghidra.util.datastruct.LongArray;
 public class AddressKeyIteratorTest extends AbstractGhidraHeadedIntegrationTest {
 
 	private static Schema SCHEMA =
-		new Schema(0, "addr", new Class[] { StringField.class }, new String[] { "str" });
+		new Schema(0, "addr", new Field[] { StringField.INSTANCE }, new String[] { "str" });
 
 	private ProgramDB program;
 	private AddressSpace space;
@@ -97,7 +97,7 @@ public class AddressKeyIteratorTest extends AbstractGhidraHeadedIntegrationTest 
 
 	private long addRecord(Address a) throws Exception {
 		long key = addrMap.getKey(a, true);
-		Record rec = SCHEMA.createRecord(key);
+		DBRecord rec = SCHEMA.createRecord(key);
 		rec.setString(0, a.toString());
 		myTable.putRecord(rec);
 		return key;
@@ -114,8 +114,8 @@ public class AddressKeyIteratorTest extends AbstractGhidraHeadedIntegrationTest 
 	}
 
 	@Test
-    public void testIterator0() throws Exception {
-		AddressKeyIterator it = new AddressKeyIterator();
+	public void testIterator0() throws Exception {
+		AddressKeyIterator it = AddressKeyIterator.EMPTY_ITERATOR;
 		assertTrue(!it.hasNext());
 		assertTrue(!it.hasPrevious());
 		try {
@@ -123,17 +123,19 @@ public class AddressKeyIteratorTest extends AbstractGhidraHeadedIntegrationTest 
 			Assert.fail();
 		}
 		catch (NoSuchElementException e) {
+			// expected
 		}
 		try {
 			it.previous();
 			Assert.fail();
 		}
 		catch (NoSuchElementException e) {
+			// expected
 		}
 	}
 
 	@Test
-    public void testIterator1() throws Exception {
+	public void testIterator1() throws Exception {
 		int index = 0;
 		AddressKeyIterator it = new AddressKeyIterator(myTable, addrMap, true);
 		while (it.hasNext()) {
@@ -144,7 +146,7 @@ public class AddressKeyIteratorTest extends AbstractGhidraHeadedIntegrationTest 
 	}
 
 	@Test
-    public void testIterator2() throws Exception {
+	public void testIterator2() throws Exception {
 		int index = 0x10;
 		AddressKeyIterator it = new AddressKeyIterator(myTable, addrMap, addr(0x4000), true);
 		while (it.hasNext()) {
@@ -155,7 +157,7 @@ public class AddressKeyIteratorTest extends AbstractGhidraHeadedIntegrationTest 
 	}
 
 	@Test
-    public void testIterator3() throws Exception {
+	public void testIterator3() throws Exception {
 		int index = 0x11;
 		AddressKeyIterator it = new AddressKeyIterator(myTable, addrMap, addr(0x5000), false);
 		while (it.hasNext()) {
@@ -166,7 +168,7 @@ public class AddressKeyIteratorTest extends AbstractGhidraHeadedIntegrationTest 
 	}
 
 	@Test
-    public void testIterator4() throws Exception {
+	public void testIterator4() throws Exception {
 		int index = 0x10;
 		AddressKeyIterator it = new AddressKeyIterator(myTable, addrMap, addr(0x5000), true);
 		while (it.hasNext()) {
@@ -177,7 +179,7 @@ public class AddressKeyIteratorTest extends AbstractGhidraHeadedIntegrationTest 
 	}
 
 	@Test
-    public void testIterator5() throws Exception {
+	public void testIterator5() throws Exception {
 		int index = 0x0f;
 		AddressKeyIterator it = new AddressKeyIterator(myTable, addrMap, addr(0x5000), true);
 		while (it.hasPrevious()) {
@@ -188,7 +190,7 @@ public class AddressKeyIteratorTest extends AbstractGhidraHeadedIntegrationTest 
 	}
 
 	@Test
-    public void testIterator6() throws Exception {
+	public void testIterator6() throws Exception {
 		int index = 0x10;
 		AddressKeyIterator it = new AddressKeyIterator(myTable, addrMap, addr(0x5000), false);
 		while (it.hasPrevious()) {
@@ -199,7 +201,7 @@ public class AddressKeyIteratorTest extends AbstractGhidraHeadedIntegrationTest 
 	}
 
 	@Test
-    public void testIterator7() throws Exception {
+	public void testIterator7() throws Exception {
 		AddressSet set = new AddressSet();
 		set.addRange(addr(0x3008), addr(0x5008));
 		set.addRange(addr(0x9008), addr(0x10000));
@@ -216,7 +218,7 @@ public class AddressKeyIteratorTest extends AbstractGhidraHeadedIntegrationTest 
 	}
 
 	@Test
-    public void testIterator8() throws Exception {
+	public void testIterator8() throws Exception {
 		AddressSet set = new AddressSet();
 		set.addRange(addr(0x3008), addr(0x5008));
 		set.addRange(addr(0x9008), addr(0x10000));
@@ -233,7 +235,7 @@ public class AddressKeyIteratorTest extends AbstractGhidraHeadedIntegrationTest 
 	}
 
 	@Test
-    public void testIterator9() throws Exception {
+	public void testIterator9() throws Exception {
 		AddressSet set = new AddressSet();
 		set.addRange(addr(0x3008), addr(0x5008));
 		set.addRange(addr(0x9008), addr(0x10000));
@@ -247,7 +249,7 @@ public class AddressKeyIteratorTest extends AbstractGhidraHeadedIntegrationTest 
 	}
 
 	@Test
-    public void testIterator10() throws Exception {
+	public void testIterator10() throws Exception {
 		AddressSet set = new AddressSet();
 		set.addRange(addr(0x3008), addr(0x5008));
 		set.addRange(addr(0x9008), addr(0x10000));
@@ -264,7 +266,7 @@ public class AddressKeyIteratorTest extends AbstractGhidraHeadedIntegrationTest 
 	}
 
 	@Test
-    public void testIterator11() throws Exception {
+	public void testIterator11() throws Exception {
 		AddressSet set = new AddressSet();
 		set.addRange(addr(0x3008), addr(0x5008));
 		set.addRange(addr(0x9008), addr(0x10000));
@@ -279,7 +281,7 @@ public class AddressKeyIteratorTest extends AbstractGhidraHeadedIntegrationTest 
 	}
 
 	@Test
-    public void testIterator12() throws Exception {
+	public void testIterator12() throws Exception {
 		int index = 0x3f;
 		AddressKeyIterator it = new AddressKeyIterator(myTable, addrMap, null, false);
 		while (it.hasPrevious()) {
@@ -290,7 +292,7 @@ public class AddressKeyIteratorTest extends AbstractGhidraHeadedIntegrationTest 
 	}
 
 	@Test
-    public void testIterator13() throws Exception {
+	public void testIterator13() throws Exception {
 		AddressSet set = new AddressSet();
 		set.addRange(addr(0x3008), addr(0x5008));
 		set.addRange(addr(0x9008), addr(0x10000));
@@ -304,7 +306,7 @@ public class AddressKeyIteratorTest extends AbstractGhidraHeadedIntegrationTest 
 	}
 
 	@Test
-    public void testIteratorCheckWrap1() throws Exception {
+	public void testIteratorCheckWrap1() throws Exception {
 
 		addRecord(addr(0x0));
 		addRecord(addr(0x0100));
@@ -320,7 +322,7 @@ public class AddressKeyIteratorTest extends AbstractGhidraHeadedIntegrationTest 
 	}
 
 	@Test
-    public void testIteratorCheckWrap2() throws Exception {
+	public void testIteratorCheckWrap2() throws Exception {
 
 		addRecord(addr(0x0));
 		addRecord(addr(0x0100));

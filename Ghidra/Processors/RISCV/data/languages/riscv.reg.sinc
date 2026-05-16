@@ -4,45 +4,9 @@ define alignment=2;
 define space ram type=ram_space size=$(XLEN) default;
 define space register type=register_space size=4;
 
+define space csreg type=ram_space size=2 wordsize=$(XLEN); # really 12bit space, for 4096 registers
 
-# A - Atomic instructions
-# B - Bit manipulation instructions
-# C - Compressed instructions
-# D - Double-precision floating-point instructions
-# E - Embedded applications, resource-constrained subset
-# F - Single-precision floating-point instructions
-# G - General (I + M + A + F + D)
-# I - Integer base instructions
-# J - Dynamically translated languages
-# L - Decimal floating point instructions
-# M - Integer multiplication and division instructions
-# N - User-level interrupt instructions
-# P - Packed-SIMD instructions
-# Q - Quad-precision floating-point instructions
-# T - Transactional Memory instructions
-# V - Vector operations instructions
-# RV [32, 64, 128] I, M, A, F, D, G, Q, L, C, B, J, T, P, V, N
-define register offset=0x1020 size=8 extensions;
-define context extensions
-  RVI=(0,0)
-  RVM=(1,1)
-  RVA=(2,2)
-  RVF=(3,3)
-  RVD=(4,4)
-  RVG=(0,4)
-  RVQ=(5,5)
-  RVL=(6,6)
-  RVC=(7,7)
-  RVB=(8,8)
-  RVJ=(9,9)
-  RVT=(10,10)
-  RVP=(11,11)
-  RVV=(12,12)
-  RVN=(13,13)
-  RV128=(61,61)
-  RV64=(62,62)
-  RV32=(63,63)
-;
+define register offset=0x100 size=$(CONTEXTLEN) [ CONTEXT ];
 
 define register offset=0x1000 size=$(XLEN) [ pc ];
 
@@ -73,46 +37,1155 @@ define register offset=0x1018 size=1 [ RESERVE ];
 define register offset=0x101C size=1 [ RESERVE_LENGTH ];
 #TODO  FIXME
 
-
+#ATTN  RV32E is the same instruction-set encoding, but only defines x0-x15
 # x0  x1  x2  x3  x4  x5  x6  x7  x8  x9  x10 x11 x12 x13 x14 x15
 # z   ra  sp  gp  tp  t0  t1  t2  s0  s1  a0  a1  a2  a3  a4  a5
 # x16 x17 x18 x19 x20 x21 x22 x23 x24 x25 x26 x27 x28 x29 x30 x31
 # a6  a7  s2  s3  s4  s5  s6  s7  s8  s9  s10 s11 t3  t4  t5  t6
+# register numbers 0x1000-0x101f
 define register offset=0x2000 size=$(XLEN) [ zero ra sp  gp  tp t0 t1 t2
        			    	      	     s0   s1 a0  a1  a2 a3 a4 a5
 				       	     a6   a7 s2  s3  s4 s5 s6 s7
 				       	     s8   s9 s10 s11 t3 t4 t5 t6 ];
-@if FPSIZE != ""
+
+# register numbers 0x1020-0x103f
 define register offset=0x3000 size=$(FLEN) [ ft0 ft1 ft2  ft3  ft4 ft5 ft6  ft7
        			      	       	     fs0 fs1 fa0  fa1  fa2 fa3 fa4  fa5
 				       	     fa6 fa7 fs2  fs3  fs4 fs5 fs6  fs7
 				       	     fs8 fs9 fs10 fs11 ft8 ft9 ft10 ft11 ];
-@endif
+
+#TODO  fix
+@define VLEN "32"
+define register offset=0x4000 size=$(VLEN) [ v0  v1  v2  v3  v4  v5  v6  v7
+       			      		     v8  v9  v10 v11 v12 v13 v14 v15
+					     v16 v17 v18 v19 v20 v21 v22 v23
+					     v24 v25 v26 v27 v28 v29 v30 v31 ];
+
+  
+  # SEE 3.1.1  Machine ISA Register  misa
+# (MXLEN-1, MXLEN-2) MXL - Machine XLEN  {1: 32, 2: 64, 3: 128}
+# Bit Character Description
+# 0   A         Atomic extension
+# 1   B         Tentatively reserved for Bit-Manipulation extension
+# 2   C         Compressed extension
+# 3   D         Double-precision floating-point extension
+# 4   E         RV32E base ISA
+# 5   F         Single-precision floating-point extension
+# 6   G         Additional standard extensions present
+# 7   H         Hypervisor extension
+# 8   I         RV32I/64I/128I base ISA
+# 9   J         Tentatively reserved for Dynamically Translated Languages extension
+# 10  K         Reserved
+# 11  L         Tentatively reserved for Decimal Floating-Point extension
+# 12  M         Integer Multiply/Divide extension
+# 13  N         User-level interrupts supported
+# 14  O         Reserved
+# 15  P         Tentatively reserved for Packed-SIMD extension
+# 16  Q         Quad-precision floating-point extension
+# 17  R         Reserved
+# 18  S         Supervisor mode implemented
+# 19  T         Tentatively reserved for Transactional Memory extension
+# 20  U         User mode implemented
+# 21  V         Tentatively reserved for Vector extension
+# 22  W         Reserved
+# 23  X         Non-standard extensions present
+# 24  Y         Reserved
+# 25  Z         Reserved
+
+
+# Moved most CSR registers to .pspec file.  Doing so will:
+#  - Allow new registers to be named in the .pspec file
+#  - Processor variants differing only in CSR registers can just use a variant.pspec
+#  - Read/Write references to registers not defined in sleigh
+#  - Registers defined here will not get references to them
+#  - Allow rename and comment by end user
+
+#
+#  Control registers reserved 0x0000-0x0fff
+@define CSR_REG_START "0x0000"
+
+## CSR definitions is done as a big table with undefined holes so that
+## the 32-bit and 64-bit tables can be defined with the same code.
+## Otherwise the byte offset of the address of each register
+## would need to be calculated and would be different for XLEN of 32 or 64 bit.
+define csreg offset=$(CSR_REG_START) size=$(XLEN) [
+# 0x000
+ _       fflags frm     fcsr     _       _       _       _      
+# 0x008
+ _       _       _       _       _       _       _       _      
+# 0x010
+ _       _       _       _       _       _       _       _      
+# 0x018
+ _       _       _       _       _       _       _       _      
+# 0x020
+ _       _       _       _       _       _       _       _      
+# 0x028
+ _       _       _       _       _       _       _       _      
+# 0x030
+ _       _       _       _       _       _       _       _      
+# 0x038
+ _       _       _       _       _       _       _       _      
+# 0x040
+ _       uepc    _       _       _       _       _       _      
+# 0x048
+ _       _       _       _       _       _       _       _      
+# 0x050
+ _       _       _       _       _       _       _       _      
+# 0x058
+ _       _       _       _       _       _       _       _      
+# 0x060
+ _       _       _       _       _       _       _       _      
+# 0x068
+ _       _       _       _       _       _       _       _      
+# 0x070
+ _       _       _       _       _       _       _       _      
+# 0x078
+ _       _       _       _       _       _       _       _      
+# 0x080
+ _       _       _       _       _       _       _       _      
+# 0x088
+ _       _       _       _       _       _       _       _      
+# 0x090
+ _       _       _       _       _       _       _       _      
+# 0x098
+ _       _       _       _       _       _       _       _      
+# 0x0a0
+ _       _       _       _       _       _       _       _      
+# 0x0a8
+ _       _       _       _       _       _       _       _      
+# 0x0b0
+ _       _       _       _       _       _       _       _      
+# 0x0b8
+ _       _       _       _       _       _       _       _      
+# 0x0c0
+ _       _       _       _       _       _       _       _      
+# 0x0c8
+ _       _       _       _       _       _       _       _      
+# 0x0d0
+ _       _       _       _       _       _       _       _      
+# 0x0d8
+ _       _       _       _       _       _       _       _      
+# 0x0e0
+ _       _       _       _       _       _       _       _      
+# 0x0e8
+ _       _       _       _       _       _       _       _      
+# 0x0f0
+ _       _       _       _       _       _       _       _      
+# 0x0f8
+ _       _       _       _       _       _       _       _      
+# 0x100
+ _       _       _       _       _       _       _       _      
+# 0x108
+ _       _       _       _       _       _       _       _      
+# 0x110
+ _       _       _       _       _       _       _       _      
+# 0x118
+ _       _       _       _       _       _       _       _      
+# 0x120
+ _       _       _       _       _       _       _       _      
+# 0x128
+ _       _       _       _       _       _       _       _      
+# 0x130
+ _       _       _       _       _       _       _       _      
+# 0x138
+ _       _       _       _       _       _       _       _      
+# 0x140
+ _       sepc    _       _       _       _       _       _      
+# 0x148
+ _       _       _       _       _       _       _       _      
+# 0x150
+ _       _       _       _       _       _       _       _      
+# 0x158
+ _       _       _       _       _       _       _       _      
+# 0x160
+ _       _       _       _       _       _       _       _      
+# 0x168
+ _       _       _       _       _       _       _       _      
+# 0x170
+ _       _       _       _       _       _       _       _      
+# 0x178
+ _       _       _       _       _       _       _       _  
+# 0x180    
+ _       _       _       _       _       _       _       _      
+# 0x188
+ _       _       _       _       _       _       _       _      
+# 0x190
+ _       _       _       _       _       _       _       _      
+# 0x198
+ _       _       _       _       _       _       _       _      
+# 0x1a0
+ _       _       _       _       _       _       _       _      
+# 0x1a8
+ _       _       _       _       _       _       _       _      
+# 0x1b0
+ _       _       _       _       _       _       _       _      
+# 0x1b8
+ _       _       _       _       _       _       _       _      
+# 0x1c0
+ _       _       _       _       _       _       _       _      
+# 0x1c8
+ _       _       _       _       _       _       _       _      
+# 0x1d0
+ _       _       _       _       _       _       _       _      
+# 0x1d8
+ _       _       _       _       _       _       _       _      
+# 0x1e0
+ _       _       _       _       _       _       _       _      
+# 0x1e8
+ _       _       _       _       _       _       _       _      
+# 0x1f0
+ _       _       _       _       _       _       _       _      
+# 0x1f8
+ _       _       _       _       _       _       _       _      
+# 0x200
+ _       _       _       _       _       _       _       _      
+# 0x208
+ _       _       _       _       _       _       _       _      
+# 0x210
+ _       _       _       _       _       _       _       _      
+# 0x218
+ _       _       _       _       _       _       _       _      
+# 0x220
+ _       _       _       _       _       _       _       _      
+# 0x228
+ _       _       _       _       _       _       _       _      
+# 0x230
+ _       _       _       _       _       _       _       _      
+# 0x238
+ _       _       _       _       _       _       _       _    
+# 0x240  
+ _       _       _       _       _       _       _       _      
+# 0x248
+ _       _       _       _       _       _       _       _      
+# 0x250
+ _       _       _       _       _       _       _       _      
+# 0x258
+ _       _       _       _       _       _       _       _      
+# 0x260
+ _       _       _       _       _       _       _       _      
+# 0x268
+ _       _       _       _       _       _       _       _      
+# 0x270
+ _       _       _       _       _       _       _       _      
+# 0x278
+ _       _       _       _       _       _       _       _    
+# 0x280
+ _       _       _       _       _       _       _       _      
+# 0x288
+ _       _       _       _       _       _       _       _      
+# 0x290
+ _       _       _       _       _       _       _       _      
+# 0x298
+ _       _       _       _       _       _       _       _      
+# 0x2a0
+ _       _       _       _       _       _       _       _      
+# 0x2a8
+ _       _       _       _       _       _       _       _      
+# 0x2b0
+ _       _       _       _       _       _       _       _      
+# 0x2b8
+ _       _       _       _       _       _       _       _      
+# 0x2c0
+ _       _       _       _       _       _       _       _      
+# 0x2c8
+ _       _       _       _       _       _       _       _      
+# 0x2d0
+ _       _       _       _       _       _       _       _      
+# 0x2d8
+ _       _       _       _       _       _       _       _      
+# 0x2e0
+ _       _       _       _       _       _       _       _      
+# 0x2e8
+ _       _       _       _       _       _       _       _      
+# 0x2f0
+ _       _       _       _       _       _       _       _      
+# 0x2f8
+ _       _       _       _       _       _       _       _   
+# 0x310   
+ _       _       _       _       _       _       _       _      
+# 0x308
+ _       _       _       _       _       _       _       _    
+# 0x310  
+ _       _       _       _       _       _       _       _      
+# 0x318
+ _       _       _       _       _       _       _       _      
+# 0x320
+ _       _       _       _       _       _       _       _      
+# 0x328
+ _       _       _       _       _       _       _       _      
+# 0x330
+ _       _       _       _       _       _       _       _      
+# 0x338
+ _       _       _       _       _       _       _       _      
+# 0x318
+ _       mepc       _       _       _       _       _       _          
+# 0x348
+ _       _       _       _       _       _       _       _      
+# 0x350
+ _       _       _       _       _       _       _       _      
+# 0x358
+ _       _       _       _       _       _       _       _      
+# 0x360
+ _       _       _       _       _       _       _       _      
+# 0x368
+ _       _       _       _       _       _       _       _      
+# 0x370
+ _       _       _       _       _       _       _       _      
+# 0x378
+ _       _       _       _       _       _       _       _      
+# 0x380
+ _       _       _       _       _       _       _       _      
+# 0x388
+ _       _       _       _       _       _       _       _      
+# 0x390
+ _       _       _       _       _       _       _       _      
+# 0x398
+ _       _       _       _       _       _       _       _      
+# 0x3a0
+ _       _       _       _       _       _       _       _      
+# 0x3a8
+ _       _       _       _       _       _       _       _      
+# 0x3b0
+ _       _       _       _       _       _       _       _      
+# 0x3b8
+ _       _       _       _       _       _       _       _      
+# 0x3c0
+ _       _       _       _       _       _       _       _      
+# 0x3c8
+ _       _       _       _       _       _       _       _      
+# 0x3d0
+ _       _       _       _       _       _       _       _      
+# 0x3d8
+ _       _       _       _       _       _       _       _      
+# 0x3e0
+ _       _       _       _       _       _       _       _      
+# 0x3e8
+ _       _       _       _       _       _       _       _      
+# 0x3f0
+ _       _       _       _       _       _       _       _      
+# 0x3f8
+ _       _       _       _       _       _       _       _      
+# 0x400
+ _       _       _       _       _       _       _       _      
+# 0x408
+ _       _       _       _       _       _       _       _      
+# 0x410
+ _       _       _       _       _       _       _       _      
+# 0x418
+ _       _       _       _       _       _       _       _      
+# 0x420
+ _       _       _       _       _       _       _       _      
+# 0x428
+ _       _       _       _       _       _       _       _      
+# 0x430
+ _       _       _       _       _       _       _       _      
+# 0x438
+ _       _       _       _       _       _       _       _      
+# 0x440
+ _       _       _       _       _       _       _       _      
+# 0x448
+ _       _       _       _       _       _       _       _      
+# 0x450
+ _       _       _       _       _       _       _       _      
+# 0x458
+ _       _       _       _       _       _       _       _      
+# 0x460
+ _       _       _       _       _       _       _       _      
+# 0x468
+ _       _       _       _       _       _       _       _      
+# 0x470
+ _       _       _       _       _       _       _       _      
+# 0x478
+ _       _       _       _       _       _       _       _      
+# 0x480
+ _       _       _       _       _       _       _       _      
+# 0x488
+ _       _       _       _       _       _       _       _      
+# 0x490
+ _       _       _       _       _       _       _       _      
+# 0x498
+ _       _       _       _       _       _       _       _      
+# 0x4a0
+ _       _       _       _       _       _       _       _      
+# 0x4a8
+ _       _       _       _       _       _       _       _      
+# 0x4b0
+ _       _       _       _       _       _       _       _      
+# 0x4b8
+ _       _       _       _       _       _       _       _      
+# 0x4c0
+ _       _       _       _       _       _       _       _      
+# 0x4c8
+ _       _       _       _       _       _       _       _      
+# 0x4d0
+ _       _       _       _       _       _       _       _      
+# 0x4d8
+ _       _       _       _       _       _       _       _      
+# 0x4e0
+ _       _       _       _       _       _       _       _      
+# 0x4e8
+ _       _       _       _       _       _       _       _      
+# 0x4f0
+ _       _       _       _       _       _       _       _      
+# 0x4f8
+ _       _       _       _       _       _       _       _      
+# 0x500
+ _       _       _       _       _       _       _       _      
+# 0x508
+ _       _       _       _       _       _       _       _      
+# 0x510
+ _       _       _       _       _       _       _       _      
+# 0x518
+ _       _       _       _       _       _       _       _      
+# 0x520
+ _       _       _       _       _       _       _       _      
+# 0x528
+ _       _       _       _       _       _       _       _      
+# 0x530
+ _       _       _       _       _       _       _       _      
+# 0x538
+ _       _       _       _       _       _       _       _      
+# 0x540
+ _       _       _       _       _       _       _       _      
+# 0x548
+ _       _       _       _       _       _       _       _      
+# 0x550
+ _       _       _       _       _       _       _       _      
+# 0x558
+ _       _       _       _       _       _       _       _      
+# 0x560
+ _       _       _       _       _       _       _       _      
+# 0x568
+ _       _       _       _       _       _       _       _      
+# 0x570
+ _       _       _       _       _       _       _       _      
+# 0x578
+ _       _       _       _       _       _       _       _      
+# 0x580
+ _       _       _       _       _       _       _       _      
+# 0x588
+ _       _       _       _       _       _       _       _      
+# 0x590
+ _       _       _       _       _       _       _       _      
+# 0x598
+ _       _       _       _       _       _       _       _      
+# 0x5a0
+ _       _       _       _       _       _       _       _ 
+# 0x5a8     
+ _       _       _       _       _       _       _       _      
+# 0x5b0
+ _       _       _       _       _       _       _       _      
+# 0x5b8
+ _       _       _       _       _       _       _       _      
+# 0x5c0
+ _       _       _       _       _       _       _       _      
+# 0x5c8
+ _       _       _       _       _       _       _       _      
+# 0x5d0
+ _       _       _       _       _       _       _       _      
+# 0x5d8
+ _       _       _       _       _       _       _       _      
+# 0x5e0
+ _       _       _       _       _       _       _       _      
+# 0x5e8
+ _       _       _       _       _       _       _       _      
+# 0x5f0
+ _       _       _       _       _       _       _       _      
+# 0x5f8
+ _       _       _       _       _       _       _       _     
+# 0x600 
+ _       _       _       _       _       _       _       _      
+# 0x608
+ _       _       _       _       _       _       _       _      
+# 0x610
+ _       _       _       _       _       _       _       _      
+# 0x618
+ _       _       _       _       _       _       _       _      
+# 0x620
+ _       _       _       _       _       _       _       _      
+# 0x628
+ _       _       _       _       _       _       _       _      
+# 0x630
+ _       _       _       _       _       _       _       _      
+# 0x638
+ _       _       _       _       _       _       _       _      
+# 0x640
+ _       _       _       _       _       _       _       _      
+# 0x648
+ _       _       _       _       _       _       _       _      
+# 0x650
+ _       _       _       _       _       _       _       _      
+# 0x658
+ _       _       _       _       _       _       _       _      
+# 0x660
+ _       _       _       _       _       _       _       _      
+# 0x668
+ _       _       _       _       _       _       _       _      
+# 0x670
+ _       _       _       _       _       _       _       _      
+# 0x678
+ _       _       _       _       _       _       _       _     
+# 0x680 
+ _       _       _       _       _       _       _       _      
+# 0x688
+ _       _       _       _       _       _       _       _      
+# 0x690
+ _       _       _       _       _       _       _       _      
+# 0x698
+ _       _       _       _       _       _       _       _      
+# 0x6a0
+ _       _       _       _       _       _       _       _   
+# 0x6a8   
+ _       _       _       _       _       _       _       _      
+# 0x6b0
+ _       _       _       _       _       _       _       _      
+# 0x6b8
+ _       _       _       _       _       _       _       _      
+# 0x6c0
+ _       _       _       _       _       _       _       _      
+# 0x6c8
+ _       _       _       _       _       _       _       _      
+# 0x6d0
+ _       _       _       _       _       _       _       _      
+# 0x6d8
+ _       _       _       _       _       _       _       _      
+# 0x6e0
+ _       _       _       _       _       _       _       _      
+# 0x6e8
+ _       _       _       _       _       _       _       _      
+# 0x6f0
+ _       _       _       _       _       _       _       _      
+# 0x6f8
+ _       _       _       _       _       _       _       _      
+# 0x700
+ _       _       _       _       _       _       _       _      
+# 0x708
+ _       _       _       _       _       _       _       _      
+# 0x710
+ _       _       _       _       _       _       _       _      
+# 0x718
+ _       _       _       _       _       _       _       _      
+# 0x720
+ _       _       _       _       _       _       _       _      
+# 0x728
+ _       _       _       _       _       _       _       _      
+# 0x730
+ _       _       _       _       _       _       _       _      
+# 0x738
+ _       _       _       _       _       _       _       _      
+# 0x740
+ _       _       _       _       _       _       _       _      
+# 0x748
+ _       _       _       _       _       _       _       _      
+# 0x750
+ _       _       _       _       _       _       _       _      
+# 0x758
+ _       _       _       _       _       _       _       _      
+# 0x760
+ _       _       _       _       _       _       _       _      
+# 0x768
+ _       _       _       _       _       _       _       _      
+# 0x770
+ _       _       _       _       _       _       _       _      
+# 0x778
+ _       _       _       _       _       _       _       _      
+# 0x780
+ _       _       _       _       _       _       _       _      
+# 0x788
+ _       _       _       _       _       _       _       _      
+# 0x790
+ _       _       _       _       _       _       _       _      
+# 0x798
+ _       _       _       _       _       _       _       _     
+# 0x7a0
+ _       _       _       _       _       _       _       _      
+# 0x7a8
+ _       _       _       _       _       _       _       _      
+# 0x7b0
+ dcsr dpc dscratch0 dscratch1 _       _       _       _      
+# 0x7b8
+ _       _       _       _       _       _       _       _      
+# 0x7c0
+ _       _       _       _       _       _       _       _      
+# 0x7c8
+ _       _       _       _       _       _       _       _      
+# 0x7d0
+ _       _       _       _       _       _       _       _      
+# 0x7d8
+ _       _       _       _       _       _       _       _      
+# 0x7e0
+ _       _       _       _       _       _       _       _      
+# 0x7e8
+ _       _       _       _       _       _       _       _      
+# 0x7f0
+ _       _       _       _       _       _       _       _      
+# 0x7f8
+ _       _       _       _       _       _       _       _      
+# 0x800
+ _       _       _       _       _       _       _       _      
+# 0x808
+ _       _       _       _       _       _       _       _      
+# 0x810
+ _       _       _       _       _       _       _       _      
+# 0x818
+ _       _       _       _       _       _       _       _      
+# 0x820
+ _       _       _       _       _       _       _       _      
+# 0x828
+ _       _       _       _       _       _       _       _      
+# 0x830
+ _       _       _       _       _       _       _       _      
+# 0x838
+ _       _       _       _       _       _       _       _      
+# 0x840
+ _       _       _       _       _       _       _       _      
+# 0x848
+ _       _       _       _       _       _       _       _      
+# 0x850
+ _       _       _       _       _       _       _       _      
+# 0x858
+ _       _       _       _       _       _       _       _      
+# 0x860
+ _       _       _       _       _       _       _       _      
+# 0x868
+ _       _       _       _       _       _       _       _      
+# 0x870
+ _       _       _       _       _       _       _       _      
+# 0x878
+ _       _       _       _       _       _       _       _      
+# 0x880
+ _       _       _       _       _       _       _       _      
+# 0x888
+ _       _       _       _       _       _       _       _      
+# 0x890
+ _       _       _       _       _       _       _       _      
+# 0x898
+ _       _       _       _       _       _       _       _      
+# 0x8a0
+ _       _       _       _       _       _       _       _      
+# 0x8a8
+ _       _       _       _       _       _       _       _      
+# 0x8b0
+ _       _       _       _       _       _       _       _      
+# 0x8b8
+ _       _       _       _       _       _       _       _      
+# 0x8c0
+ _       _       _       _       _       _       _       _      
+# 0x8c8
+ _       _       _       _       _       _       _       _      
+# 0x8d0
+ _       _       _       _       _       _       _       _      
+# 0x8d8
+ _       _       _       _       _       _       _       _      
+# 0x8e0
+ _       _       _       _       _       _       _       _      
+# 0x8e8
+ _       _       _       _       _       _       _       _      
+# 0x8f0
+ _       _       _       _       _       _       _       _      
+# 0x8f8
+ _       _       _       _       _       _       _       _      
+# 0x900
+ _       _       _       _       _       _       _       _      
+# 0x908
+ _       _       _       _       _       _       _       _      
+# 0x910
+ _       _       _       _       _       _       _       _      
+# 0x918
+ _       _       _       _       _       _       _       _      
+# 0x920
+ _       _       _       _       _       _       _       _      
+# 0x928
+ _       _       _       _       _       _       _       _      
+# 0x930
+ _       _       _       _       _       _       _       _      
+# 0x938
+ _       _       _       _       _       _       _       _      
+# 0x940
+ _       _       _       _       _       _       _       _      
+# 0x948
+ _       _       _       _       _       _       _       _      
+# 0x950
+ _       _       _       _       _       _       _       _      
+# 0x958
+ _       _       _       _       _       _       _       _      
+# 0x960
+ _       _       _       _       _       _       _       _      
+# 0x968
+ _       _       _       _       _       _       _       _      
+# 0x970
+ _       _       _       _       _       _       _       _      
+# 0x978
+ _       _       _       _       _       _       _       _      
+# 0x980
+ _       _       _       _       _       _       _       _      
+# 0x988
+ _       _       _       _       _       _       _       _      
+# 0x990
+ _       _       _       _       _       _       _       _      
+# 0x998
+ _       _       _       _       _       _       _       _      
+# 0x9a0
+ _       _       _       _       _       _       _       _      
+# 0x9a8
+ _       _       _       _       _       _       _       _      
+# 0x9b0
+ _       _       _       _       _       _       _       _      
+# 0x9b8
+ _       _       _       _       _       _       _       _      
+# 0x9c0
+ _       _       _       _       _       _       _       _      
+# 0x9c8
+ _       _       _       _       _       _       _       _      
+# 0x9d0
+ _       _       _       _       _       _       _       _      
+# 0x9d8
+ _       _       _       _       _       _       _       _      
+# 0x9e0
+ _       _       _       _       _       _       _       _      
+# 0x9e8
+ _       _       _       _       _       _       _       _      
+# 0x9f0
+ _       _       _       _       _       _       _       _      
+# 0x9f8
+ _       _       _       _       _       _       _       _      
+# 0xa00
+ _       _       _       _       _       _       _       _      
+# 0xa08
+ _       _       _       _       _       _       _       _      
+# 0xa10
+ _       _       _       _       _       _       _       _      
+# 0xa18
+ _       _       _       _       _       _       _       _      
+# 0xa20
+ _       _       _       _       _       _       _       _      
+# 0xa28
+ _       _       _       _       _       _       _       _      
+# 0xa30
+ _       _       _       _       _       _       _       _      
+# 0xa38
+ _       _       _       _       _       _       _       _      
+# 0xa40
+ _       _       _       _       _       _       _       _      
+# 0xa48
+ _       _       _       _       _       _       _       _      
+# 0xa50
+ _       _       _       _       _       _       _       _      
+# 0xa58
+ _       _       _       _       _       _       _       _      
+# 0xa60
+ _       _       _       _       _       _       _       _      
+# 0xa68
+ _       _       _       _       _       _       _       _      
+# 0xa70
+ _       _       _       _       _       _       _       _      
+# 0xa78
+ _       _       _       _       _       _       _       _      
+# 0xa80
+ _       _       _       _       _       _       _       _      
+# 0xa88
+ _       _       _       _       _       _       _       _      
+# 0xa90
+ _       _       _       _       _       _       _       _      
+# 0xa98
+ _       _       _       _       _       _       _       _      
+# 0xaa0
+ _       _       _       _       _       _       _       _      
+# 0xaa8
+ _       _       _       _       _       _       _       _      
+# 0xab0
+ _       _       _       _       _       _       _       _      
+# 0xab8
+ _       _       _       _       _       _       _       _      
+# 0xac0
+ _       _       _       _       _       _       _       _      
+# 0xac8
+ _       _       _       _       _       _       _       _      
+# 0xad0
+ _       _       _       _       _       _       _       _      
+# 0xad8
+ _       _       _       _       _       _       _       _      
+# 0xae0
+ _       _       _       _       _       _       _       _      
+# 0xae8
+ _       _       _       _       _       _       _       _      
+# 0xaf0
+ _       _       _       _       _       _       _       _      
+# 0xaf8
+ _       _       _       _       _       _       _       _      
+# 0xa00
+ _       _       _       _       _       _       _       _      
+# 0xa08
+ _       _       _       _       _       _       _       _      
+# 0xa10
+ _       _       _       _       _       _       _       _      
+# 0xa18
+ _       _       _       _       _       _       _       _      
+# 0xb20
+ _       _       _       _       _       _       _       _      
+# 0xb28
+ _       _       _       _       _       _       _       _      
+# 0xb30
+ _       _       _       _       _       _       _       _      
+# 0xb38
+ _       _       _       _       _       _       _       _      
+# 0xb40
+ _       _       _       _       _       _       _       _      
+# 0xb48
+ _       _       _       _       _       _       _       _      
+# 0xb50
+ _       _       _       _       _       _       _       _      
+# 0xb58
+ _       _       _       _       _       _       _       _      
+# 0xb60
+ _       _       _       _       _       _       _       _      
+# 0xb68
+ _       _       _       _       _       _       _       _      
+# 0xb70
+ _       _       _       _       _       _       _       _      
+# 0xb78
+ _       _       _       _       _       _       _       _      
+# 0xb80
+ _       _       _       _       _       _       _       _      
+# 0xb88
+ _       _       _       _       _       _       _       _      
+# 0xb90
+ _       _       _       _       _       _       _       _      
+# 0xb98
+ _       _       _       _       _       _       _       _      
+# 0xba0
+ _       _       _       _       _       _       _       _      
+# 0xba8
+ _       _       _       _       _       _       _       _      
+# 0xbb0
+ _       _       _       _       _       _       _       _      
+# 0xbb8
+ _       _       _       _       _       _       _       _      
+# 0xbc0
+ _       _       _       _       _       _       _       _      
+# 0xbc8
+ _       _       _       _       _       _       _       _      
+# 0xbd0
+ _       _       _       _       _       _       _       _      
+# 0xbd8
+ _       _       _       _       _       _       _       _      
+# 0xbe0
+ _       _       _       _       _       _       _       _      
+# 0xbe8
+ _       _       _       _       _       _       _       _      
+# 0xbf0
+ _       _       _       _       _       _       _       _      
+# 0xbf8
+ _       _       _       _       _       _       _       _      
+# 0xc00
+ _       _       _       _       _       _       _       _
+# 0xc08
+ _       _       _       _       _       _       _       _
+# 0xc10
+ _       _       _       _       _       _       _       _
+# 0xc18
+ _       _       _       _       _       _       _       _
+# 0xc20
+ _       _       _       _       _       _       _       _
+# 0xc28
+ _       _       _       _       _       _       _       _      
+# 0xc30
+ _       _       _       _       _       _       _       _      
+# 0xc38
+ _       _       _       _       _       _       _       _      
+# 0xc40
+ _       _       _       _       _       _       _       _      
+# 0xc48
+ _       _       _       _       _       _       _       _      
+# 0xc50
+ _       _       _       _       _       _       _       _      
+# 0xc58
+ _       _       _       _       _       _       _       _      
+# 0xc60
+ _       _       _       _       _       _       _       _      
+# 0xc68
+ _       _       _       _       _       _       _       _      
+# 0xc70
+ _       _       _       _       _       _       _       _      
+# 0xc78
+ _       _       _       _       _       _       _       _      
+# 0xc80
+ _       _       _       _       _       _       _       _      
+# 0xc88
+ _       _       _       _       _       _       _       _      
+# 0xc90
+ _       _       _       _       _       _       _       _      
+# 0xc98
+ _       _       _       _       _       _       _       _      
+# 0xca0
+ _       _       _       _       _       _       _       _      
+# 0xca8
+ _       _       _       _       _       _       _       _      
+# 0xcb0
+ _       _       _       _       _       _       _       _      
+# 0xcb8
+ _       _       _       _       _       _       _       _      
+# 0xcc0
+ _       _       _       _       _       _       _       _      
+# 0xcc8
+ _       _       _       _       _       _       _       _      
+# 0xcd0
+ _       _       _       _       _       _       _       _      
+# 0xcd8
+ _       _       _       _       _       _       _       _      
+# 0xce0
+ _       _       _       _       _       _       _       _      
+# 0xce8
+ _       _       _       _       _       _       _       _      
+# 0xcf0
+ _       _       _       _       _       _       _       _      
+# 0xcf8
+ _       _       _       _       _       _       _       _      
+# 0xd00
+ _       _       _       _       _       _       _       _      
+# 0xd08
+ _       _       _       _       _       _       _       _      
+# 0xd10
+ _       _       _       _       _       _       _       _      
+# 0xd18
+ _       _       _       _       _       _       _       _      
+# 0xd20
+ _       _       _       _       _       _       _       _      
+# 0xd28
+ _       _       _       _       _       _       _       _      
+# 0xd30
+ _       _       _       _       _       _       _       _      
+# 0xd38
+ _       _       _       _       _       _       _       _      
+# 0xd40
+ _       _       _       _       _       _       _       _      
+# 0xd48
+ _       _       _       _       _       _       _       _      
+# 0xd50
+ _       _       _       _       _       _       _       _      
+# 0xd58
+ _       _       _       _       _       _       _       _      
+# 0xd60
+ _       _       _       _       _       _       _       _      
+# 0xd68
+ _       _       _       _       _       _       _       _      
+# 0xd70
+ _       _       _       _       _       _       _       _      
+# 0xd78
+ _       _       _       _       _       _       _       _      
+# 0xd80
+ _       _       _       _       _       _       _       _      
+# 0xd88
+ _       _       _       _       _       _       _       _      
+# 0xd90
+ _       _       _       _       _       _       _       _      
+# 0xd98
+ _       _       _       _       _       _       _       _      
+# 0xda0
+ _       _       _       _       _       _       _       _      
+# 0xda8
+ _       _       _       _       _       _       _       _      
+# 0xdb0
+ _       _       _       _       _       _       _       _      
+# 0xdb8
+ _       _       _       _       _       _       _       _      
+# 0xdc0
+ _       _       _       _       _       _       _       _      
+# 0xdc8
+ _       _       _       _       _       _       _       _      
+# 0xdd0
+ _       _       _       _       _       _       _       _      
+# 0xdd8
+ _       _       _       _       _       _       _       _      
+# 0xde0
+ _       _       _       _       _       _       _       _      
+# 0xde8
+ _       _       _       _       _       _       _       _      
+# 0xdf0
+ _       _       _       _       _       _       _       _      
+# 0xdf8
+ _       _       _       _       _       _       _       _      
+# 0xe00
+ _       _       _       _       _       _       _       _      
+# 0xe08
+ _       _       _       _       _       _       _       _      
+# 0xe10
+ _       _       _       _       _       _       _       _      
+# 0xe18
+ _       _       _       _       _       _       _       _      
+# 0xe20
+ _       _       _       _       _       _       _       _      
+# 0xe28
+ _       _       _       _       _       _       _       _      
+# 0xe30
+ _       _       _       _       _       _       _       _      
+# 0xe38
+ _       _       _       _       _       _       _       _      
+# 0xe40
+ _       _       _       _       _       _       _       _      
+# 0xe48
+ _       _       _       _       _       _       _       _      
+# 0xe50
+ _       _       _       _       _       _       _       _      
+# 0xe58
+ _       _       _       _       _       _       _       _      
+# 0xe60
+ _       _       _       _       _       _       _       _      
+# 0xe68
+ _       _       _       _       _       _       _       _      
+# 0xe70
+ _       _       _       _       _       _       _       _      
+# 0xe78
+ _       _       _       _       _       _       _       _      
+# 0xe80
+ _       _       _       _       _       _       _       _      
+# 0xe88
+ _       _       _       _       _       _       _       _      
+# 0xe90
+ _       _       _       _       _       _       _       _      
+# 0xe98
+ _       _       _       _       _       _       _       _      
+# 0xea0
+ _       _       _       _       _       _       _       _      
+# 0xea8
+ _       _       _       _       _       _       _       _      
+# 0xeb0
+ _       _       _       _       _       _       _       _      
+# 0xeb8
+ _       _       _       _       _       _       _       _      
+# 0xec0
+ _       _       _       _       _       _       _       _      
+# 0xec8
+ _       _       _       _       _       _       _       _      
+# 0xed0
+ _       _       _       _       _       _       _       _      
+# 0xed8
+ _       _       _       _       _       _       _       _      
+# 0xee0
+ _       _       _       _       _       _       _       _      
+# 0xee8
+ _       _       _       _       _       _       _       _      
+# 0xef0
+ _       _       _       _       _       _       _       _      
+# 0xef8
+ _       _       _       _       _       _       _       _      
+# 0xf00
+ _       _       _       _       _       _       _       _      
+# 0xf08
+ _       _       _       _       _       _       _       _      
+# 0xf10
+ _       _       _       _       _       _       _       _      
+# 0xf18
+ _       _       _       _       _       _       _       _      
+# 0xf20
+ _       _       _       _       _       _       _       _      
+# 0xf28
+ _       _       _       _       _       _       _       _      
+# 0xf30
+ _       _       _       _       _       _       _       _      
+# 0xf38
+ _       _       _       _       _       _       _       _      
+# 0xf40
+ _       _       _       _       _       _       _       _      
+# 0xf48
+ _       _       _       _       _       _       _       _      
+# 0xf50
+ _       _       _       _       _       _       _       _      
+# 0xf58
+ _       _       _       _       _       _       _       _      
+# 0xf60
+ _       _       _       _       _       _       _       _      
+# 0xf68
+ _       _       _       _       _       _       _       _      
+# 0xf70
+ _       _       _       _       _       _       _       _      
+# 0xf78
+ _       _       _       _       _       _       _       _      
+# 0xf80
+ _       _       _       _       _       _       _       _      
+# 0xf88
+ _       _       _       _       _       _       _       _      
+# 0xf90
+ _       _       _       _       _       _       _       _      
+# 0xf98
+ _       _       _       _       _       _       _       _      
+# 0xfa0
+ _       _       _       _       _       _       _       _      
+# 0xfa8
+ _       _       _       _       _       _       _       _      
+# 0xfb0
+ _       _       _       _       _       _       _       _      
+# 0xfb8
+ _       _       _       _       _       _       _       _      
+# 0xfc0
+ _       _       _       _       _       _       _       _      
+# 0xfc8
+ _       _       _       _       _       _       _       _      
+# 0xfd0
+ _       _       _       _       _       _       _       _      
+# 0xfd8
+ _       _       _       _       _       _       _       _      
+# 0xfe0
+ _       _       _       _       _       _       _       _      
+# 0xfe8
+ _       _       _       _       _       _       _       _      
+# 0xff0
+ _       _       _       _       _       _       _       _      
+# 0xff8
+ _       _       _       _       _       _       _       _      
+];
+
+
+
+
+define context CONTEXT
+  reserved=(0,3)
+  MXL=(4,5)   # MXL - Machine XLEN  {1: 32, 2: 64, 3: 128}
+;
+
 
 define token instr (32)
   op0001=(0,1)
+  op0006=(0,6)
   op0204=(2,4)
   op0506=(5,6)
   op0707=(7,7)
   op0711=(7,11)
   r0711=(7,11)
   fr0711=(7,11)
+  v0711=(7,11)
+  op0808=(8,8)
+  op0809=(8,9)
   op0811=(8,11)
+  op0911=(9,11)
+  op1011=(10,11)
+  op1213=(12,13)
   op1214=(12,14)
   funct3=(12,14)
   op1219=(12,19)
   op1231=(12,31)
   sop1231=(12,31) signed
+  op1414=(14,14)
+  op1516=(15,16)
   op1519=(15,19)
+  sop1519=(15,19) signed
+  subf5=(15,19)
   r1519=(15,19)
   fr1519=(15,19)
+  v1519=(15,19)
   op1527=(15,27)
   op1531=(15,31)
+  op1719=(17,19)
   op2020=(20,20)
+  op2022=(20,22)
   succ=(20,23)
+  op2023=(20,23)
   op2024=(20,24)
   r2024=(20,24)
   fr2024=(20,24)
+  v2024=(20,24)
+  op2025=(20,25)
+  op2026=(20,26)
   csr_0=(20,27)
   csr_1=(20,27)
   csr_2=(20,27)
@@ -151,28 +1224,45 @@ define token instr (32)
   csr_F0=(20,26)
   csr_F8=(20,25)
   csr_FC=(20,25)
+  op2030=(20,30)
   op2031=(20,31)
   sop2031=(20,31) signed
+  op2121=(21,21)
+  op2122=(21,22)
   op2130=(21,30)
+  op2222=(22,22)
+  op2230=(22,30)
+  op2323=(23,23)
+  op2324=(23,24)
+  op2330=(23,30)
+  op2424=(24,24)
   op2427=(24,27)
   pred=(24,27)
   op2525=(25,25)
   op2526=(25,26)
   op2527=(25,27)
+  op2529=(25,29)
   op2530=(25,30)
   op2531=(25,31)
   sop2531=(25,31) signed
   funct7=(25,31)
+  wd=(26,26)
+  op2626=(26,26)
   op2627=(26,27)
   op2631=(26,31)
   op2731=(27,31)
+  amoop=(27,31)
   funct5=(27,31)
   op2727=(27,27)
   r2731=(27,31)
   fr2731=(27,31)
+  op2828=(28,28)
   op2829=(28,29)
   fm=(28,31)
+  op2931=(29,31)
+  op3030=(30,30)
   op3031=(30,31)
+  op3131=(31,31)
   sop3131=(31,31) signed
 ;
 
@@ -188,8 +1278,10 @@ define token cinstr (16)
   cr0206=(2,6)
   cfr0206=(2,6)
   cop0212=(2,12)
+  cop0303=(3,3)
   cop0304=(3,4)
   cop0305=(3,5)
+  cop0404=(4,4)
   cop0406=(4,6)
   cop0505=(5,5)
   cop0506=(5,6)
@@ -204,10 +1296,12 @@ define token cinstr (16)
   cop0710=(7,10)
   cop0711=(7,11)
   cr0711=(7,11)
+  cd0711NoSp=(7,11)
   cd0711=(7,11)  
   cfr0711=(7,11)
   cop0712=(7,12)
   cop0808=(8,8)
+  cop0909=(9,9)
   cop0910=(9,10)
   cop0912=(9,12)
   cop1010=(10,10)
@@ -221,573 +1315,3 @@ define token cinstr (16)
 ;
 
 
-attach variables [ r0711 r1519 r2024 r2731 ]
-       		 [ zero ra sp gp tp t0 t1 t2 s0 s1 a0  a1  a2 a3 a4 a5
-		   a6   a7 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 t3 t4 t5 t6 ];
-
-attach variables [ cr0206 cr0711 cd0711 ]
-       		 [ zero ra sp gp tp t0 t1 t2 s0 s1 a0  a1  a2 a3 a4 a5
-		   a6   a7 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 t3 t4 t5 t6 ];
-
-attach variables [ cr0204s cr0709s cd0709s ]
-       		 [ s0 s1 a0 a1 a2 a3 a4 a5 ];
-
-
-@if FPSIZE != ""
-attach variables [ fr0711 fr1519 fr2024 fr2731 ]
-       		 [ ft0 ft1 ft2 ft3 ft4 ft5 ft6 ft7 fs0 fs1 fa0  fa1  fa2 fa3 fa4  fa5
-		   fa6 fa7 fs2 fs3 fs4 fs5 fs6 fs7 fs8 fs9 fs10 fs11 ft8 ft9 ft10 ft11 ];
-
-attach variables [ cfr0206 cfr0711 ]
-       		 [ ft0 ft1 ft2 ft3 ft4 ft5 ft6 ft7 fs0 fs1 fa0  fa1  fa2 fa3 fa4  fa5
-		   fa6 fa7 fs2 fs3 fs4 fs5 fs6 fs7 fs8 fs9 fs10 fs11 ft8 ft9 ft10 ft11 ];
-
-attach variables [ cfr0204s cfr0709s ]
-       		 [ fs0 fs1 fa0 fa1 fa2 fa3 fa4 fa5 ];
-@endif
-
-
-#TODO  this approach is probably incorrect
-define register offset=0x90000000 size=$(XLEN) [ ustatus ];
-define register offset=0x90000010 size=$(XLEN) [ fflags ];
-define register offset=0x90000020 size=$(XLEN) [ frm ];
-define register offset=0x90000030 size=$(XLEN) [ fcsr ];
-define register offset=0x90000040 size=$(XLEN) [ uie ];
-define register offset=0x90000050 size=$(XLEN) [ utvec ];
-define register offset=0x90000400 size=$(XLEN) [ uscratch ];
-define register offset=0x90000410 size=$(XLEN) [ uepc ];
-define register offset=0x90000420 size=$(XLEN) [ ucause ];
-define register offset=0x90000430 size=$(XLEN) [ utval ];
-define register offset=0x90000440 size=$(XLEN) [ uip ];
-define register offset=0x90001000 size=$(XLEN) [ sstatus ];
-define register offset=0x90001020 size=$(XLEN) [ sedeleg ];
-define register offset=0x90001030 size=$(XLEN) [ sideleg ];
-define register offset=0x90001040 size=$(XLEN) [ sie ];
-define register offset=0x90001050 size=$(XLEN) [ stvec ];
-define register offset=0x90001060 size=$(XLEN) [ scounteren ];
-define register offset=0x90001400 size=$(XLEN) [ sscratch ];
-define register offset=0x90001410 size=$(XLEN) [ sepc ];
-define register offset=0x90001420 size=$(XLEN) [ scause ];
-define register offset=0x90001430 size=$(XLEN) [ stval ];
-define register offset=0x90001440 size=$(XLEN) [ sip ];
-define register offset=0x90001800 size=$(XLEN) [ satp ];
-define register offset=0x90002000 size=$(XLEN) [ vsstatus ];
-define register offset=0x90002040 size=$(XLEN) [ vsie ];
-define register offset=0x90002050 size=$(XLEN) [ vstvec ];
-define register offset=0x90002400 size=$(XLEN) [ vsscratch ];
-define register offset=0x90002410 size=$(XLEN) [ vsepc ];
-define register offset=0x90002420 size=$(XLEN) [ vscause ];
-define register offset=0x90002430 size=$(XLEN) [ vstval ];
-define register offset=0x90002440 size=$(XLEN) [ vsip ];
-define register offset=0x90002800 size=$(XLEN) [ vsatp ];
-define register offset=0x90003000 size=$(XLEN) [ mstatus ];
-define register offset=0x90003010 size=$(XLEN) [ misa ];
-define register offset=0x90003020 size=$(XLEN) [ medeleg ];
-define register offset=0x90003030 size=$(XLEN) [ mideleg ];
-define register offset=0x90003040 size=$(XLEN) [ mie ];
-define register offset=0x90003050 size=$(XLEN) [ mtvec ];
-define register offset=0x90003060 size=$(XLEN) [ mcounteren ];
-define register offset=0x90003100 size=$(XLEN) [ mstatush ];
-define register offset=0x90003200 size=$(XLEN) [ mucounteren ];
-define register offset=0x90003210 size=$(XLEN) [ mscounteren ];
-define register offset=0x90003220 size=$(XLEN) [ mhcounteren ];
-define register offset=0x90003400 size=$(XLEN) [ mscratch ];
-define register offset=0x90003410 size=$(XLEN) [ mepc ];
-define register offset=0x90003420 size=$(XLEN) [ mcause ];
-define register offset=0x90003430 size=$(XLEN) [ mtval ];
-define register offset=0x90003440 size=$(XLEN) [ mip ];
-define register offset=0x90003800 size=$(XLEN) [ mbase ];
-define register offset=0x90003810 size=$(XLEN) [ mbound ];
-define register offset=0x90003820 size=$(XLEN) [ mibase ];
-define register offset=0x90003830 size=$(XLEN) [ mibound ];
-define register offset=0x90003840 size=$(XLEN) [ mdbase ];
-define register offset=0x90003850 size=$(XLEN) [ mdbound ];
-define register offset=0x90003a00 size=$(XLEN) [ pmpcfg0 ];
-define register offset=0x90003a10 size=$(XLEN) [ pmpcfg1 ];
-define register offset=0x90003a20 size=$(XLEN) [ pmpcfg2 ];
-define register offset=0x90003a30 size=$(XLEN) [ pmpcfg3 ];
-define register offset=0x90003b00 size=$(XLEN) [ pmpaddr0 ];
-define register offset=0x90003b10 size=$(XLEN) [ pmpaddr1 ];
-define register offset=0x90003b20 size=$(XLEN) [ pmpaddr2 ];
-define register offset=0x90003b30 size=$(XLEN) [ pmpaddr3 ];
-define register offset=0x90003b40 size=$(XLEN) [ pmpaddr4 ];
-define register offset=0x90003b50 size=$(XLEN) [ pmpaddr5 ];
-define register offset=0x90003b60 size=$(XLEN) [ pmpaddr6 ];
-define register offset=0x90003b70 size=$(XLEN) [ pmpaddr7 ];
-define register offset=0x90003b80 size=$(XLEN) [ pmpaddr8 ];
-define register offset=0x90003b90 size=$(XLEN) [ pmpaddr9 ];
-define register offset=0x90003ba0 size=$(XLEN) [ pmpaddr10 ];
-define register offset=0x90003bb0 size=$(XLEN) [ pmpaddr11 ];
-define register offset=0x90003bc0 size=$(XLEN) [ pmpaddr12 ];
-define register offset=0x90003bd0 size=$(XLEN) [ pmpaddr13 ];
-define register offset=0x90003be0 size=$(XLEN) [ pmpaddr14 ];
-define register offset=0x90003bf0 size=$(XLEN) [ pmpaddr15 ];
-define register offset=0x90006000 size=$(XLEN) [ hstatus ];
-define register offset=0x90006020 size=$(XLEN) [ hedeleg ];
-define register offset=0x90006030 size=$(XLEN) [ hideleg ];
-define register offset=0x90006060 size=$(XLEN) [ hcounteren ];
-define register offset=0x90006800 size=$(XLEN) [ hgatp ];
-define register offset=0x90007a00 size=$(XLEN) [ tselect ];
-define register offset=0x90007a10 size=$(XLEN) [ tdata1 ];
-define register offset=0x90007a20 size=$(XLEN) [ tdata2 ];
-define register offset=0x90007a30 size=$(XLEN) [ tdata3 ];
-define register offset=0x90007b00 size=$(XLEN) [ dcsr ];
-define register offset=0x90007b10 size=$(XLEN) [ dpc ];
-define register offset=0x90007b20 size=$(XLEN) [ dscratch0 ];
-define register offset=0x90007b30 size=$(XLEN) [ dscratch1 ];
-define register offset=0x9000b000 size=$(XLEN) [ mcycle ];
-define register offset=0x9000b020 size=$(XLEN) [ minstret ];
-define register offset=0x9000b030 size=$(XLEN) [ mhpmcounter3 ];
-define register offset=0x9000b040 size=$(XLEN) [ mhpmcounter4 ];
-define register offset=0x9000b050 size=$(XLEN) [ mhpmcounter5 ];
-define register offset=0x9000b060 size=$(XLEN) [ mhpmcounter6 ];
-define register offset=0x9000b070 size=$(XLEN) [ mhpmcounter7 ];
-define register offset=0x9000b080 size=$(XLEN) [ mhpmcounter8 ];
-define register offset=0x9000b090 size=$(XLEN) [ mhpmcounter9 ];
-define register offset=0x9000b0a0 size=$(XLEN) [ mhpmcounter10 ];
-define register offset=0x9000b0b0 size=$(XLEN) [ mhpmcounter11 ];
-define register offset=0x9000b0c0 size=$(XLEN) [ mhpmcounter12 ];
-define register offset=0x9000b0d0 size=$(XLEN) [ mhpmcounter13 ];
-define register offset=0x9000b0e0 size=$(XLEN) [ mhpmcounter14 ];
-define register offset=0x9000b0f0 size=$(XLEN) [ mhpmcounter15 ];
-define register offset=0x9000b100 size=$(XLEN) [ mhpmcounter16 ];
-define register offset=0x9000b110 size=$(XLEN) [ mhpmcounter17 ];
-define register offset=0x9000b120 size=$(XLEN) [ mhpmcounter18 ];
-define register offset=0x9000b130 size=$(XLEN) [ mhpmcounter19 ];
-define register offset=0x9000b140 size=$(XLEN) [ mhpmcounter20 ];
-define register offset=0x9000b150 size=$(XLEN) [ mhpmcounter21 ];
-define register offset=0x9000b160 size=$(XLEN) [ mhpmcounter22 ];
-define register offset=0x9000b170 size=$(XLEN) [ mhpmcounter23 ];
-define register offset=0x9000b180 size=$(XLEN) [ mhpmcounter24 ];
-define register offset=0x9000b190 size=$(XLEN) [ mhpmcounter25 ];
-define register offset=0x9000b1a0 size=$(XLEN) [ mhpmcounter26 ];
-define register offset=0x9000b1b0 size=$(XLEN) [ mhpmcounter27 ];
-define register offset=0x9000b1c0 size=$(XLEN) [ mhpmcounter28 ];
-define register offset=0x9000b1d0 size=$(XLEN) [ mhpmcounter29 ];
-define register offset=0x9000b1e0 size=$(XLEN) [ mhpmcounter30 ];
-define register offset=0x9000b1f0 size=$(XLEN) [ mhpmcounter31 ];
-define register offset=0x9000b200 size=$(XLEN) [ mcountinhibit ];
-define register offset=0x9000b230 size=$(XLEN) [ mhpmevent3 ];
-define register offset=0x9000b240 size=$(XLEN) [ mhpmevent4 ];
-define register offset=0x9000b250 size=$(XLEN) [ mhpmevent5 ];
-define register offset=0x9000b260 size=$(XLEN) [ mhpmevent6 ];
-define register offset=0x9000b270 size=$(XLEN) [ mhpmevent7 ];
-define register offset=0x9000b280 size=$(XLEN) [ mhpmevent8 ];
-define register offset=0x9000b290 size=$(XLEN) [ mhpmevent9 ];
-define register offset=0x9000b2a0 size=$(XLEN) [ mhpmevent10 ];
-define register offset=0x9000b2b0 size=$(XLEN) [ mhpmevent11 ];
-define register offset=0x9000b2c0 size=$(XLEN) [ mhpmevent12 ];
-define register offset=0x9000b2d0 size=$(XLEN) [ mhpmevent13 ];
-define register offset=0x9000b2e0 size=$(XLEN) [ mhpmevent14 ];
-define register offset=0x9000b2f0 size=$(XLEN) [ mhpmevent15 ];
-define register offset=0x9000b300 size=$(XLEN) [ mhpmevent16 ];
-define register offset=0x9000b310 size=$(XLEN) [ mhpmevent17 ];
-define register offset=0x9000b320 size=$(XLEN) [ mhpmevent18 ];
-define register offset=0x9000b330 size=$(XLEN) [ mhpmevent19 ];
-define register offset=0x9000b340 size=$(XLEN) [ mhpmevent20 ];
-define register offset=0x9000b350 size=$(XLEN) [ mhpmevent21 ];
-define register offset=0x9000b360 size=$(XLEN) [ mhpmevent22 ];
-define register offset=0x9000b370 size=$(XLEN) [ mhpmevent23 ];
-define register offset=0x9000b380 size=$(XLEN) [ mhpmevent24 ];
-define register offset=0x9000b390 size=$(XLEN) [ mhpmevent25 ];
-define register offset=0x9000b3a0 size=$(XLEN) [ mhpmevent26 ];
-define register offset=0x9000b3b0 size=$(XLEN) [ mhpmevent27 ];
-define register offset=0x9000b3c0 size=$(XLEN) [ mhpmevent28 ];
-define register offset=0x9000b3d0 size=$(XLEN) [ mhpmevent29 ];
-define register offset=0x9000b3e0 size=$(XLEN) [ mhpmevent30 ];
-define register offset=0x9000b3f0 size=$(XLEN) [ mhpmevent31 ];
-define register offset=0x9000b800 size=$(XLEN) [ mcycleh ];
-define register offset=0x9000b820 size=$(XLEN) [ minstreth ];
-define register offset=0x9000b830 size=$(XLEN) [ mhpmcounter3h ];
-define register offset=0x9000b840 size=$(XLEN) [ mhpmcounter4h ];
-define register offset=0x9000b850 size=$(XLEN) [ mhpmcounter5h ];
-define register offset=0x9000b860 size=$(XLEN) [ mhpmcounter6h ];
-define register offset=0x9000b870 size=$(XLEN) [ mhpmcounter7h ];
-define register offset=0x9000b880 size=$(XLEN) [ mhpmcounter8h ];
-define register offset=0x9000b890 size=$(XLEN) [ mhpmcounter9h ];
-define register offset=0x9000b8a0 size=$(XLEN) [ mhpmcounter10h ];
-define register offset=0x9000b8b0 size=$(XLEN) [ mhpmcounter11h ];
-define register offset=0x9000b8c0 size=$(XLEN) [ mhpmcounter12h ];
-define register offset=0x9000b8d0 size=$(XLEN) [ mhpmcounter13h ];
-define register offset=0x9000b8e0 size=$(XLEN) [ mhpmcounter14h ];
-define register offset=0x9000b8f0 size=$(XLEN) [ mhpmcounter15h ];
-define register offset=0x9000b900 size=$(XLEN) [ mhpmcounter16h ];
-define register offset=0x9000b910 size=$(XLEN) [ mhpmcounter17h ];
-define register offset=0x9000b920 size=$(XLEN) [ mhpmcounter18h ];
-define register offset=0x9000b930 size=$(XLEN) [ mhpmcounter19h ];
-define register offset=0x9000b940 size=$(XLEN) [ mhpmcounter20h ];
-define register offset=0x9000b950 size=$(XLEN) [ mhpmcounter21h ];
-define register offset=0x9000b960 size=$(XLEN) [ mhpmcounter22h ];
-define register offset=0x9000b970 size=$(XLEN) [ mhpmcounter23h ];
-define register offset=0x9000b980 size=$(XLEN) [ mhpmcounter24h ];
-define register offset=0x9000b990 size=$(XLEN) [ mhpmcounter25h ];
-define register offset=0x9000b9a0 size=$(XLEN) [ mhpmcounter26h ];
-define register offset=0x9000b9b0 size=$(XLEN) [ mhpmcounter27h ];
-define register offset=0x9000b9c0 size=$(XLEN) [ mhpmcounter28h ];
-define register offset=0x9000b9d0 size=$(XLEN) [ mhpmcounter29h ];
-define register offset=0x9000b9e0 size=$(XLEN) [ mhpmcounter30h ];
-define register offset=0x9000b9f0 size=$(XLEN) [ mhpmcounter31h ];
-define register offset=0x9000c000 size=$(XLEN) [ cycle ];
-define register offset=0x9000c010 size=$(XLEN) [ time ];
-define register offset=0x9000c020 size=$(XLEN) [ instret ];
-define register offset=0x9000c030 size=$(XLEN) [ hpmcounter3 ];
-define register offset=0x9000c040 size=$(XLEN) [ hpmcounter4 ];
-define register offset=0x9000c050 size=$(XLEN) [ hpmcounter5 ];
-define register offset=0x9000c060 size=$(XLEN) [ hpmcounter6 ];
-define register offset=0x9000c070 size=$(XLEN) [ hpmcounter7 ];
-define register offset=0x9000c080 size=$(XLEN) [ hpmcounter8 ];
-define register offset=0x9000c090 size=$(XLEN) [ hpmcounter9 ];
-define register offset=0x9000c0a0 size=$(XLEN) [ hpmcounter10 ];
-define register offset=0x9000c0b0 size=$(XLEN) [ hpmcounter11 ];
-define register offset=0x9000c0c0 size=$(XLEN) [ hpmcounter12 ];
-define register offset=0x9000c0d0 size=$(XLEN) [ hpmcounter13 ];
-define register offset=0x9000c0e0 size=$(XLEN) [ hpmcounter14 ];
-define register offset=0x9000c0f0 size=$(XLEN) [ hpmcounter15 ];
-define register offset=0x9000c100 size=$(XLEN) [ hpmcounter16 ];
-define register offset=0x9000c110 size=$(XLEN) [ hpmcounter17 ];
-define register offset=0x9000c120 size=$(XLEN) [ hpmcounter18 ];
-define register offset=0x9000c130 size=$(XLEN) [ hpmcounter19 ];
-define register offset=0x9000c140 size=$(XLEN) [ hpmcounter20 ];
-define register offset=0x9000c150 size=$(XLEN) [ hpmcounter21 ];
-define register offset=0x9000c160 size=$(XLEN) [ hpmcounter22 ];
-define register offset=0x9000c170 size=$(XLEN) [ hpmcounter23 ];
-define register offset=0x9000c180 size=$(XLEN) [ hpmcounter24 ];
-define register offset=0x9000c190 size=$(XLEN) [ hpmcounter25 ];
-define register offset=0x9000c1a0 size=$(XLEN) [ hpmcounter26 ];
-define register offset=0x9000c1b0 size=$(XLEN) [ hpmcounter27 ];
-define register offset=0x9000c1c0 size=$(XLEN) [ hpmcounter28 ];
-define register offset=0x9000c1d0 size=$(XLEN) [ hpmcounter29 ];
-define register offset=0x9000c1e0 size=$(XLEN) [ hpmcounter30 ];
-define register offset=0x9000c1f0 size=$(XLEN) [ hpmcounter31 ];
-define register offset=0x9000c800 size=$(XLEN) [ cycleh ];
-define register offset=0x9000c810 size=$(XLEN) [ timeh ];
-define register offset=0x9000c820 size=$(XLEN) [ instreth ];
-define register offset=0x9000c830 size=$(XLEN) [ hpmcounter3h ];
-define register offset=0x9000c840 size=$(XLEN) [ hpmcounter4h ];
-define register offset=0x9000c850 size=$(XLEN) [ hpmcounter5h ];
-define register offset=0x9000c860 size=$(XLEN) [ hpmcounter6h ];
-define register offset=0x9000c870 size=$(XLEN) [ hpmcounter7h ];
-define register offset=0x9000c880 size=$(XLEN) [ hpmcounter8h ];
-define register offset=0x9000c890 size=$(XLEN) [ hpmcounter9h ];
-define register offset=0x9000c8a0 size=$(XLEN) [ hpmcounter10h ];
-define register offset=0x9000c8b0 size=$(XLEN) [ hpmcounter11h ];
-define register offset=0x9000c8c0 size=$(XLEN) [ hpmcounter12h ];
-define register offset=0x9000c8d0 size=$(XLEN) [ hpmcounter13h ];
-define register offset=0x9000c8e0 size=$(XLEN) [ hpmcounter14h ];
-define register offset=0x9000c8f0 size=$(XLEN) [ hpmcounter15h ];
-define register offset=0x9000c900 size=$(XLEN) [ hpmcounter16h ];
-define register offset=0x9000c910 size=$(XLEN) [ hpmcounter17h ];
-define register offset=0x9000c920 size=$(XLEN) [ hpmcounter18h ];
-define register offset=0x9000c930 size=$(XLEN) [ hpmcounter19h ];
-define register offset=0x9000c940 size=$(XLEN) [ hpmcounter20h ];
-define register offset=0x9000c950 size=$(XLEN) [ hpmcounter21h ];
-define register offset=0x9000c960 size=$(XLEN) [ hpmcounter22h ];
-define register offset=0x9000c970 size=$(XLEN) [ hpmcounter23h ];
-define register offset=0x9000c980 size=$(XLEN) [ hpmcounter24h ];
-define register offset=0x9000c990 size=$(XLEN) [ hpmcounter25h ];
-define register offset=0x9000c9a0 size=$(XLEN) [ hpmcounter26h ];
-define register offset=0x9000c9b0 size=$(XLEN) [ hpmcounter27h ];
-define register offset=0x9000c9c0 size=$(XLEN) [ hpmcounter28h ];
-define register offset=0x9000c9d0 size=$(XLEN) [ hpmcounter29h ];
-define register offset=0x9000c9e0 size=$(XLEN) [ hpmcounter30h ];
-define register offset=0x9000c9f0 size=$(XLEN) [ hpmcounter31h ];
-define register offset=0x9000f110 size=$(XLEN) [ mvendorid ];
-define register offset=0x9000f120 size=$(XLEN) [ marchid ];
-define register offset=0x9000f130 size=$(XLEN) [ mimpid ];
-define register offset=0x9000f140 size=$(XLEN) [ mhartid ];
-
-
-attach variables [ csr_0 ]
-       		 [ ustatus fflags frm fcsr uie utvec _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   uscratch uepc ucause utval uip _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  ];
-attach variables [ csr_1 ]
-       		 [ sstatus _ sedeleg sideleg sie stvec scounteren _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   sscratch sepc scause stval sip _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   satp _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  ];
-attach variables [ csr_2 ]
-       		 [ vsstatus _ _ _ vsie vstvec _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   vsscratch vsepc vscause vstval vsip _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   vsatp _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  ];
-attach variables [ csr_3 ]
-       		 [ mstatus misa medeleg mideleg mie mtvec mcounteren _ _ _ _ _ _ _ _ _ 
-		   mstatush _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   mscratch mepc mcause mtval mip _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   pmpcfg0 pmpcfg1 pmpcfg2 pmpcfg3 _ _ _ _ _ _ _ _ _ _ _ _ 
-		   pmpaddr0 pmpaddr1 pmpaddr2 pmpaddr3 pmpaddr4 pmpaddr5 pmpaddr6 pmpaddr7 pmpaddr8 pmpaddr9 pmpaddr10 pmpaddr11 pmpaddr12 pmpaddr13 pmpaddr14 pmpaddr15 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  ];
-attach variables [ csr_4 ]
-       		 [ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  ];
-attach variables [ csr_50 ]
-       		 [ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_58 ]
-       		 [ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_5C ]
-       		 [ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_60 ]
-       		 [ hstatus _ hedeleg hideleg _ _ hcounteren _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_68 ]
-       		 [ hgatp _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_6C ]
-       		 [ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_70 ]
-       		 [ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_78 ]
-       		 [ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_7A ]
-       		 [ tselect tdata1 tdata2 tdata3 _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_7B ]
-       		 [ dcsr dpc dscratch0 dscratch1 _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_7C ]
-       		 [ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_8 ]
-       		 [ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  ];
-attach variables [ csr_90 ]
-       		 [ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_98 ]
-       		 [ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_9C ]
-       		 [ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_A0 ]
-       		 [ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_A8 ]
-       		 [ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_AC ]
-       		 [ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_B0 ]
-       		 [ mcycle _ minstret mhpmcounter3 mhpmcounter4 mhpmcounter5 mhpmcounter6 mhpmcounter7 mhpmcounter8 mhpmcounter9 mhpmcounter10 mhpmcounter11 mhpmcounter12 mhpmcounter13 mhpmcounter14 mhpmcounter15 
-		   mhpmcounter16 mhpmcounter17 mhpmcounter18 mhpmcounter19 mhpmcounter20 mhpmcounter21 mhpmcounter22 mhpmcounter23 mhpmcounter24 mhpmcounter25 mhpmcounter26 mhpmcounter27 mhpmcounter28 mhpmcounter29 mhpmcounter30 mhpmcounter31 
-		   mcountinhibit _ _ mhpmevent3 mhpmevent4 mhpmevent5 mhpmevent6 mhpmevent7 mhpmevent8 mhpmevent9 mhpmevent10 mhpmevent11 mhpmevent12 mhpmevent13 mhpmevent14 mhpmevent15 
-		   mhpmevent16 mhpmevent17 mhpmevent18 mhpmevent19 mhpmevent20 mhpmevent21 mhpmevent22 mhpmevent23 mhpmevent24 mhpmevent25 mhpmevent26 mhpmevent27 mhpmevent28 mhpmevent29 mhpmevent30 mhpmevent31 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_B8 ]
-       		 [ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_BC ]
-       		 [ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_C0 ]
-       		 [ cycle time instret hpmcounter3 hpmcounter4 hpmcounter5 hpmcounter6 hpmcounter7 hpmcounter8 hpmcounter9 hpmcounter10 hpmcounter11 hpmcounter12 hpmcounter13 hpmcounter14 hpmcounter15 
-		   hpmcounter16 hpmcounter17 hpmcounter18 hpmcounter19 hpmcounter20 hpmcounter21 hpmcounter22 hpmcounter23 hpmcounter24 hpmcounter25 hpmcounter26 hpmcounter27 hpmcounter28 hpmcounter29 hpmcounter30 hpmcounter31 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_C8 ]
-       		 [ cycleh timeh instreth hpmcounter3h hpmcounter4h hpmcounter5h hpmcounter6h hpmcounter7h hpmcounter8h hpmcounter9h hpmcounter10h hpmcounter11h hpmcounter12h hpmcounter13h hpmcounter14h hpmcounter15h 
-		   hpmcounter16h hpmcounter17h hpmcounter18h hpmcounter19h hpmcounter20h hpmcounter21h hpmcounter22h hpmcounter23h hpmcounter24h hpmcounter25h hpmcounter26h hpmcounter27h hpmcounter28h hpmcounter29h hpmcounter30h hpmcounter31h 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_CC ]
-       		 [ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_D0 ]
-       		 [ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_D8 ]
-       		 [ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_DC ]
-       		 [ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_E0 ]
-       		 [ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_E8 ]
-       		 [ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_EC ]
-       		 [ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_F0 ]
-       		 [ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ mvendorid marchid mimpid mhartid _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_F8 ]
-       		 [ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];
-attach variables [ csr_FC ]
-       		 [ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-		   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ];

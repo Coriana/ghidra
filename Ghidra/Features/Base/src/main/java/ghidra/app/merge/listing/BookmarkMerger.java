@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,16 +15,6 @@
  */
 package ghidra.app.merge.listing;
 
-import ghidra.app.merge.tool.ListingMergePanel;
-import ghidra.app.merge.util.ConflictUtility;
-import ghidra.program.model.address.*;
-import ghidra.program.model.listing.*;
-import ghidra.program.model.mem.MemoryAccessException;
-import ghidra.program.util.ProgramConflictException;
-import ghidra.util.exception.AssertException;
-import ghidra.util.exception.CancelledException;
-import ghidra.util.task.TaskMonitor;
-
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.Hashtable;
@@ -33,6 +22,17 @@ import java.util.Hashtable;
 import javax.swing.SwingUtilities;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
+
+import ghidra.app.merge.tool.ListingMergePanel;
+import ghidra.app.merge.util.ConflictUtility;
+import ghidra.program.model.address.*;
+import ghidra.program.model.listing.*;
+import ghidra.program.model.mem.MemoryAccessException;
+import ghidra.program.util.ProgramConflictException;
+import ghidra.util.SystemUtilities;
+import ghidra.util.exception.AssertException;
+import ghidra.util.exception.CancelledException;
+import ghidra.util.task.TaskMonitor;
 
 /**
  * Class for merging bookmark changes. This class can merge non-conflicting
@@ -169,8 +169,8 @@ class BookmarkMerger extends AbstractListingMerger {
 			if (latest.length == 1) {
 				String latestCategory = latest[0].getCategory();
 				String latestComment = latest[0].getComment();
-				if (!originalCategory.equals(latestCategory) ||
-					!originalComment.equals(latestComment)) {
+				if (!SystemUtilities.isEqual(originalCategory, latestCategory) ||
+					!SystemUtilities.isEqual(originalComment, latestComment)) {
 					// MY deleted and LATEST changed, so conflict.
 					addConflict(addr, originalType, null);
 				}
@@ -183,8 +183,8 @@ class BookmarkMerger extends AbstractListingMerger {
 		else if (my.length == 1) {
 			String myCategory = my[0].getCategory();
 			String myComment = my[0].getComment();
-			if (!originalCategory.equals(myCategory) ||
-				!originalComment.equals(myComment)) {
+			if (!SystemUtilities.isEqual(originalCategory, myCategory) ||
+				!SystemUtilities.isEqual(originalComment, myComment)) {
 				// Changed in MY
 				if (latest.length == 0) {
 					// MY changed and LATEST deleted, so conflict.
@@ -193,8 +193,10 @@ class BookmarkMerger extends AbstractListingMerger {
 				else if (latest.length == 1) {
 					String latestCategory = latest[0].getCategory();
 					String latestComment = latest[0].getComment();
-					if ((!originalCategory.equals(latestCategory) || !originalComment.equals(latestComment)) &&
-						(!myCategory.equals(latestCategory) || !myComment.equals(latestComment))) {
+					if ((!SystemUtilities.isEqual(originalCategory, latestCategory) ||
+						!SystemUtilities.isEqual(originalComment, latestComment)) &&
+						(!SystemUtilities.isEqual(myCategory, latestCategory) ||
+							!SystemUtilities.isEqual(myComment, latestComment))) {
 						// MY changed and LATEST changed differently
 						addConflict(addr, originalType, null);
 					}
@@ -221,7 +223,7 @@ class BookmarkMerger extends AbstractListingMerger {
 			// Deleted in MY
 			if (latest != null) {
 				String latestComment = latest.getComment();
-				if (!originalComment.equals(latestComment)) {
+				if (!SystemUtilities.isEqual(originalComment, latestComment)) {
 					// MY deleted and LATEST changed, so conflict.
 					addConflict(addr, originalType, originalCategory);
 				}
@@ -233,7 +235,7 @@ class BookmarkMerger extends AbstractListingMerger {
 		}
 		else {
 			String myComment = my.getComment();
-			if (!originalComment.equals(myComment)) {
+			if (!SystemUtilities.isEqual(originalComment, myComment)) {
 				// Changed in MY
 				if (latest == null) {
 					// MY changed and LATEST deleted, so conflict.
@@ -241,8 +243,8 @@ class BookmarkMerger extends AbstractListingMerger {
 				}
 				else {
 					String latestComment = latest.getComment();
-					if (!originalComment.equals(latestComment) &&
-						!myComment.equals(latestComment)) {
+					if (!SystemUtilities.isEqual(originalComment, latestComment) &&
+						!SystemUtilities.isEqual(myComment, latestComment)) {
 						// MY changed and LATEST changed differently
 						addConflict(addr, originalType, originalCategory);
 					}
@@ -292,8 +294,8 @@ class BookmarkMerger extends AbstractListingMerger {
 			else if (latest.length == 1) {
 				String latestCategory = latest[0].getCategory();
 				String latestComment = latest[0].getComment();
-				if (!myCategory.equals(latestCategory) ||
-					!myComment.equals(latestComment)) {
+				if (!SystemUtilities.isEqual(myCategory, latestCategory) ||
+					!SystemUtilities.isEqual(myComment, latestComment)) {
 					// MY & LATEST added different NOTEs, so conflict.
 					addConflict(addr, myType, null);
 				}
@@ -317,7 +319,7 @@ class BookmarkMerger extends AbstractListingMerger {
 			}
 			else {
 				String latestComment = latest.getComment();
-				if (!myComment.equals(latestComment)) {
+				if (!SystemUtilities.isEqual(myComment, latestComment)) {
 					// MY & LATEST added same bookmark w/ different comments, so conflict.
 					addConflict(addr, myType, myCategory);
 				}
@@ -457,7 +459,7 @@ class BookmarkMerger extends AbstractListingMerger {
 			if ((bookmarkChoice == ASK_USER) && askUser && mergeManager != null) {
 				showMergePanel(listingPanel, bmuid.address, bmuid.bookmarkType,
 					bmuid.bookmarkCategory, monitor);
-				monitor.checkCanceled();
+				monitor.checkCancelled();
 			}
 			else {
 				int optionToUse =

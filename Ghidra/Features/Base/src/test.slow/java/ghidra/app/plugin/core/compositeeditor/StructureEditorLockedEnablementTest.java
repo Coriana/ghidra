@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,53 +15,16 @@
  */
 package ghidra.app.plugin.core.compositeeditor;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
 import org.junit.Assert;
 import org.junit.Test;
 
-import ghidra.program.model.data.*;
+import ghidra.program.model.data.DataTypeManager;
+import ghidra.program.model.data.Structure;
 import ghidra.util.exception.DuplicateNameException;
-import ghidra.util.task.TaskMonitorAdapter;
 
 public class StructureEditorLockedEnablementTest extends AbstractStructureEditorTest {
-
-	@Override
-	protected void init(Structure dt, final Category cat, boolean addIfNotThere) {
-		boolean commit = true;
-		startTransaction("Structure Editor Test Initialization");
-		try {
-			DataTypeManager dataTypeManager = cat.getDataTypeManager();
-			if (dt.getDataTypeManager() != dataTypeManager) {
-				dt = (Structure) dt.clone(dataTypeManager);
-			}
-			CategoryPath categoryPath = cat.getCategoryPath();
-			if (!dt.getCategoryPath().equals(categoryPath)) {
-				try {
-					dt.setCategoryPath(categoryPath);
-				}
-				catch (DuplicateNameException e) {
-					commit = false;
-					Assert.fail(e.getMessage());
-				}
-			}
-			if (addIfNotThere && !dataTypeManager.contains(dt)) {
-				dataTypeManager.addDataType(dt, null);
-			}
-		}
-		finally {
-			endTransaction(commit);
-		}
-		final Structure structDt = dt;
-		runSwing(() -> {
-			installProvider(new StructureEditorProvider(plugin, structDt, false));
-			model = provider.getModel();
-//				model.setLocked(true);
-		});
-//		assertTrue(model.isLocked());
-		getActions();
-	}
 
 	@Test
 	public void testEmptyStructureEditorState() {
@@ -69,7 +32,7 @@ public class StructureEditorLockedEnablementTest extends AbstractStructureEditor
 		Structure desiredEmptyStructure = emptyStructure;
 		int txID = program.startTransaction("Removing emptyStruct from DTM.");
 		try {
-			programDTM.remove(emptyStructure, TaskMonitorAdapter.DUMMY_MONITOR);
+			programDTM.remove(emptyStructure);
 			if (emptyStructure.getDataTypeManager() != catDTM) {
 				desiredEmptyStructure = (Structure) emptyStructure.copy(catDTM);
 				desiredEmptyStructure.setCategoryPath(pgmTestCat.getCategoryPath());
@@ -82,7 +45,7 @@ public class StructureEditorLockedEnablementTest extends AbstractStructureEditor
 			program.endTransaction(txID, true);
 		}
 
-		init(desiredEmptyStructure, pgmTestCat, false);
+		init(desiredEmptyStructure, pgmTestCat);
 
 //		assertTrue(!getModel().isLocked());
 //		assertTrue(getModel().isLockable());
@@ -123,7 +86,7 @@ public class StructureEditorLockedEnablementTest extends AbstractStructureEditor
 				String name = cycleGroupAction.getName();
 				checkEnablement(action,
 					name.equals("Cycle: byte,word,dword,qword") ||
-						name.equals("Cycle: float,double") ||
+						name.equals("Cycle: float,double,longdouble") ||
 						name.equals("Cycle: char,string,unicode"));
 			}
 			else {
@@ -134,7 +97,7 @@ public class StructureEditorLockedEnablementTest extends AbstractStructureEditor
 
 	@Test
 	public void testNonEmptyStructureEditorState() {
-		init(simpleStructure, pgmBbCat, false);
+		init(simpleStructure, pgmBbCat);
 
 //		assertTrue(getModel().isLocked());
 //		assertTrue(getModel().isLockable());
@@ -154,7 +117,8 @@ public class StructureEditorLockedEnablementTest extends AbstractStructureEditor
 		for (CompositeEditorTableAction action : actions) {
 			if ((action instanceof EditFieldAction) || (action instanceof AddBitFieldAction) ||
 				(action instanceof InsertUndefinedAction) || (action instanceof PointerAction) ||
-				(action instanceof HexNumbersAction)) {
+				(action instanceof HexNumbersAction) ||
+				(action instanceof ShowDataTypeInTreeAction)) {
 				checkEnablement(action, true);
 			}
 			else if (action instanceof FavoritesAction) {
@@ -173,7 +137,7 @@ public class StructureEditorLockedEnablementTest extends AbstractStructureEditor
 				String name = cycleGroupAction.getName();
 				checkEnablement(action,
 					name.equals("Cycle: byte,word,dword,qword") ||
-						name.equals("Cycle: float,double") ||
+						name.equals("Cycle: float,double,longdouble") ||
 						name.equals("Cycle: char,string,unicode"));
 			}
 			else {
@@ -184,7 +148,7 @@ public class StructureEditorLockedEnablementTest extends AbstractStructureEditor
 
 	@Test
 	public void testUndefinedFirstComponentSelectedEnablement() {
-		init(simpleStructure, pgmBbCat, true);
+		init(simpleStructure, pgmBbCat);
 
 		// Check enablement on first component selected.
 		setSelection(new int[] { 0 });
@@ -203,7 +167,9 @@ public class StructureEditorLockedEnablementTest extends AbstractStructureEditor
 				(action instanceof DuplicateMultipleAction) || (action instanceof ClearAction) ||
 				(action instanceof DeleteAction) || (action instanceof ArrayAction) ||
 				(action instanceof PointerAction) || (action instanceof HexNumbersAction) ||
-				(action instanceof CreateInternalStructureAction)) {
+				(action instanceof CreateInternalStructureAction) ||
+				(action instanceof ShowDataTypeInTreeAction) ||
+				action instanceof FindReferencesToStructureFieldAction) {
 				checkEnablement(action, true);
 			}
 			else {
@@ -214,7 +180,7 @@ public class StructureEditorLockedEnablementTest extends AbstractStructureEditor
 
 	@Test
 	public void testCentralComponentSelectedEnablement() {
-		init(simpleStructure, pgmBbCat, true);
+		init(simpleStructure, pgmBbCat);
 
 		// Check enablement on central component selected.
 		setSelection(new int[] { 3 });
@@ -232,7 +198,9 @@ public class StructureEditorLockedEnablementTest extends AbstractStructureEditor
 				(action instanceof MoveDownAction) || (action instanceof ClearAction) ||
 				(action instanceof DeleteAction) || (action instanceof ArrayAction) ||
 				(action instanceof PointerAction) || (action instanceof HexNumbersAction) ||
-				(action instanceof CreateInternalStructureAction)) {
+				(action instanceof CreateInternalStructureAction) ||
+				(action instanceof ShowDataTypeInTreeAction) ||
+				action instanceof FindReferencesToStructureFieldAction) {
 				checkEnablement(action, true);
 			}
 			else {
@@ -243,7 +211,7 @@ public class StructureEditorLockedEnablementTest extends AbstractStructureEditor
 
 	@Test
 	public void testLastComponentSelectedEnablement() {
-		init(simpleStructure, pgmBbCat, true);
+		init(simpleStructure, pgmBbCat);
 
 		int last = getModel().getNumComponents() - 1;
 
@@ -261,7 +229,9 @@ public class StructureEditorLockedEnablementTest extends AbstractStructureEditor
 				(action instanceof DuplicateAction) ||
 				(action instanceof DuplicateMultipleAction) || (action instanceof ArrayAction) ||
 				(action instanceof PointerAction) || (action instanceof HexNumbersAction) ||
-				(action instanceof CreateInternalStructureAction)) {
+				(action instanceof CreateInternalStructureAction) ||
+				(action instanceof ShowDataTypeInTreeAction) ||
+				action instanceof FindReferencesToStructureFieldAction) {
 				checkEnablement(action, true);
 			}
 			else {
@@ -272,7 +242,7 @@ public class StructureEditorLockedEnablementTest extends AbstractStructureEditor
 
 	@Test
 	public void testContiguousSelectionEnablement() {
-		init(complexStructure, pgmTestCat, true);
+		init(complexStructure, pgmTestCat);
 
 		// Check enablement on a contiguous multi-component selection.
 		setSelection(new int[] { 2, 3, 4 });
@@ -289,7 +259,8 @@ public class StructureEditorLockedEnablementTest extends AbstractStructureEditor
 				(action instanceof MoveDownAction) || (action instanceof ClearAction) ||
 				(action instanceof DeleteAction) || (action instanceof ArrayAction) ||
 				(action instanceof PointerAction) || (action instanceof HexNumbersAction) ||
-				(action instanceof CreateInternalStructureAction)) {
+				(action instanceof CreateInternalStructureAction) ||
+				(action instanceof ShowDataTypeInTreeAction)) {
 				checkEnablement(action, true);
 			}
 			else {
@@ -300,7 +271,7 @@ public class StructureEditorLockedEnablementTest extends AbstractStructureEditor
 
 	@Test
 	public void testNonContiguousSelectionEnablement() {
-		init(complexStructure, pgmTestCat, true);
+		init(complexStructure, pgmTestCat);
 
 		// Check enablement on a non-contiguous multi-component selection.
 		setSelection(new int[] { 2, 3, 6, 7 });
@@ -313,7 +284,8 @@ public class StructureEditorLockedEnablementTest extends AbstractStructureEditor
 				checkEnablement(action, len <= numBytes);
 			}
 			else if ((action instanceof CycleGroupAction) || (action instanceof ClearAction) ||
-				(action instanceof DeleteAction) || (action instanceof HexNumbersAction)) {
+				(action instanceof DeleteAction) || (action instanceof HexNumbersAction) ||
+				(action instanceof ShowDataTypeInTreeAction)) {
 				checkEnablement(action, true);
 			}
 			else {
@@ -324,7 +296,7 @@ public class StructureEditorLockedEnablementTest extends AbstractStructureEditor
 
 	@Test
 	public void testMultiDupEnablement() throws Exception {
-		init(complexStructure, pgmBbCat, true);
+		init(complexStructure, pgmBbCat);
 		model.clearComponents(new int[] { 3, 10 });
 
 		setSelection(new int[] { 0 });
@@ -371,7 +343,7 @@ public class StructureEditorLockedEnablementTest extends AbstractStructureEditor
 
 	@Test
 	public void testUnpackageEnablement() {
-		init(complexStructure, pgmBbCat, true);
+		init(complexStructure, pgmBbCat);
 
 		setSelection(new int[] { 2 });
 		assertEquals("word", getDataType(2).getDisplayName());
@@ -391,7 +363,7 @@ public class StructureEditorLockedEnablementTest extends AbstractStructureEditor
 
 		setSelection(new int[] { 19 });
 		assertEquals("simpleStructureTypedef", getDataType(19).getDisplayName());
-		assertTrue(!unpackageAction.isEnabled());
+		assertTrue(unpackageAction.isEnabled());
 
 		setSelection(new int[] { 21 });
 		assertEquals("simpleStructure", getDataType(21).getDisplayName());

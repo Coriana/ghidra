@@ -1,3 +1,18 @@
+/* ###
+ * IP: GHIDRA
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 /*****************************************************************************************
 	This file is a "mix-in" gradle script that individual gradle projects that should be included
 	if this module has tests that should be included when running all the Ghidra tests.
@@ -8,19 +23,9 @@
 		apply from: "$rootProject.projectDir/gradle/support/javaTestProject.gradle"
  *****************************************************************************************/
 
-configurations {
-	jmockitAgent
-}
-
-dependencies {
-	jmockitAgent('org.jmockit:jmockit:1.44') {
-		exclude group: 'com.google.code.findbugs', module: 'jsr305'
-	}
-}
-
 test { t ->
 
-	forkEvery 1
+	forkEvery = 1
 	initTestJVM(t, rootProject.ext.testRootDirName)
 
 	// WARNING! WATCH OUT !!
@@ -47,7 +52,7 @@ test { t ->
 }
 
 task integrationTest (type: Test) { t ->
-	group "test"
+	group = "test"
 	dependsOn { project(":FunctionID").unpackFidDatabases }	
 	testClassesDirs = files sourceSets.integrationTest.output.classesDirs
 
@@ -58,7 +63,7 @@ task integrationTest (type: Test) { t ->
 	excludes = ['**/*Suite*']
 
 	// Enable if you want to force Gradle to launch a new JVM for each test.
-	forkEvery 1
+	forkEvery = 1
 
 	initTestJVM(t, rootProject.ext.testRootDirName)
 
@@ -71,13 +76,13 @@ task integrationTest (type: Test) { t ->
 }
 
 task pcodeTest (type: Test) { t ->	
-    group "pcodeTest"	
+    group = "pcodeTest"	
     dependsOn { project(":FunctionID").unpackFidDatabases }	
     testClassesDirs = files sourceSets.pcodeTest.output.classesDirs
 	classpath = sourceSets.pcodeTest.runtimeClasspath
 	
 	// Enable if you want to force Gradle to launch a new JVM for each test.
-    forkEvery 1	
+    forkEvery = 1	
     	
 	initTestJVM(t, rootProject.ext.pcodeTestRootDirName)
 	
@@ -89,18 +94,45 @@ task pcodeTest (type: Test) { t ->
 	}		
 }
 
+task cspecTest (type: Test) { t ->	
+    description = "Runs cspec tests."
+    group = "cspecTest"	
+    testClassesDirs = files sourceSets.pcodeTest.output.classesDirs
+	classpath = sourceSets.pcodeTest.runtimeClasspath
+	
+	filter {
+        setIncludePatterns() // Clear default Ghidra test filters
+        // Tell JUnit to ONLY run tests located in the cspec package
+        includeTestsMatching "ghidra.test.processors.cspec.*"
+        
+        failOnNoMatchingTests = false
+    }
+	
+	// Enable if you want to force Gradle to launch a new JVM for each test.
+    forkEvery = 1	
+    	
+	initTestJVM(t, rootProject.ext.cspecTestRootDirName)
+	
+	doFirst {
+		startTestTimer(t)
+	}
+	doLast {
+		endTestTimer(t)
+	}		
+}
+
 rootProject.unitTestReport {
-	reportOn this.project.test
+	testResults.from(this.project.test)
 }
 rootProject.integrationTestReport {
-	reportOn this.project.integrationTest
+	testResults.from(this.project.integrationTest)
 }
 rootProject.pcodeTestReport {
-	reportOn this.project.pcodeTest
+	testResults.from(this.project.pcodeTest)
 }
 rootProject.combinedTestReport { 
-	reportOn this.project.test
-	reportOn this.project.integrationTest
+	testResults.from(this.project.test)
+	testResults.from(this.project.integrationTest)
 }
 
 
@@ -125,7 +157,13 @@ def initTestJVM(Task task, String rootDirName) {
 		mkdir testOutputDir
 	}
 	// If false, testing will halt when an error is found.
-	task.ignoreFailures true
+	task.ignoreFailures = true
+	
+	// Whether or failure should occur if tests sources are present, but no tests are discovered
+	// during test execution. New for Gradle 9 (behavior is equivalent to false on Gradle 8).
+	if (task.hasProperty('failOnNoDiscoveredTests')) { // remove check when we require Gradle 9
+		task.failOnNoDiscoveredTests = false
+	}
 	
 	// If false, then tests are re-run every time, even if no code has changed.
 	task.outputs.upToDateWhen {false}
@@ -134,17 +172,15 @@ def initTestJVM(Task task, String rootDirName) {
 	task.testLogging.showStandardStreams = true
 
     // Min/Max heap size.  These are passed in.
-    task.minHeapSize xms
-    task.maxHeapSize xmx
+    task.minHeapSize = xms
+    task.maxHeapSize = xmx
     	
-    // for jmockit; needs the javaagent option
-    // -javaagent:/path/to/jmockit.jar
     task.doFirst {
-	    def jmockitPath = configurations.jmockitAgent.singleFile
-	    
-		task.jvmArgs '-DupgradeProgramErrorMessage=' + upgradeProgramErrorMessage,
+
+		def args = [
+			'-DupgradeProgramErrorMessage=' + upgradeProgramErrorMessage,
 			'-DupgradeTimeErrorMessage=' + upgradeTimeErrorMessage,
-			'-Dlog4j.configuration=' + logPropertiesUrl,
+			'-Dlog4j.configurationFile=' + logPropertiesUrl,
 			'-Dghidra.test.property.batch.mode=true',
 			'-Dghidra.test.property.parallel.mode=' + parallelMode,
 			'-Dghidra.test.property.output.dir=' + testOutputDir,
@@ -153,6 +189,7 @@ def initTestJVM(Task task, String rootDirName) {
 			'-Dmachine.name=' + machineName,
 			'-Djava.io.tmpdir=' + testTempDir,
 			'-Duser.data.dir=' + userHome + '/.ghidra/.ghidra-' + srcTreeName + '-Test',
+			'-XX:ErrorFile=' + testReportDir + '/java_error_%p.log',
 			'-Dcpu.core.override=8',
 			'-XX:ParallelGCThreads=8',
 			'-XX:+UseParallelGC',
@@ -162,12 +199,43 @@ def initTestJVM(Task task, String rootDirName) {
 			'-Duser.country=US',
 			'-Duser.language=en',
 			'-Djdk.attach.allowAttachSelf',
-			'-javaagent:' + jmockitPath,			
-			'-DLock.DEBUG=true',
-			'-Xdebug',
-			'-Xnoagent',
-			'-Djava.compiler=NONE',
-			'-Xrunjdwp:transport=dt_socket,server=y,suspend=n,address=' + debugPort
+			'-XX:TieredStopAtLevel=1',
+			
+			// Note: this following arg is needed to enable remote debug.
+			
+			//'-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:' + debugPort,
+			
+			// Allow illegal reflective accesses
+			'--add-opens=java.base/java.util.concurrent=ALL-UNNAMED',
+			'--add-opens=java.desktop/sun.awt=ALL-UNNAMED',
+			'--add-opens=java.desktop/sun.swing=ALL-UNNAMED',
+			'--add-opens=java.desktop/java.awt=ALL-UNNAMED',
+			'--add-opens=java.desktop/javax.swing=ALL-UNNAMED',			
+			'--add-opens=java.desktop/javax.swing.text=ALL-UNNAMED'
+			
+			// Note: these args are used to speed-up the tests, but are not safe for production code
+			// -noverify and -XX:TieredStopAtLevel=1			
+			
+			//
+			// TODO Future Updates:
+			// The test configuration should be updated to support all known modes of operation:
+			// command-line test execution, CI test execution of a branch upon request, and full
+			// CI test execution (this is slow and may need to run overnight).  We do not currently
+			// support well running tests via the command-line.   See discussion at github 2854. 
+			// For better command-line usage we will need to update tests such that they can 
+			// share a VM, enabling us to elimnate the use of 'forEver 1' in this file.
+			// 
+		]
+		
+		if (hasApiProjectDependency(project, ":FileSystem")) {
+			// If project has a FileSystem dependency we must assume there may be a
+			// Ghidra ApplicationConfiguration that will attempt to configure a
+			// serial filter factory which must be done in a lazy fashion when gradle
+			// test workers are used.
+			args << '-Djdk.serialFilterFactory=ghidra.framework.remote.GhidraSerialFilterFactory'	
+		}
+		
+		task.jvmArgs args	
 	}
 }
 /*********************************************************************************

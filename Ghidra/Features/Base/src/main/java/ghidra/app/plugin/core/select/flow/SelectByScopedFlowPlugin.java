@@ -64,7 +64,7 @@ import ghidra.util.task.TaskMonitorAdapter;
 //@formatter:on
 public class SelectByScopedFlowPlugin extends ProgramPlugin {
 	public SelectByScopedFlowPlugin(PluginTool tool) {
-		super(tool, true, true);
+		super(tool);
 		createActions();
 	}
 
@@ -98,7 +98,7 @@ public class SelectByScopedFlowPlugin extends ProgramPlugin {
 		action.setMenuBarData(new MenuData(
 			new String[] { ToolConstants.MENU_SELECTION, "Scoped Flow", "Forward Scoped Flow" },
 			null, "Select"));
-
+		action.addToWindowWhen(NavigatableActionContext.class);
 		action.setDescription("Allows user to select scoped flow from current location.");
 		action.setHelpLocation(new HelpLocation("FlowSelection", "Scoped_Flow"));
 		tool.addAction(action);
@@ -131,7 +131,7 @@ public class SelectByScopedFlowPlugin extends ProgramPlugin {
 		action.setMenuBarData(new MenuData(
 			new String[] { ToolConstants.MENU_SELECTION, "Scoped Flow", "Reverse Scoped Flow" },
 			null, "Select"));
-
+		action.addToWindowWhen(NavigatableActionContext.class);
 		action.setDescription("Allows user to select scoped flow to the current location.");
 		action.setHelpLocation(new HelpLocation("FlowSelection", "Scoped_Flow"));
 		tool.addAction(action);
@@ -273,7 +273,7 @@ public class SelectByScopedFlowPlugin extends ProgramPlugin {
 		monitor.initialize(addresses.getNumAddresses());
 
 		for (; iterator.hasNext();) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			CodeBlock codeBlock = iterator.next();
 			CodeBlockVertex vertex = new CodeBlockVertex(codeBlock);
 			vertices.add(vertex);
@@ -299,7 +299,7 @@ public class SelectByScopedFlowPlugin extends ProgramPlugin {
 
 		Map<CodeBlock, CodeBlockVertex> blockToVertexMap = mapBlocksToVertices(vertices);
 		for (CodeBlockVertex startVertex : vertices) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			addEdgesForStartVertex(graph, blockToVertexMap, startVertex, monitor);
 		}
 	}
@@ -311,7 +311,7 @@ public class SelectByScopedFlowPlugin extends ProgramPlugin {
 		CodeBlock codeBlock = start.getCodeBlock();
 		CodeBlockReferenceIterator destinations = codeBlock.getDestinations(monitor);
 		for (; destinations.hasNext();) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			CodeBlockReference reference = destinations.next();
 			CodeBlock destinationBlock = reference.getDestinationBlock();
 			CodeBlockVertex end = blockToVertexMap.get(destinationBlock);

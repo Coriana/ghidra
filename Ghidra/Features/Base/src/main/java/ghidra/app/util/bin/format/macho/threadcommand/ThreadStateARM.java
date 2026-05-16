@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,10 +17,9 @@ package ghidra.app.util.bin.format.macho.threadcommand;
 
 import java.io.IOException;
 
-import ghidra.app.util.bin.format.FactoryBundledWithBinaryReader;
+import ghidra.app.util.bin.BinaryReader;
 import ghidra.app.util.bin.format.macho.MachConstants;
 import ghidra.program.model.data.*;
-import ghidra.util.Conv;
 import ghidra.util.exception.DuplicateNameException;
 
 /**
@@ -53,21 +52,7 @@ public class ThreadStateARM extends ThreadState {
 	public int pc;
 	public int cpsr;
 
-	static ThreadStateARM createThreadStateARM(FactoryBundledWithBinaryReader reader)
-			throws IOException {
-		ThreadStateARM threadStateARM =
-			(ThreadStateARM) reader.getFactory().create(ThreadStateARM.class);
-		threadStateARM.initThreadStateARM(reader);
-		return threadStateARM;
-	}
-
-	/**
-	 * DO NOT USE THIS CONSTRUCTOR, USE create*(GenericFactory ...) FACTORY METHODS INSTEAD.
-	 */
-	public ThreadStateARM() {
-	}
-
-	private void initThreadStateARM(FactoryBundledWithBinaryReader reader) throws IOException {
+	ThreadStateARM(BinaryReader reader) throws IOException {
 		r0 = reader.readNextInt();
 		r1 = reader.readNextInt();
 		r2 = reader.readNextInt();
@@ -89,7 +74,7 @@ public class ThreadStateARM extends ThreadState {
 
 	@Override
 	public long getInstructionPointer() {
-		return Conv.intToLong(pc);
+		return Integer.toUnsignedLong(pc);
 	}
 
 	@Override

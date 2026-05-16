@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -85,7 +85,7 @@ public class SymbolUtilities {
 		DEFAULT_DATA_PREFIX, DEFAULT_SYMBOL_PREFIX, DEFAULT_SUBROUTINE_PREFIX,
 		DEFAULT_UNKNOWN_PREFIX, DEFAULT_EXTERNAL_ENTRY_PREFIX, DEFAULT_FUNCTION_PREFIX };
 
-	private static List<String> DYNAMIC_DATA_TYPE_PREFIXES = getDynamicDataTypePrefixes();
+	private final static List<String> DYNAMIC_DATA_TYPE_PREFIXES = getDynamicDataTypePrefixes();
 
 	/**
 	 * Any dynamic label will have an address with this minimum length or longer
@@ -136,7 +136,7 @@ public class SymbolUtilities {
 
 	/**
 	 * Check for invalid characters
-	 * (space, colon, asterisk, plus, bracket)
+	 * (space or unprintable ascii below 0x20)
 	 * in labels.
 	 *
 	 * @param str the string to be checked for invalid characters.
@@ -364,7 +364,7 @@ public class SymbolUtilities {
 			return null;
 		}
 		int len = str.length();
-		StringBuffer buf = new StringBuffer(len);
+		StringBuilder buf = new StringBuilder(len);
 		for (int i = 0; i < len; ++i) {
 			char c = str.charAt(i);
 			if (isInvalidChar(c)) {
@@ -452,7 +452,7 @@ public class SymbolUtilities {
 				}
 				long datOffset = address.subtract(data2.getMinAddress());
 				return (datOffset == 0 ? data2.getPathName()
-						: data2.getPathName() + PLUS + datOffset);
+						: data2.getPathName() + PLUS + getDiffString(datOffset));
 			}
 		}
 
@@ -483,18 +483,10 @@ public class SymbolUtilities {
 			DataTypeDisplayOptions.DEFAULT, offcutOffset);
 
 		//
-		// Strings take precedence
-		//
-		if (isString) {
-			// we draw strings with their real address instead of with an offset
-			return prefix + UNDERSCORE + getAddressString(address);
-		}
-
-		//
 		// If there is a label at the CodeUnit start, then we want to be based upon that, except
 		// in special cases, like String data
 		//
-		String offcutText = PLUS + Integer.toString(offcutOffset);
+		String offcutText = PLUS + getDiffString(offcutOffset);
 		Symbol symbol = data.getPrimarySymbol();
 		if (symbol != null && !symbol.isDynamic()) {
 			return symbol.getName() + offcutText;
@@ -541,7 +533,7 @@ public class SymbolUtilities {
 
 	private static String getDyanmicOffcutInstructionName(Instruction instruction,
 			Address codeUnitAddress, long diff) {
-		String offcutText = PLUS + Long.toString(diff);
+		String offcutText = PLUS + getDiffString(diff);
 
 		//
 		// If there is a label at the CodeUnit start, then we want to be based upon that, except
@@ -566,6 +558,17 @@ public class SymbolUtilities {
 	}
 
 	/**
+	 * Returns a string representing an address offset. If the offset is less than 10, it doesn't
+	 * add a prefix, otherwise the difference is shown in hex and includes the "0x" prefix.
+	 * @param diff the address difference
+	 * @return a string representing an offset from an address that is formated simply for small
+	 * values and in hex with a prefix for larger values.
+	 */
+	public static String getDiffString(long diff) {
+		return diff < 10 ? Long.toString(diff) : "0x" + Long.toString(diff, 16);
+	}
+
+	/**
 	 * Parse a dynamic name and return its address or null if unable to parse.
 	 * @param factory address factory
 	 * @param name the dynamic label name to parse into an address.
@@ -574,7 +577,7 @@ public class SymbolUtilities {
 	 */
 	public static Address parseDynamicName(AddressFactory factory, String name) {
 
-		// assume dynamic names will naver start with an underscore
+		// assume dynamic names will never start with an underscore
 		if (name.startsWith(UNDERSCORE)) {
 			return null;
 		}
@@ -591,7 +594,7 @@ public class SymbolUtilities {
 			space = factory.getDefaultAddressSpace();
 		}
 
-		// Only consider address values which meet the meet the minimum padding behavior
+		// Only consider address values which meet the minimum padding behavior
 		if (addressOffsetString.length() < MIN_LABEL_ADDRESS_DIGITS) {
 			return null;
 		}
@@ -760,6 +763,29 @@ public class SymbolUtilities {
 		return addr.getAddressSpace().getName() + Long.toHexString(addr.getOffset());
 	}
 
+	/**
+	 * Returns true if the given name is a possible default parameter name or local variable name
+	 * 
+	 * @param name the name to check to see if it is a possible default local or parameter name
+	 * @return true if the given name is a possible default parameter name or local variable name
+	 */
+	public static boolean isPossibleDefaultLocalOrParamName(String name) {
+		if (isDefaultParameterName(name)) {
+			return true;
+		}
+		return name.startsWith(Function.DEFAULT_LOCAL_PREFIX);
+	}
+
+	/**
+	 * Checks if the given name could be a default external location name
+	 * 
+	 * @param name the name to check
+	 * @return true if the given name is a possible default external location name
+	 */
+	public static boolean isPossibleDefaultExternalName(String name) {
+		return name.startsWith(DEFAULT_EXTERNAL_ENTRY_PREFIX);
+	}
+
 	public static boolean isDefaultLocalStackName(String name) {
 		if (name == null || name.length() == 0) {
 			return true;
@@ -925,6 +951,35 @@ public class SymbolUtilities {
 	}
 
 	/**
+	 * Returns the global symbol with the given name if and only if it is the only global symbol
+	 * with that name.
+	 *
+	 * @param program the program to search.
+	 * @param name the name of the global symbol to find.
+	 * @return the global symbol with the given name if and only if it is the only one.
+	 */
+	public static Symbol getUniqueSymbol(Program program, String name) {
+		return getUniqueSymbol(program, name, null);
+	}
+
+	/**
+	 * Returns the symbol in the given namespace with the given name if and only if it is the only
+	 * symbol in that namespace with that name.
+	 *
+	 * @param program the program to search.
+	 * @param name the name of the symbol to find.
+	 * @param namespace the parent namespace; may be null
+	 * @return the symbol with the given name if and only if it is the only one in that namespace
+	 */
+	public static Symbol getUniqueSymbol(Program program, String name, Namespace namespace) {
+		List<Symbol> symbols = program.getSymbolTable().getSymbols(name, namespace);
+		if (symbols.size() == 1) {
+			return symbols.get(0);
+		}
+		return null;
+	}
+
+	/**
 	 * Returns the unique global label or function symbol with the given name. Also, logs if there
 	 * is not exactly one symbol with that name.
 	 *
@@ -1009,7 +1064,7 @@ public class SymbolUtilities {
 
 			if (namespace.isGlobal()) {
 				// do not add global symbol if same name already exists at address
-				for (Symbol s : program.getSymbolTable().getSymbols(address)) {
+				for (Symbol s : program.getSymbolTable().getSymbolsAsIterator(address)) {
 					if (name.equals(s.getName())) {
 						return null;
 					}
@@ -1042,4 +1097,5 @@ public class SymbolUtilities {
 	public static Comparator<Symbol> getSymbolNameComparator() {
 		return CASE_INSENSITIVE_SYMBOL_NAME_COMPARATOR;
 	}
+
 }

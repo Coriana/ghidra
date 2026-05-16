@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -46,18 +46,16 @@ public class GccExceptionAnalyzer extends AbstractAnalyzer {
 	public static final String DESCRIPTION =
 		"Locates and annotates exception-handling infrastructure installed by the GCC compiler";
 
-	protected static final String OPTION_NAME_CREATE_TRY_CATCH_COMMENTS =
-		"Create Try Catch Comments";
-	private static final String OPTION_DESCRIPTION_CREATE_TRY_CATCH_COMMENTS =
+	protected static final String OPTION_NAME_CREATE_TRY_CATCHS = "Create Try Catch Comments";
+	private static final String OPTION_DESCRIPTION_CREATE_TRY_CATCHS =
 		"Selecting this check box causes the analyzer to create comments in the " +
 			"disassembly listing for the try and catch code.";
-	private static final boolean OPTION_DEFAULT_CREATE_TRY_CATCH_COMMENTS_ENABLED = true;
-	private boolean createTryCatchCommentsEnabled =
-		OPTION_DEFAULT_CREATE_TRY_CATCH_COMMENTS_ENABLED;
+	private static final boolean OPTION_DEFAULT_CREATE_TRY_CATCHS_ENABLED = true;
+	private boolean createTryCatchCommentsEnabled = OPTION_DEFAULT_CREATE_TRY_CATCHS_ENABLED;
 
 	private Set<Program> visitedPrograms = new HashSet<>();
 	private AutoAnalysisManagerListener analysisListener =
-		(manager) -> visitedPrograms.remove(manager.getProgram());
+		(manager, isCancelled) -> visitedPrograms.remove(manager.getProgram());
 
 	/**
 	 * Creates an analyzer for marking up the GCC exception handling information.
@@ -106,9 +104,10 @@ public class GccExceptionAnalyzer extends AbstractAnalyzer {
 		boolean isGcc =
 			program.getCompilerSpec().getCompilerSpecID().getIdAsString().equalsIgnoreCase("gcc");
 
-		boolean isDefault =
-			program.getCompilerSpec().getCompilerSpecID().getIdAsString().equalsIgnoreCase(
-				"default");
+		boolean isDefault = program.getCompilerSpec()
+				.getCompilerSpecID()
+				.getIdAsString()
+				.equalsIgnoreCase("default");
 
 		if (!isGcc && !isDefault) {
 			return false;
@@ -156,7 +155,7 @@ public class GccExceptionAnalyzer extends AbstractAnalyzer {
 	/*
 	 * Parses the standard GCC exception handling support sections:
 	 * 1) EHFrameHeader ('.eh_frame_hdr')
-	 * 2) EHFrame ('.eh_frame') 
+	 * 2) EHFrame ('.eh_frame')
 	 */
 	private void handleStandardSections(Program program, TaskMonitor monitor, MessageLog log)
 			throws CancelledException {
@@ -164,7 +163,7 @@ public class GccExceptionAnalyzer extends AbstractAnalyzer {
 		int fdeTableCount = analyzeEhFrameHeaderSection(program, monitor, log);
 		// If the EHFrameHeader doesn't exist, the fdeTableCount will be 0.
 
-		monitor.checkCanceled();
+		monitor.checkCancelled();
 
 		try {
 			/*
@@ -176,18 +175,15 @@ public class GccExceptionAnalyzer extends AbstractAnalyzer {
 			List<RegionDescriptor> regions = ehframeSection.analyze(fdeTableCount);
 
 			AddressSet ehProtected = new AddressSet();
-
+			monitor.initialize(getCallSiteRecordCount(regions), "Marking up Call Site records");
 			for (RegionDescriptor region : regions) {
-
-				monitor.checkCanceled();
 				ehProtected.add(region.getRange());
 
 				LSDACallSiteTable callSiteTable = region.getCallSiteTable();
 				if (callSiteTable != null) {
-
 					// Process this table's call site records.
 					for (LSDACallSiteRecord cs : callSiteTable.getCallSiteRecords()) {
-						monitor.checkCanceled();
+						monitor.increment();
 						processCallSiteRecord(program, ehProtected, region, cs);
 					}
 				}
@@ -198,6 +194,17 @@ public class GccExceptionAnalyzer extends AbstractAnalyzer {
 			log.appendMsg("Error analyzing GCC exception tables");
 			log.appendException(e);
 		}
+	}
+
+	private int getCallSiteRecordCount(List<RegionDescriptor> regions) {
+		int total = 0;
+		for (RegionDescriptor region : regions) {
+			LSDACallSiteTable callSiteTable = region.getCallSiteTable();
+			if (callSiteTable != null) {
+				total += callSiteTable.getCallSiteRecords().size();
+			}
+		}
+		return total;
 	}
 
 	private void processCallSiteRecord(Program program, AddressSet ehProtected,
@@ -287,11 +294,11 @@ public class GccExceptionAnalyzer extends AbstractAnalyzer {
 		Address csMaxAddr = callSite.getMaxAddress();
 		String startTryComment = "try { // try from " + csMinAddr + " to " + csMaxAddr +
 			" has its CatchHandler @ " + lpAddr;
-		String existingComment = program.getListing().getComment(CodeUnit.PRE_COMMENT, csMinAddr);
+		String existingComment = program.getListing().getComment(CommentType.PRE, csMinAddr);
 		if (existingComment == null || !existingComment.contains(startTryComment)) {
 			String mergedComment = StringUtilities.mergeStrings(existingComment, startTryComment);
 			SetCommentCmd setCommentCmd =
-				new SetCommentCmd(csMinAddr, CodeUnit.PRE_COMMENT, mergedComment);
+				new SetCommentCmd(csMinAddr, CommentType.PRE, mergedComment);
 			setCommentCmd.applyTo(program);
 		}
 	}
@@ -303,12 +310,11 @@ public class GccExceptionAnalyzer extends AbstractAnalyzer {
 		if (csMaxCodeUnit != null) {
 			Address commentAddr = csMaxCodeUnit.getMinAddress();
 			String endTryComment = "} // end try from " + csMinAddr + " to " + csMaxAddr;
-			String existingComment =
-				program.getListing().getComment(CodeUnit.POST_COMMENT, commentAddr);
+			String existingComment = program.getListing().getComment(CommentType.POST, commentAddr);
 			if (existingComment == null || !existingComment.contains(endTryComment)) {
 				String mergedComment = StringUtilities.mergeStrings(existingComment, endTryComment);
 				SetCommentCmd setCommentCmd =
-					new SetCommentCmd(commentAddr, CodeUnit.POST_COMMENT, mergedComment);
+					new SetCommentCmd(commentAddr, CommentType.POST, mergedComment);
 				setCommentCmd.applyTo(program);
 			}
 		}
@@ -321,11 +327,10 @@ public class GccExceptionAnalyzer extends AbstractAnalyzer {
 			typeInfos.stream().map(a -> getCatchParamInfo(a)).collect(Collectors.joining(", "));
 		String startCatchComment =
 			"catch(" + typeString + ") { ... } // from try @ " + csAddr + " with catch @ " + lpAddr;
-		String existingComment = program.getListing().getComment(CodeUnit.PRE_COMMENT, lpAddr);
+		String existingComment = program.getListing().getComment(CommentType.PRE, lpAddr);
 		if (existingComment == null || !existingComment.contains(startCatchComment)) {
 			String mergedComment = StringUtilities.mergeStrings(existingComment, startCatchComment);
-			SetCommentCmd setCommentCmd =
-				new SetCommentCmd(lpAddr, CodeUnit.PRE_COMMENT, mergedComment);
+			SetCommentCmd setCommentCmd = new SetCommentCmd(lpAddr, CommentType.PRE, mergedComment);
 			setCommentCmd.applyTo(program);
 		}
 	}
@@ -345,12 +350,12 @@ public class GccExceptionAnalyzer extends AbstractAnalyzer {
 //		// TODO If we can determine the length of the catch handler we could mark its end too.
 //		Address lpMaxAddr = ?;
 //		String endCatchComment = "} // end catchHandler()";
-//		String existingComment = program.getListing().getComment(CodeUnit.POST_COMMENT, lpMaxAddr);
+//		String existingComment = program.getListing().getComment(CommentType.POST, lpMaxAddr);
 //		if (existingComment == null || !existingComment.contains(endCatchComment)) {
 //			String mergedComment =
 //				StringUtilities.mergeStrings(existingComment, endCatchComment);
 //			SetCommentCmd setCommentCmd =
-//				new SetCommentCmd(lpMaxAddr, CodeUnit.POST_COMMENT, endCatchComment);
+//				new SetCommentCmd(lpMaxAddr, CommentType.POST, endCatchComment);
 //			setCommentCmd.applyTo(program);
 //		}
 	}
@@ -405,8 +410,8 @@ public class GccExceptionAnalyzer extends AbstractAnalyzer {
 	}
 
 	/**
-	 * A TypeInfo associates the address of a type information record with the filter value that 
-	 * is used to handle a catch action for that type. 
+	 * A TypeInfo associates the address of a type information record with the filter value that
+	 * is used to handle a catch action for that type.
 	 */
 	private class TypeInfo {
 		private Address typeInfoAddress;
@@ -428,14 +433,14 @@ public class GccExceptionAnalyzer extends AbstractAnalyzer {
 
 	@Override
 	public void registerOptions(Options options, Program program) {
-		options.registerOption(OPTION_NAME_CREATE_TRY_CATCH_COMMENTS, createTryCatchCommentsEnabled,
-			null, OPTION_DESCRIPTION_CREATE_TRY_CATCH_COMMENTS);
+		options.registerOption(OPTION_NAME_CREATE_TRY_CATCHS, createTryCatchCommentsEnabled, null,
+			OPTION_DESCRIPTION_CREATE_TRY_CATCHS);
 	}
 
 	@Override
 	public void optionsChanged(Options options, Program program) {
-		createTryCatchCommentsEnabled = options.getBoolean(OPTION_NAME_CREATE_TRY_CATCH_COMMENTS,
-			createTryCatchCommentsEnabled);
+		createTryCatchCommentsEnabled =
+			options.getBoolean(OPTION_NAME_CREATE_TRY_CATCHS, createTryCatchCommentsEnabled);
 	}
 
 }

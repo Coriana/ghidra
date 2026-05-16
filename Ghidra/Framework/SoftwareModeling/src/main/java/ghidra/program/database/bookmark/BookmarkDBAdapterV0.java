@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,15 +15,15 @@
  */
 package ghidra.program.database.bookmark;
 
+import java.io.IOException;
+
+import db.*;
+import ghidra.framework.data.OpenMode;
 import ghidra.program.database.map.AddressMap;
 import ghidra.program.model.address.*;
 import ghidra.util.exception.AssertException;
 import ghidra.util.exception.VersionException;
 import ghidra.util.task.TaskMonitor;
-
-import java.io.IOException;
-
-import db.*;
 
 class BookmarkDBAdapterV0 extends BookmarkDBAdapter {
 
@@ -48,30 +47,29 @@ class BookmarkDBAdapterV0 extends BookmarkDBAdapter {
 		// This is the easiest way to index into the old bookmarks
 		tmpHandle = new DBHandle();
 		try {
-			conversionAdapter =
-				BookmarkDBAdapter.getAdapter(tmpHandle, DBConstants.CREATE, new int[0], addrMap,
-					monitor);
+			conversionAdapter = BookmarkDBAdapter.getAdapter(tmpHandle, OpenMode.CREATE, new int[0],
+				addrMap, monitor);
 		}
 		catch (VersionException e) {
 			throw new AssertException();
 		}
-		Record[] oldTypes = oldMgr.getTypeRecords();
+		DBRecord[] oldTypes = oldMgr.getTypeRecords();
 		if (oldTypes.length == 0) {
 			return;
 		}
 
 		monitor.setMessage("Translating Old Bookmarks...");
 		int max = 0;
-		for (int i = 0; i < oldTypes.length; i++) {
+		for (DBRecord oldType : oldTypes) {
 			max +=
-				oldMgr.getBookmarkCount(oldTypes[i].getString(BookmarkTypeDBAdapter.TYPE_NAME_COL));
+				oldMgr.getBookmarkCount(oldType.getString(BookmarkTypeDBAdapter.TYPE_NAME_COL));
 		}
 		monitor.initialize(max);
 		int cnt = 0;
 
-		for (int i = 0; i < oldTypes.length; i++) {
-			String type = oldTypes[i].getString(BookmarkTypeDBAdapter.TYPE_NAME_COL);
-			int typeId = (int) oldTypes[i].getKey();
+		for (DBRecord oldType : oldTypes) {
+			String type = oldType.getString(BookmarkTypeDBAdapter.TYPE_NAME_COL);
+			int typeId = (int) oldType.getKey();
 			conversionAdapter.addType(typeId);
 			AddressIterator iter = oldMgr.getBookmarkAddresses(type);
 			while (iter.hasNext()) {
@@ -88,7 +86,7 @@ class BookmarkDBAdapterV0 extends BookmarkDBAdapter {
 	}
 
 	@Override
-	Record getRecord(long id) throws IOException {
+	DBRecord getRecord(long id) throws IOException {
 		return conversionAdapter.getRecord(id);
 	}
 

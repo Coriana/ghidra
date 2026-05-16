@@ -16,11 +16,12 @@
 package ghidra.app.plugin.core.decompile.actions;
 
 import ghidra.app.decompiler.ClangToken;
-import ghidra.app.decompiler.component.DecompilerPanel;
+import ghidra.app.plugin.core.decompile.DecompilerProvider;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.pcode.*;
+import ghidra.program.model.pcode.HighFunctionDBUtil.ReturnCommitOption;
 import ghidra.program.model.symbol.SourceType;
 import ghidra.util.exception.DuplicateNameException;
 import ghidra.util.exception.InvalidInputException;
@@ -35,9 +36,9 @@ public class RenameVariableTask extends RenameTask {
 	private SourceType srctype;		// Desired source type for the variable being renamed
 	private SourceType signatureSrcType;	// Signature source type of the function (which will be preserved)
 
-	public RenameVariableTask(PluginTool tool, Program program, DecompilerPanel panel,
+	public RenameVariableTask(PluginTool tool, Program program, DecompilerProvider provider,
 			ClangToken token, HighSymbol sym, SourceType st) {
-		super(tool, program, panel, token, sym.getName());
+		super(tool, program, provider, token, sym.getName());
 		highSymbol = sym;
 		exactSpot = token.getVarnode();
 		hfunction = sym.getHighFunction();
@@ -49,10 +50,8 @@ public class RenameVariableTask extends RenameTask {
 	@Override
 	public void commit() throws DuplicateNameException, InvalidInputException {
 		if (commitRequired) {
-			HighFunctionDBUtil.commitParamsToDatabase(hfunction, false, signatureSrcType);
-			if (signatureSrcType != SourceType.DEFAULT) {
-				HighFunctionDBUtil.commitReturnToDatabase(hfunction, signatureSrcType);
-			}
+			HighFunctionDBUtil.commitParamsToDatabase(hfunction, false,
+				ReturnCommitOption.NO_COMMIT, signatureSrcType);
 		}
 		HighFunctionDBUtil.updateDBVariable(highSymbol, newName, null, srctype);
 	}
@@ -60,9 +59,7 @@ public class RenameVariableTask extends RenameTask {
 	@Override
 	public boolean isValid(String newNm) {
 		newName = newNm;
-		LocalSymbolMap localSymbolMap = hfunction.getLocalSymbolMap();
-		if (localSymbolMap.containsVariableWithName(newName) ||
-			isSymbolInFunction(function, newName)) {
+		if (isSymbolInFunction(function, newName)) {
 			errorMsg = "Duplicate name";
 			return false;
 		}

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -64,9 +64,8 @@ public class SaveToolConfigDialogTest extends AbstractGhidraHeadedIntegrationTes
 	private TestEnv env;
 	private SaveToolConfigDialog saveDialog;
 	private JTextField toolNameField;
-	private JList iconList;
+	private JList<?> iconList;
 	private JTextField iconNameField;
-	private PluginTool newtool;
 
 	public SaveToolConfigDialogTest() {
 		super();
@@ -134,15 +133,23 @@ public class SaveToolConfigDialogTest extends AbstractGhidraHeadedIntegrationTes
 
 	@Test
 	public void testInvalidName() throws Exception {
-		setText(toolNameField, "My Test Tool", true);
+
 		JLabel statusLabel = (JLabel) findComponentByName(saveDialog, "statusLabel");
-		String msg = statusLabel.getText();
-		pressButtonByText(saveDialog, "Cancel");
-		while (saveDialog.isVisible()) {
-			Thread.sleep(5);
-		}
+
+		setText(toolNameField, "My Test Tool", true);
 		waitForSwing();
-		assertEquals("Name cannot have spaces.", msg);
+		String msg = statusLabel.getText();
+		assertEquals("Name cannot have spaces", msg);
+
+		setText(toolNameField, ".MyTestTool", true);
+		waitForSwing();
+		msg = statusLabel.getText();
+		assertEquals("Name cannot start with a '.'", msg);
+
+		setText(toolNameField, "My`Tool`", true);
+		waitForSwing();
+		msg = statusLabel.getText();
+		assertEquals("Invalid character in name: '`'", msg);
 	}
 
 	@Test
@@ -161,11 +168,13 @@ public class SaveToolConfigDialogTest extends AbstractGhidraHeadedIntegrationTes
 		ToolTemplate template = tc.getToolTemplate("MyTestTool");
 		tc.remove("MyTestTool");
 
-		ImageIcon icon = ResourceManager.getScaledIcon(
-			ResourceManager.loadImage("defaultTools/images/Caution.png"),
+		Icon icon = ResourceManager.getScaledIcon(
+			ResourceManager.loadIcon("defaultTools/images/Caution.png"),
 			ToolIconURL.LARGE_ICON_SIZE, ToolIconURL.LARGE_ICON_SIZE);
 
-		assertEquals(icon.getDescription(), template.getIcon().getDescription());
+		String expected = ResourceManager.getIconName(icon);
+		String actual = ResourceManager.getIconName(template.getIcon());
+		assertEquals(expected, actual);
 	}
 
 	@Test
@@ -323,7 +332,7 @@ public class SaveToolConfigDialogTest extends AbstractGhidraHeadedIntegrationTes
 
 		assertNotNull(saveDialog);
 		toolNameField = (JTextField) findComponentByName(saveDialog, "ToolName");
-		iconList = (JList) findComponentByName(saveDialog, "IconList");
+		iconList = (JList<?>) findComponentByName(saveDialog, "IconList");
 		iconNameField = (JTextField) findComponentByName(saveDialog, "IconName");
 	}
 

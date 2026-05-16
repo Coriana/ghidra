@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,13 +16,14 @@
 package ghidra.program.model.data;
 
 import java.math.BigInteger;
+import java.util.*;
 
 import ghidra.docking.settings.*;
+import ghidra.program.model.data.Structure.BitOffsetComparator;
 import ghidra.program.model.mem.MemBuffer;
 import ghidra.program.model.scalar.Scalar;
 import ghidra.util.DataConverter;
 import ghidra.util.exception.AssertException;
-import utilities.util.ArrayUtilities;
 
 /**
  * <code>BitFieldDataType</code> provides a means of defining a minimally sized bit-field
@@ -61,7 +62,8 @@ public class BitFieldDataType extends AbstractDataType {
 	 * bit size may be reduced based upon the specified base datatype size.
 	 * @param bitOffset right shift factor within storage unit when viewed as a big-endian dd
 	 * scalar value.  Based upon minimal storage bitOffset should be in the range 0 to 7.
-	 * @throws InvalidDataTypeException 
+	 * @throws InvalidDataTypeException if invalid base datatype has been specified or an 
+	 * invalid bitSize or bitOffset has been specified
 	 */
 	protected BitFieldDataType(DataType baseDataType, int bitSize, int bitOffset)
 			throws InvalidDataTypeException {
@@ -93,19 +95,16 @@ public class BitFieldDataType extends AbstractDataType {
 		this(baseDataType, bitSize, 0);
 	}
 
-	/**
-	 * Determine if this bit-field has a zero length (i.e., alignment field)
-	 * @return true if this bit-field has a zero length 
-	 */
-	public boolean isZeroLengthField() {
+	@Override
+	public boolean isZeroLength() {
 		return bitSize == 0;
 	}
 
 	/**
 	 * Get the effective bit-size based upon the specified base type size.  A bit size
 	 * larger than the base type size will truncated to the base type size.
-	 * @param declaredBitSize
-	 * @param baseTypeByteSize
+	 * @param declaredBitSize declare bitfield size
+	 * @param baseTypeByteSize base datatype size in bytes
 	 * @return effective bit-size
 	 */
 	public static int getEffectiveBitSize(int declaredBitSize, int baseTypeByteSize) {
@@ -186,6 +185,11 @@ public class BitFieldDataType extends AbstractDataType {
 	 * Get the packing storage size in bytes associated with this bit-field which may be
 	 * larger than the base type associated with the fields original definition.
 	 * Returned value is the same as {@link #getLength()}.
+	 * <p>
+	 * NOTE: Bitfields with a bit-size of zero will report a storage size of 1, although 
+	 * {@link #isZeroLength()} will return true.  This is consistent with other datatypes which 
+	 * support a zero-length {@link DataTypeComponent} such as a zero-element Array.
+	 * 
 	 * @return packing storage size in bytes
 	 */
 	public int getStorageSize() {
@@ -237,8 +241,8 @@ public class BitFieldDataType extends AbstractDataType {
 	public AbstractIntegerDataType getPrimitiveBaseDataType() {
 		// assumes proper enforcement during construction
 		DataType dt = baseDataType;
-		if (baseDataType instanceof TypeDef) {
-			dt = ((TypeDef) baseDataType).getBaseDataType();
+		while (dt instanceof TypeDef typeDef) {
+			dt = typeDef.getBaseDataType();
 		}
 		if (dt instanceof Enum) {
 			// TODO: uncertain if we should use signed or unsigned, although size
@@ -254,7 +258,11 @@ public class BitFieldDataType extends AbstractDataType {
 	 */
 	@Override
 	public final SettingsDefinition[] getSettingsDefinitions() {
-		return baseDataType.getSettingsDefinitions();
+		// exclude any ENDIAN setting that the base data type might support
+		List<SettingsDefinition> baseDTSettings =
+			new ArrayList<>(Arrays.asList(baseDataType.getSettingsDefinitions()));
+		baseDTSettings.remove(EndianSettingsDefinition.DEF);
+		return baseDTSettings.toArray(SettingsDefinition[]::new);
 	}
 
 	@Override
@@ -329,9 +337,17 @@ public class BitFieldDataType extends AbstractDataType {
 		}
 	}
 
+	/**
+	 * @see #getStorageSize()
+	 */
 	@Override
 	public int getLength() {
 		return storageSize;
+	}
+
+	@Override
+	public int getAlignedLength() {
+		return getLength();
 	}
 
 	@Override
@@ -355,37 +371,28 @@ public class BitFieldDataType extends AbstractDataType {
 		if (effectiveBitSize == 0) {
 			return new Scalar(0, 0);
 		}
-		BigInteger big = getBigIntegerValue(buf, settings);
+		AbstractIntegerDataType primitiveBaseDataType = getPrimitiveBaseDataType();
+		boolean isSigned = primitiveBaseDataType.isSigned();
+		BigInteger big = getBigIntegerValue(buf, isSigned, settings);
 		if (big == null) {
 			return null;
 		}
 		if (effectiveBitSize <= 64) {
-			return new Scalar(effectiveBitSize, big.longValue(),
-				getPrimitiveBaseDataType().isSigned());
+			return new Scalar(effectiveBitSize, big.longValue(), isSigned);
 		}
 		return big;
 	}
 
-	private BigInteger getBigIntegerValue(MemBuffer buf, Settings settings) {
+	private BigInteger getBigIntegerValue(MemBuffer buf, boolean isSigned, Settings settings) {
 		if (effectiveBitSize == 0) {
 			return BigInteger.ZERO;
 		}
 		try {
-
-			byte[] bytes = new byte[storageSize];
-			if (buf.getBytes(bytes, 0) != storageSize) {
-				return null;
-			}
-
-			if (!EndianSettingsDefinition.ENDIAN.isBigEndian(settings, buf)) {
-				bytes = ArrayUtilities.reverse(bytes);
-			}
-
 			BigInteger big = buf.getBigInteger(0, storageSize, false);
 			BigInteger pow = BigInteger.valueOf(2).pow(effectiveBitSize);
 			BigInteger mask = pow.subtract(BigInteger.ONE);
 			big = big.shiftRight(bitOffset).and(mask);
-			if (big.testBit(effectiveBitSize - 1)) {
+			if (isSigned && big.testBit(effectiveBitSize - 1)) {
 				big = big.subtract(pow);
 			}
 			return big;
@@ -406,7 +413,9 @@ public class BitFieldDataType extends AbstractDataType {
 		if (bitSize == 0) {
 			return "";
 		}
-		BigInteger big = getBigIntegerValue(buf, settings);
+		AbstractIntegerDataType primitiveBaseDataType = getPrimitiveBaseDataType();
+		boolean isSigned = primitiveBaseDataType.isSigned();
+		BigInteger big = getBigIntegerValue(buf, isSigned, settings);
 		if (big == null) {
 			return "??";
 		}
@@ -417,9 +426,13 @@ public class BitFieldDataType extends AbstractDataType {
 		if (dt instanceof Enum) {
 			return ((Enum) dt).getRepresentation(big, settings, effectiveBitSize);
 		}
+		if (dt instanceof BooleanDataType) {
+			// TRUE or FALSE representation
+			return ((BooleanDataType) dt).getRepresentation(big, settings, effectiveBitSize);
+		}
 		AbstractIntegerDataType intDT = (AbstractIntegerDataType) dt;
-		if (intDT.getFormatSettingsDefinition().getFormat(
-			settings) == FormatSettingsDefinition.CHAR) {
+		int format = intDT.getFormatSettingsDefinition().getFormat(settings);
+		if (format == FormatSettingsDefinition.CHAR) {
 			if (big.signum() < 0) {
 				big = big.add(BigInteger.valueOf(2).pow(effectiveBitSize));
 			}
@@ -429,12 +442,7 @@ public class BitFieldDataType extends AbstractDataType {
 			return StringDataInstance.getCharRepresentation(this, bytes, settings);
 		}
 
-		return intDT.getRepresentation(big, settings, effectiveBitSize);
-	}
-
-	@Override
-	public void setDefaultSettings(Settings settings) {
-		this.defaultSettings = settings;
+		return AbstractIntegerDataType.getRepresentation(big, settings, effectiveBitSize, isSigned);
 	}
 
 	@Override
@@ -445,5 +453,49 @@ public class BitFieldDataType extends AbstractDataType {
 	@Override
 	public String toString() {
 		return getDisplayName() + "(storage:" + storageSize + ",bitOffset:" + bitOffset + ")";
+	}
+
+	/**
+	 * Checks if two bitfields would conflict if inserted into the same structure at the given 
+	 * offsets.
+	 * @param bitFieldDataType1 the first BitFieldDataType
+	 * @param bitFieldDataType2 the second BitFieldDataType
+	 * @param offset1 the offset in the structure for the first BitFieldDataType
+	 * @param offset2 the offset in the structure for the second BitFieldDataType
+	 * @return true if the two bitFields would overlap if inserted into the same structure at
+	 * the given offsets
+	 */
+	public static boolean intersects(BitFieldDataType bitFieldDataType1,
+			BitFieldDataType bitFieldDataType2, int offset1, int offset2) {
+		int bitStart1 = getNormalizedBitOffset(bitFieldDataType1, offset1);
+		int bitStart2 = getNormalizedBitOffset(bitFieldDataType2, offset2);
+		int bitSize1 = bitFieldDataType1.getBitSize();
+		int bitSize2 = bitFieldDataType2.getBitSize();
+
+		if (bitStart1 < bitStart2) {
+			return bitStart1 + bitSize1 > bitStart2;
+		}
+		return bitStart2 + bitSize2 > bitStart1;
+
+	}
+
+	/**
+	 * Returns the bit offset relative to the start of a structure. This is useful for
+	 * determining if two bit fields can fit without conflict in the same structure.
+	 * @param bitFieldDataType the {@link BitFieldDataType}
+	 * @param byteOffset the offset of the component (relative to the structure struct of the
+	 * component containing this BitFieldDataType.
+	 * 
+	 * @return the bit offset relative to the start of a structure.
+	 */
+	public static int getNormalizedBitOffset(BitFieldDataType bitFieldDataType, int byteOffset) {
+		boolean isBigEndean = bitFieldDataType.getDataOrganization().isBigEndian();
+		int bitSize = bitFieldDataType.getBitSize();
+		int bitOffset = bitFieldDataType.getBitOffset();
+		DataType baseDataType = bitFieldDataType.getBaseDataType();
+		int baseDtSize = baseDataType.getLength();
+		int effectiveBitSize = BitFieldDataType.getEffectiveBitSize(bitSize, baseDtSize);
+		return BitOffsetComparator.getNormalizedBitfieldOffset(byteOffset,
+			bitFieldDataType.getStorageSize(), effectiveBitSize, bitOffset, isBigEndean);
 	}
 }

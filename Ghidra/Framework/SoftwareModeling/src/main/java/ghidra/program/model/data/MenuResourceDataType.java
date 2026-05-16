@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,8 +15,7 @@
  */
 package ghidra.program.model.data;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 import ghidra.docking.settings.Settings;
 import ghidra.program.model.address.Address;
@@ -30,7 +29,6 @@ public class MenuResourceDataType extends DynamicDataType {
 
 	private static short MF_POPUP = 0x0010;
 	private static short MF_END = 0x0080;
-	private static short LAST = 0x0090;
 
 	static {
 		ClassTranslator.put("ghidra.app.plugin.prototype.data.MenuResourceDataType",
@@ -68,7 +66,6 @@ public class MenuResourceDataType extends DynamicDataType {
 	protected DataTypeComponent[] getAllComponents(MemBuffer mbIn) {
 		List<DataTypeComponent> comps = new ArrayList<>();
 		int tempOffset = 0;
-		boolean lastMenuItem = false;
 		MemBuffer memBuffer = mbIn;
 		short option;
 
@@ -81,18 +78,30 @@ public class MenuResourceDataType extends DynamicDataType {
 
 			//loop through menu items and add them
 			boolean lastItem = false;
+
+			// keep options from parent popup menu items
+			Stack<Short> parentItemOptions = new Stack<>();
+			parentItemOptions.push((short) 0);
+
 			while (!lastItem) {
 				option = memBuffer.getShort(tempOffset);
 				tempOffset = addMenuItemTemplate(memBuffer, comps, tempOffset, option);
-				//last item in a menu
-				if (option == MF_END) {
-					if (lastMenuItem == true) {
-						lastItem = true;
+
+				if ((option & MF_POPUP) == MF_POPUP) {
+					// Increase the depth
+					parentItemOptions.push(option);
+				}
+				else if ((option & MF_END) == MF_END) {
+					// Decrease the depth until we have found a parent menu item that isn't also the last item
+					short parentOptions = parentItemOptions.pop();
+					while ((parentOptions & MF_END) == MF_END) {
+						parentOptions = parentItemOptions.pop();
 					}
 				}
-				//last menu
-				if (option == LAST) {
-					lastMenuItem = true;
+
+				// We have finished when there are no more parent menu items
+				if (parentItemOptions.size() == 0) {
+					lastItem = true;
 				}
 			}
 		}
@@ -122,9 +131,8 @@ public class MenuResourceDataType extends DynamicDataType {
 		}
 
 		//once verified as valid, lay down the initial structure
-		tempOffset =
-			addComp(menuItemTemplateHeaderStructure(), 4, "Menu Item Template Header Structure",
-				memBuffer.getAddress(), comps, tempOffset);
+		tempOffset = addComp(menuItemTemplateHeaderStructure(), 4,
+			"Menu Item Template Header Structure", memBuffer.getAddress(), comps, tempOffset);
 
 		return tempOffset;
 	}
@@ -132,21 +140,8 @@ public class MenuResourceDataType extends DynamicDataType {
 	//This is always the first structure in the menu resource
 	private StructureDataType menuItemTemplateHeaderStructure() {
 		StructureDataType struct = new StructureDataType("MENUITEM_TEMPLATE_HEADER", 0);
-
-		struct.add(WordDataType.dataType);
-		struct.add(WordDataType.dataType);
-
-		try {
-			struct.getComponent(0).setFieldName("versionNumber");
-			struct.getComponent(1).setFieldName("offset");
-
-		}
-		catch (DuplicateNameException e) {
-			Msg.debug(this, "Unexpected exception building MENUITEM_TEMPLATE_HEADER", e);
-		}
-		struct.getComponent(0).setComment("Version number of menu");
-		struct.getComponent(1).setComment("Menu items offset.");
-
+		struct.add(WordDataType.dataType, "versionNumber", "Version number of menu");
+		struct.add(WordDataType.dataType, "offset", "Menu items offset.");
 		return struct;
 	}
 
@@ -155,20 +150,17 @@ public class MenuResourceDataType extends DynamicDataType {
 			int tempOffset, short mtOption) {
 
 		//If it is a popup there is only an option field, no ID field
-		if (mtOption == MF_POPUP) {
-			tempOffset =
-				addComp(WordDataType.dataType, 2, "mtOption", memBuffer.getAddress(), comps,
-					tempOffset);
+		if ((mtOption & MF_POPUP) == MF_POPUP) {
+			tempOffset = addComp(WordDataType.dataType, 2, "mtOption", memBuffer.getAddress(),
+				comps, tempOffset);
 		}
 		//If it is anything else it has option and id fields
 		else {
-			tempOffset =
-				addComp(WordDataType.dataType, 2, "mtOption", memBuffer.getAddress(), comps,
-					tempOffset);
+			tempOffset = addComp(WordDataType.dataType, 2, "mtOption", memBuffer.getAddress(),
+				comps, tempOffset);
 
-			tempOffset =
-				addComp(WordDataType.dataType, 2, "mtID", memBuffer.getAddress().add(tempOffset),
-					comps, tempOffset);
+			tempOffset = addComp(WordDataType.dataType, 2, "mtID",
+				memBuffer.getAddress().add(tempOffset), comps, tempOffset);
 
 		}
 
@@ -180,25 +172,23 @@ public class MenuResourceDataType extends DynamicDataType {
 	private int addComp(DataType dataType, int len, String fieldName, Address address,
 			List<DataTypeComponent> comps, int currentOffset) {
 		if (len > 0) {
-			ReadOnlyDataTypeComponent readOnlyDataTypeComponent =
-				new ReadOnlyDataTypeComponent(dataType, this, len, comps.size(), currentOffset,
-					fieldName, null);
+			ReadOnlyDataTypeComponent readOnlyDataTypeComponent = new ReadOnlyDataTypeComponent(
+				dataType, this, len, comps.size(), currentOffset, fieldName, null);
 			comps.add(readOnlyDataTypeComponent);
 			currentOffset += len;
 		}
 		return currentOffset;
 	}
 
-	private int addUnicodeString(MemBuffer memBuffer, List<DataTypeComponent> comps,
-			int tempOffset, String title) {
+	private int addUnicodeString(MemBuffer memBuffer, List<DataTypeComponent> comps, int tempOffset,
+			String title) {
 
 		byte[] tempBytes = new byte[1024];
 		memBuffer.getBytes(tempBytes, tempOffset);
 		int strLength = findUnicodeLength(tempBytes);
 		if (strLength >= 2) {
-			tempOffset =
-				addComp(UnicodeDataType.dataType, strLength, title,
-					memBuffer.getAddress().add(tempOffset), comps, tempOffset);
+			tempOffset = addComp(UnicodeDataType.dataType, strLength, title,
+				memBuffer.getAddress().add(tempOffset), comps, tempOffset);
 			return tempOffset;
 		}
 

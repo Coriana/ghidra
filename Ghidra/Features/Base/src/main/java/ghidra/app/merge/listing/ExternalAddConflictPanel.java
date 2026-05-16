@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,10 +22,13 @@ import java.awt.event.ItemListener;
 import javax.swing.*;
 
 import docking.widgets.EmptyBorderButton;
+import docking.widgets.TitledPanel;
 import docking.widgets.button.GRadioButton;
 import docking.widgets.fieldpanel.FieldPanel;
-import docking.widgets.fieldpanel.internal.FieldPanelCoordinator;
+import docking.widgets.fieldpanel.internal.FieldPanelScrollCoordinator;
 import docking.widgets.label.GIconLabel;
+import generic.theme.GIcon;
+import ghidra.GhidraOptions;
 import ghidra.app.merge.MergeConstants;
 import ghidra.app.merge.MergeManager;
 import ghidra.app.merge.util.ConflictCountPanel;
@@ -36,7 +39,6 @@ import ghidra.app.util.viewer.format.FormatManager;
 import ghidra.app.util.viewer.listingpanel.*;
 import ghidra.app.util.viewer.multilisting.AddressTranslator;
 import ghidra.app.util.viewer.multilisting.MultiListingLayoutModel;
-import ghidra.app.util.viewer.util.TitledPanel;
 import ghidra.framework.data.DomainObjectMergeManager;
 import ghidra.framework.model.DomainObjectListener;
 import ghidra.framework.options.ToolOptions;
@@ -45,11 +47,10 @@ import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.ExternalLocation;
-import resources.ResourceManager;
 import resources.icons.EmptyIcon;
 
 /**
- * Panel to select a data type in order to resolve an add conflict in the multi-user 
+ * Panel to select a data type in order to resolve an add conflict in the multi-user
  * external location merger.
  */
 class ExternalAddConflictPanel extends JPanel implements CodeFormatService {
@@ -60,8 +61,8 @@ class ExternalAddConflictPanel extends JPanel implements CodeFormatService {
 	public static final String MERGE_BOTH_BUTTON_NAME =
 		ExternalFunctionMerger.MERGE_BOTH_BUTTON_NAME;
 
-	private static Icon hideIcon = ResourceManager.loadImage("images/collapse.gif");
-	private static Icon showIcon = ResourceManager.loadImage("images/expand.gif");
+	private static final Icon HIDE_ICON = new GIcon("icon.plugin.merge.conflict.collapse");
+	private static final Icon SHOW_ICON = new GIcon("icon.plugin.merge.conflict.expand");
 
 	private DomainObjectMergeManager mergeManager;
 	private int totalConflicts;
@@ -85,12 +86,11 @@ class ExternalAddConflictPanel extends JPanel implements CodeFormatService {
 	private ReferenceListingHover referenceHoverService;
 	private DataTypeListingHover dataTypeHoverService;
 	private TruncatedTextListingHover truncatedTextHoverService;
-	private FunctionNameListingHover functionNameHoverService;
+	private LabelListingHover labelListingHoverService;
 	private boolean showListingPanel;
 
 	ExternalAddConflictPanel(MergeManager mergeManager, int totalConflicts, Program latestProgram,
 			Program myProgram, boolean showListingPanel) {
-		super();
 		this.tool = mergeManager.getMergeTool();
 		this.mergeManager = mergeManager;
 		this.totalConflicts = totalConflicts;
@@ -108,7 +108,7 @@ class ExternalAddConflictPanel extends JPanel implements CodeFormatService {
 		referenceHoverService = new ReferenceListingHover(tool, this);
 		dataTypeHoverService = new DataTypeListingHover(tool);
 		truncatedTextHoverService = new TruncatedTextListingHover(tool);
-		functionNameHoverService = new FunctionNameListingHover(tool);
+		labelListingHoverService = new LabelListingHover(tool);
 
 		initializeListingHoverService(latestPanel);
 		initializeListingHoverService(myPanel);
@@ -118,7 +118,7 @@ class ExternalAddConflictPanel extends JPanel implements CodeFormatService {
 		listingPanel.addHoverService(referenceHoverService);
 		listingPanel.addHoverService(dataTypeHoverService);
 		listingPanel.addHoverService(truncatedTextHoverService);
-		listingPanel.addHoverService(functionNameHoverService);
+		listingPanel.addHoverService(labelListingHoverService);
 		listingPanel.setHoverMode(true);
 	}
 
@@ -168,7 +168,7 @@ class ExternalAddConflictPanel extends JPanel implements CodeFormatService {
 	}
 
 	private ToolOptions getFieldOptions() {
-		ToolOptions fieldOptions = new ToolOptions("field");
+		ToolOptions fieldOptions = new ToolOptions(GhidraOptions.CATEGORY_BROWSER_FIELDS);
 		fieldOptions.setBoolean(RegisterFieldFactory.DISPLAY_HIDDEN_REGISTERS_OPTION_NAME, true);
 		return fieldOptions;
 	}
@@ -214,7 +214,7 @@ class ExternalAddConflictPanel extends JPanel implements CodeFormatService {
 		latestPanel.setProgram(latestProgram);
 		myPanel.setProgram(myProgram);
 
-		new FieldPanelCoordinator(
+		new FieldPanelScrollCoordinator(
 			new FieldPanel[] { latestPanel.getFieldPanel(), myPanel.getFieldPanel() });
 
 		buttonGroup = new ButtonGroup();
@@ -291,18 +291,18 @@ class ExternalAddConflictPanel extends JPanel implements CodeFormatService {
 
 	class ShowHeaderButton extends EmptyBorderButton {
 		ShowHeaderButton() {
-			super(showIcon);
+			super(SHOW_ICON);
 			setFocusable(false);
 			setToolTipText("Toggle Format Header");
 			addActionListener(e -> {
 				if (isSelected()) {
 					setSelected(false);
-					setIcon(showIcon);
+					setIcon(SHOW_ICON);
 					latestPanel.showHeader(false);
 				}
 				else {
 					setSelected(true);
-					setIcon(hideIcon);
+					setIcon(HIDE_ICON);
 					latestPanel.showHeader(true);
 				}
 			});
@@ -310,7 +310,7 @@ class ExternalAddConflictPanel extends JPanel implements CodeFormatService {
 	}
 
 	/**
-	 * Add the latest program's listing model as a listener to the latest program 
+	 * Add the latest program's listing model as a listener to the latest program
 	 * for domain object events.
 	 */
 	public void addDomainObjectListener() {
@@ -319,7 +319,7 @@ class ExternalAddConflictPanel extends JPanel implements CodeFormatService {
 	}
 
 	/**
-	 * Remove the latest program's listing model as a listener to the latest program 
+	 * Remove the latest program's listing model as a listener to the latest program
 	 * for domain object events.
 	 */
 	public void removeDomainObjectListener() {

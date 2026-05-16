@@ -15,19 +15,11 @@
  */
 package ghidra.app.plugin.prototype.debug;
 
-import ghidra.app.DeveloperPluginPackage;
-import ghidra.app.plugin.PluginCategoryNames;
-import ghidra.app.plugin.ProgramPlugin;
-import ghidra.framework.plugintool.PluginInfo;
-import ghidra.framework.plugintool.PluginTool;
-import ghidra.framework.plugintool.util.*;
-
 import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.image.RenderedImage;
 import java.io.File;
-import java.util.Set;
 
 import javax.imageio.ImageIO;
 import javax.swing.*;
@@ -36,12 +28,18 @@ import javax.swing.filechooser.FileNameExtensionFilter;
 import docking.*;
 import docking.action.*;
 import docking.tool.ToolConstants;
+import ghidra.app.DeveloperPluginPackage;
+import ghidra.app.plugin.PluginCategoryNames;
+import ghidra.app.plugin.ProgramPlugin;
+import ghidra.framework.plugintool.PluginInfo;
+import ghidra.framework.plugintool.PluginTool;
+import ghidra.framework.plugintool.util.PluginStatus;
 
 //@formatter:off
 @PluginInfo(
 	status = PluginStatus.RELEASED,
 	packageName = DeveloperPluginPackage.NAME,
-	category = PluginCategoryNames.TESTING,
+	category = PluginCategoryNames.DIAGNOSTIC,
 	shortDescription = "Capture Screenshots",
 	description = "Capture screen images and export to Portable Network Graphic (.PNG) format."
 )
@@ -55,7 +53,7 @@ public class ScreenshotPlugin extends ProgramPlugin {
 	private JFileChooser fileChooser;
 
 	public ScreenshotPlugin(PluginTool tool) {
-		super(tool, true, false);
+		super(tool);
 		this.tool = tool;
 
 		setupActions();
@@ -86,21 +84,18 @@ public class ScreenshotPlugin extends ProgramPlugin {
 				RenderedImage image = generateImage(activeComponent);
 
 				String componentName =
-					((DockableComponent) activeComponent).getComponentWindowingPlaceholder().getName();
+					((DockableComponent) activeComponent).getComponentWindowingPlaceholder()
+							.getName();
 				File file = getFile(componentName + ".png");
 
 				if (file != null) {
 					writeFile(image, file);
 				}
 			}
-
-			@Override
-			public boolean shouldAddToWindow(boolean isMainWindow, Set<Class<?>> contextTypes) {
-				return true;// this is a global-level action
-			}
 		};
-
-		captureActiveWindowAction.setDescription("Takes a screenshot of the active component provider and exports it to PNG format.");
+		captureActiveWindowAction.setAddToAllWindows(true);
+		captureActiveWindowAction.setDescription(
+			"Takes a screenshot of the active component provider and exports it to PNG format.");
 		captureActiveWindowAction.setKeyBindingData(new KeyBindingData(KeyEvent.VK_F11,
 			InputEvent.ALT_DOWN_MASK));
 		String group = "ScreenCapture";
@@ -123,14 +118,10 @@ public class ScreenshotPlugin extends ProgramPlugin {
 					writeFile(image, file);
 				}
 			}
-
-			@Override
-			public boolean shouldAddToWindow(boolean isMainWindow, Set<Class<?>> contextTypes) {
-				return true;// this is a global-level action
-			}
 		};
-
-		captureToolFrameAction.setDescription("Takes a screenshot of the active tool and exports it to PNG format.");
+		captureToolFrameAction.setAddToAllWindows(true);
+		captureToolFrameAction.setDescription(
+			"Takes a screenshot of the active tool and exports it to PNG format.");
 		captureToolFrameAction.setKeyBindingData(new KeyBindingData(KeyEvent.VK_F12,
 			InputEvent.ALT_DOWN_MASK));
 		captureToolFrameAction.setMenuBarData(new MenuData(new String[] { ToolConstants.MENU_TOOLS,

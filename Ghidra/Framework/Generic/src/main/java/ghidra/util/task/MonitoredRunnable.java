@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,12 +15,15 @@
  */
 package ghidra.util.task;
 
+/**
+ * Similar to a {@link Runnable} except the {@link #monitoredRun(TaskMonitor) run} method is given a
+ * monitor to report progress and check for cancellation.
+ */
 public interface MonitoredRunnable {
-	
-    /**
-     * Similar to a runnable except that is given a monitor to report progress and check for
-     * cancellation.
-     * @param monitor the TaskMonitor to use.
-     */
-	public void monitoredRun(TaskMonitor monitor);
+
+	/**
+	 * Runs this runnable, given a monitor to report progress and check for cancellation.
+	 * @param monitor the monitor.
+	 */
+	void monitoredRun(TaskMonitor monitor);
 }

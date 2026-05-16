@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,15 +15,17 @@
  */
 package ghidra.app.util.viewer.field;
 
-import java.awt.Color;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.apache.commons.lang3.StringUtils;
+
 import docking.widgets.fieldpanel.field.*;
 import docking.widgets.fieldpanel.support.FieldLocation;
 import docking.widgets.fieldpanel.support.FieldUtils;
-import ghidra.app.util.HighlightProvider;
+import ghidra.app.util.ListingHighlightProvider;
+import ghidra.app.util.viewer.field.ListingColors.CommentColors;
 import ghidra.app.util.viewer.format.FieldFormatModel;
 import ghidra.app.util.viewer.options.OptionsGui;
 import ghidra.app.util.viewer.proxy.ProxyObj;
@@ -48,7 +50,7 @@ public class PreCommentFieldFactory extends FieldFactory {
 	private final static String GROUP_TITLE = "Format Code";
 	private final static String FIELD_GROUP_TITLE = "Pre-comments Field";
 	public final static String ENABLE_WORD_WRAP_MSG =
-		FIELD_GROUP_TITLE + Options.DELIMITER + "Enable Word Wrapping";
+		FIELD_GROUP_TITLE + Options.DELIMITER + FieldUtils.WORD_WRAP_OPTION_NAME;
 	public final static String ENABLE_ALWAYS_SHOW_AUTOMATIC_MSG =
 		FIELD_GROUP_TITLE + Options.DELIMITER + "Always Show the Automatic Comment";
 
@@ -64,7 +66,6 @@ public class PreCommentFieldFactory extends FieldFactory {
 	private boolean flagSubroutineEntry;
 	private boolean isWordWrap;
 	private boolean alwaysShowAutomatic;
-	private Color automaticCommentColor;
 	private int automaticCommentStyle;
 
 	/**
@@ -81,7 +82,7 @@ public class PreCommentFieldFactory extends FieldFactory {
 	 * @param displayOptions the Options for display properties.
 	 * @param fieldOptions the Options for field specific properties.
 	 */
-	private PreCommentFieldFactory(FieldFormatModel model, HighlightProvider hlProvider,
+	private PreCommentFieldFactory(FieldFormatModel model, ListingHighlightProvider hlProvider,
 			Options displayOptions, Options fieldOptions) {
 		super(FIELD_NAME, model, hlProvider, displayOptions, fieldOptions);
 
@@ -93,9 +94,6 @@ public class PreCommentFieldFactory extends FieldFactory {
 		flagFunctionEntry = fieldOptions.getBoolean(FLAG_FUNCTION_ENTRY_OPTION, false);
 		flagSubroutineEntry = fieldOptions.getBoolean(FLAG_SUBROUTINE_ENTRY_OPTION, false);
 
-		automaticCommentColor =
-			displayOptions.getColor(OptionsGui.COMMENT_AUTO.getColorOptionName(),
-				OptionsGui.COMMENT_AUTO.getDefaultColor());
 		automaticCommentStyle =
 			displayOptions.getInt(OptionsGui.COMMENT_AUTO.getStyleOptionName(), -1);
 
@@ -114,26 +112,25 @@ public class PreCommentFieldFactory extends FieldFactory {
 		String[] autoComment = getAutoPreComments(cu);
 
 		String[] comments = getDefinedPreComments(cu);
+		List<String> offcutComments = CommentUtils.getOffcutComments(cu, CommentType.PRE);
 
-		return getTextField(comments, autoComment, proxy, x);
+		return getTextField(comments, autoComment, offcutComments, proxy, x);
 	}
 
 	private String[] getDefinedPreComments(CodeUnit cu) {
 
-		// If this code unit is the outside of a data
-		// container, then do not display any comments.
-		// If this was allowed, then the comment would appear
-		// on the outside data container and on the 1st
-		// internal member
-		//
+		// Do not show comments for nested components that share the same address as their parent
 		if (cu instanceof Data) {
 			Data data = (Data) cu;
-			if (data.getNumComponents() > 0) {
-				return null;
+			int[] cpath = data.getComponentPath();
+			if (cpath.length > 0) {
+				if (cpath[cpath.length - 1] == 0) {
+					return null;
+				}
 			}
 		}
 
-		return cu.getCommentAsArray(CodeUnit.PRE_COMMENT);
+		return cu.getCommentAsArray(CommentType.PRE);
 	}
 
 	private String[] getAutoPreComments(CodeUnit cu) {
@@ -150,13 +147,13 @@ public class PreCommentFieldFactory extends FieldFactory {
 			return null;
 		}
 		CodeUnit cu = (CodeUnit) obj;
-		String[] comment = cu.getCommentAsArray(CodeUnit.PRE_COMMENT);
+		String[] comment = cu.getCommentAsArray(CommentType.PRE);
 		int[] cpath = null;
 		if (cu instanceof Data) {
 			cpath = ((Data) cu).getComponentPath();
 		}
 		return new CommentFieldLocation(cu.getProgram(), cu.getMinAddress(), cpath, comment,
-			CodeUnit.PRE_COMMENT, row, col);
+			CommentType.PRE, row, col);
 	}
 
 	@Override
@@ -167,7 +164,7 @@ public class PreCommentFieldFactory extends FieldFactory {
 		}
 
 		CommentFieldLocation loc = (CommentFieldLocation) programLoc;
-		if (loc.getCommentType() != CodeUnit.PRE_COMMENT) {
+		if (loc.getCommentType() != CommentType.PRE) {
 			return null;
 		}
 		return new FieldLocation(index, fieldNum, loc.getRow(), loc.getCharOffset());
@@ -183,14 +180,9 @@ public class PreCommentFieldFactory extends FieldFactory {
 	}
 
 	@Override
-	public FieldFactory newInstance(FieldFormatModel formatModel, HighlightProvider provider,
+	public FieldFactory newInstance(FieldFormatModel formatModel, ListingHighlightProvider provider,
 			ToolOptions toolOptions, ToolOptions fieldOptions) {
 		return new PreCommentFieldFactory(formatModel, provider, toolOptions, fieldOptions);
-	}
-
-	@Override
-	public Color getDefaultColor() {
-		return OptionsGui.COMMENT_PRE.getDefaultColor();
 	}
 
 	@Override
@@ -247,19 +239,32 @@ public class PreCommentFieldFactory extends FieldFactory {
 	}
 
 	private String[] getDataAutoComments(Data data) {
-
-		// Build flexible array comment
-		Address addr = data.getMinAddress().previous();
-		if (addr != null) {
-			return getFlexArrayComment(data, addr);
-		}
-		return null;
+		return getPreceedingComponentAutoComment(data);
 	}
 
-	private String[] getFlexArrayComment(Data data, Address addr) {
+	/**
+	 * A composite which immediately precedes the current address may contain trailing zero-length 
+	 * components which implicitly refer to this address and are not rendered by the opened composite.
+	 * This comment is intended to convey the existence of such hidden components which correspond
+	 * to addr.
+	 * <br>
+	 * NOTE: Implementation only provides comment for one trailing zero-length component.  This could
+	 * be improved to return a comment for all applicable trailing zero-length components. 
+	 * @param data data location whose pre-comment is currently be generated
+	 * @return auto-comment or null
+	 */
+	private String[] getPreceedingComponentAutoComment(Data data) {
+
+		// NOTE: A zero-length composite has a length of 1 which may cause it to improperly consume
+		// the address location which actually corresponds to a trailing zero-length 
+		// component.
 
 		int levelsToIgnore = 0;
 		String label = null;
+		Address prevDataAddr = data.getMinAddress().previous();
+		if (prevDataAddr == null) {
+			return null;
+		}
 
 		int[] cpath = data.getComponentPath();
 		if (cpath != null && cpath.length > 0) {
@@ -275,42 +280,57 @@ public class PreCommentFieldFactory extends FieldFactory {
 		}
 		else {
 			Program p = data.getProgram();
-			data = p.getListing().getDefinedDataContaining(addr);
-			if (data == null || !data.isStructure()) {
+			data = p.getListing().getDefinedDataContaining(prevDataAddr);
+			if (data == null || !(data.isStructure() || data.isDynamic())) {  // FIXME!! refer to DynamicDataType which has components - Union?
 				return null;
 			}
 			Symbol s = p.getSymbolTable().getPrimarySymbol(data.getAddress());
 			label = s != null ? s.getName(true) : data.getDataType().getName();
 		}
 
-		// locate deepest structure containing addr which will be checked for flex array
+		DataTypeComponent lastDtc = null;
 		while (true) {
-			int offset = (int) addr.subtract(data.getMinAddress());
-			Data component = data.getComponentAt(offset);
-			if (component == null || !component.isStructure()) {
+			DataType dt = data.getDataType();
+
+			if (dt instanceof Structure) {
+				Structure struct = (Structure) dt;
+				List<DataTypeComponent> components =
+					struct.getComponentsContaining(struct.getLength());
+				lastDtc = components.isEmpty() ? null : components.get(components.size() - 1);
+			}
+			else if (dt instanceof DynamicDataType) {
+				DynamicDataType ddt = (DynamicDataType) dt;
+				lastDtc = ddt.getComponentAt(data.getLength(), data);
+				int lastDtcOrdinal = ddt.getNumComponents(data) - 1;
+				if (lastDtc != null && lastDtc.getOrdinal() < lastDtcOrdinal) {
+					lastDtc = ddt.getComponent(lastDtcOrdinal, data);
+				}
+			}
+
+			if (lastDtc == null || lastDtc.getLength() == 0) {
 				break;
+			}
+
+			Data component = data.getComponent(lastDtc.getOrdinal());
+			if (component == null) {
+				return null;
 			}
 			data = component;
 		}
 
-		return buildFlexArrayComment(data, levelsToIgnore, label);
+		if (lastDtc == null || lastDtc.isBitFieldComponent()) {
+			return null;
+		}
+
+		return buildZeroLengthComponentAutoComment(lastDtc, data, levelsToIgnore, label);
 	}
 
-	private String[] buildFlexArrayComment(Data data, int levelsToIgnore, String label) {
+	private String[] buildZeroLengthComponentAutoComment(DataTypeComponent lastZeroLengthComponent,
+			Data data, int levelsToIgnore, String label) {
 
-		DataType dt = data.getBaseDataType();
-		if (!(dt instanceof Structure)) {
-			return null;
-		}
-
-		DataTypeComponent flexComponent = ((Structure) dt).getFlexibleArrayComponent();
-		if (flexComponent == null) {
-			return null;
-		}
-
-		String fieldName = flexComponent.getFieldName();
-		if (fieldName == null) {
-			fieldName = flexComponent.getDefaultFieldName();
+		String fieldName = lastZeroLengthComponent.getFieldName();
+		if (StringUtils.isEmpty(fieldName)) {
+			fieldName = lastZeroLengthComponent.getDefaultFieldName();
 		}
 
 		StringBuilder flexName = new StringBuilder(fieldName);
@@ -329,12 +349,12 @@ public class PreCommentFieldFactory extends FieldFactory {
 			flexName.insert(0, label + ".");
 		}
 
-		return new String[] { "Flexible Array: " + flexComponent.getDataType().getName() + "[] " +
-			flexName.toString() };
+		return new String[] { "Zero-length Component: " +
+			lastZeroLengthComponent.getDataType().getName() + " " + flexName.toString() };
 	}
 
 	private ListingTextField getTextField(String[] comments, String[] autoComment,
-			ProxyObj<?> proxy, int xStart) {
+			List<String> offcutComments, ProxyObj<?> proxy, int xStart) {
 
 		if (comments == null) {
 			comments = EMPTY_STRING_ARRAY;
@@ -345,16 +365,18 @@ public class PreCommentFieldFactory extends FieldFactory {
 
 		int nLinesAutoComment =
 			(comments.length == 0 || alwaysShowAutomatic) ? autoComment.length : 0;
-		if (comments.length == 0 && nLinesAutoComment == 0) {
+
+		if (comments.length == 0 && nLinesAutoComment == 0 && offcutComments.isEmpty()) {
 			return null;
 		}
 
 		CodeUnit cu = (CodeUnit) proxy.getObject();
 		Program program = cu.getProgram();
-		AttributedString prototypeString = new AttributedString("prototype", color, getMetrics());
+		AttributedString prototypeString =
+			new AttributedString("prototype", CommentColors.PRE, getMetrics());
 		List<FieldElement> fields = new ArrayList<>();
 		for (int i = 0; i < nLinesAutoComment; i++) {
-			AttributedString as = new AttributedString(autoComment[i], automaticCommentColor,
+			AttributedString as = new AttributedString(autoComment[i], CommentColors.AUTO,
 				getMetrics(automaticCommentStyle), false, null);
 			fields.add(new TextFieldElement(as, i, 0));
 		}
@@ -362,24 +384,23 @@ public class PreCommentFieldFactory extends FieldFactory {
 			fields.add(CommentUtils.parseTextForAnnotations(comment, program, prototypeString,
 				fields.size()));
 		}
+		for (String offcutComment : offcutComments) {
+			AttributedString as = new AttributedString(offcutComment, CommentColors.OFFCUT,
+				getMetrics(style), false, null);
+			fields.add(new TextFieldElement(as, fields.size(), 0));
+		}
+
 		if (isWordWrap) {
 			fields = FieldUtils.wrap(fields, width);
 		}
 
-		FieldElement[] elements = fields.toArray(new FieldElement[fields.size()]);
-
-		return ListingTextField.createMultilineTextField(this, proxy, elements, xStart, width,
-			Integer.MAX_VALUE, hlProvider);
+		return ListingTextField.createMultilineTextField(this, proxy, fields, xStart, width,
+			hlProvider);
 	}
 
 	private void init(Options options) {
 		options.registerOption(ENABLE_WORD_WRAP_MSG, false, null,
-			"Enables word wrapping in the pre-comments field.  If word " +
-				"wrapping is on, user enter new lines are ignored and the " +
-				"entire comment is displayed in paragraph form.  If word " +
-				"wrapping is off, comments are displayed in line format " +
-				"however the user entered them.  Lines that are too long " +
-				"for the field, are truncated.");
+			FieldUtils.WORD_WRAP_OPTION_DESCRIPTION);
 		options.registerOption(ENABLE_ALWAYS_SHOW_AUTOMATIC_MSG, true, null,
 			"Toggles the display of the automatic pre-comment");
 

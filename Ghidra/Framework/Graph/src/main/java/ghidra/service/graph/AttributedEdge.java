@@ -15,17 +15,12 @@
  */
 package ghidra.service.graph;
 
-import java.util.Map;
-
 /**
  * Generic directed graph edge implementation
  */
 public class AttributedEdge extends Attributed {
+	public static final String EDGE_TYPE_KEY = "EdgeType";
 	private final String id;
-	/**
-	 * cache of the edge label parsed as html
-	 */
-	private String htmlString;
 
 	/**
 	 * Constructs a new GhidraEdge
@@ -38,24 +33,6 @@ public class AttributedEdge extends Attributed {
 	@Override
 	public String toString() {
 		return id;
-	}
-
-	/**
-	 * create (once) the html representation of the key/values for this edge
-	 * @return html formatted label for the edge
-	 */
-	public String getHtmlString() {
-		if (htmlString == null) {
-			StringBuilder buf = new StringBuilder("<html>");
-			for (Map.Entry<String, String> entry : entrySet()) {
-				buf.append(entry.getKey());
-				buf.append(":");
-				buf.append(entry.getValue());
-				buf.append("<br>");
-			}
-			htmlString = buf.toString();
-		}
-		return htmlString;
 	}
 
 	/**
@@ -84,5 +61,23 @@ public class AttributedEdge extends Attributed {
 		}
 		AttributedEdge other = (AttributedEdge) obj;
 		return id.equals(other.id);
+	}
+
+	/**
+	 * Returns the edge type for this edge
+	 * @return the edge type for this edge
+	 */
+	public String getEdgeType() {
+		return getAttribute(EDGE_TYPE_KEY);
+	}
+
+	/**
+	 * Sets the edge type for this edge. Should be a value defined by the {@link GraphType} for
+	 * this graph, but there is no enforcement for this. If the value is not defined in GraphType,
+	 * it will be rendered using the default edge color for {@link GraphType}
+	 * @param edgeType the edge type for this edge
+	 */
+	public void setEdgeType(String edgeType) {
+		setAttribute(EDGE_TYPE_KEY, edgeType);
 	}
 }

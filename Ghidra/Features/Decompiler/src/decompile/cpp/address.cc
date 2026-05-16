@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,6 +15,19 @@
  */
 #include "address.hh"
 #include "translate.hh"
+
+namespace ghidra {
+
+AttributeId ATTRIB_FIRST = AttributeId("first",27);
+AttributeId ATTRIB_LAST = AttributeId("last",28);
+AttributeId ATTRIB_UNIQ = AttributeId("uniq",29);
+
+ElementId ELEM_ADDR = ElementId("addr",11);
+ElementId ELEM_RANGE = ElementId("range",12);
+ElementId ELEM_RANGELIST = ElementId("rangelist",13);
+ElementId ELEM_REGISTER = ElementId("register",14);
+ElementId ELEM_SEQNUM = ElementId("seqnum",15);
+ElementId ELEM_VARNODE = ElementId("varnode",16);
 
 ostream &operator<<(ostream &s,const SeqNum &sq)
 
@@ -44,27 +57,30 @@ SeqNum::SeqNum(Address::mach_extreme ex) : pc(ex)
   uniq = (ex == Address::m_minimal) ? 0 : ~((uintm)0);
 }
 
-void SeqNum::saveXml(ostream &s) const
+void SeqNum::encode(Encoder &encoder) const
 
 {
-  s << "<seqnum";
-  pc.getSpace()->saveXmlAttributes(s,pc.getOffset());
-  a_v_u(s,"uniq",uniq);
-  s << "/>";
+  encoder.openElement(ELEM_SEQNUM);
+  pc.getSpace()->encodeAttributes(encoder,pc.getOffset());
+  encoder.writeUnsignedInteger(ATTRIB_UNIQ, uniq);
+  encoder.closeElement(ELEM_SEQNUM);
 }
 
-SeqNum SeqNum::restoreXml(const Element *el,const AddrSpaceManager *manage)
+SeqNum SeqNum::decode(Decoder &decoder)
 
 {
   uintm uniq = ~((uintm)0);
-  Address pc = Address::restoreXml(el,manage); // Recover address
-  for(int4 i=0;i<el->getNumAttributes();++i)
-    if (el->getAttributeName(i) == "uniq") {
-      istringstream s2(el->getAttributeValue(i)); // Recover unique (if present)
-      s2.unsetf(ios::dec | ios::hex | ios::oct);
-      s2 >> uniq;
+  uint4 elemId = decoder.openElement(ELEM_SEQNUM);
+  Address pc = Address::decode(decoder); // Recover address
+  for(;;) {
+    uint4 attribId = decoder.getNextAttributeId();
+    if (attribId == 0) break;
+    if (attribId == ATTRIB_UNIQ) {
+      uniq = decoder.readUnsignedInteger();
       break;
     }
+  }
+  decoder.closeElement(elemId);
   return SeqNum(pc,uniq);
 }
 
@@ -83,16 +99,6 @@ Address::Address(mach_extreme ex)
     base = (AddrSpace *) ~((uintp)0);
     offset = ~((uintb)0);
   }
-}
-
-/// \deprecated Convert this to the most basic physical address.
-/// This routine is only present for backward compatibility
-/// with SLED
-void Address::toPhysical(void)
-
-{ AddrSpace *phys = base->getContain();
-  if ((phys != (AddrSpace *)0)&&(base->getType()==IPTR_SPACEBASE))
-     base = phys;
 }
 
 /// Return \b true if the range starting at \b this extending the given number of bytes
@@ -180,36 +186,33 @@ bool Address::isContiguous(int4 sz,const Address &loaddr,int4 losz) const
 }
 
 /// If \b this is (originally) a \e join address, reevaluate it in terms of its new
-/// \e offset and \e siz, changing the space and offset if necessary.
+/// \e offset and \e size, changing the space and offset if necessary.
 /// \param size is the new size in bytes of the underlying object
 void Address::renormalize(int4 size) {
   if (base->getType() == IPTR_JOIN)
     base->getManager()->renormalizeJoinAddress(*this,size);
 }
 
-/// This is usually used to build an address from an \b \<addr\>
-/// tag, but it can be used to create an address from any tag
-/// with the appropriate attributes
+/// This is usually used to decode an address from an \b \<addr\>
+/// element, but any element can be used if it has the appropriate attributes
 ///    - \e space indicates the address space of the tag
 ///    - \e offset indicates the offset within the space
 ///
 /// or a \e name attribute can be used to recover an address
 /// based on a register name.
-/// \param el is the parsed tag
-/// \param manage is the address space manager for the program
+/// \param decoder is the stream decoder
 /// \return the resulting Address
-Address Address::restoreXml(const Element *el,const AddrSpaceManager *manage)
+Address Address::decode(Decoder &decoder)
 
 {
   VarnodeData var;
 
-  var.restoreXml(el,manage);
+  var.decode(decoder);
   return Address(var.space,var.offset);
 }
 
-/// This is usually used to build an address from an \b \<addr\>
-/// tag, but it can be used to create an address from any tag
-/// with the appropriate attributes
+/// This is usually used to decode an address from an \b \<addr\>
+/// element, but any element can be used if it has the appropriate attributes
 ///    - \e space indicates the address space of the tag
 ///    - \e offset indicates the offset within the space
 ///    - \e size indicates the size of an address range
@@ -217,18 +220,43 @@ Address Address::restoreXml(const Element *el,const AddrSpaceManager *manage)
 /// or a \e name attribute can be used to recover an address
 /// and size based on a register name. If a size is recovered
 /// it is stored in \e size reference.
-/// \param el is the parsed tag
-/// \param manage is the address space manager for the program
+/// \param decoder is the stream decoder
 /// \param size is the reference to any recovered size
 /// \return the resulting Address
-Address Address::restoreXml(const Element *el,const AddrSpaceManager *manage,int4 &size)
+Address Address::decode(Decoder &decoder,int4 &size)
 
 {
   VarnodeData var;
 
-  var.restoreXml(el,manage);
+  var.decode(decoder);
   size = var.size;
   return Address(var.space,var.offset);
+}
+
+Range::Range(const RangeProperties &properties,const AddrSpaceManager *manage)
+
+{
+  if (properties.isRegister) {
+    const Translate *trans = manage->getDefaultCodeSpace()->getTrans();
+    const VarnodeData &point(trans->getRegister(properties.spaceName));
+    spc = point.space;
+    first = point.offset;
+    last = (first-1) + point.size;
+    return;
+  }
+  spc = manage->getSpaceByName(properties.spaceName);
+  if (spc == (AddrSpace *)0)
+    throw LowlevelError("Undefined space: "+properties.spaceName);
+
+  if (spc == (AddrSpace *)0)
+    throw LowlevelError("No address space indicated in range tag");
+  first = properties.first;
+  last = properties.last;
+  if (!properties.seenLast) {
+    last = spc->getHighest();
+  }
+  if (first > spc->getHighest() || last > spc->getHighest() || last < first)
+    throw LowlevelError("Illegal range tag");
 }
 
 /// Get the last address +1, updating the space, or returning
@@ -259,55 +287,93 @@ void Range::printBounds(ostream &s) const
   s << hex << first << '-' << last;
 }
 
-/// Write this object to a stream as a \<range> tag.
-/// \param s is the output stream
-void Range::saveXml(ostream &s) const
+/// Encode \b this to a stream as a \<range> element.
+/// \param encoder is the stream encoder
+void Range::encode(Encoder &encoder) const
 
 {
-  s << "<range";
-  a_v(s,"space",spc->getName());
-  a_v_u(s,"first",first);
-  a_v_u(s,"last",last);
-  s << "/>\n";
+  encoder.openElement(ELEM_RANGE);
+  encoder.writeSpace(ATTRIB_SPACE, spc);
+  encoder.writeUnsignedInteger(ATTRIB_FIRST, first);
+  encoder.writeUnsignedInteger(ATTRIB_LAST, last);
+  encoder.closeElement(ELEM_RANGE);
 }
 
-/// Reconstruct this object from an XML \<range> element
-/// \param el is the XML element
-/// \param manage is the space manage for recovering AddrSpace objects
-void Range::restoreXml(const Element *el,const AddrSpaceManager *manage)
+/// Reconstruct this object from a \<range> or \<register> element
+/// \param decoder is the stream decoder
+void Range::decode(Decoder &decoder)
+
+{
+  uint4 elemId = decoder.openElement();
+  if (elemId != ELEM_RANGE && elemId != ELEM_REGISTER)
+    throw DecoderError("Expecting <range> or <register> element");
+  decodeFromAttributes(decoder);
+  decoder.closeElement(elemId);
+}
+
+/// Reconstruct from attributes that may not be part of a \<range> element.
+/// \param decoder is the stream decoder
+void Range::decodeFromAttributes(Decoder &decoder)
 
 {
   spc = (AddrSpace *)0;
+  bool seenLast = false;
   first = 0;
-  last = ~((uintb)0);
-  for(int4 i=0;i<el->getNumAttributes();++i) {
-    if (el->getAttributeName(i) == "space") {
-      spc = manage->getSpaceByName(el->getAttributeValue(i));
-      if (spc == (AddrSpace *)0)
-        throw LowlevelError("Undefined space: "+el->getAttributeValue(i));
+  last = 0;
+  for(;;) {
+    uint4 attribId = decoder.getNextAttributeId();
+    if (attribId == 0) break;
+    if (attribId == ATTRIB_SPACE) {
+      spc = decoder.readSpace();
     }
-    else if (el->getAttributeName(i) == "first") {
-      istringstream s(el->getAttributeValue(i));
-      s.unsetf(ios::dec | ios::hex | ios::oct);
-      s >> first;
+    else if (attribId == ATTRIB_FIRST) {
+      first = decoder.readUnsignedInteger();
     }
-    else if (el->getAttributeName(i) == "last") {
-      istringstream s(el->getAttributeValue(i));
-      s.unsetf(ios::dec | ios::hex | ios::oct);
-      s >> last;
+    else if (attribId == ATTRIB_LAST) {
+      last = decoder.readUnsignedInteger();
+      seenLast = true;
     }
-    else if (el->getAttributeName(i) == "name") {
-      const Translate *trans = manage->getDefaultCodeSpace()->getTrans();
-      const VarnodeData &point(trans->getRegister(el->getAttributeValue(i)));
+    else if (attribId == ATTRIB_NAME) {
+      const Translate *trans = decoder.getAddrSpaceManager()->getDefaultCodeSpace()->getTrans();
+      const VarnodeData &point(trans->getRegister(decoder.readString()));
       spc = point.space;
       first = point.offset;
       last = (first-1) + point.size;
-      break;		// There should be no (space,first,last) attributes
+      return;		// There should be no (space,first,last) attributes
     }
   }
   if (spc == (AddrSpace *)0)
-	  throw LowlevelError("No address space indicated in range tag");
-  last = spc->wrapOffset(last);
+    throw LowlevelError("No address space indicated in range tag");
+  if (!seenLast) {
+    last = spc->getHighest();
+  }
+  if (first > spc->getHighest() || last > spc->getHighest() || last < first)
+    throw LowlevelError("Illegal range tag");
+}
+
+void RangeProperties::decode(Decoder &decoder)
+
+{
+  uint4 elemId = decoder.openElement();
+  if (elemId != ELEM_RANGE && elemId != ELEM_REGISTER)
+    throw DecoderError("Expecting <range> or <register> element");
+  for(;;) {
+    uint4 attribId = decoder.getNextAttributeId();
+    if (attribId == 0) break;
+    if (attribId == ATTRIB_SPACE)
+      spaceName = decoder.readString();
+    else if (attribId == ATTRIB_FIRST)
+      first = decoder.readUnsignedInteger();
+    else if (attribId == ATTRIB_LAST) {
+      last = decoder.readUnsignedInteger();
+      seenLast = true;
+    }
+    else if (attribId == ATTRIB_NAME) {
+      spaceName = decoder.readString();
+      isRegister = true;
+    }
+  }
+  decoder.closeElement(elemId);
 }
 
 /// Insert a new Range merging as appropriate to maintain the disjoint cover
@@ -533,36 +599,272 @@ void RangeList::printBounds(ostream &s) const
   }
 }
 
-/// Serialize this object to an XML \<rangelist> tag
-/// \param s is the output stream
-void RangeList::saveXml(ostream &s) const
+/// Encode \b this as a \<rangelist> element
+/// \param encoder is the stream encoder
+void RangeList::encode(Encoder &encoder) const
 
 {
   set<Range>::const_iterator iter;
 
-  s << "<rangelist>\n";
+  encoder.openElement(ELEM_RANGELIST);
   for(iter=tree.begin();iter!=tree.end();++iter) {
-    (*iter).saveXml(s);
+    (*iter).encode(encoder);
   }
-  s << "</rangelist>\n";
+  encoder.closeElement(ELEM_RANGELIST);
 }
 
-/// Recover each individual disjoint Range for \b this RangeList as encoded
-/// in a \<rangelist> tag.
-/// \param el is the XML element
-/// \param manage is manager for retrieving address spaces
-void RangeList::restoreXml(const Element *el,const AddrSpaceManager *manage)
+/// Recover each individual disjoint Range for \b this RangeList.
+/// \param decoder is the stream decoder
+void RangeList::decode(Decoder &decoder)
 
 {
-  const List &list(el->getChildren());
-  List::const_iterator iter;
-
-  for(iter=list.begin();iter!=list.end();++iter) {
-    const Element *subel = *iter;
+  uint4 elemId = decoder.openElement(ELEM_RANGELIST);
+  while(decoder.peekElement() != 0) {
     Range range;
-    range.restoreXml(subel,manage);
+    range.decode(decoder);
     tree.insert(range);
   }
+  decoder.closeElement(elemId);
+}
+
+BitRange::BitRange(const BitRange &op2,int4 off,int4 sz)
+
+{
+  byteOffset = off;
+  byteSize = sz;
+  numBits = op2.numBits;
+  isBigEndian = op2.isBigEndian;
+  leastSigBit = translateLSB(op2);
+}
+
+/// Both the byte container and the bit range are compared and must be equal to return 0.
+/// \param op2 is the other bit range to compare with
+/// \return -1, 0, or 1 to establish ordering the two ranges
+int4 BitRange::compare(const BitRange &op2) const
+
+{
+  if (byteOffset != op2.byteOffset)
+    return (byteOffset < op2.byteOffset) ? -1:1;
+  if (byteSize != op2.byteSize)
+    return (byteSize < op2.byteSize) ? -1 : 1;
+  if (leastSigBit != op2.leastSigBit)
+    return (leastSigBit < op2.leastSigBit) ? -1:1;
+  if (numBits != op2.numBits)
+    return (numBits < op2.numBits) ? -1:1;
+  return 0;
+}
+
+/// The returned result is directly comparable with \b leastSigBit for determining order/overlap.
+/// \param op2 is the other BitRange to translate into \b this frame
+/// \return the translated value of op2.leastSigBit
+int4 BitRange::translateLSB(const BitRange &op2) const
+
+{
+  int4 op2Sig = op2.leastSigBit;
+  if (isBigEndian) {
+    int4 thisPos = byteOffset + byteSize;
+    int4 op2Pos = op2.byteOffset + op2.byteSize;
+    op2Sig += 8 * (thisPos - op2Pos);
+  }
+  else {
+    op2Sig += 8 * (op2.byteOffset - byteOffset);
+  }
+  return op2Sig;
+}
+
+/// Return:
+///   -  -1 if \b this should come before (no intersection)
+///   -  0 if \b this and op2 are the same bitrange
+///   -  1 if \b this should come after (no intersection)
+///   -  2 if \b this is contained in op2
+///   -  3 if op2 is contained in \b this
+///   -  4 if partial overlap
+///
+/// \param op2 is the other range to compare
+/// \return the intersection code
+int4 BitRange::overlapTest(const BitRange &op2) const
+
+{
+  int4 op2Sig = translateLSB(op2);
+  int4 thisMost = leastSigBit + numBits;
+  int4 op2Most = op2Sig + op2.numBits;
+  if (isBigEndian) {
+    if (leastSigBit >= op2Most) return -1;
+    if (op2Sig >= thisMost) return 1;
+  }
+  else {
+    if (thisMost <= op2Sig) return -1;
+    if (op2Most <= leastSigBit) return 1;
+  }
+  // Reaching here we have some kind of intersection
+  if (leastSigBit == op2Sig && thisMost == op2Most) return 0;
+  if (op2Sig <= leastSigBit && op2Most >= thisMost) return 2;	/// this contained in op2
+  if (leastSigBit <= op2Sig && thisMost >= op2Most) return 3;	/// op2 contained in this
+  return 4;
+}
+
+/// The byte container for \b this does not change only \b leastSigBit and \b numBits.
+/// If the intersection is empty, \b numBits is set to 0.
+/// \param op2 is the bit range to intersect with \b this.
+void BitRange::intersection(const BitRange &op2)
+
+{
+  int4 op2Sig = translateLSB(op2);
+  int4 op2Most = op2Sig + op2.numBits;
+  int4 thisMost = leastSigBit + numBits;
+  if (op2Sig > leastSigBit) {
+    numBits -= (op2Sig - leastSigBit);
+    leastSigBit = op2Sig;
+  }
+  if (op2Most < thisMost) {
+    numBits -= (thisMost - op2Most);
+  }
+  if (numBits < 0) {
+    leastSigBit = 0;
+    numBits = 0;
+  }
+}
+
+/// The range of bits is intersected with the 1-bits of the mask.  The resulting
+/// range is the minimal cover of the bits in the intersection.
+/// \param mask is the mask to intersect with
+void BitRange::intersectMask(uintb mask)
+
+{
+  mask &= getMask();
+  if (mask == 0) {
+    leastSigBit = 0;
+    numBits = 0;
+    return;
+  }
+  int4 newLeastSig = leastsigbit_set(mask);
+  int4 newMostSig = mostsigbit_set(mask) + 1;
+  int4 thisMost = leastSigBit + numBits;
+  if (newLeastSig > leastSigBit) {
+    numBits -= (newLeastSig - leastSigBit);
+    leastSigBit = newLeastSig;
+  }
+  if (newMostSig < thisMost) {
+    numBits -= (thisMost - newMostSig);
+  }
+}
+
+/// The bit range is shifted to the left by the given amount.
+/// \param leftShiftAmount is the amount to shift the range by
+void BitRange::shift(int4 leftShiftAmount)
+
+{
+  leastSigBit += leftShiftAmount;
+  int4 most = leastSigBit + numBits;
+  if (leastSigBit < 0) {
+    numBits += leastSigBit;
+    leastSigBit = 0;
+  }
+  else if (most > byteSize * 8) {
+    numBits -= (most - byteSize * 8);
+  }
+  if (numBits < 0) {
+    leastSigBit = 0;
+    numBits = 0;
+  }
+}
+
+/// The number of bits may be affected.
+/// \param num is the number of bytes to truncate
+void BitRange::truncateMostSigBytes(int4 num)
+
+{
+  if (isBigEndian) {
+    byteOffset += num;
+  }
+  byteSize -= num;
+  int4 maxOffset = leastSigBit + numBits;
+  if (maxOffset > byteSize * 8)
+    numBits -= (maxOffset - byteSize * 8);
+  if (numBits < 0)
+    numBits = 0;
+}
+
+/// \param num is the number of bytes to truncate
+void BitRange::truncateLeastSigBytes(int4 num)
+
+{
+  if (!isBigEndian)
+    byteOffset += num;
+  byteSize -= num;
+  leastSigBit -= num * 8;
+  if (leastSigBit < 0) {
+    numBits = numBits + leastSigBit;
+    leastSigBit = 0;
+    if (numBits < 0)
+      numBits = 0;
+  }
+}
+
+/// Only the container is affected, the bit range itself does not change.
+/// \param num is the number of bytes to add
+void BitRange::extendBytes(int4 num)
+
+{
+  if (isBigEndian)
+    byteOffset -= num;
+  byteSize += num;
+}
+
+/// The bit-mask is aligned with the byte container.
+/// \return the bit-mask describing \b this range
+uintb BitRange::getMask(void) const
+
+{
+  uintb res;
+  if (numBits >= sizeof(uintb)*8)
+    res = 0;
+  else {
+    res = 1;
+    res <<= numBits;
+  }
+  res -= 1;
+  res <<= leastSigBit;
+  return res;
+}
+
+/// \return \b true if the beginning and end of the range fall on byte boundaries
+bool BitRange::isByteRange(void) const
+
+{
+  if ((numBits & 7) != 0) return false;
+  if ((leastSigBit & 7) != 0) return false;
+  return true;
+}
+
+/// \return \b true if the most significant bit of the field and the container are the same
+bool BitRange::isMostSignificant(void) const
+
+{
+  return 8*byteSize == leastSigBit + numBits;
+}
+
+void BitRange::minimizeContainer(void)
+
+{
+  int4 trunc = leastSigBit / 8;
+  if (isBigEndian)
+    byteSize -= trunc;
+  else
+    byteOffset += trunc;
+  leastSigBit &= 7;
+  int4 num = byteSize - ((leastSigBit + numBits + 7) / 8);
+  if (num > 0) {
+    if (isBigEndian)
+      byteOffset += num;
+    byteSize -= num;
+  }
+}
+
+void BitRange::expandToMost(void)
+
+{
+  numBits = 8*byteSize - leastSigBit;	// Increase number of bits to maximum that still fits
 }
 
 #ifdef UINTB4
@@ -604,45 +906,29 @@ uintb uintb_negate(uintb in,int4 size)
 uintb sign_extend(uintb in,int4 sizein,int4 sizeout)
 
 {
-  int4 signbit;
-  uintb mask;
+  sizein = (sizein < sizeof(uintb)) ? sizein : sizeof(uintb);
+  sizeout = (sizeout < sizeof(uintb)) ? sizeout : sizeof(uintb);
+  intb sval = in;
+  sval <<= (sizeof(intb) - sizein) * 8;
+  uintb res = (uintb)(sval >> (sizeout - sizein) * 8);
+  res >>= (sizeof(uintb) - sizeout)*8;
+  return res;
+}
 
-  signbit = sizein*8 - 1;
-  in &= calc_mask(sizein);
-  if (sizein >= sizeout) return in;
-  if ((in>>signbit) != 0) {
-    mask = calc_mask(sizeout);
-    uintb tmp = mask << signbit; // Split shift into two pieces
-    tmp = (tmp<<1) & mask;	// In case, everything is shifted out
-    in |= tmp;
+/// \param val is the value to extend
+/// \param numbits is the number of bits in the value
+/// \param size is the integer size in bytes
+/// \return the extended value
+uintb extend_signbit(uintb val,int4 numbits,int4 size)
+
+{
+  if (numbits < size * 8) {
+    int4 sa = 8*sizeof(intb) - numbits;
+    intb sval = val;
+    val = (sval << sa) >> sa;
+    val &= calc_mask(size);
   }
-  return in;
-}
-
-/// Sign extend \b val starting at \b bit
-/// \param val is a reference to the value to be sign-extended
-/// \param bit is the index of the bit to extend from (0=least significant bit)
-void sign_extend(intb &val,int4 bit)
-
-{
-  intb mask = 0;
-  mask = (~mask)<<bit;
-  if (((val>>bit)&1)!=0)
-    val |= mask;
-  else
-    val &= (~mask);
-}
-
-/// Zero extend \b val starting at \b bit
-/// \param val is a reference to the value to be zero extended
-/// \param bit is the index of the bit to extend from (0=least significant bit)
-void zero_extend(intb &val,int4 bit)
-
-{
-  intb mask = 0;
-  mask = (~mask)<<bit;
-  mask <<= 1;
-  val &= (~mask);
+  return val;
 }
 
 /// Swap the least significant \b size bytes in \b val
@@ -803,131 +1089,4 @@ int4 bit_transitions(uintb val,int4 sz)
   return res;
 }
 
-/// \brief Multiply 2 unsigned 64-bit values, producing a 128-bit value
-///
-/// TODO: Remove once we import a full multiprecision library.
-/// \param res points to the result array (2 uint8 pieces)
-/// \param x is the first 64-bit value
-/// \param y is the second 64-bit value
-void mult64to128(uint8 *res,uint8 x,uint8 y)
-
-{
-  uint8 f = x & 0xffffffff;
-  uint8 e = x >> 32;
-  uint8 d = y & 0xffffffff;
-  uint8 c = y >> 32;
-  uint8 fd = f * d;
-  uint8 fc = f * c;
-  uint8 ed = e * d;
-  uint8 ec = e * c;
-  uint8 tmp = (fd >> 32) + (fc & 0xffffffff) + (ed & 0xffffffff);
-  res[1] = (tmp>>32) + (fc>>32) + (ed>>32) + ec;
-  res[0] = (tmp<<32) + (fd & 0xffffffff);
-}
-
-/// \brief Subtract (in-place) a 128-bit value from a base 128-value
-///
-/// The base value is altered in place.
-/// TODO: Remove once we import a full multiprecision library.
-/// \param a is the base 128-bit value being subtracted from in-place
-/// \param b is the other 128-bit value being subtracted
-void unsignedSubtract128(uint8 *a,uint8 *b)
-
-{
-  bool borrow = (a[0] < b[0]);
-  a[0] -= b[0];
-  a[1] -= b[1];
-  if (borrow)
-    a[1] -= 1;
-}
-
-/// \brief Compare two unsigned 128-bit values
-///
-/// TODO: Remove once we import a full multiprecision library.
-/// Given a first and second value, return -1, 0, or 1 depending on whether the first value
-/// is \e less, \e equal, or \e greater than the second value.
-/// \param a is the first 128-bit value (as an array of 2 uint8 elements)
-/// \param b is the second 128-bit value
-/// \return the comparison code
-int4 unsignedCompare128(uint8 *a,uint8 *b)
-
-{
-  if (a[1] != b[1])
-    return (a[1] < b[1]) ? -1 : 1;
-  if (a[0] != b[0])
-    return (a[0] < b[0]) ? -1 : 1;
-  return 0;
-}
-
-/// \brief Unsigned division of a power of 2 (upto 2^127) by a 64-bit divisor
-///
-/// The result must be less than 2^64. The remainder is calculated.
-/// \param n is the power of 2 for the numerand
-/// \param divisor is the 64-bit divisor
-/// \param q is the passed back 64-bit quotient
-/// \param r is the passed back 64-bit remainder
-/// \return 0 if successful, 1 if result is too big, 2 if divide by 0
-int4 power2Divide(int4 n,uint8 divisor,uint8 &q,uint8 &r)
-
-{
-  if (divisor == 0) return 2;
-  uint8 power = 1;
-  if (n < 64) {
-    power <<= n;
-    q = power / divisor;
-    r = power % divisor;
-    return 0;
-  }
-  // Divide numerand and divisor by 2^(n-63) to get approximation of result
-  uint8 y = divisor >> (n-64);	// Most of the way on divisor
-  if (y == 0) return 1;		// Check if result will be too big
-  y >>= 1;			// Divide divisor by final bit
-  power <<= 63;
-  uint8 max;
-  if (y == 0) {
-    max = 0;
-    max -= 1;			// Could be maximal
-    // Check if divisor is a power of 2
-    if ((((uint8)1) << (n-64)) == divisor)
-      return 1;
-  }
-  else
-    max = power / y + 1;
-  uint8 min = power / (y+1);
-  if (min != 0)
-    min -= 1;
-  uint8 fullpower[2];
-  fullpower[1] = ((uint8)1)<<(n-64);
-  fullpower[0] = 0;
-  uint8 mult[2];
-  mult[0] = 0;
-  mult[1] = 0;
-  uint8 tmpq = 0;
-  while(max > min+1) {
-    tmpq = max + min;
-    if (tmpq < min) {
-      tmpq = (tmpq>>1) + 0x8000000000000000L;
-    }
-    else
-      tmpq >>= 1;
-    mult64to128(mult,divisor,tmpq);
-    if (unsignedCompare128(fullpower,mult) < 0)
-      max = tmpq-1;
-    else
-      min = tmpq;
-  }
-  // min is now our putative quotient
-  if (tmpq != min)
-    mult64to128(mult,divisor,min);
-  unsignedSubtract128(fullpower,mult); // Calculate remainder
-  // min might be 1 too small
-  if (fullpower[1] != 0 || fullpower[0] >= divisor) {
-    q = min + 1;
-    r = fullpower[0] - divisor;
-  }
-  else {
-    q = min;
-    r = fullpower[0];
-  }
-  return 0;
-}
+} // End namespace ghidra

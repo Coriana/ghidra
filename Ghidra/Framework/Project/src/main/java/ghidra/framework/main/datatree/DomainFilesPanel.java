@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,8 +16,7 @@
 package ghidra.framework.main.datatree;
 
 import java.awt.*;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
+import java.awt.event.*;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -25,6 +24,7 @@ import javax.swing.*;
 
 import docking.widgets.checkbox.GCheckBox;
 import docking.widgets.list.ListPanel;
+import generic.theme.GThemeDefaults.Colors;
 import ghidra.framework.model.DomainFile;
 
 /**
@@ -35,11 +35,12 @@ class DomainFilesPanel extends JPanel {
 
 	private List<DomainFile> fileList;
 	private GCheckBox[] checkboxes;
-	private ListPanel listPanel;
+	private ListPanel<JCheckBox> listPanel;
 
 	/**
 	 * Constructor
 	 * @param fileList list of DomainFile objects
+	 * @param listTitle the title
 	 */
 	DomainFilesPanel(List<DomainFile> fileList, String listTitle) {
 		super();
@@ -52,15 +53,16 @@ class DomainFilesPanel extends JPanel {
 		for (int i = 0; i < fileList.size(); i++) {
 			DomainFile df = fileList.get(i);
 			checkboxes[i] = new GCheckBox(df.getPathname(), true);
-			checkboxes[i].setBackground(Color.white);
+			checkboxes[i].setBackground(Colors.BACKGROUND);
 		}
 
 		//
 		// List Panel
 		//
-		listPanel = new ListPanel();
+		listPanel = new ListPanel<>();
 		listPanel.setCellRenderer(new DataCellRenderer());
 		listPanel.setMouseListener(new ListMouseListener());
+		listPanel.setKeyListener(new ListKeyListener());
 		if (listTitle != null) {
 			listPanel.setListTitle(listTitle);
 		}
@@ -77,6 +79,7 @@ class DomainFilesPanel extends JPanel {
 
 	/**
 	 * Get the selected domain files.
+	 * @return selected domain files
 	 */
 	DomainFile[] getSelectedDomainFiles() {
 		List<DomainFile> list = new ArrayList<>();
@@ -105,6 +108,10 @@ class DomainFilesPanel extends JPanel {
 				}
 				index = selected;
 			}
+			Color fg = isSelected ? list.getSelectionForeground() : list.getForeground();
+			Color bg = isSelected ? list.getSelectionBackground() : list.getBackground();
+			checkboxes[index].setForeground(fg);
+			checkboxes[index].setBackground(bg);
 			return checkboxes[index];
 		}
 	}
@@ -120,7 +127,7 @@ class DomainFilesPanel extends JPanel {
 				return;
 			}
 
-			JList list = (JList) e.getSource();
+			JList<?> list = (JList<?>) e.getSource();
 			int index = list.locationToIndex(e.getPoint());
 			if (index < 0) {
 				return;
@@ -135,4 +142,20 @@ class DomainFilesPanel extends JPanel {
 		}
 	}
 
+	private class ListKeyListener extends KeyAdapter {
+		@Override
+		public void keyPressed(KeyEvent e) {
+			if (e.getKeyCode() == KeyEvent.VK_SPACE) {
+				e.consume();
+				JList<?> list = (JList<?>) e.getSource();
+				int index = list.getSelectedIndex();
+				if (index < 0) {
+					return;
+				}
+				boolean selected = checkboxes[index].isSelected();
+				checkboxes[index].setSelected(!selected);
+				listPanel.repaint();
+			}
+		}
+	}
 }

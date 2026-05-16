@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -57,13 +57,14 @@ public class ProgramProviderContext implements DataTypeProviderContext {
 		}
 
 		DataType dt = data.getDataType();
-		int length = data.getLength();
+		int length = DataTypeComponentImpl.getPreferredComponentLength(dt,
+			Math.max(data.getLength(), dt.getLength()));
 		String label = null;
 		Symbol symbol = data.getPrimarySymbol();
 		if (symbol != null && !symbol.isDynamic()) {
 			label = symbol.getName();
 		}
-		String comment = data.getComment(CodeUnit.EOL_COMMENT);
+		String comment = data.getComment(CommentType.EOL);
 		return new DataTypeComponentImpl(dt, null, length, 0, offset, label, comment);
 
 	}

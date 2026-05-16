@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,14 +17,13 @@ package ghidra.app.merge.listing;
 
 import static org.junit.Assert.*;
 
-import java.util.List;
+import java.util.Set;
 
 import org.junit.Assert;
 import org.junit.Test;
 
 import ghidra.app.cmd.function.AddRegisterParameterCommand;
 import ghidra.program.database.*;
-import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.data.*;
 import ghidra.program.model.lang.Register;
@@ -47,13 +46,8 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 		mtf.initialize("NotepadMergeListingTest_X86", new OriginalProgramModifierListener() {
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
 					Function applesFunction =
 						createExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -61,13 +55,9 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 						new DWordDataType(), 4, "Test Parameter Comment");
 					addStackParameter(applesFunction, "P2", SourceType.USER_DEFINED,
 						new DWordDataType(), 8, "Test Parameter Comment");
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 
 				// Check the function just created.
@@ -76,7 +66,7 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 				assertEquals("apples", function.getName());
 				assertEquals(SourceType.USER_DEFINED, function.getSymbol().getSource());
 				checkDataType(DataType.DEFAULT, function.getReturnType());
-				assertEquals(SourceType.USER_DEFINED, function.getReturn().getSource());
+				assertEquals(SourceType.DEFAULT, function.getReturn().getSource());
 				assertEquals("unknown", function.getCallingConventionName());
 				assertEquals(new AddressSet(), function.getBody());
 				assertEquals(null, function.getComment());
@@ -109,13 +99,8 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 				assertEquals(null, parameter2.getRegister());
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					Function function =
 						getExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -142,13 +127,9 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 					addStackParameter(function, "P3", SourceType.IMPORTED,
 						new PointerDataType(new CharDataType()), 12, "Test Parameter3 Comment");
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 
 				// Check the function just changed.
@@ -202,9 +183,6 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 				assertEquals(null, parameter3.getRegister());
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
 				// No Changes
@@ -268,13 +246,8 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 		mtf.initialize("NotepadMergeListingTest_X86", new OriginalProgramModifierListener() {
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
 					Function applesFunction =
 						createExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -282,13 +255,9 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 						new DWordDataType(), 4, "Test Parameter Comment");
 					addStackParameter(applesFunction, "P2", SourceType.USER_DEFINED,
 						new DWordDataType(), 8, "Test Parameter Comment");
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 
 				// Check the function just created.
@@ -297,7 +266,7 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 				assertEquals("apples", function.getName());
 				assertEquals(SourceType.USER_DEFINED, function.getSymbol().getSource());
 				checkDataType(DataType.DEFAULT, function.getReturnType());
-				assertEquals(SourceType.USER_DEFINED, function.getReturn().getSource());
+				assertEquals(SourceType.DEFAULT, function.getReturn().getSource());
 				assertEquals("unknown", function.getCallingConventionName());
 				assertEquals(new AddressSet(), function.getBody());
 				assertEquals(null, function.getComment());
@@ -330,21 +299,13 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 				assertEquals(null, parameter2.getRegister());
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyLatest(ProgramDB program) {
 				// No Changes
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					Function function =
 						getExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -371,13 +332,9 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 					addStackParameter(function, "P3", SourceType.IMPORTED,
 						new PointerDataType(new CharDataType()), 12, "Test Parameter3 Comment");
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 
 				// Check the function just changed.
@@ -489,13 +446,8 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 		mtf.initialize("NotepadMergeListingTest_X86", new OriginalProgramModifierListener() {
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
 					Function applesFunction =
 						createExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -503,13 +455,9 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 						new DWordDataType(), 4, "Test Parameter Comment");
 					addStackParameter(applesFunction, "P2", SourceType.USER_DEFINED,
 						new DWordDataType(), 8, "Test Parameter Comment");
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 
 				// Check the function just created.
@@ -518,7 +466,7 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 				assertEquals("apples", function.getName());
 				assertEquals(SourceType.USER_DEFINED, function.getSymbol().getSource());
 				checkDataType(DataType.DEFAULT, function.getReturnType());
-				assertEquals(SourceType.USER_DEFINED, function.getReturn().getSource());
+				assertEquals(SourceType.DEFAULT, function.getReturn().getSource());
 				assertEquals("unknown", function.getCallingConventionName());
 				assertEquals(new AddressSet(), function.getBody());
 				assertEquals(null, function.getComment());
@@ -551,13 +499,8 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 				assertEquals(null, parameter2.getRegister());
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					Function function =
 						getExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -584,13 +527,9 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 					addStackParameter(function, "P3", SourceType.IMPORTED,
 						new PointerDataType(new CharDataType()), 12, "Test Parameter3 Comment");
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 
 				// Check the function just changed.
@@ -644,24 +583,15 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 				assertEquals(null, parameter3.getRegister());
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					Function externalFunction =
 						getExternalFunction(program, new String[] { "user32.dll", "apples" });
 					externalFunction.getSymbol().delete();
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -724,13 +654,8 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 		mtf.initialize("NotepadMergeListingTest_X86", new OriginalProgramModifierListener() {
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
 					Function applesFunction =
 						createExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -738,13 +663,9 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 						new DWordDataType(), 4, "Test Parameter Comment");
 					addStackParameter(applesFunction, "P2", SourceType.USER_DEFINED,
 						new DWordDataType(), 8, "Test Parameter Comment");
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 
 				// Check the function just created.
@@ -753,7 +674,7 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 				assertEquals("apples", function.getName());
 				assertEquals(SourceType.USER_DEFINED, function.getSymbol().getSource());
 				checkDataType(DataType.DEFAULT, function.getReturnType());
-				assertEquals(SourceType.USER_DEFINED, function.getReturn().getSource());
+				assertEquals(SourceType.DEFAULT, function.getReturn().getSource());
 				assertEquals("unknown", function.getCallingConventionName());
 				assertEquals(new AddressSet(), function.getBody());
 				assertEquals(null, function.getComment());
@@ -786,13 +707,8 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 				assertEquals(null, parameter2.getRegister());
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					Function function =
 						getExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -819,13 +735,9 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 					addStackParameter(function, "P3", SourceType.IMPORTED,
 						new PointerDataType(new CharDataType()), 12, "Test Parameter3 Comment");
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 
 				// Check the function just changed.
@@ -879,24 +791,15 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 				assertEquals(null, parameter3.getRegister());
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					Function externalFunction =
 						getExternalFunction(program, new String[] { "user32.dll", "apples" });
 					externalFunction.getSymbol().delete();
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -916,13 +819,8 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 		mtf.initialize("NotepadMergeListingTest_X86", new OriginalProgramModifierListener() {
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
 					Function applesFunction =
 						createExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -930,13 +828,9 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 						new DWordDataType(), 4, "Test Parameter Comment");
 					addStackParameter(applesFunction, "P2", SourceType.USER_DEFINED,
 						new DWordDataType(), 8, "Test Parameter Comment");
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 
 				// Check the function just created.
@@ -945,7 +839,7 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 				assertEquals("apples", function.getName());
 				assertEquals(SourceType.USER_DEFINED, function.getSymbol().getSource());
 				checkDataType(DataType.DEFAULT, function.getReturnType());
-				assertEquals(SourceType.USER_DEFINED, function.getReturn().getSource());
+				assertEquals(SourceType.DEFAULT, function.getReturn().getSource());
 				assertEquals("unknown", function.getCallingConventionName());
 				assertEquals(new AddressSet(), function.getBody());
 				assertEquals(null, function.getComment());
@@ -978,34 +872,20 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 				assertEquals(null, parameter2.getRegister());
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					Function externalFunction =
 						getExternalFunction(program, new String[] { "user32.dll", "apples" });
 					externalFunction.getSymbol().delete();
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					Function function =
 						getExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -1032,13 +912,9 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 					addStackParameter(function, "P3", SourceType.IMPORTED,
 						new PointerDataType(new CharDataType()), 12, "Test Parameter3 Comment");
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 
 				// Check the function just changed.
@@ -1108,13 +984,8 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 		mtf.initialize("NotepadMergeListingTest_X86", new OriginalProgramModifierListener() {
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
 					Function applesFunction =
 						createExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -1122,13 +993,9 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 						new DWordDataType(), 4, "Test Parameter Comment");
 					addStackParameter(applesFunction, "P2", SourceType.USER_DEFINED,
 						new DWordDataType(), 8, "Test Parameter Comment");
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 
 				// Check the function just created.
@@ -1137,7 +1004,7 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 				assertEquals("apples", function.getName());
 				assertEquals(SourceType.USER_DEFINED, function.getSymbol().getSource());
 				checkDataType(DataType.DEFAULT, function.getReturnType());
-				assertEquals(SourceType.USER_DEFINED, function.getReturn().getSource());
+				assertEquals(SourceType.DEFAULT, function.getReturn().getSource());
 				assertEquals("unknown", function.getCallingConventionName());
 				assertEquals(new AddressSet(), function.getBody());
 				assertEquals(null, function.getComment());
@@ -1170,34 +1037,20 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 				assertEquals(null, parameter2.getRegister());
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					Function externalFunction =
 						getExternalFunction(program, new String[] { "user32.dll", "apples" });
 					externalFunction.getSymbol().delete();
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					Function function =
 						getExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -1224,13 +1077,9 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 					addStackParameter(function, "P3", SourceType.IMPORTED,
 						new PointerDataType(new CharDataType()), 12, "Test Parameter3 Comment");
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 
 				// Check the function just changed.
@@ -1343,13 +1192,8 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 		mtf.initialize("NotepadMergeListingTest_X86", new OriginalProgramModifierListener() {
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
 					Function applesFunction =
 						createExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -1357,13 +1201,9 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 						"Test Parameter Comment");
 					addParameter(applesFunction, "P2", SourceType.USER_DEFINED, new DWordDataType(),
 						"Test Parameter Comment");
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 
 				// Check the function just created.
@@ -1372,7 +1212,7 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 				assertEquals("apples", function.getName());
 				assertEquals(SourceType.USER_DEFINED, function.getSymbol().getSource());
 				checkDataType(DataType.DEFAULT, function.getReturnType());
-				assertEquals(SourceType.USER_DEFINED, function.getReturn().getSource());
+				assertEquals(SourceType.DEFAULT, function.getReturn().getSource());
 				assertEquals("unknown", function.getCallingConventionName());
 				assertEquals(new AddressSet(), function.getBody());
 				assertEquals(null, function.getComment());
@@ -1405,13 +1245,8 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 				assertEquals(null, parameter2.getRegister());
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					// Set the external Mem Address
 					ExternalLocation externalLocation =
@@ -1427,23 +1262,14 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 					catch (InvalidInputException e) {
 						Assert.fail();
 					}
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					// Set the external Mem Address
 					ExternalLocation externalLocation =
@@ -1485,13 +1311,9 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 					addStackParameter(function, "P3", SourceType.IMPORTED,
 						new PointerDataType(new CharDataType()), 12, "Test Parameter3 Comment");
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 
 				// Check the function just changed.
@@ -1610,13 +1432,8 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 		mtf.initialize("NotepadMergeListingTest", new OriginalProgramModifierListener() {
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
 					Function applesFunction =
 						createExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -1627,60 +1444,38 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 						createExternalFunction(program, new String[] { "user32.dll", "oranges" });
 					addParameter(orangesFunction, "P1", SourceType.USER_DEFINED,
 						new DWordDataType(), "Test Parameter Comment");
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					Function function =
 						getExternalFunction(program, new String[] { "user32.dll", "apples" });
 
 					function.setName("BARNEY", SourceType.USER_DEFINED);
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 				assertNotNull(
 					getExternalFunction(program, new String[] { "user32.dll", "BARNEY" }));
 				assertNull(getExternalFunction(program, new String[] { "user32.dll", "apples" }));
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					Function function =
 						getExternalFunction(program, new String[] { "user32.dll", "oranges" });
 
 					function.setName("FRED", SourceType.USER_DEFINED);
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 				assertNotNull(getExternalFunction(program, new String[] { "user32.dll", "FRED" }));
 				assertNull(getExternalFunction(program, new String[] { "user32.dll", "oranges" }));
@@ -1701,13 +1496,8 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 		mtf.initialize("NotepadMergeListingTest", new OriginalProgramModifierListener() {
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
 					Function applesFunction =
 						createExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -1718,59 +1508,37 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 						createExternalFunction(program, new String[] { "user32.dll", "oranges" });
 					addParameter(orangesFunction, "P1", SourceType.USER_DEFINED,
 						new DWordDataType(), "Test Parameter Comment");
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					Function func;
 					func = getExternalFunction(program, new String[] { "user32.dll", "apples" });
 					func.setName("BARNEY", SourceType.USER_DEFINED);
 					func = getExternalFunction(program, new String[] { "user32.dll", "oranges" });
 					func.setName("BETTY", SourceType.USER_DEFINED);
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					Function func;
 					func = getExternalFunction(program, new String[] { "user32.dll", "apples" });
 					func.setName("FRED", SourceType.USER_DEFINED);
 					func = getExternalFunction(program, new String[] { "user32.dll", "oranges" });
 					func.setName("WILMA", SourceType.USER_DEFINED);
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -1797,47 +1565,29 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 		mtf.initialize("notepad", new ProgramModifierListener() {
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					createExternalFunction(program, new String[] { "user32.dll", "BETTY" },
 						addr(program, "1002239"), null, SourceType.USER_DEFINED);
 					createExternalFunction(program, new String[] { "user32.dll", "BARNEY" },
 						addr(program, "77db1020"), null, SourceType.USER_DEFINED);
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					createExternalFunction(program, new String[] { "user32.dll", "BETTY" },
 						addr(program, "10063b4"));
 					createExternalFunction(program, new String[] { "user32.dll", "BARNEY" },
 						addr(program, "77db1130"));
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -1853,33 +1603,16 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 		waitForMergeCompletion();
 
 		ExternalManager externalManager = resultProgram.getExternalManager();
-		List<ExternalLocation> externalLocations =
+		Set<ExternalLocation> externalLocations =
 			externalManager.getExternalLocations("user32.dll", "BETTY");
 		assertEquals(2, externalLocations.size());
-		assertHasDifferentAddresses(externalLocations, "1002239", "10063b4");
+		assertHasExtAddresses(externalLocations, "1002239", "10063b4");
 
-		List<ExternalLocation> externalLocations2 =
+		Set<ExternalLocation> externalLocations2 =
 			externalManager.getExternalLocations("user32.dll", "BARNEY");
 		assertEquals(2, externalLocations2.size());
-		assertHasDifferentAddresses(externalLocations2, "77db1020", "77db1130");
+		assertHasExtAddresses(externalLocations2, "77db1020", "77db1130");
 
-	}
-
-	private void assertHasDifferentAddresses(List<ExternalLocation> externalLocations,
-			String addrString1, String addrString2) {
-		Address addr1 = addr(resultProgram, addrString1);
-		Address addr2 = addr(resultProgram, addrString2);
-
-		Address extAddr1 = externalLocations.get(0).getAddress();
-		Address extAddr2 = externalLocations.get(1).getAddress();
-		if (addr1.equals(extAddr1) && addr2.equals(extAddr2)) {
-			return;
-		}
-		if (addr1.equals(extAddr2) && addr2.equals(extAddr1)) {
-			return;
-		}
-		fail("Expected addresses: " + addr1 + ", " + addr2 + " but got " + extAddr1 + ", " +
-			extAddr2);
 	}
 
 	@Test
@@ -1887,67 +1620,50 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 		mtf.initialize("notepad", new ProgramModifierListener() {
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
-					Function bettyFunction = createExternalFunction(program,
-						new String[] { "user32.dll", "BETTY" }, addr(program, "1002239"));
+					createExternalFunction(program, new String[] { "user32.dll", "BETTY" },
+						addr(program, "1002239"));
 
-					Function barneyFunction = createExternalFunction(program,
-						new String[] { "user32.dll", "BARNEY" }, addr(program, "77db1020"));
-
-					commit = true;
+					createExternalFunction(program, new String[] { "user32.dll", "BARNEY" },
+						addr(program, "77db1020"));
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
-					Function bettyFunction = createExternalFunction(program,
-						new String[] { "user32.dll", "BETTY" }, addr(program, "77db1020"));
+					createExternalFunction(program, new String[] { "user32.dll", "BETTY" },
+						addr(program, "77db1020"));
 
-					Function barneyFunction = createExternalFunction(program,
-						new String[] { "user32.dll", "BARNEY" }, addr(program, "1002239"));
-
-					commit = true;
+					createExternalFunction(program, new String[] { "user32.dll", "BARNEY" },
+						addr(program, "1002239"));
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
 
 		executeMerge(ASK_USER);
-		chooseButtonAndApply("Resolve External Add Conflict", LATEST_BUTTON);
-		chooseButtonAndApply("Resolve External Add Conflict", MY_BUTTON);
+		chooseButtonAndApply("Resolve External Add Conflict", LATEST_BUTTON); // BETTY has address conflict
+		chooseButtonAndApply("Resolve External Add Conflict", KEEP_BOTH_BUTTON); // BARNEY has address conflict
 
 		waitForMergeCompletion();
 
 		ExternalManager externalManager = resultProgram.getExternalManager();
-		List<ExternalLocation> externalLocations =
+		Set<ExternalLocation> externalLocations =
 			externalManager.getExternalLocations("user32.dll", "BARNEY");
 		assertEquals(2, externalLocations.size());
-		assertHasDifferentAddresses(externalLocations, "1002239", "77db1020");
+		assertHasExtAddresses(externalLocations, "1002239", "77db1020");
 
+		externalLocations = externalManager.getExternalLocations("user32.dll", "BETTY");
+		assertEquals(1, externalLocations.size());
+		assertHasExtAddresses(externalLocations, "01002239");
 	}
 
 	@Test
@@ -1955,13 +1671,8 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 		mtf.initialize("NotepadMergeListingTest", new OriginalProgramModifierListener() {
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
 					Function function =
 						createExternalFunction(program, new String[] { "user32.dll", "apples" },
@@ -1970,57 +1681,35 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 					Parameter parameter1 = new ParameterImpl("P1", new DWordDataType(), 4, program);
 					parameter1.setComment("Test Parameter Comment");
 					function.addParameter(parameter1, SourceType.USER_DEFINED);
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					Function func =
 						getExternalFunction(program, new String[] { "user32.dll", "apples" });
 					func.removeParameter(0);
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					Function func =
 						getExternalFunction(program, new String[] { "user32.dll", "apples" });
 					func.getParameter(0).setComment("New my comment.");
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -2041,8 +1730,6 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
 					Function function =
 						createExternalFunction(program, new String[] { "user32.dll", "apples" },
@@ -2051,51 +1738,35 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 					Parameter parameter1 = new ParameterImpl("P1", new DWordDataType(), 4, program);
 					parameter1.setComment("Test Parameter Comment");
 					function.addParameter(parameter1, SourceType.USER_DEFINED);
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					Function func =
 						getExternalFunction(program, new String[] { "user32.dll", "apples" });
 					func.removeParameter(0);
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					Function func =
 						getExternalFunction(program, new String[] { "user32.dll", "apples" });
 					func.getParameter(0).setComment("New my comment.");
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -2120,8 +1791,6 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
 					Function function =
 						createExternalFunction(program, new String[] { "user32.dll", "apples" },
@@ -2130,53 +1799,35 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 					Parameter parameter1 = new ParameterImpl("P1", new DWordDataType(), program);
 					parameter1.setComment("Test Parameter Comment");
 					function.addParameter(parameter1, SourceType.USER_DEFINED);
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					Function func =
 						getExternalFunction(program, new String[] { "user32.dll", "apples" });
 					func.removeParameter(0);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					Function func =
 						getExternalFunction(program, new String[] { "user32.dll", "apples" });
 					func.getParameter(0).setName("NewMyName", SourceType.USER_DEFINED);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -2197,8 +1848,6 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
 					Function function =
 						createExternalFunction(program, new String[] { "user32.dll", "apples" },
@@ -2207,53 +1856,35 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 					Parameter parameter1 = new ParameterImpl("P1", new DWordDataType(), program);
 					parameter1.setComment("Test Parameter Comment");
 					function.addParameter(parameter1, SourceType.USER_DEFINED);
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					Function func =
 						getExternalFunction(program, new String[] { "user32.dll", "apples" });
 					func.removeParameter(0);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					Function func =
 						getExternalFunction(program, new String[] { "user32.dll", "apples" });
 					func.getParameter(0).setName("NewMyName", SourceType.USER_DEFINED);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -2274,8 +1905,6 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
 					Function applesFunction =
 						createExternalFunction(program, new String[] { "user32.dll", "apples" },
@@ -2293,21 +1922,14 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 						new DWordDataType(), "Test Parameter Comment");
 					addParameter(orangesFunction, "A2", SourceType.USER_DEFINED,
 						new DWordDataType(), "Test Parameter Comment");
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					Function func =
 						getExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -2319,22 +1941,15 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 					func = getExternalFunction(program, new String[] { "user32.dll", "oranges" });
 					Parameter parameter1 = func.getParameter(1);
 					parameter1.setName("NewLatestName", SourceType.USER_DEFINED);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
 			}
 
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					Function func =
 						getExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -2347,15 +1962,10 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 					Parameter parameter1 = func.getParameter(1);
 					assertNotNull(parameter1);
 					func.removeParameter(1);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -2398,8 +2008,6 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
 					Function applesFunction =
 						createExternalFunction(program, new String[] { "user32.dll", "apples" },
@@ -2415,21 +2023,14 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 						new DWordDataType(), 4, "Test Parameter Comment");
 					addStackParameter(orangesFunction, "A2", SourceType.USER_DEFINED,
 						new DWordDataType(), 8, "Test Parameter Comment");
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					Function func;
 					Parameter param0;
@@ -2447,23 +2048,15 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 					param0 = func.getParameter(0);
 					assertNotNull(param0);
 					param0.setName("NewParamName2", SourceType.USER_DEFINED);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
-
 			}
 
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					Function func;
 					Parameter param0;
@@ -2481,15 +2074,10 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 					cmd = new AddRegisterParameterCommand(func, regR6, null,
 						new Undefined4DataType(), 1, SourceType.USER_DEFINED);
 					cmd.applyTo(program);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -2536,8 +2124,6 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
 					Function applesFunction =
 						createExternalFunction(program, new String[] { "user32.dll", "apples" },
@@ -2553,21 +2139,14 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 					parameter1 = new ParameterImpl("A1", new DWordDataType(), program);
 					parameter1.setComment("Test Parameter Comment");
 					orangesFunction.addParameter(parameter1, SourceType.USER_DEFINED);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					Function func;
 					AddRegisterParameterCommand cmd;
@@ -2585,22 +2164,15 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 					cmd = new AddRegisterParameterCommand(func, regR3, "Latest_3",
 						new FloatDataType(), 1, SourceType.USER_DEFINED);
 					cmd.applyTo(program);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
 			}
 
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					Function func;
 					AddRegisterParameterCommand cmd;
@@ -2618,15 +2190,10 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 					cmd = new AddRegisterParameterCommand(func, regR6, "My_6",
 						new Undefined4DataType(), 1, SourceType.USER_DEFINED);
 					cmd.applyTo(program);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -2673,8 +2240,6 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
 					Function applesFunction =
 						createExternalFunction(program, new String[] { "user32.dll", "apples" },
@@ -2696,21 +2261,14 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 						"Test B1");
 					addParameter(pearsFunction, "B2", SourceType.USER_DEFINED, new DWordDataType(),
 						"Test B2");
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					Function func =
 						getExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -2718,22 +2276,15 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 					func = getExternalFunction(program, new String[] { "user32.dll", "oranges" });
 					func.removeParameter(1);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
 			}
 
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					Function func =
 						getExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -2741,15 +2292,10 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 					func = getExternalFunction(program, new String[] { "user32.dll", "pears" });
 					func.removeParameter(0);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -2787,6 +2333,7 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 	/**
 	 * Remove a register parameter vs change the register on a register parameter.
+	 * 
 	 * @throws Exception
 	 */
 	@Test
@@ -2796,8 +2343,6 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
 					Function applesFunction =
 						createExternalFunction(program, new String[] { "user32.dll", "apples" },
@@ -2811,21 +2356,14 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 						createExternalFunction(program, new String[] { "user32.dll", "oranges" });
 					addParameter(orangesFunction, "A1", SourceType.USER_DEFINED,
 						new DWordDataType(), "Test A1 Comment");
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					ProgramContext context = program.getProgramContext();
 					Function func;
@@ -2836,22 +2374,15 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 					func = getExternalFunction(program, new String[] { "user32.dll", "oranges" });
 					func.setCustomVariableStorage(true);
 					changeToRegisterParameter(func, 0, context.getRegister("r2"));
-
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
 			}
 
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					ProgramContext context = program.getProgramContext();
 					Function func;
@@ -2862,15 +2393,10 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 					func = getExternalFunction(program, new String[] { "user32.dll", "oranges" });
 					func.setCustomVariableStorage(true);
 					func.removeParameter(0);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -2900,7 +2426,9 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 	}
 
 	/**
-	 * Remove a register parameter vs change an attribute (name, dt, comment) of a register parameter.
+	 * Remove a register parameter vs change an attribute (name, dt, comment) of a register
+	 * parameter.
+	 * 
 	 * @throws Exception
 	 */
 	@Test
@@ -2910,8 +2438,6 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
 					Function applesFunction =
 						createExternalFunction(program, new String[] { "user32.dll", "apples" },
@@ -2925,21 +2451,14 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 						createExternalFunction(program, new String[] { "user32.dll", "oranges" });
 					addParameter(orangesFunction, "A1", SourceType.USER_DEFINED,
 						new DWordDataType(), "Test A1 Comment");
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					Function func;
 					func = getExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -2949,22 +2468,15 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 					func = getExternalFunction(program, new String[] { "user32.dll", "oranges" });
 					func.setCustomVariableStorage(true);
 					func.getParameter(0).setName("X1", SourceType.USER_DEFINED);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
 			}
 
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					Function func;
 					func = getExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -2974,15 +2486,10 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 					func = getExternalFunction(program, new String[] { "user32.dll", "oranges" });
 					func.setCustomVariableStorage(true);
 					func.removeParameter(0);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -3009,7 +2516,9 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 	}
 
 	/**
-	 * Remove a register parameter vs change an attribute (name, dt, comment) of a register parameter.
+	 * Remove a register parameter vs change an attribute (name, dt, comment) of a register
+	 * parameter.
+	 * 
 	 * @throws Exception
 	 */
 	@Test
@@ -3019,8 +2528,6 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
 					Function applesFunction =
 						createExternalFunction(program, new String[] { "user32.dll", "apples" },
@@ -3034,21 +2541,14 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 						createExternalFunction(program, new String[] { "user32.dll", "oranges" });
 					addParameter(orangesFunction, "A1", SourceType.USER_DEFINED,
 						new DWordDataType(), "Test A1 Comment");
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					Function func;
 					func = getExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -3058,22 +2558,15 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 					func = getExternalFunction(program, new String[] { "user32.dll", "oranges" });
 					func.setCustomVariableStorage(true);
 					func.getParameter(0).setDataType(new FloatDataType(), SourceType.USER_DEFINED);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					Function func;
 					func = getExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -3083,15 +2576,10 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 					func = getExternalFunction(program, new String[] { "user32.dll", "oranges" });
 					func.setCustomVariableStorage(true);
 					func.removeParameter(0);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -3118,7 +2606,9 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 	}
 
 	/**
-	 * Remove a register parameter vs change an attribute (name, dt, comment) of a register parameter.
+	 * Remove a register parameter vs change an attribute (name, dt, comment) of a register
+	 * parameter.
+	 * 
 	 * @throws Exception
 	 */
 	@Test
@@ -3128,8 +2618,6 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
 					Function applesFunction =
 						createExternalFunction(program, new String[] { "user32.dll", "apples" },
@@ -3143,21 +2631,14 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 						createExternalFunction(program, new String[] { "user32.dll", "oranges" });
 					addParameter(orangesFunction, "A1", SourceType.USER_DEFINED,
 						new DWordDataType(), "Test A1 Comment");
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					Function func;
 					func = getExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -3167,22 +2648,15 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 					func = getExternalFunction(program, new String[] { "user32.dll", "oranges" });
 					func.setCustomVariableStorage(true);
 					func.getParameter(0).setComment("LATEST Comment");
-
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
 			}
 
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					Function func;
 					func = getExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -3192,15 +2666,10 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 					func = getExternalFunction(program, new String[] { "user32.dll", "oranges" });
 					func.setCustomVariableStorage(true);
 					func.removeParameter(0);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -3229,6 +2698,7 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 	/**
 	 * Remove a register parameter vs change the register on a register parameter.
+	 * 
 	 * @throws Exception
 	 */
 	@Test
@@ -3238,8 +2708,6 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
 					Function applesFunction =
 						createExternalFunction(program, new String[] { "user32.dll", "apples" },
@@ -3255,21 +2723,14 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 					parameter1 = new ParameterImpl("A1", new DWordDataType(), program);
 					parameter1.setComment("Test A1 Comment");
 					orangesFunction.addParameter(parameter1, SourceType.USER_DEFINED);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					Function func;
 					func = getExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -3279,22 +2740,15 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 					func = getExternalFunction(program, new String[] { "user32.dll", "oranges" });
 					func.setCustomVariableStorage(true);
 					func.removeParameter(0);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					Function func;
 					func = getExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -3304,15 +2758,10 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 					func = getExternalFunction(program, new String[] { "user32.dll", "oranges" });
 					func.setCustomVariableStorage(true);
 					changeToStackParameter(func, 0, 0x8);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -3345,8 +2794,6 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
 					Function applesFunction =
 						createExternalFunction(program, new String[] { "user32.dll", "apples" },
@@ -3363,21 +2810,14 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 						new DWordDataType(), 4, "Test Parameter Comment");
 					addStackParameter(orangesFunction, "A2", SourceType.USER_DEFINED,
 						new DWordDataType(), 8, "Test Parameter Comment");
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					Function func;
 
@@ -3388,22 +2828,15 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 					func = getExternalFunction(program, new String[] { "user32.dll", "oranges" });
 					parameters = func.getParameters();
 					parameters[1].setComment("This is a different test comment.");
-
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
 			}
 
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					Function func;
 
@@ -3414,15 +2847,10 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 					func = getExternalFunction(program, new String[] { "user32.dll", "oranges" });
 					parameters = func.getParameters();
 					parameters[1].setDataType(new IntegerDataType(), SourceType.USER_DEFINED);
-
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -3462,8 +2890,6 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
 					Function applesFunction =
 						createExternalFunction(program, new String[] { "user32.dll", "apples" },
@@ -3500,21 +2926,14 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 						new DWordDataType(), "Test Parameter Comment");
 					addParameter(berriesFunction, "D2", SourceType.USER_DEFINED,
 						new DWordDataType(), "Test Parameter Comment");
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					ProgramContext context = program.getProgramContext();
 					Function func;
@@ -3535,22 +2954,15 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 					func = getExternalFunction(program, new String[] { "user32.dll", "berries" });
 					func.getParameter(0).setComment("test comment.");
-
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
 			}
 
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					ProgramContext context = program.getProgramContext();
 					Function func;
@@ -3567,20 +2979,16 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 					func.getParameter(0).setName("NewName_0", SourceType.USER_DEFINED);
 
 					func = getExternalFunction(program, new String[] { "user32.dll", "grapes" });
-					func.getParameter(1).setDataType(new ArrayDataType(new ByteDataType(), 2, 1),
-						SourceType.USER_DEFINED);
+					func.getParameter(1)
+							.setDataType(new ArrayDataType(new ByteDataType(), 2, 1),
+								SourceType.USER_DEFINED);
 
 					func = getExternalFunction(program, new String[] { "user32.dll", "berries" });
 					func.getParameter(0).setComment("My sample comment.");
-
-					commit = true;
 				}
 				catch (Exception e) {
 					e.printStackTrace();
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -3633,7 +3041,7 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 		assertEquals("r12", parameters[0].getRegister().getName());
 		assertTrue(new DWordDataType().isEquivalent(parameters[0].getDataType()));
 		assertEquals("C2", parameters[1].getName());
-		assertEquals("r11", parameters[1].getRegister().getName());
+		assertEquals("r11l", parameters[1].getRegister().getName());
 		assertTrue(
 			new ArrayDataType(new ByteDataType(), 2, 1).isEquivalent(parameters[1].getDataType()));
 		localVariables = func.getLocalVariables();
@@ -3660,8 +3068,6 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 			@Override
 			public void modifyOriginal(ProgramDB program) {
-				int txId = program.startTransaction("Modify Original Program");
-				boolean commit = false;
 				try {
 					Function applesFunction =
 						createExternalFunction(program, new String[] { "user32.dll", "apples" },
@@ -3677,21 +3083,14 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 						new DWordDataType(), "Test Parameter Comment");
 					addParameter(orangesFunction, "A2", SourceType.USER_DEFINED,
 						new DWordDataType(), "Test Parameter Comment");
-
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					Function func =
 						getExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -3699,20 +3098,14 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 					func = getExternalFunction(program, new String[] { "user32.dll", "oranges" });
 					func.setStackPurgeSize(3);
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					Function func =
 						getExternalFunction(program, new String[] { "user32.dll", "apples" });
@@ -3720,13 +3113,9 @@ public class ExternalFunctionMergeManagerTest extends AbstractExternalMergerTest
 
 					func = getExternalFunction(program, new String[] { "user32.dll", "oranges" });
 					func.setStackPurgeSize(2);
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});

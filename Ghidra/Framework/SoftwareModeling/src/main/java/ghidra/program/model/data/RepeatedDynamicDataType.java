@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,7 +21,6 @@ import ghidra.docking.settings.Settings;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressOverflowException;
 import ghidra.program.model.mem.*;
-import ghidra.util.Conv;
 import ghidra.util.Msg;
 
 /**
@@ -96,7 +95,8 @@ public abstract class RepeatedDynamicDataType extends DynamicDataType {
 		try {
 			newBuf.advance(countSize);
 			while (moreComponents(memory, newBuf.getAddress())) {
-				DataTypeInstance dti = DataTypeInstance.getDataTypeInstance(baseStruct, newBuf);
+				DataTypeInstance dti =
+					DataTypeInstance.getDataTypeInstance(baseStruct, newBuf, false);
 				if (dti == null) {
 					Msg.error(this, "ERROR: problem with data at " + newBuf.getAddress());
 					return null;
@@ -126,6 +126,7 @@ public abstract class RepeatedDynamicDataType extends DynamicDataType {
 	/**
 	 * @see ghidra.program.model.data.DataType#getDescription()
 	 */
+	@Override
 	public String getDescription() {
 		return description;
 	}
@@ -133,6 +134,7 @@ public abstract class RepeatedDynamicDataType extends DynamicDataType {
 	/**
 	 * @see ghidra.program.model.data.DataType#getValue(ghidra.program.model.mem.MemBuffer, ghidra.docking.settings.Settings, int)
 	 */
+	@Override
 	public Object getValue(MemBuffer buf, Settings settings, int length) {
 		return null;
 	}
@@ -140,10 +142,12 @@ public abstract class RepeatedDynamicDataType extends DynamicDataType {
 	/**
 	 * @see ghidra.program.model.data.DataType#getRepresentation(ghidra.program.model.mem.MemBuffer, ghidra.docking.settings.Settings, int)
 	 */
+	@Override
 	public String getRepresentation(MemBuffer buf, Settings settings, int length) {
 		return "";
 	}
 
+	@Override
 	public String getMnemonic(Settings settings) {
 		return name;
 	}
@@ -153,13 +157,13 @@ public abstract class RepeatedDynamicDataType extends DynamicDataType {
 		try {
 			switch (terminatorSize) {
 				case 1:
-					test = Conv.byteToLong(memory.getByte(loc));
+					test = Byte.toUnsignedLong(memory.getByte(loc));
 					break;
 				case 2:
-					test = Conv.shortToLong(memory.getShort(loc));
+					test = Short.toUnsignedLong(memory.getShort(loc));
 					break;
 				case 4:
-					test = Conv.intToLong(memory.getInt(loc));
+					test = Integer.toUnsignedLong(memory.getInt(loc));
 					break;
 				case 8:
 					test = memory.getLong(loc);

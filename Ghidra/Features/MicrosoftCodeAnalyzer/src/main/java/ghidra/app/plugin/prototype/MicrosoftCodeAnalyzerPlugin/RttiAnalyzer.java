@@ -18,15 +18,13 @@ package ghidra.app.plugin.prototype.MicrosoftCodeAnalyzerPlugin;
 import java.util.*;
 
 import ghidra.app.cmd.data.CreateTypeDescriptorBackgroundCmd;
-import ghidra.app.cmd.data.TypeDescriptorModel;
-import ghidra.app.cmd.data.rtti.CreateRtti4BackgroundCmd;
-import ghidra.app.cmd.data.rtti.Rtti4Model;
+import ghidra.app.cmd.data.rtti.*;
 import ghidra.app.services.*;
 import ghidra.app.util.datatype.microsoft.*;
 import ghidra.app.util.importer.MessageLog;
+import ghidra.framework.options.Options;
 import ghidra.program.model.address.*;
 import ghidra.program.model.data.InvalidDataTypeException;
-import ghidra.program.model.lang.UndefinedValueException;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.mem.MemoryBlock;
 import ghidra.program.util.ProgramMemoryUtil;
@@ -43,12 +41,12 @@ public class RttiAnalyzer extends AbstractAnalyzer {
 	private static final String NAME = "Windows x86 PE RTTI Analyzer";
 	private static final String DESCRIPTION =
 		"Finds and creates RTTI metadata structures and associated vf tables.";
+	public static final String RTTI_FOUND_OPTION = "RTTI Found";
 
 	// TODO If we want the RTTI analyzer to find all type descriptors regardless of whether
 	//      they are used for RTTI, then change the CLASS_PREFIX_CHARS to ".". Need to be
 	//      careful that changing to this doesn't cause problems to RTTI analysis.
 	private static final String CLASS_PREFIX_CHARS = ".?A";
-	public static final String TYPE_INFO_STRING = ".?AVtype_info@@";
 
 	private DataValidationOptions validationOptions;
 	private DataApplyOptions applyOptions;
@@ -59,9 +57,9 @@ public class RttiAnalyzer extends AbstractAnalyzer {
 	public RttiAnalyzer() {
 		super(NAME, DESCRIPTION, AnalyzerType.BYTE_ANALYZER);
 		setSupportsOneTimeAnalysis();
-		// Set priority of RTTI analyzer to run after Demangler so can see if better 
+		// Set priority of RTTI analyzer to run after Demangler so can see if better
 		// plate comment or label already exists from Demangler.
-		setPriority(AnalysisPriority.DATA_TYPE_PROPOGATION.before().before());
+		setPriority(AnalysisPriority.REFERENCE_ANALYSIS.before());
 		setDefaultEnablement(true);
 		validationOptions = new DataValidationOptions();
 		applyOptions = new DataApplyOptions();
@@ -69,63 +67,88 @@ public class RttiAnalyzer extends AbstractAnalyzer {
 
 	@Override
 	public boolean canAnalyze(Program program) {
-		return PEUtil.canAnalyze(program);
+		return PEUtil.isVisualStudioOrClangPe(program);
 	}
 
 	@Override
 	public boolean added(Program program, AddressSetView set, TaskMonitor monitor, MessageLog log)
 			throws CancelledException {
 
-		List<MemoryBlock> dataBlocks =
-			ProgramMemoryUtil.getMemoryBlocksStartingWithName(program, set, ".data", monitor);
-		List<Address> typeInfoAddresses =
-			ProgramMemoryUtil.findString(TYPE_INFO_STRING, program, dataBlocks, set, monitor);
-
-		int typeInfoCount = typeInfoAddresses.size();
-		if (typeInfoCount != 1) {
-			if (typeInfoCount == 0) {
-				log.appendMsg(this.getName(), "Couldn't find type info structure.");
-				return true;
-			}
-			log.appendMsg(this.getName(),
-				"Found " + typeInfoCount + " type info structures when expecting only 1.");
-			return false;
-		}
-
-		// Found exactly 1 type info string, so use it to find RTTI structures.
-		Address typeInfoStringAddress = typeInfoAddresses.get(0);
-		Address typeInfoRtti0Address =
-			TypeDescriptorModel.getBaseAddress(program, typeInfoStringAddress);
-		if (typeInfoRtti0Address == null) {
-			log.appendMsg(this.getName(), "Couldn't find RTTI type info structure.");
+		// "rttiFound" option added in 10.3 so if analyzed with previous version analyzer will rerun
+		if (hasRun(program)) {
 			return true;
 		}
 
-		// Get the address of the vf table data in common for all RTTI 0.
-		TypeDescriptorModel typeDescriptorModel =
-			new TypeDescriptorModel(program, typeInfoRtti0Address, validationOptions);
-		try {
-			Address commonVfTableAddress = typeDescriptorModel.getVFTableAddress();
-			if (commonVfTableAddress == null) {
-				log.appendMsg(this.getName(),
-					"Couldn't get vf table address for RTTI 0 @ " + typeInfoRtti0Address + ". ");
-				return false;
-			}
+		Address commonVfTableAddress = RttiUtil.findTypeInfoVftableAddress(program, monitor);
 
-			int alignment = program.getDefaultPointerSize();
-			Set<Address> possibleTypeAddresses = ProgramMemoryUtil.findDirectReferences(program,
-				dataBlocks, alignment, commonVfTableAddress, monitor);
-
-			// We now have a list of potential rtti0 addresses.
-			processRtti0(possibleTypeAddresses, program, monitor);
-
+		if (commonVfTableAddress == null) {
+			setRttiFound(program, false);
 			return true;
 		}
-		catch (InvalidDataTypeException | UndefinedValueException e) {
-			log.appendMsg(this.getName(), "Couldn't get vf table address for RTTI 0 @ " +
-				typeInfoRtti0Address + ". " + e.getMessage());
+
+		RttiUtil.createTypeInfoVftableSymbol(program, commonVfTableAddress);
+
+		Set<Address> possibleTypeAddresses = locatePotentialRTTI0Entries(program, set, monitor);
+		if (possibleTypeAddresses == null) {
+			setRttiFound(program, false);
+			return true;
+		}
+
+		// We now have a list of potential rtti0 addresses.
+		processRtti0(possibleTypeAddresses, program, monitor);
+		setRttiFound(program, true);
+
+		return true;
+	}
+
+	/**
+	 * Has this analyzer been run on the given program. NOTE: option new as of 10.3 so this will
+	 * not be accurate for older programs.
+	 * @param program the given program
+	 * @return true if analyzer has run, false if not or unknown (before version 10.3)
+	 */
+	private boolean hasRun(Program program) {
+		Options programOptions = program.getOptions(Program.PROGRAM_INFO);
+		Boolean hasRun = (Boolean) programOptions.getObject(RTTI_FOUND_OPTION, null);
+		if (hasRun == null) {
 			return false;
 		}
+		return true;
+
+	}
+
+	/**
+	 * Method to set the RTTI Found option for the given program
+	 * @param program the given program
+	 * @param rttiFound true if RTTI found and processed, false otherwise
+	 */
+	private void setRttiFound(Program program, boolean rttiFound) {
+		Options programOptions = program.getOptions(Program.PROGRAM_INFO);
+		programOptions.setBoolean(RTTI_FOUND_OPTION, rttiFound);
+	}
+
+	/**
+	 * locate any potential RTTI0 based on pointers to the type_info vftable
+	 * @param program proram to locate within
+	 * @param set restricted set to locate within
+	 * @param monitor monitor for canceling
+	 * @return set of potential RTTI0 entries
+	 * @throws CancelledException if cancelled
+	 */
+	private Set<Address> locatePotentialRTTI0Entries(Program program, AddressSetView set,
+			TaskMonitor monitor) throws CancelledException {
+		Address commonVfTableAddress = RttiUtil.findTypeInfoVftableAddress(program, monitor);
+		if (commonVfTableAddress == null) {
+			return null;
+		}
+
+		// use the type_info vftable address to find a list of potential RTTI0 addresses
+		int alignment = program.getDefaultPointerSize();
+		List<MemoryBlock> dataBlocks = ProgramMemoryUtil.getMemoryBlocksStartingWithName(
+			program, program.getMemory(), ".data", TaskMonitor.DUMMY);
+		Set<Address> possibleTypeAddresses = ProgramMemoryUtil.findDirectReferences(program,
+			dataBlocks, alignment, commonVfTableAddress, monitor);
+		return possibleTypeAddresses;
 	}
 
 	private void processRtti0(Collection<Address> possibleRtti0Addresses, Program program,
@@ -134,32 +157,19 @@ public class RttiAnalyzer extends AbstractAnalyzer {
 		monitor.setMaximum(possibleRtti0Addresses.size());
 		monitor.setMessage("Creating RTTI Data...");
 
-		ArrayList<Address> rtti0Locations = new ArrayList<Address>();
+		ArrayList<Address> rtti0Locations = new ArrayList<>();
 		int count = 0;
 		for (Address rtti0Address : possibleRtti0Addresses) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			monitor.setProgress(count++);
-
-			// Validate
-			TypeDescriptorModel typeModel =
-				new TypeDescriptorModel(program, rtti0Address, validationOptions);
-			try {
-				// Check that name matches the expected format.
-				String typeName = typeModel.getTypeName(); // can be null.
-				if (typeName == null || !typeName.startsWith(CLASS_PREFIX_CHARS)) {
-					continue; // Invalid so don't create.
-				}
-			}
-			catch (InvalidDataTypeException e) {
-				continue; // Invalid so don't create.
-			}
 
 			// Create the TypeDescriptor (RTTI 0) regardless of the other RTTI structures.
 			CreateTypeDescriptorBackgroundCmd typeDescCmd = new CreateTypeDescriptorBackgroundCmd(
 				rtti0Address, validationOptions, applyOptions);
-			typeDescCmd.applyTo(program, monitor);
-
-			rtti0Locations.add(rtti0Address);
+			// Could call typeDescCmd.getStatusMsg() on failure
+			if (typeDescCmd.applyTo(program, monitor)) {
+				rtti0Locations.add(rtti0Address);
+			}
 		}
 
 		// Create any valid RTTI4s for this TypeDescriptor
@@ -174,6 +184,9 @@ public class RttiAnalyzer extends AbstractAnalyzer {
 
 		dataBlocks.addAll(ProgramMemoryUtil.getMemoryBlocksStartingWithName(program,
 			program.getMemory(), ".data", monitor));
+
+		dataBlocks.addAll(ProgramMemoryUtil.getMemoryBlocksStartingWithName(program,
+			program.getMemory(), ".text", monitor));
 
 		List<Address> rtti4Addresses =
 			getRtti4Addresses(program, dataBlocks, rtti0Locations, validationOptions, monitor);
@@ -201,7 +214,7 @@ public class RttiAnalyzer extends AbstractAnalyzer {
 			List<Address> rtti0Locations, DataValidationOptions validationOptions,
 			TaskMonitor monitor) throws CancelledException {
 
-		monitor.checkCanceled();
+		monitor.checkCancelled();
 
 		List<Address> addresses =
 			getRefsToRtti0(program, rtti4Blocks, rtti0Locations, validationOptions, monitor);
@@ -210,7 +223,7 @@ public class RttiAnalyzer extends AbstractAnalyzer {
 	}
 
 	/** For each of the RTTI0 locations found locate the associated RTTI4 structure referring to it.
-	 * 
+	 *
 	 * @param program program to be searched
 	 * @param dataBlocks dataBlocks to search
 	 * @param rtti0Locations list of known rtti0 locations
@@ -227,7 +240,7 @@ public class RttiAnalyzer extends AbstractAnalyzer {
 
 		int rtti0PointerOffset = Rtti4Model.getRtti0PointerComponentOffset();
 
-		MemoryBytePatternSearcher searcher = new MemoryBytePatternSearcher("RTTI0 refernces");
+		MemoryBytePatternSearcher searcher = new MemoryBytePatternSearcher("RTTI0 references");
 
 		for (Address rtti0Address : rtti0Locations) {
 			byte[] bytes;
@@ -259,7 +272,7 @@ public class RttiAnalyzer extends AbstractAnalyzer {
 
 	/**
 	 * Add a search pattern, to the searcher, for the set of bytes representing an address
-	 * 
+	 *
 	 * @param searcher pattern searcher
 	 * @param validationOptions RTTI4 validation options
 	 * @param addresses list of found valid RTTI4 locations accumulated during actual search
@@ -277,7 +290,7 @@ public class RttiAnalyzer extends AbstractAnalyzer {
 		}
 
 		// Each time a match for this byte pattern validate as an RTTI4 and add to list
-		GenericMatchAction<Address> action = new GenericMatchAction<Address>(rtti0Address) {
+		GenericMatchAction<Address> action = new GenericMatchAction<>(rtti0Address) {
 			@Override
 			public void apply(Program prog, Address addr, Match match) {
 				Address possibleRtti4Address;
@@ -297,7 +310,7 @@ public class RttiAnalyzer extends AbstractAnalyzer {
 					return; // Only process valid RTTI 4 data.
 				}
 
-				// Check that the RTTI 0 is referred to both directly from the RTTI 4 and indirectly 
+				// Check that the RTTI 0 is referred to both directly from the RTTI 4 and indirectly
 				// through the RTTI 3.
 				boolean refersToRtti0 = rtti4Model.refersToRtti0(getMatchValue());
 				if (!refersToRtti0) {
@@ -311,7 +324,7 @@ public class RttiAnalyzer extends AbstractAnalyzer {
 
 		// create a Pattern of the bytes and the MatchAction to perform upon a match
 		GenericByteSequencePattern<Address> genericByteMatchPattern =
-			new GenericByteSequencePattern<Address>(bytes, action);
+			new GenericByteSequencePattern<>(bytes, action);
 
 		searcher.addPattern(genericByteMatchPattern);
 	}

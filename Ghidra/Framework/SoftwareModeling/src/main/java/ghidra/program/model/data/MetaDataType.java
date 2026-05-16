@@ -72,15 +72,15 @@ public enum MetaDataType {
 	}
 
 	public static DataType getMostSpecificDataType(DataType a, DataType b) {
-		if (a == null) {
-			return b;
-		}
-		if (b == null) {
-			return a;
-		}
 		DataType aCopy = a;
 		DataType bCopy = b;
 		for (;;) {
+			if (a == null) {
+				return bCopy;
+			}
+			if (b == null) {
+				return aCopy;
+			}
 			MetaDataType aMeta = MetaDataType.getMeta(a);
 			MetaDataType bMeta = MetaDataType.getMeta(b);
 			int compare = aMeta.compareTo(bMeta);
@@ -91,10 +91,22 @@ public enum MetaDataType {
 				return aCopy;
 			}
 			if (aMeta == MetaDataType.PTR) {
+				if (a instanceof TypeDef) {
+					a = ((TypeDef) a).getBaseDataType();
+				}
+				if (b instanceof TypeDef) {
+					b = ((TypeDef) b).getBaseDataType();
+				}
 				a = ((Pointer) a).getDataType();
 				b = ((Pointer) b).getDataType();
 			}
 			else if (aMeta == MetaDataType.ARRAY) {
+				if (a instanceof TypeDef) {
+					a = ((TypeDef) a).getBaseDataType();
+				}
+				if (b instanceof TypeDef) {
+					b = ((TypeDef) b).getBaseDataType();
+				}
 				if (!(a instanceof Array) || !(b instanceof Array)) {
 					break;
 				}

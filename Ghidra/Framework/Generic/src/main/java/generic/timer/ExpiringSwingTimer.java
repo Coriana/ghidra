@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,20 +15,26 @@
  */
 package generic.timer;
 
-import java.util.Objects;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.BooleanSupplier;
+import java.util.function.*;
+
+import utility.function.Dummy;
 
 /**
- * This class allows clients to run swing action at some point in the future, when the given 
+ * This class allows clients to run swing action at some point in the future, when the given
  * condition is met, allowing for the task to timeout.  While this class implements the
  * {@link GhidraTimer} interface, it is really meant to be used to execute a code snippet one
- * time at some point in the future.  
+ * time at some point in the future.
  * 
  * <p>Both the call to check for readiness and the actual client code will be run on the Swing
  * thread.
  */
 public class ExpiringSwingTimer extends GhidraSwingTimer {
+
+	private static final int DEFAULT_EXPIRE_MS = 750;
+
+	private static Set<ExpiringSwingTimer> instances = new HashSet<>();
 
 	private long startMs = System.currentTimeMillis();
 	private int expireMs;
@@ -38,10 +44,10 @@ public class ExpiringSwingTimer extends GhidraSwingTimer {
 	private AtomicBoolean didRun = new AtomicBoolean();
 
 	/**
-	 * Runs the given client runnable when the given condition returns true.  The returned timer 
+	 * Runs the given client runnable when the given condition returns true.  The returned timer
 	 * will be running.
 	 * 
-	 * <p>Once the timer has performed the work, any calls to start the returned timer will 
+	 * <p>Once the timer has performed the work, any calls to start the returned timer will
 	 * not perform any work.  You can check {@link #didRun()} to see if the work has been completed.
 	 * 
 	 * @param isReady true if the code should be run
@@ -49,15 +55,72 @@ public class ExpiringSwingTimer extends GhidraSwingTimer {
 	 * @param runnable the code to run
 	 * @return the timer object that is running, which will execute the given code when ready
 	 */
-	public static ExpiringSwingTimer runWhen(BooleanSupplier isReady,
-			int expireMs,
+	public static ExpiringSwingTimer runWhen(BooleanSupplier isReady, int expireMs,
 			Runnable runnable) {
 
-		// Note: we could let the client specify the period, but that would add an extra argument
+		// Note: we could let the client specify the delay, but that would add an extra argument
+		//       to this method. For now, just use something reasonable.
+		int delay = 250;
+		ExpiringSwingTimer timer = new ExpiringSwingTimer(delay, expireMs, isReady, runnable);
+		timer.start();
+		return timer;
+	}
+
+	/**
+	 * Runs the given client runnable when the given condition returns true.  The returned timer
+	 * will be running.
+	 * 
+	 * <p>Once the timer has performed the work, any calls to start the returned timer will
+	 * not perform any work.  You can check {@link #didRun()} to see if the work has been completed.
+	 * 
+	 * <p>The timer's expiration is set to the default value of 
+	 * {@value ExpiringSwingTimer#DEFAULT_EXPIRE_MS}.
+	 * 
+	 * @param isReady true if the code should be run
+	 * @param runnable the code to run
+	 * @return the timer object that is running, which will execute the given code when ready
+	 */
+	public static ExpiringSwingTimer runWhen(BooleanSupplier isReady, Runnable runnable) {
+
+		// Note: we could let the client specify the delay, but that would add an extra argument
 		//       to this method. For now, just use something reasonable.
 		int delay = 250;
 		ExpiringSwingTimer timer =
-			new ExpiringSwingTimer(delay, expireMs, isReady, runnable);
+			new ExpiringSwingTimer(delay, DEFAULT_EXPIRE_MS, isReady, runnable);
+		timer.start();
+		return timer;
+	}
+
+	/**
+	 * Calls the given consumer with the non-null value returned from the given supplier.  The
+	 * returned timer will be running.
+	 * 
+	 * <p>Once the timer has performed the work, any calls to start the returned timer will
+	 * not perform any work.  You can check {@link #didRun()} to see if the work has been completed.
+	 * 
+	 * @param <T> the type used by the supplier and consumer
+	 * @param supplier the supplier of the desired value
+	 * @param expireMs the amount of time past which the code will not be run
+	 * @param consumer the consumer to be called with the supplier's value
+	 * @return the timer object that is running, which will execute the given code when ready
+	 */
+	public static <T> ExpiringSwingTimer get(Supplier<T> supplier, int expireMs,
+			Consumer<T> consumer) {
+
+		// Note: we could let the client specify the delay, but that would add an extra argument
+		//       to this method. For now, just use something reasonable.
+		int delay = 250;
+		BooleanSupplier isReady = () -> {
+			T t = supplier.get();
+			if (t == null) {
+				return false;
+			}
+
+			consumer.accept(t);
+			return true;
+		};
+		Runnable dummy = Dummy.runnable();
+		ExpiringSwingTimer timer = new ExpiringSwingTimer(delay, expireMs, isReady, dummy);
 		timer.start();
 		return timer;
 	}
@@ -65,7 +128,7 @@ public class ExpiringSwingTimer extends GhidraSwingTimer {
 	/**
 	 * Constructor
 	 * 
-	 * <p>Note: this class sets the parent's initial delay to 0.  This is to allow the client 
+	 * <p>Note: this class sets the parent's initial delay to 0.  This is to allow the client
 	 * code to be executed without delay when the ready condition is true.
 	 * 
 	 * @param delay the delay between calls to check <code>isReady</code>
@@ -73,8 +136,7 @@ public class ExpiringSwingTimer extends GhidraSwingTimer {
 	 * @param expireMs the amount of time past which the code will not be run
 	 * @param runnable the code to run
 	 */
-	public ExpiringSwingTimer(int delay, int expireMs, BooleanSupplier isReady,
-			Runnable runnable) {
+	public ExpiringSwingTimer(int delay, int expireMs, BooleanSupplier isReady, Runnable runnable) {
 		super(0, delay, null);
 		this.expireMs = expireMs;
 		this.isReady = isReady;
@@ -84,7 +146,7 @@ public class ExpiringSwingTimer extends GhidraSwingTimer {
 	}
 
 	/**
-	 * Returns true if the client runnable was run 
+	 * Returns true if the client runnable was run
 	 * @return true if the client runnable was run
 	 */
 	public boolean didRun() {
@@ -97,7 +159,14 @@ public class ExpiringSwingTimer extends GhidraSwingTimer {
 			return;
 		}
 
+		instances.add(this);
 		super.start();
+	}
+
+	@Override
+	public void stop() {
+		super.stop();
+		instances.remove(this);
 	}
 
 	/**

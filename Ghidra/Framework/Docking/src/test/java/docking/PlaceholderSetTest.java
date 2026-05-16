@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -24,38 +24,12 @@ import javax.swing.JLabel;
 
 import org.junit.Test;
 
+import docking.test.AbstractDockingTest;
 import docking.widgets.label.GDLabel;
-import generic.test.AbstractGenericTest;
 
-public class PlaceholderSetTest extends AbstractGenericTest {
+public class PlaceholderSetTest extends AbstractDockingTest {
 
-	public PlaceholderSetTest() {
-		super();
-	}
-
-	@Test
-	public void testDedupingRestoredPlaceholders_FirstShowing_SecondHidden() {
-
-		PlaceholderSet set = new PlaceholderSet(new PlaceholderManager(new DummyInstaller()));
-		set.addRestoredPlaceholder(createPlaceholder("A", "1", true));
-		set.addRestoredPlaceholder(createPlaceholder("A", "2", false));
-
-		Set<ComponentPlaceholder> placeholders = set.getUnusedPlaceholders();
-		assertEquals(1, placeholders.size());
-		assertTrue(contains(placeholders, "A", "1"));
-	}
-
-	@Test
-	public void testDedupingRestoredPlaceholders_FirstHidden_SecondShowing() {
-
-		PlaceholderSet set = new PlaceholderSet(new PlaceholderManager(new DummyInstaller()));
-		set.addRestoredPlaceholder(createPlaceholder("A", "1", false));
-		set.addRestoredPlaceholder(createPlaceholder("A", "2", true));
-
-		Set<ComponentPlaceholder> placeholders = set.getUnusedPlaceholders();
-		assertEquals(1, placeholders.size());
-		assertTrue(contains(placeholders, "A", "2"));
-	}
+	private Tool tool = new FakeDockingTool();
 
 	@Test
 	public void testDedupingRestoredPlaceholders_OnlyOneHidden() {
@@ -65,28 +39,6 @@ public class PlaceholderSetTest extends AbstractGenericTest {
 		Set<ComponentPlaceholder> placeholders = set.getUnusedPlaceholders();
 		assertEquals(1, placeholders.size());
 		assertTrue(contains(placeholders, "A", "1"));
-	}
-
-	@Test
-	public void testDedupingRestoredPlaceholders_TwoShowing() {
-
-		PlaceholderSet set = new PlaceholderSet(new PlaceholderManager(new DummyInstaller()));
-		set.addRestoredPlaceholder(createPlaceholder("A", "1", true));
-		set.addRestoredPlaceholder(createPlaceholder("A", "2", true));
-
-		Set<ComponentPlaceholder> placeholders = set.getUnusedPlaceholders();
-		assertEquals(1, placeholders.size());
-	}
-
-	@Test
-	public void testDedupingRestoredPlaceholders_TwoHidden() {
-
-		PlaceholderSet set = new PlaceholderSet(new PlaceholderManager(new DummyInstaller()));
-		set.addRestoredPlaceholder(createPlaceholder("A", "1", false));
-		set.addRestoredPlaceholder(createPlaceholder("A", "2", false));
-
-		Set<ComponentPlaceholder> placeholders = set.getUnusedPlaceholders();
-		assertEquals(1, placeholders.size());
 	}
 
 	@Test
@@ -164,7 +116,7 @@ public class PlaceholderSetTest extends AbstractGenericTest {
 		JLabel label = new GDLabel();
 
 		public TestProvider() {
-			super(null, null, null);
+			super(PlaceholderSetTest.this.tool, null, null);
 		}
 
 		@Override

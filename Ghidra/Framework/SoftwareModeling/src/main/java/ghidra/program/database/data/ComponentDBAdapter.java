@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,12 +15,12 @@
  */
 package ghidra.program.database.data;
 
-import ghidra.util.exception.VersionException;
-import ghidra.util.task.TaskMonitor;
-
 import java.io.IOException;
 
 import db.*;
+import ghidra.framework.data.OpenMode;
+import ghidra.program.model.data.InternalDataTypeComponent;
+import ghidra.util.exception.VersionException;
 
 /**
  * Adapter to access the Component database table.
@@ -45,14 +44,14 @@ abstract class ComponentDBAdapter {
 	 * on the version of the database associated with the specified database handle and the openMode.
 	 * @param handle handle to the database to be accessed.
 	 * @param openMode the mode this adapter is to be opened for (CREATE, UPDATE, READ_ONLY, UPGRADE).
-	 * @param monitor the monitor to use for displaying status or for canceling.
+	 * @param tablePrefix prefix to be used with default table name
 	 * @return the adapter for accessing the table of component data types.
 	 * @throws VersionException if the database handle's version doesn't match the expected version.
 	 * @throws IOException if there is a problem accessing the database.
 	 */
-	static ComponentDBAdapter getAdapter(DBHandle handle, int openMode, TaskMonitor monitor)
+	static ComponentDBAdapter getAdapter(DBHandle handle, OpenMode openMode, String tablePrefix)
 			throws VersionException, IOException {
-		return new ComponentDBAdapterV0(handle, openMode);
+		return new ComponentDBAdapterV0(handle, tablePrefix, openMode == OpenMode.CREATE);
 	}
 
 	/**
@@ -62,21 +61,23 @@ abstract class ComponentDBAdapter {
 	 * @param length the total length of this component.
 	 * @param ordinal the component's ordinal.
 	 * @param offset the component's offset.
-	 * @param name the component's name.
+	 * @param fieldName the component's name (may be null).  This method may sanitize the name
+	 * (see {@link InternalDataTypeComponent#cleanupFieldName(String)}) before storing.
+	 * {@link InternalDataTypeComponent#cleanupFieldName(String)} method use.
 	 * @param comment a comment about this component
 	 * @return the component data type record.
 	 * @throws IOException if there is a problem accessing the database.
 	 */
-	abstract Record createRecord(long dataTypeID, long parentID, int length, int ordinal,
-			int offset, String name, String comment) throws IOException;
+	abstract DBRecord createRecord(long dataTypeID, long parentID, int length, int ordinal,
+			int offset, String fieldName, String comment) throws IOException;
 
 	/**
 	 * Gets the record for the indicated component data type.
 	 * @param componentID the ID of the component data type to retrieve.
-	 * @return the component record
+	 * @return the component record or null if not found
 	 * @throws IOException if there is a problem accessing the database.
 	 */
-	abstract Record getRecord(long componentID) throws IOException;
+	abstract DBRecord getRecord(long componentID) throws IOException;
 
 	/**
 	 * Removes the component data type record with the specified ID.
@@ -88,16 +89,20 @@ abstract class ComponentDBAdapter {
 
 	/**
 	 * Updates the component data type table with the provided record.
+	 * <p>
+	 * IMPORTANT: Any modification of field name should be subject to 
+	 * {@link InternalDataTypeComponent#cleanupFieldName(String)} use first.
+	 * 
 	 * @param record the new record
 	 * @throws IOException if there is a problem accessing the database.
 	 */
-	abstract void updateRecord(Record record) throws IOException;
+	abstract void updateRecord(DBRecord record) throws IOException;
 
 	/**
 	 * Gets an array with all of the IDs of the defined components within the composite data type indicated.
 	 * @param compositeID the ID of the composite data type whose components are desired.
-	 * @return an array of the defined component IDs.
+	 * @return an array of the defined component IDs as LongField values within Field array.
 	 * @throws IOException if there is a problem accessing the database.
 	 */
-	abstract long[] getComponentIdsInComposite(long compositeID) throws IOException;
+	abstract Field[] getComponentIdsInComposite(long compositeID) throws IOException;
 }

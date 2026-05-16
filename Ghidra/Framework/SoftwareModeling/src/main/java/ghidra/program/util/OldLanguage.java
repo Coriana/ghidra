@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,8 +18,8 @@ package ghidra.program.util;
 import java.io.*;
 import java.util.*;
 
-import org.jdom.*;
-import org.jdom.input.SAXBuilder;
+import org.jdom2.*;
+import org.jdom2.input.SAXBuilder;
 import org.xml.sax.SAXException;
 import org.xml.sax.SAXNotRecognizedException;
 
@@ -29,7 +29,6 @@ import ghidra.program.model.address.*;
 import ghidra.program.model.lang.*;
 import ghidra.program.model.listing.DefaultProgramContext;
 import ghidra.program.model.mem.MemBuffer;
-import ghidra.program.model.util.AddressLabelInfo;
 import ghidra.util.ManualEntry;
 import ghidra.util.XmlProgramUtilities;
 import ghidra.util.task.TaskMonitor;
@@ -252,7 +251,9 @@ class OldLanguage implements Language {
 				langDescription = parseDescription(element, version);
 			}
 			else if ("compiler".equals(elementName)) {
-				associatedCompilerSpecs.add(parseCompilerSpecDescription(element));
+				if (!descriptionOnly) {
+					associatedCompilerSpecs.add(parseCompilerSpecDescription(element));
+				}
 			}
 			else if ("spaces".equals(elementName)) {
 				if (spacesFound) {
@@ -288,7 +289,8 @@ class OldLanguage implements Language {
 			throw new SAXException("Missing required 'spaces' element");
 		}
 		if (!registersFound) {
-			throw new SAXException("Missing required 'registers' element");
+			// register mapping will not be performed
+			registerMgr = (new RegisterBuilder()).getRegisterManager();
 		}
 	}
 
@@ -477,7 +479,16 @@ class OldLanguage implements Language {
 			}
 
 			if ("segmented_space".equals(elementName)) {
-				space = new SegmentedAddressSpace(name, unique);
+				String segmentType = childElement.getAttributeValue("type");
+				if (segmentType == null) {
+					throw new SAXException("Missing required segmented_space 'type' attribute");
+				}
+				if (segmentType.equals("protected")) {
+					space = new ProtectedAddressSpace(name, unique);
+				}
+				else {
+					space = new SegmentedAddressSpace(name, unique);
+				}
 			}
 			else {
 				String typeStr = childElement.getAttributeValue("type");
@@ -750,5 +761,15 @@ class OldLanguage implements Language {
 	public List<Register> getSortedVectorRegisters() {
 		throw new UnsupportedOperationException(
 			"Language for upgrade use only (getSortedVectorRegisters)");
+	}
+
+	@Override
+	public AddressSetView getRegisterAddresses() {
+		return registerMgr.getRegisterAddresses();
+	}
+
+	@Override
+	public OptionalInt getMaximumInstructionLength() {
+		return OptionalInt.empty();
 	}
 }

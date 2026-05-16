@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -25,14 +25,6 @@ import org.junit.Test;
 import ghidra.program.model.data.*;
 
 public class StructureEditorLockedDnDTest extends AbstractStructureEditorTest {
-
-	protected void init(Structure dt, Category cat) {
-		super.init(dt, cat, false);
-		runSwing(() -> {
-//				model.setLocked(true);
-		});
-//		assertTrue(model.isLocked());
-	}
 
 	@Test
 	public void testDragNDropAddSameSize() throws Exception {
@@ -86,7 +78,7 @@ public class StructureEditorLockedDnDTest extends AbstractStructureEditorTest {
 		assertTrue(getDataType(1).isEquivalent(dt1));
 		assertEquals(dt1.getLength(), model.getComponent(1).getLength());
 		assertEquals(325, model.getLength());
-		assertEquals("double doesn't fit.", model.getStatus());
+		assertTrue(model.getStatus().contains("requires 7 additional"));
 	}
 
 	@Test
@@ -167,14 +159,13 @@ public class StructureEditorLockedDnDTest extends AbstractStructureEditorTest {
 		assertNotNull(dt4);
 		insertAtPoint(dt4, 0, 0);
 
-		JDialog dialog =
-			waitForJDialog(env.getTool().getToolFrame(), "Enter Number", DEFAULT_WINDOW_TIMEOUT);
+		JDialog dialog = waitForJDialog("Enter Number");
 		assertNotNull(dialog);
 		JTextField textField = findComponent(dialog, JTextField.class);
 		triggerText(textField, "3");
 		pressButtonByText(dialog, "OK");
 
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertEquals(27, model.getNumComponents());
 		assertTrue(getDataType(0).isEquivalent(dt4));
 		assertEquals(341, model.getLength());

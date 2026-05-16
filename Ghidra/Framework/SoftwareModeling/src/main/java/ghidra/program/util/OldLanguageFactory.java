@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,9 +20,9 @@ import java.util.*;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jdom.Document;
-import org.jdom.Element;
-import org.jdom.output.XMLOutputter;
+import org.jdom2.Document;
+import org.jdom2.Element;
+import org.jdom2.output.XMLOutputter;
 
 import generic.jar.ResourceFile;
 import ghidra.framework.Application;
@@ -143,8 +143,8 @@ public class OldLanguageFactory {
 					langSvc.getLanguageDescription(oldLang.getLanguageID());
 				if (curDescr.getVersion() <= oldDescr.getVersion()) {
 					// Ignore old versions which are inappropriate
-					log.warn("WARNING! Ignoring old language spec, version still exists: " +
-						oldLang);
+					log.warn(
+						"WARNING! Ignoring old language spec, version still exists: " + oldLang);
 					continue;
 				}
 			}
@@ -208,13 +208,13 @@ public class OldLanguageFactory {
 	 * @throws IOException if file error occurs
 	 * @throws LanguageNotFoundException if lang is unknown to DefaultLanguageService
 	 */
-	public static void createOldLanguageFile(Language lang, File file) throws IOException,
-			LanguageNotFoundException {
+	public static void createOldLanguageFile(Language lang, File file)
+			throws IOException, LanguageNotFoundException {
 
 		LanguageService languageService = DefaultLanguageService.getLanguageService();
 		if (lang instanceof OldLanguage) {
 			throw new LanguageNotFoundException(
-				"Can't create an Old Langauge file from an OldLanguage");
+				"Can't create an Old Language file from an OldLanguage");
 		}
 		LanguageDescription languageDescription =
 			languageService.getLanguageDescription(lang.getLanguageID());
@@ -235,7 +235,7 @@ public class OldLanguageFactory {
 
 		Document doc = new Document(root);
 		FileOutputStream out = new FileOutputStream(file);
-		XMLOutputter xml = new GenericXMLOutputter();
+		XMLOutputter xml = GenericXMLOutputter.getInstance();
 		xml.output(doc, out);
 		out.close();
 	}
@@ -272,14 +272,14 @@ public class OldLanguageFactory {
 
 		Register contextReg = lang.getContextBaseRegister();
 		Element registersElement = new Element("registers");
-		if (contextReg != null) {
+		if (contextReg != Register.NO_CONTEXT) {
 			Element ctxElement = getRegisterElement(contextReg);
 			int contextBitLength = contextReg.getBitLength();
 			for (Register bitReg : contextReg.getChildRegisters()) {
 				Element fieldElement = new Element("field");
 				fieldElement.setAttribute("name", bitReg.getName());
 				int fieldBitLength = bitReg.getBitLength();
-				int lsb = bitReg.getLeastSignificatBitInBaseRegister();
+				int lsb = bitReg.getLeastSignificantBitInBaseRegister();
 				int msb = lsb + fieldBitLength - 1;
 
 				// Transpose bit numbering to agree with Sleigh context bit numbering
@@ -323,6 +323,12 @@ public class OldLanguageFactory {
 			Element element;
 			if (space instanceof SegmentedAddressSpace) {
 				element = new Element("segmented_space");
+				if (space instanceof ProtectedAddressSpace) {
+					element.setAttribute("type", "protected");
+				}
+				else {
+					element.setAttribute("type", "real");
+				}
 				element.setAttribute("name", space.getName());
 			}
 			else {

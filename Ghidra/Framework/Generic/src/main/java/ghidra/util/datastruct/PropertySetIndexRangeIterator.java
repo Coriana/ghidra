@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,7 +16,7 @@
 package ghidra.util.datastruct;
 
 import ghidra.util.LongIterator;
-import ghidra.util.prop.PropertySet;
+import ghidra.util.map.ValueMap;
 
 /**
  * Iterator over Property Set Index ranges that have the same value
@@ -28,7 +27,7 @@ public class PropertySetIndexRangeIterator implements IndexRangeIterator {
     /**
      * Constructor for PropertySetIndexRangeIterator.
      */
-    public PropertySetIndexRangeIterator(PropertySet set, long start) {
+    public PropertySetIndexRangeIterator(ValueMap set, long start) {
     	longIt = set.getPropertyIterator(start+1);
 
 		if (longIt.hasNext()) {
@@ -42,14 +41,16 @@ public class PropertySetIndexRangeIterator implements IndexRangeIterator {
     /**
      * @see ghidra.util.datastruct.IndexRangeIterator#hasNext()
      */
-    public boolean hasNext() {
+    @Override
+	public boolean hasNext() {
         return indexRange != null;
     }
 
     /**
      * @see ghidra.util.datastruct.IndexRangeIterator#next()
      */
-    public IndexRange next() {
+    @Override
+	public IndexRange next() {
     	IndexRange temp = indexRange;
     	getNextIndexRange();
     	return temp;

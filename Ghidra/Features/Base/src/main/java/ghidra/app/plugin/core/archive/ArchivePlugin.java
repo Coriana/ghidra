@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -49,7 +49,7 @@ import ghidra.util.task.*;
 	description = "The archive plugin provides a menu action from the project window allowing the user to archive a project or restore an archived project. "
 )
 //@formatter:on
-public class ArchivePlugin extends Plugin implements FrontEndOnly, ProjectListener {
+public class ArchivePlugin extends Plugin implements ApplicationLevelOnlyPlugin, ProjectListener {
 
 	private static final String PROJECT_GROUP_C_2 = "CProject2";
 
@@ -58,7 +58,6 @@ public class ArchivePlugin extends Plugin implements FrontEndOnly, ProjectListen
 	static final String TOOL_RUNNING_TITLE = "Cannot Archive while Tools are Running";
 	static final String GROUP_NAME = "Archiving";
 	static final String ARCHIVE_EXTENSION = ".gar";
-	static final String DOT_DOT_DOT = ". . .";
 	static final String TOOLS_FOLDER_NAME = "tools";
 	static final String GROUPS_FOLDER_NAME = "groups";
 	static final String SAVE_FOLDER_NAME = "save";
@@ -96,8 +95,6 @@ public class ArchivePlugin extends Plugin implements FrontEndOnly, ProjectListen
 	private TaskListener archivingListener;
 	private TaskListener restoringListener;
 
-	//////////////////////////////////////////////////////////////////
-
 	/**
 	 * The archive plugin provides menu action from the front end allowing the
 	 * user to archive a project or restore an archived project.
@@ -112,36 +109,34 @@ public class ArchivePlugin extends Plugin implements FrontEndOnly, ProjectListen
 	@Override
 	public void dispose() {
 		super.dispose();
+		if (archiveDialog != null) {
+			archiveDialog.dispose();
+		}
+		if (restoreDialog != null) {
+			restoreDialog.dispose();
+		}
 	}
 
-	/////////////////////////////////////////////////////////////////////
-
-	/**
-	 * @see ghidra.framework.model.ProjectListener#projectClosed(Project)
-	 */
 	@Override
 	public void projectClosed(Project project) {
 		archiveAction.setEnabled(false);
 		restoreAction.setEnabled(true);
 	}
 
-	/**
-	 * @see ghidra.framework.model.ProjectListener#projectOpened(Project)
-	 */
 	@Override
 	public void projectOpened(Project project) {
 		archiveAction.setEnabled(true);
 		restoreAction.setEnabled(false);
 	}
 
-	/**
+	/*
 	 * for JUnits...
 	 */
 	boolean isArchiving() {
 		return isArchiving;
 	}
 
-	/**
+	/*
 	 * for JUnits...
 	 */
 	boolean isRestoring() {
@@ -300,12 +295,6 @@ public class ArchivePlugin extends Plugin implements FrontEndOnly, ProjectListen
 		new TaskLauncher(task, tool.getToolFrame());
 	}
 
-	/**
-	 * Return true if the jar file contains the JAR_FORMAT tag to indicate
-	 * the new jar file format.
-	 * @param jarFile
-	 * @throws IOException
-	 */
 	private boolean isJarFormat(File jarFile) throws IOException {
 		JarInputStream jarIn = new JarInputStream(new FileInputStream(jarFile));
 		JarEntry entry = jarIn.getNextJarEntry();

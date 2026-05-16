@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,26 +17,32 @@ package ghidra.framework.main.datatree;
 
 import static org.junit.Assert.*;
 
+import java.awt.Component;
 import java.awt.Container;
 import java.awt.datatransfer.Transferable;
 import java.awt.dnd.DnDConstants;
+import java.awt.event.MouseEvent;
 import java.util.*;
 
 import javax.swing.*;
+import javax.swing.table.*;
 import javax.swing.tree.DefaultTreeCellEditor;
 import javax.swing.tree.TreePath;
 
 import org.junit.*;
 
-import docking.ActionContext;
+import docking.*;
 import docking.action.DockingActionIf;
 import docking.action.ToggleDockingAction;
 import docking.test.AbstractDockingTest;
 import docking.widgets.OptionDialog;
+import docking.widgets.table.GTable;
 import docking.widgets.tree.GTreeNode;
 import docking.widgets.tree.support.*;
 import ghidra.framework.data.DomainObjectAdapter;
+import ghidra.framework.main.FrontEndPlugin;
 import ghidra.framework.main.FrontEndTool;
+import ghidra.framework.main.datatable.ProjectDataTablePanel;
 import ghidra.framework.model.DomainFile;
 import ghidra.framework.model.DomainFolder;
 import ghidra.program.database.ProgramBuilder;
@@ -46,7 +52,6 @@ import ghidra.test.AbstractGhidraHeadedIntegrationTest;
 import ghidra.test.TestEnv;
 import ghidra.util.task.TaskMonitor;
 import resources.MultiIcon;
-import resources.ResourceManager;
 
 /**
  * Tests for actions in the front end (Ghidra project window)
@@ -63,10 +68,8 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 	public void setUp() throws Exception {
 
 		env = new TestEnv();
-
-		frontEndTool = env.getFrontEndTool();
-		env.showFrontEndTool();
-		tree = findComponent(frontEndTool.getToolFrame(), DataTree.class);
+		frontEndTool = env.showFrontEndTool();
+		tree = waitFor(() -> findComponent(frontEndTool.getToolFrame(), DataTree.class));
 		rootFolder = env.getProject().getProjectData().getRootFolder();
 
 		Program p = createDefaultProgram("p1", ProgramBuilder._TOY, this);
@@ -92,11 +95,11 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 
 	@Test
 	public void testNewFolder() throws Exception {
-		final DockingActionIf newFolderAction = getAction("New Folder");
+		DockingActionIf newFolderAction = getAction("New Folder");
 		setSelectionPaths(new TreePath[] { rootNode.getTreePath() });
 		int count = rootNode.getChildCount();
-		performAction(newFolderAction, getDomainFileActionContext(), true);
-		SwingUtilities.invokeAndWait(() -> tree.stopEditing());
+		performAction(newFolderAction, getTreeActionContext(), true);
+		runSwing(() -> tree.stopEditing());
 		assertEquals(count + 1, rootNode.getChildCount());
 		assertNotNull(getChild(rootNode, "NewFolder"));
 	}
@@ -104,11 +107,11 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 	@Test
 	public void testNewFolderBlankName() throws Exception {
 		// try entering a blank name
-		final DockingActionIf newFolderAction = getAction("New Folder");
+		DockingActionIf newFolderAction = getAction("New Folder");
 		setSelectionPaths(new TreePath[] { rootNode.getTreePath() });
-		performAction(newFolderAction, getDomainFileActionContext(), true);
+		performAction(newFolderAction, getTreeActionContext(), true);
 		waitForTree();
-		SwingUtilities.invokeLater(() -> {
+		runSwingLater(() -> {
 			GTreeNode node = rootNode.getChild("NewFolder");
 			int row = tree.getRowForPath(node.getTreePath());
 			DefaultTreeCellEditor cellEditor = (DefaultTreeCellEditor) tree.getCellEditor();
@@ -123,10 +126,9 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 		});
 		waitForSwing();
 
-		OptionDialog d = waitForDialogComponent(OptionDialog.class);
-		assertNotNull(d);
+		AbstractErrDialog d = waitForErrorDialog();
 		assertEquals("Rename Failed", d.getTitle());
-		pressButtonByText(d.getComponent(), "OK");
+		close(d);
 	}
 
 	@Test
@@ -135,9 +137,9 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 
 		for (int i = 0; i < 3; i++) {
 			setSelectionPaths(new TreePath[] { rootNode.getTreePath() });
-			performAction(newFolderAction, getDomainFileActionContext(), true);
+			performAction(newFolderAction, getTreeActionContext(), true);
 			waitForTree();
-			SwingUtilities.invokeAndWait(() -> tree.stopEditing());
+			runSwing(() -> tree.stopEditing());
 			waitForTree();
 			if (i > 0) {
 				assertNotNull(getChild(rootNode, "NewFolder" + (i + 1)));
@@ -162,11 +164,11 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 		DockingActionIf cutAction = getAction("Cut");
 		DockingActionIf pasteAction = getAction("Paste");
 
-		performAction(cutAction, getDomainFileActionContext(), true);
+		performAction(cutAction, getTreeActionContext(), true);
 		GTreeNode otherNode = getChild(rootNode, "otherFolder");
 		setSelectionPaths(new TreePath[] { otherNode.getTreePath() });
 
-		performAction(pasteAction, getDomainFileActionContext(), true);
+		performAction(pasteAction, getTreeActionContext(), true);
 		waitForTree();
 
 		// otherFolder should have one child
@@ -186,12 +188,12 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 		DockingActionIf cutAction = getAction("Cut");
 		DockingActionIf pasteAction = getAction("Paste");
 
-		performAction(cutAction, getDomainFileActionContext(), true);
+		performAction(cutAction, getTreeActionContext(), true);
 		GTreeNode myNode = getChild(rootNode, "myFolder");
 		assertNotNull(myNode);
 		setSelectionPaths(new TreePath[] { myNode.getTreePath() });
 
-		performAction(pasteAction, getDomainFileActionContext(), true);
+		performAction(pasteAction, getTreeActionContext(), true);
 		waitForTree();
 
 		// myFolder should have 2 files
@@ -211,12 +213,12 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 		DockingActionIf copyAction = getAction("Copy");
 		DockingActionIf pasteAction = getAction("Paste");
 
-		performAction(copyAction, getDomainFileActionContext(), true);
+		performAction(copyAction, getTreeActionContext(), true);
 		GTreeNode myNode = getChild(rootNode, "myFolder");
 		assertNotNull(myNode);
 		setSelectionPaths(new TreePath[] { myNode.getTreePath() });
 
-		performAction(pasteAction, getDomainFileActionContext(), true);
+		performAction(pasteAction, getTreeActionContext(), true);
 		waitForTree();
 
 		// myFolder should have 2 files
@@ -242,11 +244,11 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 		GTreeNode myNode = getChild(rootNode, "myFolder");
 		setSelectionPaths(new TreePath[] { myNode.getTreePath() });
 
-		performAction(copyAction, getDomainFileActionContext(), true);
+		performAction(copyAction, getTreeActionContext(), true);
 
 		setSelectionPaths(new TreePath[] { otherNode.getTreePath() });
 
-		performAction(pasteAction, getDomainFileActionContext(), true);
+		performAction(pasteAction, getTreeActionContext(), true);
 		waitForTree();
 
 		expandTreePath(otherNode.getTreePath());
@@ -277,11 +279,11 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 		setSelectionPaths(new TreePath[] { myNode.getTreePath(), npNode.getTreePath(),
 			xNode.getTreePath(), wNode.getTreePath() });
 
-		performAction(copyAction, getDomainFileActionContext(), true);
+		performAction(copyAction, getTreeActionContext(), true);
 
 		setSelectionPaths(new TreePath[] { otherNode.getTreePath() });
 
-		performAction(pasteAction, getDomainFileActionContext(), true);
+		performAction(pasteAction, getTreeActionContext(), true);
 		waitForTree();
 
 		expandTreePath(otherNode.getTreePath());
@@ -320,11 +322,11 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 		setSelectionPaths(new TreePath[] { myNode.getTreePath(), npNode.getTreePath(),
 			xNode.getTreePath(), wNode.getTreePath() });
 
-		performAction(cutAction, getDomainFileActionContext(), true);
+		performAction(cutAction, getTreeActionContext(), true);
 
 		setSelectionPaths(new TreePath[] { otherNode.getTreePath() });
 
-		performAction(pasteAction, getDomainFileActionContext(), true);
+		performAction(pasteAction, getTreeActionContext(), true);
 		waitForTree();
 
 		expandTreePath(otherNode.getTreePath());
@@ -371,9 +373,9 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 
 		rootFolder.createFolder("otherFolder");
 		waitForSwing();
-		final GTreeNode otherNode = getChild(rootNode, "otherFolder");
+		GTreeNode otherNode = getChild(rootNode, "otherFolder");
 		// drag myFolder to otherFolder
-		final GTreeNode myNode = getChild(rootNode, "myFolder");
+		GTreeNode myNode = getChild(rootNode, "myFolder");
 
 		doDrag(otherNode, DnDConstants.ACTION_MOVE, myNode);
 
@@ -460,10 +462,9 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 		doDrag(myNode, DnDConstants.ACTION_MOVE, npNode);
 		waitForTree();
 
-		OptionDialog d = waitForDialogComponent(OptionDialog.class);
-		assertNotNull(d);
+		AbstractErrDialog d = waitForErrorDialog();
 		assertEquals("Cannot Move File", d.getTitle());
-		pressButtonByText(d.getComponent(), "OK");
+		close(d);
 
 		expandTreePath(myNode.getTreePath());
 		assertEquals(0, myNode.getChildCount());
@@ -535,15 +536,15 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 		rootFolder.createFolder("myFolder");
 		waitForSwing();
 
-		final GTreeNode myNode = rootNode.getChild("myFolder");
+		GTreeNode myNode = rootNode.getChild("myFolder");
 		setSelectionPath(myNode.getTreePath());
 
 		DockingActionIf renameAction = getAction("Rename");
-		performAction(renameAction, getDomainFileActionContext(), true);
+		performAction(renameAction, getTreeActionContext(), true);
 		waitForTree();
 
 		// select "Rename" action
-		SwingUtilities.invokeAndWait(() -> {
+		runSwing(() -> {
 			int row = tree.getRowForPath(myNode.getTreePath());
 			JTree jTree = (JTree) getInstanceField("tree", tree);
 			DefaultTreeCellEditor cellEditor = (DefaultTreeCellEditor) tree.getCellEditor();
@@ -561,15 +562,16 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 
 	@Test
 	public void testRenameFile() throws Exception {
-		final GTreeNode npNode = rootNode.getChild("notepad");
+		GTreeNode npNode = rootNode.getChild("notepad");
 		setSelectionPath(npNode.getTreePath());
 
 		DockingActionIf renameAction = getAction("Rename");
-		performAction(renameAction, getDomainFileActionContext(), true);
+		performAction(renameAction, getTreeActionContext(), true);
 		waitForTree();
 
 		// select "Rename" action
-		SwingUtilities.invokeAndWait(() -> {
+		String newName = "My_notepad";
+		runSwing(() -> {
 			int row = tree.getRowForPath(npNode.getTreePath());
 			DefaultTreeCellEditor cellEditor = (DefaultTreeCellEditor) tree.getCellEditor();
 			JTree jTree = (JTree) getInstanceField("tree", tree);
@@ -577,18 +579,41 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 				true, true, false, row);
 			JTextField textField = (JTextField) container.getComponent(0);
 
-			textField.setText("My_notepad");
+			textField.setText(newName);
 			tree.stopEditing();
 		});
-		waitForSwing();
-		assertNotNull(rootNode.getChild("My_notepad"));
-		assertNull(rootNode.getChild("notepad"));
 
+		waitForTree();
+		assertNotNull(rootNode.getChild(newName));
+		assertNull(rootNode.getChild("notepad"));
+	}
+
+	@Test
+	public void testRenameFile_InTableView() throws Exception {
+
+		GTable table = switchToTableView();
+
+		String oldName = "notepad";
+		selectRow(table, oldName);
+
+		DockingActionIf renameAction = getAction("Rename");
+		performAction(renameAction, getTableActionContext(), true);
+		TableCellEditor editor = runSwing(() -> table.getCellEditor());
+		assertNotNull(editor);
+
+		Component component = getEditorComponent(editor);
+		String newName = "My_notepad";
+
+		clearText(component, oldName);
+		triggerText(component, newName);
+		triggerEnter(component);
+
+		assertProgramName(table, newName);
 	}
 
 	@Test
 	public void testRenameFileInUse() throws Exception {
-		final GTreeNode npNode = rootNode.getChild("notepad");
+		GTreeNode npNode = rootNode.getChild("notepad");
 		DomainFile df = ((DomainFileNode) npNode).getDomainFile();
 
 		setInUse(df);
@@ -597,11 +622,11 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 
 		DockingActionIf renameAction = getAction("Rename");
 		executeOnSwingWithoutBlocking(
-			() -> performAction(renameAction, getDomainFileActionContext(), true));
+			() -> performAction(renameAction, getTreeActionContext(), true));
 		waitForSwing();
-		OptionDialog dlg = waitForDialogComponent(OptionDialog.class);
-		assertEquals("Rename Not Allowed", dlg.getTitle());
-		pressButtonByText(dlg.getComponent(), "OK");
+
+		DialogComponentProvider d = waitForDialogComponent("Rename Not Allowed");
+		pressButtonByText(d.getComponent(), "OK");
 		assertNotNull(rootNode.getChild("notepad"));
 	}
 
@@ -618,7 +643,7 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 		DomainFile df = f.createFile("notepad", p, TaskMonitor.DUMMY);
 		waitForSwing();
 
-		final GTreeNode myNode = rootNode.getChild("myFolder");
+		GTreeNode myNode = rootNode.getChild("myFolder");
 		((DomainFolderNode) myNode).getDomainFolder().createFile("notepad", p, TaskMonitor.DUMMY);
 		p.release(this);
 
@@ -630,29 +655,20 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 
 		setSelectionPath(myNode.getTreePath());
 
-		final DockingActionIf renameAction = getAction("Rename");
-		performAction(renameAction, getDomainFileActionContext(), true);
+		DockingActionIf renameAction = getAction("Rename");
+		performAction(renameAction, getTreeActionContext(), true);
 		waitForTree();
 
 		// attempt to rename "myFolder"
-		SwingUtilities.invokeLater(() -> {
-			int row = tree.getRowForPath(myNode.getTreePath());
-			DefaultTreeCellEditor cellEditor = (DefaultTreeCellEditor) tree.getCellEditor();
-			JTree jTree = (JTree) getInstanceField("tree", tree);
-			Container container = (Container) cellEditor.getTreeCellEditorComponent(jTree, myNode,
-				true, true, false, row);
-			JTextField textField = (JTextField) container.getComponent(0);
-
-			textField.setText("My_Newfolder");
-			tree.stopEditing();
+		runSwingLater(() -> {
+			myNode.valueChanged("My_NewFolder");
 		});
 
 		waitForSwing();
 
-		OptionDialog d = waitForDialogComponent(OptionDialog.class);
-		assertNotNull(d);
+		AbstractErrDialog d = waitForErrorDialog();
 		assertEquals("Rename Failed", d.getTitle());
-		pressButtonByText(d.getComponent(), "OK");
+		close(d);
 		assertNotNull(rootNode.getChild("myFolder"));
 	}
 
@@ -667,7 +683,7 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 		GTreeNode myNode = rootNode.getChild("myFolder");
 		setSelectionPath(rootNode.getTreePath());
 		DockingActionIf expandAction = getAction("Expand All");
-		performAction(expandAction, getDomainFileActionContext(), true);
+		performAction(expandAction, getTreeActionContext(), true);
 		GTreeNode aNode = myNode.getChild("A");
 		assertNotNull(aNode);
 		GTreeNode bNode = aNode.getChild("B");
@@ -687,11 +703,11 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 		GTreeNode myNode = rootNode.getChild("myFolder");
 		setSelectionPath(myNode.getTreePath());
 		DockingActionIf expandAction = getAction("Expand All");
-		performAction(expandAction, getDomainFileActionContext(), true);
+		performAction(expandAction, getTreeActionContext(), true);
 		waitForTree();
 
 		DockingActionIf collapseAction = getAction("Collapse All");
-		performAction(collapseAction, getDomainFileActionContext(), true);
+		performAction(collapseAction, getTreeActionContext(), true);
 		waitForTree();
 		assertTrue(!tree.isExpanded(myNode.getTreePath()));
 		GTreeNode aNode = myNode.getChild("A");
@@ -709,18 +725,29 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 		f = f.createFolder("A");
 		f = f.createFolder("B");
 		f = f.createFolder("C");
-		waitForSwing();
+		waitForTree();
 
 		setSelectionPath(rootNode.getTreePath());
 		DockingActionIf selectAction = getAction("Select All");
-		performAction(selectAction, getDomainFileActionContext(), true);
+		performAction(selectAction, getTreeActionContext(), true);
 		waitForTree();
 
+		// NOTE: All nodes except the root node should be selected.
+		// Root is not selected to allow for most popup actions to
+		// be enabled and work as expected
+
 		BreadthFirstIterator it = new BreadthFirstIterator(rootNode);
+		int count = 0;
 		while (it.hasNext()) {
 			GTreeNode node = it.next();
-			assertTrue(tree.isPathSelected(node.getTreePath()));
+			if (tree.isPathSelected(node.getTreePath())) {
+				++count;
+			}
+			else {
+				assertTrue(node.isRoot());
+			}
 		}
+		assertEquals(7, count);
 	}
 
 	@Test
@@ -729,12 +756,9 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 		setSelectionPath(npNode.getTreePath());
 		ToggleDockingAction readOnlyAction = (ToggleDockingAction) getAction("Read-Only");
 		readOnlyAction.setSelected(true);
-		performAction(readOnlyAction, getDomainFileActionContext(), true);
+		performAction(readOnlyAction, getTreeActionContext(), true);
 
 		assertTrue(((DomainFileNode) npNode).getDomainFile().isReadOnly());
-		ImageIcon icon = ResourceManager.loadImage("fileIcons/ProgramReadOnly.gif");
-		icon = ResourceManager.getScaledIcon(icon, 16, 16);
-
 		assertTrue(npNode.getIcon(false) instanceof MultiIcon);
 	}
 
@@ -747,7 +771,7 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 		setSelectionPath(npNode.getTreePath());
 		ToggleDockingAction readOnlyAction = (ToggleDockingAction) getAction("Read-Only");
 		readOnlyAction.setSelected(true);
-		performAction(readOnlyAction, getDomainFileActionContext(), true);
+		performAction(readOnlyAction, getTreeActionContext(), true);
 
 		assertTrue(((DomainFileNode) npNode).getDomainFile().isReadOnly());
 	}
@@ -756,14 +780,92 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 // Private Methods
 //==================================================================================================
 
-	private void setSelectionPath(final TreePath path) throws Exception {
+	private void clearText(Component c, String text) {
+		int n = text.length();
+		for (int i = 0; i < n; i++) {
+			triggerBackspace(c);
+		}
+	}
+
+	private Component getEditorComponent(TableCellEditor editor) {
+		if (editor instanceof Component) {
+			return (Component) editor;
+		}
+		else if (editor instanceof DefaultCellEditor) {
+			return ((DefaultCellEditor) editor).getComponent();
+		}
+		fail("Could not find editor component");
+		return null;
+	}
+
+	private void assertProgramName(GTable table, String programName) {
+		int row = getRow(table, programName);
+		assertTrue("No row exsists for '" + programName + "'", row != -1);
+	}
+
+	private int getRow(GTable table, String programName) {
+		return runSwing(() -> {
+			int n = table.getRowCount();
+			TableColumn column = table.getColumn("Name");
+			int index = column.getModelIndex();
+			TableModel model = table.getModel();
+			for (int row = 0; row < n; row++) {
+				Object value = model.getValueAt(row, index);
+				if (Objects.equals(programName, value)) {
+					return row;
+				}
+			}
+			return -1;
+		});
+	}
+
+	private void selectRow(GTable table, String programName) {
+
+		int row = getRow(table, programName);
+		if (row != -1) {
+			runSwing(() -> table.selectRow(row));
+		}
+	}
+
+	private GTable switchToTableView() {
+
+		FrontEndPlugin plugin = getPlugin(frontEndTool, FrontEndPlugin.class);
+		JSplitPane panel = (JSplitPane) invokeInstanceMethod("getProjectDataPanel", plugin);
+		invokeInstanceMethod("showTable", panel);
+
+		waitForSwing();
+
+		GTable projectTable = findComponent(panel, GTable.class);
+		assertNotNull(projectTable);
+		return projectTable;
+	}
+
+	private ProjectDataTablePanel getProjectDataTablePanel() {
+
+		FrontEndPlugin plugin = getPlugin(frontEndTool, FrontEndPlugin.class);
+		JSplitPane panel = (JSplitPane) invokeInstanceMethod("getProjectDataPanel", plugin);
+		ProjectDataTablePanel pdtp = findComponent(panel, ProjectDataTablePanel.class);
+		return pdtp;
+	}
+
+	private ActionContext getTableActionContext() {
+
+		ProjectDataTablePanel panel = getProjectDataTablePanel();
+		MouseEvent e = null; // not currently used
+		FrontEndPlugin plugin = getPlugin(frontEndTool, FrontEndPlugin.class);
+		ComponentProvider provider =
+			(ComponentProvider) getInstanceField("frontEndProvider", plugin);
+		return panel.getActionContext(provider, e);
+	}
+
+	private void setSelectionPath(TreePath path) throws Exception {
 		tree.setSelectionPath(path);
 		waitForTree();
 	}
 
 	private void pressDelete() {
 		DockingActionIf deleteAction = getAction("Delete");
-		performAction(deleteAction, getDomainFileActionContext(), false);
+		performAction(deleteAction, getTreeActionContext(), false);
 		waitForSwing();
 	}
 
@@ -802,7 +904,7 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 		setInUse(df, "/notepad");
 	}
 
-	private void setInUse(DomainFile df, final String path) throws Exception {
+	private void setInUse(DomainFile df, String path) throws Exception {
 		ProgramDB program = createDefaultProgram("test1", ProgramBuilder._TOY, this);
 
 		//
@@ -812,8 +914,8 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 		//
 
 		//@formatter:off
-		Object projectFileManager = getInstanceField("fileManager", df);
-		invokeInstanceMethod("setDomainObject", projectFileManager,
+		Object projectData = getInstanceField("projectData", df);
+		invokeInstanceMethod("setDomainObject", projectData,
 			new Class[] { String.class, 	DomainObjectAdapter.class },
 			new Object[] { path, program }
 				);
@@ -855,7 +957,7 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 		waitForTree(tree);
 	}
 
-	private ActionContext getDomainFileActionContext() {
+	private ActionContext getTreeActionContext() {
 		List<DomainFile> fileList = new ArrayList<>();
 		List<DomainFolder> folderList = new ArrayList<>();
 
@@ -863,15 +965,16 @@ public class FrontEndPluginActionsTest extends AbstractGhidraHeadedIntegrationTe
 		for (TreePath path : paths) {
 
 			GTreeNode node = (GTreeNode) path.getLastPathComponent();
-			if (node instanceof DomainFileNode) {
-				fileList.add(((DomainFileNode) node).getDomainFile());
+			if (node instanceof DomainFileNode fileNode) {
+				// NOTE: File may be a linked-folder.  Treatment as folder or file depends on action
+				fileList.add(fileNode.getDomainFile());
 			}
-			else if (node instanceof DomainFolderNode) {
-				folderList.add(((DomainFolderNode) node).getDomainFolder());
+			else if (node instanceof DomainFolderNode folderNode) {
+				folderList.add(folderNode.getDomainFolder());
 			}
 		}
 
-		return new FrontEndProjectTreeContext(null, null, paths, folderList, fileList, tree,
-			true);
+		return new FrontEndProjectTreeContext(null, null, paths, folderList, fileList, tree, true);
 	}
+
 }

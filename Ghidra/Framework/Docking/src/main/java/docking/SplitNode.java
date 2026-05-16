@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,15 +15,15 @@
  */
 package docking;
 
-import ghidra.util.Msg;
-
 import java.awt.Dimension;
 import java.util.ArrayList;
 import java.util.List;
 
 import javax.swing.*;
 
-import org.jdom.Element;
+import org.jdom2.Element;
+
+import ghidra.util.Msg;
 
 /**
  * Node for managing a JSplitPane view of two component trees.
@@ -41,9 +41,9 @@ class SplitNode extends Node {
 	/**
 	 * Constructs a new SplitNode object
 	 * @param winMgr the DockingWindowsManager that this node belongs to.
-	 * @param orientation the JSplitPane orientation (JSplitPane.HORIZONTAL_SPLIT or JSplitPane.VERTICAL_SPLIT)
 	 * @param child1 the node managing the first component tree.
 	 * @param child2 the node managing the second component tree.
+	 * @param isHorizontal true for horizontal layout
 	 */
 	SplitNode(DockingWindowManager winMgr, Node child1, Node child2, boolean isHorizontal) {
 		super(winMgr);
@@ -59,6 +59,7 @@ class SplitNode extends Node {
 	 * @param elem the XML JDOM element containing the configuration information.
 	 * @param mgr the DockingWindowsManager for this node.
 	 * @param parent the parent node for this node.
+	 * @param restoredPlaceholders the list into which any restored placeholders will be placed
 	 */
 	SplitNode(Element elem, DockingWindowManager mgr, Node parent,
 			List<ComponentPlaceholder> restoredPlaceholders) {
@@ -194,7 +195,7 @@ class SplitNode extends Node {
 
 	@Override
 	List<Node> getChildren() {
-		List<Node> list = new ArrayList<Node>();
+		List<Node> list = new ArrayList<>();
 		if (child1 != null) {
 			list.add(child1);
 		}
@@ -205,6 +206,18 @@ class SplitNode extends Node {
 	}
 
 	@Override
+	int getComponentCount() {
+		int n = 0;
+		if (child1 != null) {
+			n += child1.getComponentCount();
+		}
+		if (child2 != null) {
+			n += child2.getComponentCount();
+		}
+		return n;
+	}
+
+	@Override
 	public String toString() {
 		return printTree();
 	}
@@ -212,6 +225,12 @@ class SplitNode extends Node {
 	@Override
 	String getDescription() {
 		return "Split Node";
+	}
+
+	@Override
+	void dispose() {
+		child1.dispose();
+		child2.dispose();
 	}
 }
 

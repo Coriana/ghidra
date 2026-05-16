@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,7 +15,10 @@
  */
 package docking.widgets.table.constrainteditor;
 
-import java.awt.*;
+import static docking.widgets.textfield.integer.IntegerFormat.*;
+
+import java.awt.Component;
+import java.awt.GridLayout;
 import java.math.BigInteger;
 
 import javax.swing.*;
@@ -24,6 +27,7 @@ import docking.widgets.label.GDHtmlLabel;
 import docking.widgets.spinner.IntegerSpinner;
 import docking.widgets.table.constraint.ColumnConstraint;
 import docking.widgets.table.constraint.RangeColumnConstraint;
+import generic.theme.GThemeDefaults.Colors.Messages;
 import ghidra.util.layout.VerticalLayout;
 
 /**
@@ -105,7 +109,7 @@ public class IntegerRangeConstraintEditor<T extends Number>
 		panel.add(rangeControlPanel);
 
 		infoLabel = new GDHtmlLabel();
-		infoLabel.setForeground(Color.GRAY);
+		infoLabel.setForeground(Messages.HINT);
 		infoLabel.setHorizontalAlignment(SwingConstants.CENTER);
 		panel.add(infoLabel);
 
@@ -127,7 +131,8 @@ public class IntegerRangeConstraintEditor<T extends Number>
 			BigInteger delta = bigEnd.subtract(bigStart).add(BigInteger.ONE);
 
 			boolean hexMode =
-				lowerSpinner.getTextField().isHexMode() || upperSpinner.getTextField().isHexMode();
+				lowerSpinner.getTextField().getFormat() == HEX ||
+					upperSpinner.getTextField().getFormat() == HEX;
 
 			String statusMsg = formatStatus(
 				String.format("Range Size: " + (hexMode ? "0x%x" : "%,d"), delta), false);

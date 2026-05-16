@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,13 +17,11 @@ package ghidra.app.plugin.core.searchtext;
 
 import java.awt.*;
 import java.awt.event.*;
-import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 
 import javax.swing.*;
 import javax.swing.border.Border;
-import javax.swing.text.*;
 
 import docking.*;
 import docking.widgets.button.GRadioButton;
@@ -41,7 +39,7 @@ import ghidra.util.task.TaskMonitorComponent;
 /**
  * Dialog for showing options to search text in a Program.
  */
-class SearchTextDialog extends DialogComponentProvider {
+class SearchTextDialog extends ReusableDialogComponentProvider {
 
 	private static final int DEFAULT_MAX_ENTRIES = 10;
 
@@ -50,7 +48,6 @@ class SearchTextDialog extends DialogComponentProvider {
 	private JButton nextButton;
 	private JButton previousButton;
 	private JButton allButton;
-	private JTextField valueField;
 	private GhidraComboBox<String> valueComboBox;
 	private List<String> history = new LinkedList<>();
 	private JRadioButton programDatabaseSearchRB;
@@ -77,10 +74,6 @@ class SearchTextDialog extends DialogComponentProvider {
 
 	private JRadioButton allBlocksButton;
 
-	/**
-	 * Constructor
-	 * @param plugin 
-	 */
 	SearchTextDialog(SearchTextPlugin plugin) {
 		super("Search Program Text", false, true, true, true);
 		setHelpLocation(new HelpLocation(HelpTopics.SEARCH, "Search_Text"));
@@ -101,16 +94,11 @@ class SearchTextDialog extends DialogComponentProvider {
 		allButton.setMnemonic('a');
 		allButton.addActionListener(ev -> {
 			searchAll();
-			valueField.requestFocus();
+			valueComboBox.requestFocus();
 		});
 		this.addButton(allButton);
 		setUseSharedLocation(true);
 		addDismissButton();
-	}
-
-	void dispose() {
-		close();
-		this.plugin = null;
 	}
 
 	@Override
@@ -120,8 +108,8 @@ class SearchTextDialog extends DialogComponentProvider {
 
 	public void show(ComponentProvider componentProvider) {
 		clearStatusText();
-		valueField.requestFocus();
-		valueField.selectAll();
+		valueComboBox.requestFocus();
+		valueComboBox.selectAll();
 		tool.showDialog(this, componentProvider);
 		isBusy = false;
 		updateSearchButtonsEnablement();
@@ -203,16 +191,8 @@ class SearchTextDialog extends DialogComponentProvider {
 
 		valueComboBox = new GhidraComboBox<>();
 		valueComboBox.setEditable(true);
-		valueField = (JTextField) valueComboBox.getEditor().getEditorComponent();
-		valueField.setColumns(20);
-		valueField.setDocument(new AutoCompleteDocument());
-		valueField.addActionListener(ev -> {
-			if (nextButton.isEnabled()) {
-				nextPrevious(true);	// go forward
-				valueField.requestFocus();
-			}
-		});
-		valueField.addKeyListener(new KeyAdapter() {
+		valueComboBox.setColumns(20);
+		valueComboBox.addEditorKeyListener(new KeyAdapter() {
 			@Override
 			public void keyPressed(KeyEvent e) {
 				if (e.getKeyCode() != KeyEvent.VK_ENTER) {
@@ -291,8 +271,8 @@ class SearchTextDialog extends DialogComponentProvider {
 		labelsCB.setToolTipText(HTMLUtilities.toHTML("Search in the Lable field"));
 
 		mnemonicsCB = new GCheckBox("Instruction Mnemonics");
-		mnemonicsCB.setToolTipText(
-			HTMLUtilities.toHTML("Search in the Instruction Mnemonic field"));
+		mnemonicsCB
+				.setToolTipText(HTMLUtilities.toHTML("Search in the Instruction Mnemonic field"));
 
 		operandsCB = new GCheckBox("Instruction Operands");
 		operandsCB.setToolTipText(HTMLUtilities.toHTML("Search in the Instruction Operand fields"));
@@ -412,10 +392,10 @@ class SearchTextDialog extends DialogComponentProvider {
 		loadedBlocksButton = new GRadioButton("Loaded Blocks", true);
 
 		allBlocksButton = new GRadioButton("All Blocks", false);
-		loadedBlocksButton.setToolTipText(HTMLUtilities.toHTML(
-			"Only searches memory blocks that are loaded in a running executable.\n  " +
-				"Ghidra now includes memory blocks for other data such as section headers.\n" +
-				"This option exludes these OTHER (non loaded) blocks."));
+		loadedBlocksButton.setToolTipText(HTMLUtilities
+				.toHTML("Only searches memory blocks that are loaded in a running executable.\n  " +
+					"Ghidra now includes memory blocks for other data such as section headers.\n" +
+					"This option exludes these OTHER (non loaded) blocks."));
 		allBlocksButton.setToolTipText(
 			"Searches all memory blocks including blocks that are not actually loaded in a running executable");
 
@@ -438,7 +418,7 @@ class SearchTextDialog extends DialogComponentProvider {
 			return;
 		}
 
-		addToHistory(valueField.getText());
+		addToHistory(valueComboBox.getText());
 
 		plugin.next();
 
@@ -448,7 +428,7 @@ class SearchTextDialog extends DialogComponentProvider {
 	}
 
 	public SearchOptions getSearchOptions() {
-		String value = valueField.getText();
+		String value = valueComboBox.getText();
 		value = StringUtilities.fixMultipleAsterisks(value);
 		if (searchAllRB.isSelected()) {
 			return new SearchOptions(value, caseSensitiveCB.isSelected(), forward,
@@ -466,7 +446,7 @@ class SearchTextDialog extends DialogComponentProvider {
 	 * search option was selected.
 	 */
 	private boolean validate() {
-		String value = valueField.getText();
+		String value = valueComboBox.getText();
 		if (value.length() == 0) {
 			setStatusText("Please enter a pattern to search for.");
 			return false;
@@ -497,7 +477,7 @@ class SearchTextDialog extends DialogComponentProvider {
 	private void searchAll() {
 		clearStatusText();
 
-		addToHistory(valueField.getText());
+		addToHistory(valueComboBox.getText());
 
 		if (!validate()) {
 			return;
@@ -557,23 +537,6 @@ class SearchTextDialog extends DialogComponentProvider {
 		}
 	}
 
-	private String matchHistory(String input) {
-		if (input == null) {
-			return null;
-		}
-
-		Iterator<String> itr = history.iterator();
-		String ret = null;
-		while (ret == null && itr.hasNext()) {
-			String cur = itr.next();
-			if (cur.startsWith(input)) {
-				ret = cur;
-			}
-		}
-
-		return ret;
-	}
-
 	private void updateCombo() {
 		String[] list = new String[history.size()];
 		history.toArray(list);
@@ -591,7 +554,7 @@ class SearchTextDialog extends DialogComponentProvider {
 	}
 
 	public void setValueFieldText(String selectedText) {
-		valueField.setText(selectedText);
+		valueComboBox.setText(selectedText);
 	}
 
 	public void setCurrentField(ProgramLocation textField, boolean isInstruction) {
@@ -627,35 +590,4 @@ class SearchTextDialog extends DialogComponentProvider {
 			dataOperandsCB.setSelected(true);
 		}
 	}
-
-	public class AutoCompleteDocument extends DefaultStyledDocument {
-
-		private String previousInput;
-		private boolean automated = false;
-
-		@Override
-		public void insertString(int offs, String str, AttributeSet a) throws BadLocationException {
-
-			super.insertString(offs, str, a);
-			if (automated) {
-				automated = false;
-			}
-			else {
-				String input = valueField.getText();
-				//If the text has changed
-				if (!input.equals(previousInput)) {
-					previousInput = input;
-					String match = matchHistory(input);
-					if (match != null && match.length() > input.length()) {
-						automated = true;
-						valueField.setText(match);
-						valueField.setSelectionStart(input.length());
-						valueField.setSelectionEnd(match.length());
-					}
-				}
-			}
-		}
-
-	}
-
 }

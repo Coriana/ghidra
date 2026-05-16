@@ -18,6 +18,7 @@ package ghidra.app.util.bin.format.elf;
 import java.util.HashMap;
 import java.util.Map;
 
+import ghidra.util.Msg;
 import ghidra.util.StringUtilities;
 import ghidra.util.exception.DuplicateNameException;
 
@@ -94,6 +95,15 @@ public class ElfDynamicType {
 	public static ElfDynamicType DT_FLAGS = addDefaultDynamicType(30, "DT_FLAGS",
 		"Flags for the object being loaded", ElfDynamicValueType.VALUE);
 
+	// Experimental RELR relocation support
+	// - see proposal at https://groups.google.com/forum/#!topic/generic-abi/bX460iggiKg
+	public static ElfDynamicType DT_RELRSZ = addDefaultDynamicType(35, "DT_RELRSZ",
+		"Total size of Relr relocs", ElfDynamicValueType.VALUE);
+	public static ElfDynamicType DT_RELR =
+		addDefaultDynamicType(36, "DT_RELR", "Address of Relr relocs", ElfDynamicValueType.ADDRESS);
+	public static ElfDynamicType DT_RELRENT = addDefaultDynamicType(37, "DT_RELRENT",
+		"Size of Relr relocation entry", ElfDynamicValueType.VALUE);
+
 	public static final int DF_ORIGIN = 0x1; 		// $ORIGIN processing required
 	public static final int DF_SYMBOLIC = 0x2;		// Symbolic symbol resolution required
 	public static final int DF_TEXTREL = 0x4;		// Text relocations exist
@@ -104,7 +114,7 @@ public class ElfDynamicType {
 	//  public static ElfDynamicType DT_ENCODING = addDefaultDynamicType(32, "DT_ENCODING",
 	//	  "Start of encoded range", ElfDynamicValueType.VALUE);
 	public static ElfDynamicType DT_PREINIT_ARRAY = addDefaultDynamicType(32, "DT_PREINIT_ARRAY",
-		"Array with addresses of preinit fct", ElfDynamicValueType.VALUE);
+		"Array with addresses of preinit fct", ElfDynamicValueType.ADDRESS);
 	public static ElfDynamicType DT_PREINIT_ARRAYSZ = addDefaultDynamicType(33,
 		"DT_PREINIT_ARRAYSZ", "Size in bytes of DT_PREINIT_ARRAY", ElfDynamicValueType.VALUE);
 
@@ -114,11 +124,17 @@ public class ElfDynamicType {
 		"DT_ANDROID_REL", "Address of Rel relocs", ElfDynamicValueType.ADDRESS);
 	public static ElfDynamicType DT_ANDROID_RELSZ = addDefaultDynamicType(0x60000010,
 		"DT_ANDROID_RELSZ", "Total size of Rel relocs", ElfDynamicValueType.VALUE);
-
 	public static ElfDynamicType DT_ANDROID_RELA = addDefaultDynamicType(0x60000011,
 		"DT_ANDROID_RELA", "Address of Rela relocs", ElfDynamicValueType.ADDRESS);
 	public static ElfDynamicType DT_ANDROID_RELASZ = addDefaultDynamicType(0x60000012,
 		"DT_ANDROID_RELASZ", "Total size of Rela relocs", ElfDynamicValueType.VALUE);
+
+	public static ElfDynamicType DT_ANDROID_RELR = addDefaultDynamicType(0x6FFFE000,
+		"DT_ANDROID_RELR", "Address of Relr relocs", ElfDynamicValueType.ADDRESS);
+	public static ElfDynamicType DT_ANDROID_RELRSZ = addDefaultDynamicType(0x6FFFE001,
+		"DT_ANDROID_RELRSZ", "Total size of Relr relocs", ElfDynamicValueType.VALUE);
+	public static ElfDynamicType DT_ANDROID_RELRENT = addDefaultDynamicType(0x6FFFE003,
+		"DT_ANDROID_RELRENT", "Size of Relr relocation entry", ElfDynamicValueType.VALUE);
 
 	// Value Range (??): 0x6ffffd00 - 0x6ffffdff
 
@@ -147,6 +163,8 @@ public class ElfDynamicType {
 
 	// Address Range (??): 0x6ffffe00 - 0x6ffffeff
 
+	public static ElfDynamicType DT_GNU_XHASH = addDefaultDynamicType(0x6ffffef4, "DT_GNU_XHASH",
+			"GNU-style extended hash table", ElfDynamicValueType.ADDRESS);
 	public static ElfDynamicType DT_GNU_HASH = addDefaultDynamicType(0x6ffffef5, "DT_GNU_HASH",
 		"GNU-style hash table", ElfDynamicValueType.ADDRESS);
 	public static ElfDynamicType DT_TLSDESC_PLT =
@@ -218,14 +236,16 @@ public class ElfDynamicType {
 			return type;
 		}
 		catch (DuplicateNameException e) {
-			throw new RuntimeException("ElfDynamicType initialization error", e);
+			// Make sure error is properly logged during static initialization
+			Msg.error(ElfDynamicType.class, "ElfDynamicType initialization error", e);
+			throw new RuntimeException(e);
 		}
 	}
 
 	/**
 	 * Add the specified dynamic entry type to the specified map.
 	 * @param type dynamic entry type
-	 * @param dynamicTypeMap
+	 * @param dynamicTypeMap map of dynamic types
 	 * @throws DuplicateNameException if new type name already defined within
 	 * the specified map
 	 */

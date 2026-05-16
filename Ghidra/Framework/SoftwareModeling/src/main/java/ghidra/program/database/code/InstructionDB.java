@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,12 +15,11 @@
  */
 package ghidra.program.database.code;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
-import db.Record;
-import ghidra.program.database.DBObjectCache;
-import ghidra.program.model.address.*;
+import db.DBRecord;
+import ghidra.program.model.address.Address;
+import ghidra.program.model.address.AddressOverflowException;
 import ghidra.program.model.lang.*;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.mem.MemBuffer;
@@ -28,7 +27,9 @@ import ghidra.program.model.mem.MemoryAccessException;
 import ghidra.program.model.pcode.PcodeOp;
 import ghidra.program.model.scalar.Scalar;
 import ghidra.program.model.symbol.*;
-import ghidra.program.util.ChangeManager;
+import ghidra.program.model.util.CodeUnitInsertionException;
+import ghidra.program.util.ProgramEvent;
+import ghidra.util.Lock.Closeable;
 import ghidra.util.Msg;
 import ghidra.util.exception.NoValueException;
 
@@ -37,42 +38,50 @@ import ghidra.util.exception.NoValueException;
  */
 public class InstructionDB extends CodeUnitDB implements Instruction, InstructionContext {
 
-	private static byte FALLTHROUGH_SET_MASK = (byte) 0x01;
-	private static byte FALLTHROUGH_CLEAR_MASK = (byte) 0xfe;
+	private static final byte FALLTHROUGH_SET_MASK = 0x01;
+	private static final byte FALLTHROUGH_CLEAR_MASK = ~FALLTHROUGH_SET_MASK;
 
-	private static byte FLOWOVERRIDE_MASK = (byte) 0x0e;
-	private static byte FLOWOVERRIDE_CLEAR_MASK = (byte) 0xf1;
-	private static int FLOWOVERRIDE_SHIFT = 1;
+	private static final byte FLOW_OVERRIDE_SET_MASK = 0x0e;
+	private static final byte FLOW_OVERRIDE_CLEAR_MASK = ~FLOW_OVERRIDE_SET_MASK;
+	private static final int FLOW_OVERRIDE_SHIFT = 1;
+
+	private static final byte LENGTH_OVERRIDE_SET_MASK = 0x70;
+	private static final byte LENGTH_OVERRIDE_CLEAR_MASK = ~LENGTH_OVERRIDE_SET_MASK;
+	private static final int LENGTH_OVERRIDE_SHIFT = 4;
 
 	private InstructionPrototype proto;
 	private byte flags;
 	private FlowOverride flowOverride;
+	private int lengthOverride;
 	private final static Address[] EMPTY_ADDR_ARRAY = new Address[0];
+	private final static Object[] EMPTY_OBJ_ARRAY = new Object[0];
 	private volatile boolean clearingFallThroughs = false;
 
-	private ParserContext parserContext;
+	private ParserContext parserContext;	// uses lazy initialization
+	private String mnemonicString;			// uses lazy initialization
 
 	/**
 	 * Construct a new InstructionDB.
 	 * @param codeMgr code manager
-	 * @param cache code unit cache
 	 * @param address min address of this instruction
 	 * @param addr database key
 	 * @param proto instruction prototype
 	 * @param flags flow override flags
 	 */
-	public InstructionDB(CodeManager codeMgr, DBObjectCache<? extends CodeUnitDB> cache,
-			Address address, long addr, InstructionPrototype proto, byte flags) {
-		super(codeMgr, cache, addr, address, addr, proto.getLength());
+	InstructionDB(CodeManager codeMgr, Address address, long addr, InstructionPrototype proto,
+			byte flags) {
+		super(codeMgr, addr, address, addr, proto.getLength());
 		this.proto = proto;
 		this.flags = flags;
 		flowOverride =
-			FlowOverride.getFlowOverride((flags & FLOWOVERRIDE_MASK) >> FLOWOVERRIDE_SHIFT);
+			FlowOverride.getFlowOverride((flags & FLOW_OVERRIDE_SET_MASK) >> FLOW_OVERRIDE_SHIFT);
+		refreshLength();
 	}
 
 	@Override
-	protected boolean refresh(Record record) {
+	protected boolean refresh(DBRecord record) {
 		parserContext = null;
+		mnemonicString = null;
 		return super.refresh(record);
 	}
 
@@ -82,15 +91,47 @@ public class InstructionDB extends CodeUnitDB implements Instruction, Instructio
 		return proto.hasDelaySlots() ? (length * 2) : length;
 	}
 
+	private void refreshLength() {
+		length = proto.getLength();
+		lengthOverride = (flags & LENGTH_OVERRIDE_SET_MASK) >> LENGTH_OVERRIDE_SHIFT;
+		if (lengthOverride != 0 && lengthOverride < length) {
+			length = lengthOverride;
+		}
+		else {
+			lengthOverride = 0;
+		}
+	}
+
+	/**
+	 * Get the instruction code unit length based upon its prototype and flags 
+	 * which will be used to check for a length-override condition.
+	 * @param proto instruction prototype
+	 * @param flags instruction flags
+	 * @return instruction code unit length
+	 */
+	static int getLength(InstructionPrototype proto, byte flags) {
+		int length = proto.getLength();
+		int lengthOverride = (flags & LENGTH_OVERRIDE_SET_MASK) >> LENGTH_OVERRIDE_SHIFT;
+		if (lengthOverride != 0 && lengthOverride < length) {
+			length = lengthOverride;
+		}
+		else {
+			lengthOverride = 0;
+		}
+		return length;
+	}
+
 	@Override
-	protected boolean hasBeenDeleted(Record rec) {
+	protected boolean hasBeenDeleted(DBRecord rec) {
 		if (rec == null) {
 			rec = codeMgr.getInstructionRecord(addr);
 			if (rec == null) {
 				return true;
 			}
 		}
-		// ensure that record provided corresponds to an InstructionDB record
+		// ensure that record provided corresponds to a DataDB record
+		// since following an undo/redo the record could correspond to
+		// a different type of code unit (hopefully with a different record schema)
 		else if (!rec.hasSameSchema(InstDBAdapter.INSTRUCTION_SCHEMA)) {
 			return true;
 		}
@@ -103,10 +144,11 @@ public class InstructionDB extends CodeUnitDB implements Instruction, Instructio
 		if (!newProto.equals(proto)) {
 			return true;
 		}
-		length = proto.getLength();
+
 		flags = rec.getByteValue(InstDBAdapter.FLAGS_COL);
 		flowOverride =
-			FlowOverride.getFlowOverride((flags & FLOWOVERRIDE_MASK) >> FLOWOVERRIDE_SHIFT);
+			FlowOverride.getFlowOverride((flags & FLOW_OVERRIDE_SET_MASK) >> FLOW_OVERRIDE_SHIFT);
+		refreshLength();
 		return false;
 	}
 
@@ -115,18 +157,14 @@ public class InstructionDB extends CodeUnitDB implements Instruction, Instructio
 		if (!proto.hasDelaySlots()) {
 			return 0;
 		}
-		lock.acquire();
-		try {
+		try (Closeable c = lock.read()) {
 			return proto.getDelaySlotDepth(this);
-		}
-		finally {
-			lock.release();
 		}
 	}
 
 	/**
 	 * Get the original context used to establish the shared prototype
-	 * @param baseContextReg
+	 * @param baseContextReg is a context register
 	 * @return prototype context value
 	 */
 	public RegisterValue getOriginalPrototypeContext(Register baseContextReg) {
@@ -140,10 +178,30 @@ public class InstructionDB extends CodeUnitDB implements Instruction, Instructio
 	}
 
 	@Override
+	public int getParsedLength() {
+		return isLengthOverridden() ? proto.getLength() : getLength();
+	}
+
+	@Override
+	public byte[] getParsedBytes() throws MemoryAccessException {
+		if (!isLengthOverridden()) {
+			return getBytes();
+		}
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
+			int len = proto.getLength();
+			byte[] b = new byte[len];
+			if (len != getMemory().getBytes(address, b)) {
+				throw new MemoryAccessException("Failed to read " + len + " bytes at " + address);
+			}
+			return b;
+		}
+	}
+
+	@Override
 	public Address getFallFrom() {
-		lock.acquire();
-		try {
-			checkIsValid();
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
 			// check if the instruction before this is in a delay slot
 			// If it is then back up until hit an instruction that claims
 			// to be a delay slot instruction that is not in a delay slot
@@ -153,29 +211,41 @@ public class InstructionDB extends CodeUnitDB implements Instruction, Instructio
 			if (alignment < 1) {
 				alignment = 1;
 			}
+
 			do {
-				// skip past delay slot instructions
+				// skip past delay slot instructions which satisfy specific conditions
 				try {
-					instr = program.getListing().getInstructionContaining(
-						instr.getMinAddress().subtractNoWrap(alignment));
+					instr = program.getListing()
+							.getInstructionContaining(
+								instr.getMinAddress().subtractNoWrap(alignment));
 				}
 				catch (AddressOverflowException e) {
 					return null;
 				}
 			}
-			while (instr != null && instr.isInDelaySlot());
+			// Continue walking instructions backwards if a delay-slot instruction is found and 
+			// either the delay slot instruction does not fallthrough or it does not have a 
+			// ref or label on it.
+			while (instr != null && instr.isInDelaySlot() && (!instr.hasFallthrough() ||
+				!program.getSymbolTable().hasSymbol(instr.getMinAddress())));
+
 			if (instr == null) {
 				return null;
 			}
 
-			// If this instruction is in a delay slot,
-			// it is assumed to always fall from the delay-slotted
-			// instruction regardless of its fall-through
-			if (this.isInDelaySlot()) {
+			if (isInDelaySlot()) {
+				// If this instruction is within delay-slot, return a null fall-from address if 
+				// previous instruction (i.e., instruction with delay slot, found above)
+				// does not have a fallthrough and this instruction has a ref or label on it.
+				if (!instr.hasFallthrough() &&
+					program.getSymbolTable().hasSymbol(getMinAddress())) {
+					return null;
+				}
+				// Return previous instruction's address (i.e., instruction with delay slot, found above)
 				return instr.getMinAddress();
 			}
 
-			// No delay slot, but check if the instruction falls into this one.
+			// No delay-slot, but check if the instruction falls into this one.
 			Address fallAddr = instr.getFallThrough();
 			if (fallAddr != null && fallAddr.equals(address)) {
 				return instr.getMinAddress();
@@ -183,44 +253,37 @@ public class InstructionDB extends CodeUnitDB implements Instruction, Instructio
 
 			return null;
 		}
-		finally {
-			lock.release();
+	}
+
+	private Address getFallThroughReference() {
+		for (Reference ref : refMgr.getReferencesFrom(address)) {
+			if (ref.getReferenceType().isFallthrough() && ref.getToAddress().isMemoryAddress()) {
+				return ref.getToAddress();
+			}
 		}
+		return null;
 	}
 
 	@Override
 	public Address getFallThrough() {
-		lock.acquire();
-		try {
-			checkIsValid();
-			if (isFallThroughOverridden()) {
-				for (Reference ref : refMgr.getReferencesFrom(address)) {
-					if (ref.getReferenceType().isFallthrough() &&
-						ref.getToAddress().isMemoryAddress()) {
-						return ref.getToAddress();
-					}
-				}
-				return null;
-			}
-			return getDefaultFallThrough();
+		if (isFallThroughOverridden()) {
+			return getFallThroughReference();
 		}
-		finally {
-			lock.release();
-		}
+		return getDefaultFallThrough();
 	}
 
 	@Override
 	public Address[] getFlows() {
-		refreshIfNeeded();
+		validate(lock);
 		Reference[] refs = refMgr.getFlowReferencesFrom(address);
 		if (refs.length == 0) {
 			return EMPTY_ADDR_ARRAY;
 		}
 
-		ArrayList<Address> list = new ArrayList<Address>();
-		for (int i = 0; i < refs.length; ++i) {
-			if (!refs[i].getReferenceType().isIndirect()) {
-				list.add(refs[i].getToAddress());
+		Set<Address> list = new HashSet<>();
+		for (Reference ref : refs) {
+			if (!ref.getReferenceType().isIndirect()) {
+				list.add(ref.getToAddress());
 			}
 		}
 
@@ -228,12 +291,12 @@ public class InstructionDB extends CodeUnitDB implements Instruction, Instructio
 			return EMPTY_ADDR_ARRAY;
 		}
 
-		Address[] addrs = new Address[list.size()];
-		return list.toArray(addrs);
+		return list.toArray(new Address[list.size()]);
 	}
 
 	@Override
 	public Address[] getDefaultFlows() {
+		validate(lock);
 		Address[] flows = proto.getFlows(this);
 		if (flowOverride == FlowOverride.RETURN && flows.length == 1) {
 			return EMPTY_ADDR_ARRAY;
@@ -243,45 +306,39 @@ public class InstructionDB extends CodeUnitDB implements Instruction, Instructio
 
 	@Override
 	public FlowType getFlowType() {
+		validate(lock);
 		return FlowOverride.getModifiedFlowType(proto.getFlowType(this), flowOverride);
 	}
 
 	@Override
 	public Instruction getNext() {
-		refreshIfNeeded();
+		validate(lock);
 		return codeMgr.getInstructionAfter(address);
 	}
 
 	@Override
 	public RefType getOperandRefType(int opIndex) {
-		// always reflects current flowOverride
-		lock.acquire();
-		try {
-			checkIsValid();
-			return proto.getOperandRefType(opIndex, this, new InstructionPcodeOverride(this),
-				new UniqueAddressFactory(program.getAddressFactory(), program.getLanguage()));
+
+		if (opIndex < 0 || opIndex >= getNumOperands()) {
+			return null;
 		}
-		finally {
-			lock.release();
+
+		// always reflects current flowOverride
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
+			return proto.getOperandRefType(opIndex, this, new InstructionPcodeOverride(this));
 		}
 	}
 
 	@Override
 	public String getSeparator(int opIndex) {
-		lock.acquire();
-		try {
-			return proto.getSeparator(opIndex, this);
-		}
-		finally {
-			lock.release();
-		}
+		return proto.getSeparator(opIndex);
 	}
 
 	@Override
 	public String getDefaultOperandRepresentation(int opIndex) {
-		lock.acquire();
-		try {
-			checkIsValid();
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
 			List<Object> opList = getDefaultOperandRepresentationList(opIndex);
 			if (opList == null) {
 				return "<UNSUPPORTED>";
@@ -302,28 +359,20 @@ public class InstructionDB extends CodeUnitDB implements Instruction, Instructio
 			}
 			return strBuf.toString();
 		}
-		finally {
-			lock.release();
-		}
 	}
 
 	@Override
 	public List<Object> getDefaultOperandRepresentationList(int opIndex) {
-		lock.acquire();
-		try {
-			checkIsValid();
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
 			return proto.getOpRepresentationList(opIndex, this);
-		}
-		finally {
-			lock.release();
 		}
 	}
 
 	@Override
 	public int getOperandType(int opIndex) {
-		lock.acquire();
-		try {
-			checkIsValid();
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
 			int optype = proto.getOpType(opIndex, this);
 
 			Reference ref = getPrimaryReference(opIndex);
@@ -339,29 +388,24 @@ public class InstructionDB extends CodeUnitDB implements Instruction, Instructio
 			}
 			return optype;
 		}
-		finally {
-			lock.release();
-		}
 	}
 
 	@Override
 	public Object[] getOpObjects(int opIndex) {
-		lock.acquire();
-		try {
-			checkIsValid();
-			if (opIndex < 0 || opIndex >= getNumOperands()) {
-				return new Object[0];
-			}
-			return proto.getOpObjects(opIndex, this);
+
+		if (opIndex < 0 || opIndex >= getNumOperands()) {
+			return EMPTY_OBJ_ARRAY;
 		}
-		finally {
-			lock.release();
+
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
+			return proto.getOpObjects(opIndex, this);
 		}
 	}
 
 	@Override
 	public Instruction getPrevious() {
-		refreshIfNeeded();
+		validate(lock);
 		return codeMgr.getInstructionBefore(address);
 	}
 
@@ -372,40 +416,30 @@ public class InstructionDB extends CodeUnitDB implements Instruction, Instructio
 
 	@Override
 	public Register getRegister(int opIndex) {
-		lock.acquire();
-		try {
-			checkIsValid();
-			if (opIndex < 0) {
-				return null;
-			}
-			return proto.getRegister(opIndex, this);
+
+		if (opIndex < 0 || opIndex >= getNumOperands()) {
+			return null;
 		}
-		finally {
-			lock.release();
+
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
+			return proto.getRegister(opIndex, this);
 		}
 	}
 
 	@Override
 	public Object[] getInputObjects() {
-		lock.acquire();
-		try {
-			checkIsValid();
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
 			return proto.getInputObjects(this);
-		}
-		finally {
-			lock.release();
 		}
 	}
 
 	@Override
 	public Object[] getResultObjects() {
-		lock.acquire();
-		try {
-			checkIsValid();
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
 			return proto.getResultObjects(this);
-		}
-		finally {
-			lock.release();
 		}
 	}
 
@@ -416,16 +450,18 @@ public class InstructionDB extends CodeUnitDB implements Instruction, Instructio
 
 	@Override
 	public Address getAddress(int opIndex) {
-		lock.acquire();
-		try {
-			checkIsValid();
+
+		if (opIndex < 0 || opIndex >= getNumOperands()) {
+			return null;
+		}
+
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
 			Reference ref = refMgr.getPrimaryReferenceFrom(address, opIndex);
 			if (ref != null) {
 				return ref.getToAddress();
 			}
-			if (opIndex < 0) {
-				return null;
-			}
+
 			int opType = proto.getOpType(opIndex, this);
 
 			if (OperandType.isAddress(opType)) {
@@ -434,16 +470,12 @@ public class InstructionDB extends CodeUnitDB implements Instruction, Instructio
 
 			return null;
 		}
-		finally {
-			lock.release();
-		}
 	}
 
 	@Override
 	public String toString() {
-		lock.acquire();
-		try {
-			checkIsValid();
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
 			StringBuffer stringBuffer = new StringBuffer();
 			stringBuffer.append(getMnemonicString());
 
@@ -465,20 +497,19 @@ public class InstructionDB extends CodeUnitDB implements Instruction, Instructio
 			}
 			return stringBuffer.toString();
 		}
-		finally {
-			lock.release();
-		}
 	}
 
 	@Override
 	public String getMnemonicString() {
-		lock.acquire();
-		try {
-			checkIsValid();
-			return proto.getMnemonic(this);
+		validate(lock);
+		String curMnemonic = mnemonicString;
+		if (curMnemonic != null) {
+			return curMnemonic;
 		}
-		finally {
-			lock.release();
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
+			mnemonicString = proto.getMnemonic(this);
+			return mnemonicString;
 		}
 	}
 
@@ -489,18 +520,15 @@ public class InstructionDB extends CodeUnitDB implements Instruction, Instructio
 
 	@Override
 	public Scalar getScalar(int opIndex) {
-		lock.acquire();
-		try {
-			checkIsValid();
-			if (opIndex < 0) {
-				return null;
-			}
-			return proto.getScalar(opIndex, this);
-		}
-		finally {
-			lock.release();
+
+		if (opIndex < 0 || opIndex >= getNumOperands()) {
+			return null;
 		}
 
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
+			return proto.getScalar(opIndex, this);
+		}
 	}
 
 	/**
@@ -526,16 +554,15 @@ public class InstructionDB extends CodeUnitDB implements Instruction, Instructio
 		if (flow == null) {
 			flow = FlowOverride.NONE;
 		}
-		lock.acquire();
-		try {
+		try (Closeable c = lock.write()) {
 			checkDeleted();
 			if (flow == flowOverride) {
 				return;
 			}
 			FlowType origFlowType = getFlowType();
 
-			flags &= FLOWOVERRIDE_CLEAR_MASK;
-			flags |= (flow.ordinal() << FLOWOVERRIDE_SHIFT);
+			flags &= FLOW_OVERRIDE_CLEAR_MASK;
+			flags |= (flow.ordinal() << FLOW_OVERRIDE_SHIFT);
 			codeMgr.setFlags(addr, flags);
 			flowOverride = flow;
 
@@ -561,10 +588,7 @@ public class InstructionDB extends CodeUnitDB implements Instruction, Instructio
 				}
 			}
 		}
-		finally {
-			lock.release();
-		}
-		program.setChanged(ChangeManager.DOCR_FLOWOVERRIDE_CHANGED, address, address, null, null);
+		program.setChanged(ProgramEvent.FLOW_OVERRIDE_CHANGED, address, address, null, null);
 	}
 
 	private boolean isSameFlowType(FlowType origFlowType, RefType referenceType) {
@@ -587,53 +611,51 @@ public class InstructionDB extends CodeUnitDB implements Instruction, Instructio
 
 	@Override
 	public PcodeOp[] getPcode(boolean includeOverrides) {
-		lock.acquire();
-		try {
-			checkIsValid();
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
 			if (!includeOverrides) {
-				return proto.getPcode(this, null, null);
+				return proto.getPcode(this, null);
 			}
-			return proto.getPcode(this, new InstructionPcodeOverride(this),
-				new UniqueAddressFactory(program.getAddressFactory(), program.getLanguage()));
-		}
-		finally {
-			lock.release();
+			return proto.getPcode(this, new InstructionPcodeOverride(this));
 		}
 	}
 
 	@Override
 	public PcodeOp[] getPcode(int opIndex) {
-		lock.acquire();
-		try {
-			checkIsValid();
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
 			// assumes operand pcode not affected by flow override
 			return proto.getPcode(this, opIndex);
-		}
-		finally {
-			lock.release();
 		}
 	}
 
 	@Override
 	public boolean isFallThroughOverridden() {
+		validate(lock);
 		return (flags & FALLTHROUGH_SET_MASK) != 0;
 	}
 
 	/**
 	 * Clear all existing fall-through references from address.
-	 * @param keepFallThroughRef if not null, corresponding fall-through reference will be preserved
+	 * @param keepFallThroughAddr if not null, corresponding fall-through reference will be 
+	 * preserved. 
 	 */
-	private void clearFallThroughRefs(Reference keepFallThroughRef) {
+	private void clearFallThroughRefs(Address keepFallThroughAddr) {
 		if (clearingFallThroughs) {
 			return;
 		}
-		refreshIfNeeded();
+		validate(lock);
 		clearingFallThroughs = true;
 		try {
+			boolean fallThroughPreserved = false;
 			for (Reference ref : refMgr.getReferencesFrom(address)) {
-				if (ref.getReferenceType() == RefType.FALL_THROUGH &&
-					!ref.equals(keepFallThroughRef)) {
-					refMgr.delete(ref);
+				if (ref.getReferenceType() == RefType.FALL_THROUGH) {
+					if (!fallThroughPreserved && ref.getToAddress().equals(keepFallThroughAddr)) {
+						fallThroughPreserved = true; // only preserve one
+					}
+					else {
+						refMgr.delete(ref);
+					}
 				}
 			}
 		}
@@ -644,9 +666,16 @@ public class InstructionDB extends CodeUnitDB implements Instruction, Instructio
 
 	void fallThroughChanged(Reference fallThroughRef) {
 		if (!clearingFallThroughs) {
-			clearFallThroughRefs(fallThroughRef);
-			setFallthroughOverride(fallThroughRef != null &&
-				fallThroughRef.getReferenceType() == RefType.FALL_THROUGH);
+			Address fallThroughAddr = fallThroughRef != null ? fallThroughRef.getToAddress() : null;
+			clearFallThroughRefs(fallThroughAddr); // ensure there is only one fallthrough ref
+			if (fallThroughAddr == null) { // fallthrough ref removed
+				setFallthroughOverride(false);
+				addLengthOverrideFallthroughRef(); // restore length-override fallthrough if needed
+			}
+			else {
+				// enable fallthrough-override if fallThroughRef does not match length-override fallthrough 
+				setFallthroughOverride(!fallThroughAddr.equals(getLengthOverrideFallThrough()));
+			}
 		}
 	}
 
@@ -659,31 +688,28 @@ public class InstructionDB extends CodeUnitDB implements Instruction, Instructio
 				flags &= FALLTHROUGH_CLEAR_MASK;
 			}
 			codeMgr.setFlags(addr, flags);
+			program.setChanged(ProgramEvent.FALLTHROUGH_CHANGED, address, address, null, null);
 		}
-		program.setChanged(ChangeManager.DOCR_FALLTHROUGH_CHANGED, address, address, null, null);
 	}
 
 	@Override
 	public void clearFallThroughOverride() {
-		lock.acquire();
-		try {
+		try (Closeable c = lock.write()) {
 			checkDeleted();
 			if (!isFallThroughOverridden()) {
 				return;
 			}
+			// clear fall-through override
 			clearFallThroughRefs(null);
 			setFallthroughOverride(false);
-		}
-		finally {
-			lock.release();
+			addLengthOverrideFallthroughRef(); // restore length-override fallthrough if needed
 		}
 
 	}
 
 	@Override
 	public void setFallThrough(Address fallThroughAddr) {
-		lock.acquire();
-		try {
+		try (Closeable c = lock.write()) {
 			checkDeleted();
 			Address defaultFallThrough = proto.getFallThrough(this);
 			if (addrsEqual(fallThroughAddr, defaultFallThrough)) {
@@ -691,19 +717,116 @@ public class InstructionDB extends CodeUnitDB implements Instruction, Instructio
 				return;
 			}
 			if (fallThroughAddr == null) {
-				// Fall-through eliminated - no reference added
+				// Fall-through eliminated (i.e., terminal flow) - no reference added
 				clearFallThroughRefs(null);
 				setFallthroughOverride(true);
 			}
 			else {
+				// Adding fallthough ref will trigger override flag on callback
 				refMgr.addMemoryReference(address, fallThroughAddr, RefType.FALL_THROUGH,
 					SourceType.USER_DEFINED, Reference.MNEMONIC);
 			}
 		}
-		finally {
-			lock.release();
+	}
+
+	@Override
+	public void setLengthOverride(int len) throws CodeUnitInsertionException {
+		try (Closeable c = lock.write()) {
+			checkDeleted();
+			if (doSetLengthOverride(len)) {
+				program.setChanged(ProgramEvent.LENGTH_OVERRIDE_CHANGED, address, address, null,
+					null);
+			}
+		}
+	}
+
+	/**
+	 * Check and revise a specified {@code length} to arrive at a suitable length-override value.
+	 * @param length instruction byte-length (must be in the range 0..{@code prototype-length}).
+	 * If smaller than the prototype length it must have a value no greater than 7, otherwise
+	 * an error will be thrown.  A value of 0 or greater-than-or-equal the prototype length
+	 * will be ignored and not impose and override length.  The length value must be a multiple 
+	 * of the {@link Language#getInstructionAlignment() instruction alignment} .
+	 * @param prototype instruction prototype
+	 * @return length-override value (0 = disable length-override) 
+	 * @throws CodeUnitInsertionException thrown if the new Instruction would overlap and 
+	 * existing {@link CodeUnit} or the specified {@code length} is unsupported.
+	 * @throws IllegalArgumentException if a negative {@code length} is specified.
+	 */
+	public static int checkLengthOverride(int length, InstructionPrototype prototype)
+			throws IllegalArgumentException, CodeUnitInsertionException {
+		if (length < 0) {
+			throw new IllegalArgumentException("Negative length not permitted");
+		}
+		int instrProtoLength = prototype.getLength();
+		if (length == 0 || length == instrProtoLength) {
+			return 0;
+		}
+		if (length > instrProtoLength) {
+			return 0;
 		}
 
+		int align = prototype.getLanguage().getInstructionAlignment();
+		if (length % align != 0) {
+			throw new CodeUnitInsertionException(
+				"Length(" + length + ") override must be a multiple of " + align + " bytes");
+		}
+
+		if (length > MAX_LENGTH_OVERRIDE) {
+			throw new CodeUnitInsertionException("Unsupported length override: " + length);
+		}
+		return length;
+	}
+
+	boolean doSetLengthOverride(int len) throws CodeUnitInsertionException {
+
+		int protoLength = proto.getLength();
+		len = checkLengthOverride(len, proto);
+		if (len == lengthOverride) {
+			return false; // no change
+		}
+
+		int instrLength = len != 0 ? len : protoLength;
+		if (instrLength > getLength()) {
+			Address newEndAddr = address.add(instrLength - 1);
+			Address nextCodeUnitAddr = codeMgr.getDefinedAddressAfter(address);
+			if (nextCodeUnitAddr != null && nextCodeUnitAddr.compareTo(newEndAddr) <= 0) {
+				throw new CodeUnitInsertionException("Length override of " + instrLength +
+					" conflicts with code unit at " + nextCodeUnitAddr);
+			}
+		}
+
+		flags &= LENGTH_OVERRIDE_CLEAR_MASK;
+		flags |= (len << LENGTH_OVERRIDE_SHIFT);
+		codeMgr.setFlags(addr, flags);
+
+		endAddr = null;
+		refreshLength();
+
+		addLengthOverrideFallthroughRef();
+
+		return true;
+	}
+
+	private void addLengthOverrideFallthroughRef() {
+		if (isLengthOverridden() && !isFallThroughOverridden()) {
+			// length-override always uses default fall-through address
+			Address defaultFallThrough = getDefaultFallThrough();
+			if (defaultFallThrough != null) {
+				refMgr.addMemoryReference(address, defaultFallThrough, RefType.FALL_THROUGH,
+					SourceType.USER_DEFINED, Reference.MNEMONIC);
+			}
+		}
+	}
+
+	@Override
+	public boolean isLengthOverridden() {
+		validate(lock);
+		return lengthOverride != 0;
+	}
+
+	private Address getLengthOverrideFallThrough() {
+		return isLengthOverridden() ? getDefaultFallThrough() : null;
 	}
 
 	private boolean addrsEqual(Address addr1, Address addr2) {
@@ -715,50 +838,35 @@ public class InstructionDB extends CodeUnitDB implements Instruction, Instructio
 
 	@Override
 	public Address getDefaultFallThrough() {
-		lock.acquire();
-		try {
-			// TODO: This used to be in proto.  We need to override the proto's flowtype.
-			//       This could be pushed back into the proto if we could override the flowType there.
-			FlowType myFlowType = getFlowType();
-			if (myFlowType.hasFallthrough()) {
-				try {
-					return getAddress().addNoWrap(proto.getFallThroughOffset(this));
-				}
-				catch (AddressOverflowException e) {
-					// ignore
-				}
+		FlowType myFlowType = getFlowType(); // getFlowType will validate
+		if (myFlowType.hasFallthrough()) {
+			try {
+				return address.addNoWrap(getDefaultFallThroughOffset());
 			}
-			return null;
+			catch (AddressOverflowException e) {
+				// ignore
+			}
 		}
-		finally {
-			lock.release();
-		}
+		return null;
 	}
 
 	@Override
 	public int getDefaultFallThroughOffset() {
-		lock.acquire();
-		try {
-			return proto.getFallThroughOffset(this);
+		if (proto.getDelaySlotByteCount() <= 0) {
+			return proto.getLength();
 		}
-		finally {
-			lock.release();
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
+			return proto.getFallThroughOffset(this);
 		}
 	}
 
 	@Override
 	public boolean hasFallthrough() {
-		lock.acquire();
-		try {
-			checkIsValid();
-			if (isFallThroughOverridden()) {
-				return getFallThrough() != null; // fall-through destination stored as reference
-			}
-			return getFlowType().hasFallthrough();
+		if (isFallThroughOverridden()) {
+			return getFallThrough() != null; // fall-through destination stored as reference
 		}
-		finally {
-			lock.release();
-		}
+		return getFlowType().hasFallthrough();
 	}
 
 	@Override
@@ -781,6 +889,7 @@ public class InstructionDB extends CodeUnitDB implements Instruction, Instructio
 
 	@Override
 	public ParserContext getParserContext() throws MemoryAccessException {
+		// NOTE: It is assumed this is invoked and used within a locked block
 		if (parserContext == null) {
 			parserContext = proto.getParserContext(this, this);
 		}

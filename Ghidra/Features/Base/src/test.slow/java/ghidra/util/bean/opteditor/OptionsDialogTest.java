@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -24,6 +24,8 @@ import java.beans.PropertyEditor;
 import java.io.*;
 import java.util.*;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.swing.*;
 import javax.swing.text.JTextComponent;
@@ -33,33 +35,42 @@ import javax.swing.tree.TreePath;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.*;
 
+import docking.*;
 import docking.action.DockingActionIf;
+import docking.actions.ActionBindingsDescriptor;
 import docking.actions.KeyBindingUtils;
 import docking.options.editor.*;
 import docking.tool.ToolConstants;
+import docking.tool.util.DockingToolConstants;
 import docking.widgets.MultiLineLabel;
+import docking.widgets.OptionDialog;
 import docking.widgets.filechooser.GhidraFileChooser;
 import docking.widgets.table.RowObjectFilterModel;
 import docking.widgets.tree.GTree;
 import docking.widgets.tree.GTreeNode;
 import generic.test.TestUtils;
+import generic.theme.GThemeDefaults.Colors.Palette;
 import ghidra.GhidraOptions;
 import ghidra.app.plugin.core.console.ConsolePlugin;
 import ghidra.app.util.viewer.options.OptionsGui;
 import ghidra.app.util.viewer.options.ScreenElement;
 import ghidra.framework.main.ConsoleTextPane;
+import ghidra.framework.main.FrontEndTool;
 import ghidra.framework.options.*;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.framework.plugintool.dialog.KeyBindingsPanel;
 import ghidra.framework.preferences.Preferences;
 import ghidra.test.AbstractGhidraHeadedIntegrationTest;
 import ghidra.test.TestEnv;
+import ghidra.util.ColorUtils;
+import gui.event.MouseBinding;
 
 /**
  * Tests for the options dialog.
  */
 public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 
+	private static final String MY_PATH_NAME_OPTION_NAME = "My PathName";
 	private static final String TOOL_NODE_NAME = "Tool";
 	private PluginTool tool;
 	private TestEnv env;
@@ -121,7 +132,8 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 
 		selectAddressEntryInScreenElementOptionsList(optionsGui);
 
-		Color newColor = new Color(255, addressFieldColor.getGreen(), addressFieldColor.getBlue());
+		Color newColor =
+			ColorUtils.getColor(255, addressFieldColor.getGreen(), addressFieldColor.getBlue());
 		setAddressColorValueInOptionsGUI(optionsGui, newColor);
 
 		// close the options
@@ -159,11 +171,12 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 		// get the options panel
 		ScrollableOptionsEditor simpleOptionsPanel =
 			(ScrollableOptionsEditor) getEditorPanel(consoleNode);
-		assertNotNull(simpleOptionsPanel);
-		assertTrue(simpleOptionsPanel.isShowing());
+		JComponent comp = simpleOptionsPanel.getComponent();
+		assertNotNull(comp);
+		assertTrue(comp.isShowing());
 
 		String optionName = (String) getInstanceField("MAXIMUM_CHARACTERS_OPTION_NAME", textPane);
-		final Component component = findPairedComponent(simpleOptionsPanel, optionName);
+		final Component component = findPairedComponent(comp, optionName);
 		assertNotNull(component);
 
 		// click the option to toggle its state
@@ -236,14 +249,16 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 			// skip options that are "not simple", i.e. have custom editors
 			if (simpleName.equals("Display Namespace") ||
 				simpleName.equals("Array Display Options") ||
-				simpleName.equals("Address Display Options")) {
+				simpleName.equals("Address Display Options") ||
+				simpleName.equals("Auto Comments")) {
 				continue;
 			}
 
 			ScrollableOptionsEditor editor = (ScrollableOptionsEditor) getEditorPanel(parentNode);
 
 			assertNotNull("Did not find options editor for name: " + simpleName, editor);
-			assertNotNull("simpleName = " + simpleName, findPairedComponent(editor, simpleName));
+			assertNotNull("simpleName = " + simpleName,
+				findPairedComponent(editor.getComponent(), simpleName));
 		}
 	}
 
@@ -272,7 +287,7 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 			}
 			ScrollableOptionsEditor p = (ScrollableOptionsEditor) getEditorPanel(parent);
 			assertNotNull(p);
-			assertNotNull(findPairedComponent(p, simpleName));
+			assertNotNull(findPairedComponent(p.getComponent(), simpleName));
 		}
 	}
 
@@ -281,7 +296,7 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 
 		ScrollableOptionsEditor editor = showOptions(ToolConstants.TOOL_OPTIONS);
 
-		pressBrowseButton(editor, "My PathName");
+		pressBrowseButton(editor, MY_PATH_NAME_OPTION_NAME);
 
 		GhidraFileChooser chooser = waitForDialogComponent(GhidraFileChooser.class);
 		assertNotNull(chooser);
@@ -297,7 +312,7 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 		pressButton(openButton);
 		waitForSwing();
 
-		JTextField pathField = getEditorTextField(editor, "My PathName");
+		JTextField pathField = getEditorTextField(editor, MY_PATH_NAME_OPTION_NAME);
 		assertEquals(file.getAbsolutePath(), pathField.getText());
 	}
 
@@ -305,7 +320,7 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 	public void testFileChooserEditor_ClearValue() throws Exception {
 
 		ScrollableOptionsEditor editor = showOptions(ToolConstants.TOOL_OPTIONS);
-		JTextField pathField = getEditorTextField(editor, "My PathName");
+		JTextField pathField = getEditorTextField(editor, MY_PATH_NAME_OPTION_NAME);
 
 		setText(pathField, "");
 
@@ -313,7 +328,7 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 
 		showOptionsDialog(tool);
 		editor = showOptions(ToolConstants.TOOL_OPTIONS);
-		pathField = getEditorTextField(editor, "My PathName");
+		pathField = getEditorTextField(editor, MY_PATH_NAME_OPTION_NAME);
 		assertEquals("", pathField.getText());
 	}
 
@@ -330,9 +345,10 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 		ScrollableOptionsEditor simpleOptionsPanel =
 			(ScrollableOptionsEditor) getEditorPanel(toolNode);
 		assertNotNull(simpleOptionsPanel);
-		assertTrue(simpleOptionsPanel.isShowing());
+		JComponent comp = simpleOptionsPanel.getComponent();
+		assertTrue(comp.isShowing());
 
-		Component component = findPairedComponent(simpleOptionsPanel, "Favorite Color");
+		Component component = findPairedComponent(comp, "Favorite Color");
 		assertNotNull(component);
 		Rectangle rect = component.getBounds();
 		clickMouse(component, 1, rect.x, rect.y, 2, 0);
@@ -344,13 +360,13 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 
 		JColorChooser chooser = findComponent(window, JColorChooser.class);
 		assertNotNull(chooser);
-		chooser.setColor(Color.BLUE);
+		chooser.setColor(Palette.BLUE);
 		PropertyEditor editor = getPropertyEditorForProperty(simpleOptionsPanel, "Favorite Color");
 
 		JButton okButton = findButtonByText(window, "OK");
 		assertNotNull(okButton);
 		pressButton(okButton);
-		assertEquals(Color.BLUE, editor.getValue());
+		assertColorsEqual(Palette.BLUE, (Color) editor.getValue());
 	}
 
 	@Test
@@ -365,10 +381,11 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 		ScrollableOptionsEditor simpleOptionsPanel =
 			(ScrollableOptionsEditor) getEditorPanel(buttonNode);
 		assertNotNull(simpleOptionsPanel);
-		assertTrue(simpleOptionsPanel.isShowing());
+		JComponent comp = simpleOptionsPanel.getComponent();
+		assertTrue(comp.isShowing());
 
 		PropertySelector ps =
-			(PropertySelector) findPairedComponent(simpleOptionsPanel, "Mouse Button To Activate");
+			(PropertySelector) findPairedComponent(comp, "Mouse Button To Activate");
 		assertNotNull(ps);
 		runSwing(() -> ps.setSelectedIndex(0));
 		assertEquals("LEFT", ps.getSelectedItem());
@@ -407,51 +424,181 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	@Test
-	public void testRestoreDefaultsForKeybindings() throws Exception {
-		String actionName = "Clear Cut";
-		String pluginName = "DataTypeManagerPlugin";
-		KeyStroke defaultKeyStroke = getKeyBinding(actionName);
-		assertOptionsKeyStroke(actionName, pluginName, defaultKeyStroke);
+	public void testKeybindings_SetMouseBounding_NoDefaultBindings() throws Exception {
 
-		int keyCode = KeyEvent.VK_Q;
-		int modifiers = InputEvent.CTRL_DOWN_MASK | InputEvent.ALT_DOWN_MASK;
-		KeyStroke newKeyStroke = setKeyBinding(actionName, modifiers, keyCode, 'Q');
+		String actionName = "Clear Color";
+		String actionOwner = "ColorizingPlugin";
+
+		KeyStroke defaultKeyStroke = getKeyBindingFromTable(actionName, actionOwner);
+		assertNull(defaultKeyStroke);
+
+		MouseBinding defaultMouseBinding = getMouseBindingFromTable(actionName, actionOwner);
+		assertNull(defaultMouseBinding);
+
+		int button = 4;
+		int modifiers = 0;
+		MouseBinding newMouseBinding = setMouseBinding(actionName, actionOwner, modifiers, button);
 
 		apply();
-		assertOptionsKeyStroke(actionName, pluginName, newKeyStroke);
+		assertOptionsMouseBinding(tool, actionName, actionOwner, newMouseBinding);
 
 		restoreDefaults();
 
-		KeyStroke currentBinding = getKeyBinding(actionName);
+		MouseBinding currentMouseBinding = getMouseBindingFromTable(actionName, actionOwner);
+
+		assertEquals("Mouse binding not restored after a call to restore defautls",
+			defaultMouseBinding, currentMouseBinding);
+		assertOptionsMouseBinding(tool, actionName, actionOwner, defaultMouseBinding);
+	}
+
+	@Test
+	public void testKeybindings_SetMouseBoundingAndKeyBinding_NoDefaultBindings() throws Exception {
+
+		String actionName = "Clear Color";
+		String actionOwner = "ColorizingPlugin";
+
+		KeyStroke defaultKeyStroke = getKeyBindingFromTable(actionName, actionOwner);
+		assertNull(defaultKeyStroke);
+
+		MouseBinding defaultMouseBinding = getMouseBindingFromTable(actionName, actionOwner);
+		assertNull(defaultMouseBinding);
+
+		int button = 4;
+		int modifiers = 0;
+		MouseBinding newMouseBinding = setMouseBinding(actionName, actionOwner, modifiers, button);
+
+		int keyCode = KeyEvent.VK_Q;
+		modifiers = DockingUtils.CONTROL_KEY_MODIFIER_MASK | InputEvent.ALT_DOWN_MASK;
+		KeyStroke newKeyStroke = setKeyBinding(actionName, actionOwner, modifiers, keyCode, 'Q');
+
+		apply();
+		assertOptionsMouseBinding(tool, actionName, actionOwner, newMouseBinding);
+		assertOptionsKeyStroke(tool, actionName, actionOwner, newKeyStroke);
+
+		restoreDefaults();
+
+		MouseBinding currentMouseBinding = getMouseBindingFromTable(actionName, actionOwner);
+
+		assertEquals("Mouse binding not restored after a call to restore defautls",
+			defaultMouseBinding, currentMouseBinding);
+		assertOptionsMouseBinding(tool, actionName, actionOwner, defaultMouseBinding);
+		assertOptionsKeyStroke(tool, actionName, actionOwner, defaultKeyStroke);
+	}
+
+	@Test
+	public void testKeybindings_SetMouseBoundingAndKeyBinding_ClearKeyBinding() throws Exception {
+
+		String actionName = "Clear Color";
+		String actionOwner = "ColorizingPlugin";
+
+		KeyStroke defaultKeyStroke = getKeyBindingFromTable(actionName, actionOwner);
+		assertNull(defaultKeyStroke);
+
+		MouseBinding defaultMouseBinding = getMouseBindingFromTable(actionName, actionOwner);
+		assertNull(defaultMouseBinding);
+
+		int keyCode = KeyEvent.VK_Q;
+		int modifiers = DockingUtils.CONTROL_KEY_MODIFIER_MASK | InputEvent.ALT_DOWN_MASK;
+		KeyStroke newKeyStroke = setKeyBinding(actionName, actionOwner, modifiers, keyCode, 'Q');
+
+		int button = 4;
+		modifiers = 0;
+		MouseBinding newMouseBinding = setMouseBinding(actionName, actionOwner, modifiers, button);
+
+		apply();
+		assertOptionsMouseBinding(tool, actionName, actionOwner, newMouseBinding);
+		assertOptionsKeyStroke(tool, actionName, actionOwner, newKeyStroke);
+
+		clearKeyBinding(actionName, actionOwner);
+		apply();
+		assertOptionsMouseBinding(tool, actionName, actionOwner, newMouseBinding); // unchanged
+
+		restoreDefaults();
+
+		MouseBinding currentMouseBinding = getMouseBindingFromTable(actionName, actionOwner);
+
+		assertEquals("Mouse binding not restored after a call to restore defautls",
+			defaultMouseBinding, currentMouseBinding);
+		assertOptionsMouseBinding(tool, actionName, actionOwner, defaultMouseBinding);
+		assertOptionsKeyStroke(tool, actionName, actionOwner, defaultKeyStroke);
+	}
+
+	@Test
+	public void testKeybindings_SetMouseBounding_DefaultKeyBinding() throws Exception {
+
+		String actionName = "Clear Cut";
+		String actionOwner = "DataTypeManagerPlugin";
+		KeyStroke defaultKeyStroke = getKeyBindingFromTable(actionName, actionOwner);
+		assertNotNull(defaultKeyStroke);
+
+		MouseBinding defaultMouseBinding = getMouseBindingFromTable(actionName, actionOwner);
+		assertNull(defaultMouseBinding);
+
+		int button = 4;
+		int modifiers = 0;
+		MouseBinding newMouseBinding = setMouseBinding(actionName, actionOwner, modifiers, button);
+
+		apply();
+		assertOptionsMouseBinding(tool, actionName, actionOwner, newMouseBinding);
+		assertOptionsKeyStroke(tool, actionName, actionOwner, defaultKeyStroke);
+
+		restoreDefaults();
+
+		MouseBinding currentMouseBinding = getMouseBindingFromTable(actionName, actionOwner);
+
+		assertEquals("Mouse binding not restored after a call to restore defautls",
+			defaultMouseBinding, currentMouseBinding);
+		assertOptionsMouseBinding(tool, actionName, actionOwner, defaultMouseBinding);
+		assertOptionsKeyStroke(tool, actionName, actionOwner, defaultKeyStroke);
+	}
+
+	@Test
+	public void testRestoreDefaultsForKeybindings() throws Exception {
+		String actionName = "Clear Cut";
+		String actionOwner = "DataTypeManagerPlugin";
+		KeyStroke defaultKeyStroke = getKeyBindingFromTable(actionName, actionOwner);
+		assertOptionsKeyStroke(tool, actionName, actionOwner, defaultKeyStroke);
+
+		int keyCode = KeyEvent.VK_Q;
+		int modifiers = DockingUtils.CONTROL_KEY_MODIFIER_MASK | InputEvent.ALT_DOWN_MASK;
+		KeyStroke newKeyStroke = setKeyBinding(actionName, actionOwner, modifiers, keyCode, 'Q');
+
+		apply();
+		assertOptionsKeyStroke(tool, actionName, actionOwner, newKeyStroke);
+
+		restoreDefaults();
+
+		KeyStroke currentBinding = getKeyBindingFromTable(actionName, actionOwner);
 		assertEquals("Key binding not restored after a call to restore defautls", defaultKeyStroke,
 			currentBinding);
-		assertOptionsKeyStroke(actionName, pluginName, defaultKeyStroke);
+		assertOptionsKeyStroke(tool, actionName, actionOwner, defaultKeyStroke);
 	}
 
 	@Test
 	public void testRestoreDefaultsForFrontEndKeybindings() throws Exception {
 		runSwing(() -> dialog.close());
 
-		setUpDialog(env.getFrontEndTool());
+		FrontEndTool frontEndTool = env.getFrontEndTool();
+		setUpDialog(frontEndTool);
 
 		String actionName = "Archive Project";
-		String pluginName = "ArchivePlugin";
-		KeyStroke defaultKeyStroke = getKeyBinding(actionName);
-		assertOptionsKeyStroke(actionName, pluginName, defaultKeyStroke);
+		String actionOwner = "ArchivePlugin";
+		KeyStroke defaultKeyStroke = getKeyBindingFromTable(actionName, actionOwner);
+		assertOptionsKeyStroke(frontEndTool, actionName, actionOwner, defaultKeyStroke);
 
 		int keyCode = KeyEvent.VK_Q;
-		int modifiers = InputEvent.CTRL_DOWN_MASK | InputEvent.ALT_DOWN_MASK;
-		KeyStroke newKeyStroke = setKeyBinding(actionName, modifiers, keyCode, 'Q');
+		int modifiers = DockingUtils.CONTROL_KEY_MODIFIER_MASK | InputEvent.ALT_DOWN_MASK;
+		KeyStroke newKeyStroke = setKeyBinding(actionName, actionOwner, modifiers, keyCode, 'Q');
 
 		apply();
-		assertOptionsKeyStroke(actionName, pluginName, newKeyStroke);
+		assertOptionsKeyStroke(frontEndTool, actionName, actionOwner, newKeyStroke);
 
 		restoreDefaults();
 
-		KeyStroke currentBinding = getKeyBinding(actionName);
+		KeyStroke currentBinding = getKeyBindingFromTable(actionName, actionOwner);
 		assertEquals("Key binding not restored after a call to restore defautls", defaultKeyStroke,
 			currentBinding);
-		assertOptionsKeyStroke(actionName, pluginName, defaultKeyStroke);
+		assertOptionsKeyStroke(frontEndTool, actionName, actionOwner, defaultKeyStroke);
 	}
 
 	@Test
@@ -512,10 +659,12 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 		ScrollableOptionsEditor simpleOptionsPanel =
 			(ScrollableOptionsEditor) getEditorPanel(buttonNode);
 		assertNotNull(simpleOptionsPanel);
-		assertTrue(simpleOptionsPanel.isShowing());
+		JComponent comp = simpleOptionsPanel.getComponent();
+
+		assertTrue(comp.isShowing());
 
 		PropertySelector ps =
-			(PropertySelector) findPairedComponent(simpleOptionsPanel, "Mouse Button To Activate");
+			(PropertySelector) findPairedComponent(comp, "Mouse Button To Activate");
 
 		// change to "LEFT"
 		runSwing(() -> ps.setSelectedIndex(0));
@@ -544,18 +693,20 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 
 		ScrollableOptionsEditor simpleOptionsPanel =
 			(ScrollableOptionsEditor) getEditorPanel(buttonNode);
+
 		assertNotNull(simpleOptionsPanel);
-		assertTrue(simpleOptionsPanel.isShowing());
+		JComponent comp = simpleOptionsPanel.getComponent();
+		assertTrue(comp.isShowing());
 
 		PropertySelector ps =
-			(PropertySelector) findPairedComponent(simpleOptionsPanel, "Mouse Button To Activate");
+			(PropertySelector) findPairedComponent(comp, "Mouse Button To Activate");
 
 		// change to "LEFT"
 		runSwing(() -> ps.setSelectedIndex(0));
 
-		final JButton cancelButton = findButtonByText(dialog.getComponent(), "Cancel");
-		assertTrue(cancelButton.isEnabled());
-		runSwing(() -> cancelButton.getActionListeners()[0].actionPerformed(null));
+		pressButtonByText(dialog, "Cancel", false);
+		OptionDialog yesNoDialog = waitForDialogComponent(OptionDialog.class);
+		pressButtonByText(yesNoDialog.getComponent(), "No");
 
 		Options options = tool.getOptions(ToolConstants.TOOL_OPTIONS);
 		GhidraOptions.CURSOR_MOUSE_BUTTON_NAMES mouseButton =
@@ -563,7 +714,7 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 				(GhidraOptions.CURSOR_MOUSE_BUTTON_NAMES) null);
 
 		assertEquals("MIDDLE", mouseButton.toString());
-		assertTrue(!dialog.isShowing());
+		assertFalse(runSwing(() -> dialog.isShowing()));
 	}
 
 	@Test
@@ -591,15 +742,17 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 
 		ScrollableOptionsEditor p = (ScrollableOptionsEditor) getEditorPanel(testNode);
 		assertNotNull(p);
-		assertTrue(p.isShowing());
+		JComponent comp = p.getComponent();
 
-		JTextField field = (JTextField) findPairedComponent(p, "String Value 1");
+		assertTrue(comp.isShowing());
+
+		JTextField field = (JTextField) findPairedComponent(comp, "String Value 1");
 		assertNotNull(field);
-		field = (JTextField) findPairedComponent(p, "String Value 2");
+		field = (JTextField) findPairedComponent(comp, "String Value 2");
 		assertNotNull(field);
-		field = (JTextField) findPairedComponent(p, "String Value 3");
+		field = (JTextField) findPairedComponent(comp, "String Value 3");
 		assertNotNull(field);
-		field = (JTextField) findPairedComponent(p, "Int Value");
+		field = (JTextField) findPairedComponent(comp, "Int Value");
 		assertNotNull(field);
 	}
 
@@ -613,25 +766,17 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 		ScrollableOptionsEditor simpleOptionsPanel =
 			(ScrollableOptionsEditor) getEditorPanel(toolNode);
 		assertNotNull(simpleOptionsPanel);
-		assertTrue(simpleOptionsPanel.isShowing());
+		JComponent comp = simpleOptionsPanel.getComponent();
+		assertTrue(comp.isShowing());
 
-		Component component = findPairedComponent(simpleOptionsPanel, "Favorite Color");
+		Component component = findPairedComponent(comp, "Favorite String");
 		assertNotNull(component);
 		Rectangle rect = component.getBounds();
 		clickMouse(component, 1, rect.x, rect.y, 2, 0);
 
 		waitForSwing();
 
-		Window window = waitForWindow("Color Editor");
-		assertNotNull(window);
-
-		JColorChooser chooser = findComponent(window, JColorChooser.class);
-		assertNotNull(chooser);
-		chooser.setColor(Color.BLUE);
-
-		JButton okButton = findButtonByText(window, "OK");
-		assertNotNull(okButton);
-		pressButton(okButton);
+		triggerText(component, "Bar");
 
 		waitForSwing();
 
@@ -641,9 +786,8 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 
 		Options options = tool.getOptions(ToolConstants.TOOL_OPTIONS);
 
-		Color c = options.getColor("Favorite Color", Color.RED);
-
-		assertEquals(Color.BLUE, c);
+		String currentValue = options.getString("Favorite String", null);
+		assertEquals("Bar", currentValue);
 
 		assertTrue(tool.hasConfigChanged());
 	}
@@ -658,9 +802,10 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 		ScrollableOptionsEditor simpleOptionsPanel =
 			(ScrollableOptionsEditor) getEditorPanel(toolNode);
 		assertNotNull(simpleOptionsPanel);
-		assertTrue(simpleOptionsPanel.isShowing());
+		JComponent comp = simpleOptionsPanel.getComponent();
+		assertTrue(comp.isShowing());
 
-		Component canvas = findPairedComponent(simpleOptionsPanel, "Favorite Color");
+		Component canvas = findPairedComponent(comp, "Favorite Color");
 		assertNotNull(canvas);
 		Rectangle rect = canvas.getBounds();
 		clickMouse(canvas, 1, rect.x, rect.y, 2, 0);
@@ -672,7 +817,7 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 
 		JColorChooser chooser = findComponent(window, JColorChooser.class);
 		assertNotNull(chooser);
-		chooser.setColor(Color.BLUE);
+		chooser.setColor(Palette.BLUE);
 
 		JButton okButton = findButtonByText(window, "OK");
 		assertNotNull(okButton);
@@ -686,89 +831,242 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 
 		Options options = tool.getOptions(ToolConstants.TOOL_OPTIONS);
 
-		Color c = options.getColor("Favorite Color", Color.RED);
+		Color c = options.getColor("Favorite Color", Palette.RED);
 
-		assertEquals(Color.BLUE, c);
+		assertColorsEqual(Palette.BLUE, c);
 
 		env.saveRestoreToolState();
 
 		tool = env.getTool();
-		assertEquals(Color.BLUE, options.getColor("Favorite Color", null));
+		assertColorsEqual(Palette.BLUE, options.getColor("Favorite Color", null));
 
 	}
 
-	private KeyStroke getKeyBinding(String actionName) throws Exception {
+	@Test
+	public void testOptionsVeto() throws Exception {
+
+		Object root = treeModel.getRoot();
+		Object toolNode = getGTreeNode(root, TOOL_NODE_NAME);
+		selectNode(toolNode);
+		assertTrue(!defaultPanel.isShowing());
+
+		ScrollableOptionsEditor simpleOptionsPanel =
+			(ScrollableOptionsEditor) getEditorPanel(toolNode);
+		assertNotNull(simpleOptionsPanel);
+		JComponent comp = simpleOptionsPanel.getComponent();
+		assertTrue(comp.isShowing());
+
+		JTextField field = (JTextField) findPairedComponent(comp, "Max Navigation History Size");
+		assertNotNull(field);
+		String text = getText(field);
+		assertEquals("30", text);
+
+		//
+		// This field has a hard-coded max value of 400.  Set the value higher to trigger a veto
+		// exception.
+		//
+		setText(field, "1000");
+		pressOptionsOk();
+		DialogComponentProvider warningDialog = waitForDialogComponent("Invalid Option Value");
+		pressButtonByText(warningDialog, "OK");
+
+		text = getText(field);
+		assertEquals("30", text);
+	}
+
+//=================================================================================================
+// Inner Classes
+//=================================================================================================
+
+	private MouseBinding getMouseBindingFromTable(String actionName, String actionOwner)
+			throws Exception {
+
 		OptionsEditor editor = seleNodeWithCustomEditor("Key Bindings");
 		KeyBindingsPanel panel = (KeyBindingsPanel) getInstanceField("panel", editor);
 
-		int row = selectRowForAction(panel, actionName);
+		int row = selectRowForAction(panel, actionName, actionOwner);
 
 		JTable table = (JTable) getInstanceField("actionTable", panel);
 		@SuppressWarnings("unchecked")
-		RowObjectFilterModel<DockingActionIf> model =
-			(RowObjectFilterModel<DockingActionIf>) table.getModel();
+		RowObjectFilterModel<ActionBindingsDescriptor> model =
+			(RowObjectFilterModel<ActionBindingsDescriptor>) table.getModel();
 
-		DockingActionIf rowValue = model.getModelData().get(row);
+		ActionBindingsDescriptor rowValue = model.getModelData().get(row);
 
 		String keyBindingColumnValue =
 			(String) model.getColumnValueForRow(rowValue, 1 /* key binding column */);
 		if (StringUtils.isBlank(keyBindingColumnValue)) {
 			return null;
 		}
-		return KeyBindingUtils.parseKeyStroke(keyBindingColumnValue);
+
+		String mouseBinding = keyBindingColumnValue;
+		Pattern p = Pattern.compile(".*\\((.*)\\)");
+		Matcher matcher = p.matcher(keyBindingColumnValue);
+		if (matcher.matches()) {
+			mouseBinding = matcher.group(1);
+		}
+
+		return MouseBinding.getMouseBinding(mouseBinding);
 	}
 
-	private void assertOptionsKeyStroke(String actionName, String pluginName, KeyStroke value)
+	private KeyStroke getKeyBindingFromTable(String actionName, String actionOwner)
 			throws Exception {
 		OptionsEditor editor = seleNodeWithCustomEditor("Key Bindings");
 		KeyBindingsPanel panel = (KeyBindingsPanel) getInstanceField("panel", editor);
 
-		Options options = (Options) getInstanceField("options", panel);
-		KeyStroke optionsKeyStroke =
-			options.getKeyStroke(actionName + " (" + pluginName + ")", null);
-		assertEquals("The options keystroke does not match the value in keybinding options table",
-			value, optionsKeyStroke);
+		int row = selectRowForAction(panel, actionName, actionOwner);
+
+		JTable table = (JTable) getInstanceField("actionTable", panel);
+		@SuppressWarnings("unchecked")
+		RowObjectFilterModel<ActionBindingsDescriptor> model =
+			(RowObjectFilterModel<ActionBindingsDescriptor>) table.getModel();
+
+		ActionBindingsDescriptor rowValue = model.getModelData().get(row);
+
+		String keyBindingColumnValue =
+			(String) model.getColumnValueForRow(rowValue, 1 /* key binding column */);
+		if (StringUtils.isBlank(keyBindingColumnValue)) {
+			return null;
+		}
+
+		int index = keyBindingColumnValue.indexOf("(");
+		if (index != -1) {
+			int endIndex = keyBindingColumnValue.indexOf(")");
+			if (endIndex != -1) {
+				keyBindingColumnValue = keyBindingColumnValue.substring(0, index);
+			}
+		}
+
+		return KeyBindingUtils.parseKeyStroke(keyBindingColumnValue);
 	}
 
-	private KeyStroke setKeyBinding(String actionName, int modifiers, int keyCode, char keyChar)
-			throws Exception {
+	private void assertOptionsMouseBinding(PluginTool pluginTool, String actionName,
+			String pluginName, MouseBinding value) {
+		Options options = pluginTool.getOptions(DockingToolConstants.KEY_BINDINGS);
+		ActionTrigger actionTrigger =
+			options.getActionTrigger(actionName + " (" + pluginName + ")", null);
+		if (actionTrigger == null) {
+			assertNull("The options mouse binding does not match the value in the options table",
+				value);
+			return;
+		}
+
+		MouseBinding mouseBinding = actionTrigger.getMouseBinding();
+		assertEquals("The options mouse binding does not match the value in the options table",
+			value, mouseBinding);
+	}
+
+	private void assertOptionsKeyStroke(PluginTool pluginTool, String actionName, String pluginName,
+			KeyStroke value) throws Exception {
+		Options options = pluginTool.getOptions(DockingToolConstants.KEY_BINDINGS);
+		ActionTrigger actionTrigger =
+			options.getActionTrigger(actionName + " (" + pluginName + ")", null);
+		if (actionTrigger == null) {
+			assertNull("The options keystroke does not match the value in the options table",
+				value);
+			return;
+		}
+
+		KeyStroke keyStroke = actionTrigger.getKeyStroke();
+		assertEquals("The options keystroke does not match the value in the options table", value,
+			keyStroke);
+	}
+
+	private MouseBinding setMouseBinding(String actionName, String actionOwner, int modifiers,
+			int button) throws Exception {
+
 		OptionsEditor editor = seleNodeWithCustomEditor("Key Bindings");
-		final KeyBindingsPanel panel = (KeyBindingsPanel) getInstanceField("panel", editor);
+		KeyBindingsPanel panel = (KeyBindingsPanel) getInstanceField("panel", editor);
 
-		selectRowForAction(panel, actionName);
+		selectRowForAction(panel, actionName, actionOwner);
 
-		JTextField textField = (JTextField) getInstanceField("ksField", panel);
+		JPanel actionBindingPanel = (JPanel) getInstanceField("actionBindingPanel", panel);
+		JTextField textField = (JTextField) getInstanceField("mouseEntryField", actionBindingPanel);
+
+		clickMouse(textField, button, 5, 5, 1, modifiers);
+		waitForSwing();
+
+		MouseBinding expectedMouseBinding = new MouseBinding(button, modifiers);
+
+		waitForSwing();
+		waitForSwing();
+		waitForSwing();
+		waitForSwing();
+
+		MouseBinding currentMouseBinding = getMouseBindingFromTable(actionName, actionOwner);
+		assertEquals("Did not properly set mouse binding", expectedMouseBinding,
+			currentMouseBinding);
+		return currentMouseBinding;
+	}
+
+	private KeyStroke setKeyBinding(String actionName, String actionOwner, int modifiers,
+			int keyCode, char keyChar) throws Exception {
+		OptionsEditor editor = seleNodeWithCustomEditor("Key Bindings");
+		KeyBindingsPanel panel = (KeyBindingsPanel) getInstanceField("panel", editor);
+
+		selectRowForAction(panel, actionName, actionOwner);
+
+		JPanel actionBindingPanel = (JPanel) getInstanceField("actionBindingPanel", panel);
+		KeyEntryPanel keyEntryPanel =
+			(KeyEntryPanel) getInstanceField("keyEntryPanel", actionBindingPanel);
+		JTextField textField = keyEntryPanel.getTextField();
+
 		triggerKey(textField, modifiers, keyCode, keyChar);
+		waitForSwing();
 
 		KeyStroke expectedKeyStroke = KeyStroke.getKeyStroke(keyCode, modifiers, false);
-		KeyStroke currentBinding = getKeyBinding(actionName);
+		KeyStroke currentBinding = getKeyBindingFromTable(actionName, actionOwner);
 		assertEquals("Did not properly set new keybinding", expectedKeyStroke, currentBinding);
 		return currentBinding;
 	}
 
-	private int selectRowForAction(KeyBindingsPanel panel, String actionName) {
+	private void clearKeyBinding(String actionName, String actionOwner) throws Exception {
+
+		OptionsEditor editor = seleNodeWithCustomEditor("Key Bindings");
+		KeyBindingsPanel panel = (KeyBindingsPanel) getInstanceField("panel", editor);
+
+		selectRowForAction(panel, actionName, actionOwner);
+
+		pressButtonByName(panel, "Clear Key Binding");
+		waitForSwing();
+
+		KeyStroke currentBinding = getKeyBindingFromTable(actionName, actionOwner);
+		assertNull(currentBinding);
+	}
+
+	private int selectRowForAction(KeyBindingsPanel panel, String actionName, String actionOwner) {
 		final JTable table = (JTable) getInstanceField("actionTable", panel);
 		@SuppressWarnings("unchecked")
-		final RowObjectFilterModel<DockingActionIf> model =
-			(RowObjectFilterModel<DockingActionIf>) table.getModel();
+		final RowObjectFilterModel<ActionBindingsDescriptor> model =
+			(RowObjectFilterModel<ActionBindingsDescriptor>) table.getModel();
 
 		int actionRow = -1;
-		List<DockingActionIf> modelData = model.getModelData();
+		List<ActionBindingsDescriptor> modelData = model.getModelData();
 		int rowCount = modelData.size();
 		for (int i = 0; i < rowCount; i++) {
-			DockingActionIf rowData = modelData.get(i);
+			ActionBindingsDescriptor rowData = modelData.get(i);
 			String rowActionName =
 				(String) model.getColumnValueForRow(rowData, 0 /* action name column */);
 			if (rowActionName.equals(actionName)) {
-				actionRow = i;
-				break;
+
+				String rowActionOwner =
+					(String) model.getColumnValueForRow(rowData, 2 /* owner column */);
+				if (rowActionOwner.equals(actionOwner)) {
+					actionRow = i;
+					break;
+				}
 			}
 		}
 
-		assertTrue("Could not find row for action: " + actionName, actionRow != -1);
+		assertTrue("Could not find row for action: " + actionName + " (" + actionOwner + ")",
+			actionRow != -1);
 
-		final int row = actionRow;
-		runSwing(() -> table.setRowSelectionInterval(row, row));
+		int row = actionRow;
+		runSwing(() -> {
+			table.setRowSelectionInterval(row, row);
+			Rectangle cellRectangle = table.getCellRect(row, row, true);
+			table.scrollRectToVisible(cellRectangle);
+		});
 
 		return row;
 	}
@@ -845,7 +1143,7 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	private void pressBrowseButton(ScrollableOptionsEditor editor, String optionName) {
-		Component comp = findPairedComponent(editor, optionName);
+		Component comp = findPairedComponent(editor.getComponent(), optionName);
 		assertNotNull(comp);
 		AbstractButton button = findAbstractButtonByName((Container) comp, "BrowseButton");
 		assertNotNull(button);
@@ -855,7 +1153,7 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	private JTextField getEditorTextField(ScrollableOptionsEditor editor, String optionName) {
-		Component comp = findPairedComponent(editor, optionName);
+		Component comp = findPairedComponent(editor.getComponent(), optionName);
 		assertNotNull(comp);
 
 		JTextField tf = findComponent((Container) comp, JTextField.class);
@@ -864,7 +1162,7 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	private void pressOptionsOk() {
-		pressButtonByName(dialog.getComponent(), "OK", true);
+		pressButtonByName(dialog.getComponent(), "OK", false);
 		waitForSwing();
 	}
 
@@ -876,7 +1174,7 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 
 		ScrollableOptionsEditor editor = (ScrollableOptionsEditor) getEditorPanel(toolNode);
 		assertNotNull(editor);
-		assertTrue(editor.isShowing());
+		assertTrue(editor.getComponent().isShowing());
 		return editor;
 	}
 
@@ -904,7 +1202,7 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 
 		ScrollableOptionsEditor editor =
 			selectSubNodeWithDefaultEditor(parentNodeName, childNodeName);
-		JCheckBox checkBox = (JCheckBox) findPairedComponent(editor, optionName);
+		JCheckBox checkBox = (JCheckBox) findPairedComponent(editor.getComponent(), optionName);
 		return checkBox.isSelected();
 	}
 
@@ -913,7 +1211,8 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 
 		ScrollableOptionsEditor editor =
 			selectSubNodeWithDefaultEditor(parentNodeName, childNodeName);
-		final JCheckBox checkBox = (JCheckBox) findPairedComponent(editor, optionName);
+		final JCheckBox checkBox =
+			(JCheckBox) findPairedComponent(editor.getComponent(), optionName);
 		runSwing(() -> checkBox.setSelected(newValue));
 		assertEquals(newValue, checkBox.isSelected());
 	}
@@ -922,7 +1221,8 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 			throws Exception {
 
 		ScrollableOptionsEditor editor = selectNodeWithDefaultEditor(parentNodeName);
-		JTextField textField = (JTextField) findPairedComponent(editor, childNodeName);
+		JTextField textField =
+			(JTextField) findPairedComponent(editor.getComponent(), childNodeName);
 		return getText(textField);
 	}
 
@@ -930,7 +1230,8 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 			String newValue) throws Exception {
 
 		ScrollableOptionsEditor editor = selectNodeWithDefaultEditor(parentNodeName);
-		JTextField textField = (JTextField) findPairedComponent(editor, childNodeName);
+		JTextField textField =
+			(JTextField) findPairedComponent(editor.getComponent(), childNodeName);
 		setText(textField, newValue);
 		String updatedText = getText(textField);
 
@@ -951,7 +1252,7 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 
 		ScrollableOptionsEditor editor = (ScrollableOptionsEditor) getEditorPanel(node);
 		assertNotNull(editor);
-		assertTrue(editor.isShowing());
+		assertTrue(editor.getComponent().isShowing());
 		return editor;
 	}
 
@@ -974,7 +1275,7 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 
 		ScrollableOptionsEditor editor = (ScrollableOptionsEditor) getEditorPanel(childNode);
 		assertNotNull(editor);
-		assertTrue(editor.isShowing());
+		assertTrue(editor.getComponent().isShowing());
 		return editor;
 	}
 
@@ -990,17 +1291,21 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 		showOptionsDialog(pluginTool);
 	}
 
-	private void showOptionsDialog(PluginTool pluginTool) throws Exception {
-		// TODO change to getAction("Edit Options")
+	private void editOptions(PluginTool pluginTool) {
 		Set<DockingActionIf> list = pluginTool.getAllActions();
 		for (DockingActionIf action : list) {
 			if (action.getName().equals("Edit Options")) {
 				performAction(action, false);
-				break;
+				waitForSwing();
+				return;
 			}
 		}
+		fail("Unable to find action 'Edit Options'");
+	}
 
-		waitForSwing();
+	private void showOptionsDialog(PluginTool pluginTool) throws Exception {
+
+		editOptions(pluginTool);
 		dialog = waitForDialogComponent(OptionsDialog.class);
 		optionsPanel = (OptionsPanel) getInstanceField("panel", dialog);
 		Container pane = dialog.getComponent();
@@ -1059,10 +1364,13 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 		// register this options because it is used in a test that saves and restores and
 		// only registered options are saved.
 		String myOptionsName = "My Options" + Options.DELIMITER;
-		options.registerOption(myOptionsName + "my sub group Boolean Value", true, null, null);
+		options.registerOption(myOptionsName + "my sub group Boolean Value", true, null,
+			"description");
 
-		options.registerOption("My PathName", OptionType.FILE_TYPE, null, null, "");
-		options.setFile("My PathName", new File(System.getProperty("user.dir")));
+		File file = new File(System.getProperty("user.dir"));
+		options.registerOption(MY_PATH_NAME_OPTION_NAME, OptionType.FILE_TYPE, file, null,
+			"description");
+		options.setFile(MY_PATH_NAME_OPTION_NAME, file);
 
 		// the following "get" methods set a value
 		options.getInt(myOptionsName + "my sub group" + Options.DELIMITER + "My Test Value", 10);
@@ -1071,20 +1379,33 @@ public class OptionsDialogTest extends AbstractGhidraHeadedIntegrationTest {
 
 		String intOptionName = myOptionsName + "my sub group" + Options.DELIMITER + "Group A" +
 			Options.DELIMITER + "Second Int Value";
+		options.registerOption(intOptionName, 50, null, "description");
 		options.setInt(intOptionName, 50);
-		options.setBoolean(myOptionsName + "my sub group" + Options.DELIMITER + "Group A" +
-			Options.DELIMITER + "First boolean value", true);
 
-		options.setInt(
+		String name = myOptionsName + "my sub group" + Options.DELIMITER + "Group A" +
+			Options.DELIMITER + "First boolean value";
+		options.registerOption(name, true, null, "description");
+		options.setBoolean(name, true);
+
+		name =
 			"New Options" + Options.DELIMITER + " subgroup A" + Options.DELIMITER + " subgroup B" +
-				Options.DELIMITER + " subgroup C" + Options.DELIMITER + "Another int value",
-			300);
+				Options.DELIMITER + " subgroup C" + Options.DELIMITER + "Another int value";
+		options.registerOption(name, 300, null, "description");
+		options.setInt(name, 300);
 
-		options.setColor("Favorite Color", Color.RED);
+		name = "Favorite Color";
+
+		options.registerThemeColorBinding(name, "color.bg", null, "description");
+		//options.registerOption(name, Palette.RED, null, "description");
+
+		name = "Favorite String";
+		options.registerOption(name, "Foo", null, "description");
 
 		// select the middle button
-		options.setEnum("Mouse Buttons" + Options.DELIMITER + "Mouse Button To Activate",
-			GhidraOptions.CURSOR_MOUSE_BUTTON_NAMES.MIDDLE);
+		name = "Mouse Buttons" + Options.DELIMITER + "Mouse Button To Activate";
+		options.registerOption(name, GhidraOptions.CURSOR_MOUSE_BUTTON_NAMES.MIDDLE, null,
+			"description");
+		options.setEnum(name, GhidraOptions.CURSOR_MOUSE_BUTTON_NAMES.MIDDLE);
 
 	}
 

@@ -23,8 +23,11 @@ import javax.swing.JTextField;
 import javax.swing.text.*;
 
 import docking.util.GraphicsUtils;
+import generic.theme.GThemeDefaults.Colors.Messages;
+import generic.theme.Gui;
 
 public class HexOrDecimalInput extends JTextField {
+	private static final String FONT_ID = "font.input.hint";
 	private boolean isHexMode = false;
 	private boolean allowsNegative = true;
 	private Long currentValue;
@@ -33,8 +36,16 @@ public class HexOrDecimalInput extends JTextField {
 		this(null);
 	}
 
+	public HexOrDecimalInput(int columns) {
+		super(columns);
+		init(null);
+	}
+
 	public HexOrDecimalInput(Long initialValue) {
-		super();
+		init(initialValue);
+	}
+
+	private void init(Long initialValue) {
 		currentValue = initialValue;
 		setDocument(new MyDocument());
 		updateText();
@@ -53,6 +64,17 @@ public class HexOrDecimalInput extends JTextField {
 
 	public Long getValue() {
 		return currentValue;
+	}
+
+	public int getIntValue() {
+		if (currentValue == null) {
+			return 0;
+		}
+		return currentValue.intValue();
+	}
+
+	public void setValue(int newValue) {
+		setValue((long) newValue);
 	}
 
 	public void setValue(Long newValue) {
@@ -108,10 +130,10 @@ public class HexOrDecimalInput extends JTextField {
 	@Override
 	protected void paintComponent(Graphics g) {
 		super.paintComponent(g);
-		Font font = new Font("Monospaced", Font.PLAIN, 10);
+		Font font = Gui.getFont(FONT_ID);
 		Font savedFont = g.getFont();
 		g.setFont(font);
-		g.setColor(Color.LIGHT_GRAY);
+		g.setColor(Messages.HINT);
 		FontMetrics fontMetrics = getFontMetrics(font);
 		String mode = isHexMode ? "Hex" : "Dec";
 		int stringWidth = fontMetrics.stringWidth(mode);

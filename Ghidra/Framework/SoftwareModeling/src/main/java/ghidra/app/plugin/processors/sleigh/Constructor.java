@@ -19,20 +19,18 @@
  */
 package ghidra.app.plugin.processors.sleigh;
 
+import static ghidra.pcode.utils.SlaFormat.*;
+
 import java.util.*;
 
 import ghidra.app.plugin.processors.sleigh.symbol.*;
 import ghidra.app.plugin.processors.sleigh.template.ConstructTpl;
 import ghidra.app.plugin.processors.sleigh.template.HandleTpl;
-import ghidra.program.model.lang.UnknownInstructionException;
 import ghidra.program.model.mem.MemoryAccessException;
-import ghidra.util.xml.SpecXmlUtils;
-import ghidra.xml.XmlElement;
-import ghidra.xml.XmlPullParser;
+import ghidra.program.model.pcode.Decoder;
+import ghidra.program.model.pcode.DecoderException;
 
 /**
- * 
- *
  * The primary sleigh concept representing a semantic action
  * taking operands (semantic values) as input
  * producing a semantic value as output
@@ -55,6 +53,7 @@ public class Constructor implements Comparable<Constructor> {
 						in original (uncompiled) specfile */
 
 	private int flowthruindex;
+	private String sourceFile;
 
 	public Constructor() {
 		parent = null;
@@ -115,14 +114,14 @@ public class Constructor implements Comparable<Constructor> {
 
 	public String print(ParserWalker walker) throws MemoryAccessException {
 		String res = "";
-		for (int i = 0; i < printpiece.length; ++i) {
-			if (printpiece[i].length() != 0) {
-				if (printpiece[i].charAt(0) == '\n') {
-					int index = printpiece[i].charAt(1) - 'A';
+		for (String element : printpiece) {
+			if (element.length() != 0) {
+				if (element.charAt(0) == '\n') {
+					int index = element.charAt(1) - 'A';
 					res += operands[index].print(walker);
 				}
 				else {
-					res += printpiece[i];
+					res += element;
 				}
 			}
 		}
@@ -130,7 +129,7 @@ public class Constructor implements Comparable<Constructor> {
 	}
 
 	public String printSeparator(int separatorIndex) {
-		
+
 		// Separator is all chars to the left of the corresponding operand
 		// The mnemonic (first sequence of contiguous non-space print-pieces)
 		// is ignored when identifying the first separator (index 0) and the 
@@ -140,7 +139,7 @@ public class Constructor implements Comparable<Constructor> {
 		if (separatorIndex < 0 || separatorIndex > operands.length) {
 			return null;
 		}
-		
+
 		String cachedSeparator = separators[separatorIndex];
 		if (cachedSeparator != null) {
 			if (cachedSeparator.length() == 0) {
@@ -188,11 +187,11 @@ public class Constructor implements Comparable<Constructor> {
 		FixedHandle lastHandle = null;
 		int lastHandleIndex = -1;
 
-		for (int i = 0; i < printpiece.length; ++i) {
+		for (String element : printpiece) {
 			int prevSize = list.size();
-			if (printpiece[i].length() != 0) {
-				if (printpiece[i].charAt(0) == '\n') {
-					int index = printpiece[i].charAt(1) - 'A';
+			if (element.length() != 0) {
+				if (element.charAt(0) == '\n') {
+					int index = element.charAt(1) - 'A';
 					operands[index].printList(walker, list);
 					if (prevSize != list.size() && ++opSymbolCnt == 1) {
 						// Identify sole handle which can be fixed
@@ -212,8 +211,9 @@ public class Constructor implements Comparable<Constructor> {
 					}
 				}
 				else {
-					for (int j = 0; j < printpiece[i].length(); ++j)
-						list.add(new Character(printpiece[i].charAt(j)));
+					for (int j = 0; j < element.length(); ++j) {
+						list.add(Character.valueOf(element.charAt(j)));
+					}
 				}
 			}
 		}
@@ -264,8 +264,9 @@ public class Constructor implements Comparable<Constructor> {
 				return res;
 			}
 		}
-		if (firstwhitespace == -1)
+		if (firstwhitespace == -1) {
 			return res;	// Nothing to print
+		}
 		for (int i = firstwhitespace + 1; i < printpiece.length; ++i) {
 			if (printpiece[i].length() != 0) {
 				if (printpiece[i].charAt(0) == '\n') {
@@ -289,8 +290,8 @@ public class Constructor implements Comparable<Constructor> {
 	 */
 	public void applyContext(ParserWalker walker, SleighDebugLogger debug)
 			throws MemoryAccessException {
-		for (int i = 0; i < context.length; ++i) {
-			context[i].apply(walker, debug);
+		for (ContextChange element : context) {
+			element.apply(walker, debug);
 		}
 	}
 
@@ -300,75 +301,85 @@ public class Constructor implements Comparable<Constructor> {
 	 * @return the named section (or null)
 	 */
 	public ConstructTpl getNamedTempl(int secnum) {
-		if (namedtempl == null)
+		if (namedtempl == null) {
 			return null;
-		if (secnum < namedtempl.size())
+		}
+		if (secnum < namedtempl.size()) {
 			return namedtempl.get(secnum);
+		}
 		return null;
 	}
 
-	public void restoreXml(XmlPullParser parser, SleighLanguage sleigh)
-			throws UnknownInstructionException {
-		XmlElement el = parser.start("constructor");
+	public void decode(Decoder decoder, SleighLanguage sleigh) throws DecoderException {
+		int el = decoder.openElement(ELEM_CONSTRUCTOR);
 		SymbolTable symtab = sleigh.getSymbolTable();
 
-		int myId = SpecXmlUtils.decodeInt(el.getAttribute("parent"));
+		int myId = (int) decoder.readUnsignedInteger(ATTRIB_PARENT);
 		parent = (SubtableSymbol) symtab.findSymbol(myId);
-		firstwhitespace = SpecXmlUtils.decodeInt(el.getAttribute("first"));
-		minimumlength = SpecXmlUtils.decodeInt(el.getAttribute("length"));
-		lineno = SpecXmlUtils.decodeInt(el.getAttribute("line"));
+		firstwhitespace = (int) decoder.readSignedInteger(ATTRIB_FIRST);
+		minimumlength = (int) decoder.readSignedInteger(ATTRIB_LENGTH);
+		int srcLine = (int) decoder.readSignedInteger(ATTRIB_SOURCE);
+		lineno = (int) decoder.readSignedInteger(ATTRIB_LINE);
+		sourceFile = sleigh.getSourceFileIndexer().getFileName(srcLine);
 
 		ArrayList<Object> oplist = new ArrayList<>();
 		ArrayList<Object> piecelist = new ArrayList<>();
 		ArrayList<Object> coplist = new ArrayList<>();
-		XmlElement subel = parser.peek();
-		while (!subel.getName().equals("constructor")) {
-			if (subel.getName().equals("oper")) {
-				myId = SpecXmlUtils.decodeInt(subel.getAttribute("id"));
+		int subel = decoder.peekElement();
+		while (subel != 0) {
+			if (subel == ELEM_OPER.id()) {
+				decoder.openElement();
+				myId = (int) decoder.readUnsignedInteger(ATTRIB_ID);
 				oplist.add(symtab.findSymbol(myId));
-				parser.discardSubTree();
+				decoder.closeElementSkipping(subel);
 			}
-			else if (subel.getName().equals("print")) {
-				piecelist.add(subel.getAttribute("piece"));
-				parser.discardSubTree();
+			else if (subel == ELEM_PRINT.id()) {
+				decoder.openElement();
+				piecelist.add(decoder.readString(ATTRIB_PIECE));
+				decoder.closeElementSkipping(subel);
 			}
-			else if (subel.getName().equals("opprint")) {
-				myId = SpecXmlUtils.decodeInt(subel.getAttribute("id"));
+			else if (subel == ELEM_OPPRINT.id()) {
+				decoder.openElement();
+				myId = (int) decoder.readSignedInteger(ATTRIB_ID);
 				String operstring = "\n";
 				char ind = (char) ('A' + myId);
 				operstring += ind;
 				piecelist.add(operstring);
-				parser.discardSubTree();
+				decoder.closeElementSkipping(subel);
 			}
-			else if (subel.getName().equals("context_op")) {
+			else if (subel == ELEM_CONTEXT_OP.id()) {
 				ContextOp c_op = new ContextOp();
-				c_op.restoreXml(parser, sleigh);
+				c_op.decode(decoder, sleigh);
 				coplist.add(c_op);
 			}
-			else if (subel.getName().equals("commit")) {
+			else if (subel == ELEM_COMMIT.id()) {
 				ContextCommit c_op = new ContextCommit();
-				c_op.restoreXml(parser, sleigh);
+				c_op.decode(decoder, sleigh);
 				coplist.add(c_op);
 			}
 			else {
 				ConstructTpl curtempl = new ConstructTpl();
-				int sectionid = curtempl.restoreXml(parser, sleigh.getAddressFactory());
+				int sectionid = curtempl.decode(decoder);
 				if (sectionid < 0) {
-					if (templ != null)
-						throw new UnknownInstructionException("Duplicate main template section");
+					if (templ != null) {
+						throw new DecoderException("Duplicate main template section");
+					}
 					templ = curtempl;
 				}
 				else {
-					if (namedtempl == null)
+					if (namedtempl == null) {
 						namedtempl = new ArrayList<>();
-					while (namedtempl.size() <= sectionid)
+					}
+					while (namedtempl.size() <= sectionid) {
 						namedtempl.add(null);
-					if (namedtempl.get(sectionid) != null)
-						throw new UnknownInstructionException("Duplicate named template section");
+					}
+					if (namedtempl.get(sectionid) != null) {
+						throw new DecoderException("Duplicate named template section");
+					}
 					namedtempl.set(sectionid, curtempl);
 				}
 			}
-			subel = parser.peek();
+			subel = decoder.peekElement();
 		}
 		operands = new OperandSymbol[oplist.size()];
 		separators = new String[operands.length + 1];
@@ -378,11 +389,13 @@ public class Constructor implements Comparable<Constructor> {
 		context = new ContextChange[coplist.size()];
 		coplist.toArray(context);
 		if ((printpiece.length == 1) && (printpiece[0].length() >= 2) &&
-			(printpiece[0].charAt(0) == '\n'))
+			(printpiece[0].charAt(0) == '\n')) {
 			flowthruindex = printpiece[0].charAt(1) - 'A';
-		else
+		}
+		else {
 			flowthruindex = -1;
-		parser.end(el);
+		}
+		decoder.closeElement(el);
 	}
 
 	/**
@@ -391,25 +404,24 @@ public class Constructor implements Comparable<Constructor> {
 	 * @return array of operand indices
 	 */
 	public int[] getOpsPrintOrder() {
-		if (firstwhitespace == -1)
+		if (firstwhitespace == -1) {
 			return new int[0];
+		}
 		int count = 0;
 		for (int i = firstwhitespace + 1; i < printpiece.length; ++i) {
-			if (printpiece[i].length() != 0 && printpiece[i].charAt(0) == '\n')
+			if (printpiece[i].length() != 0 && printpiece[i].charAt(0) == '\n') {
 				count += 1;
+			}
 		}
 		int[] res = new int[count];
 		count = 0;
 		for (int i = firstwhitespace + 1; i < printpiece.length; ++i) {
-			if (printpiece[i].length() != 0 && printpiece[i].charAt(0) == '\n')
+			if (printpiece[i].length() != 0 && printpiece[i].charAt(0) == '\n') {
 				res[count++] = printpiece[i].charAt(1) - 'A';
+			}
 		}
 		return res;
 	}
-
-	/* ***************************** *
-	 * Get these working as map keys *
-	 * ***************************** */
 
 	@Override
 	public int compareTo(Constructor that) {
@@ -443,5 +455,13 @@ public class Constructor implements Comparable<Constructor> {
 			return false;
 		}
 		return true;
+	}
+
+	/**
+	 * Returns the source file
+	 * @return source file
+	 */
+	public String getSourceFile() {
+		return sourceFile;
 	}
 }

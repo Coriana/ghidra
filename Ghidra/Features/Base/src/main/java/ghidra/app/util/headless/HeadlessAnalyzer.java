@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,6 +20,8 @@ import java.net.*;
 import java.util.*;
 import java.util.regex.Pattern;
 
+import org.apache.commons.io.FilenameUtils;
+
 import generic.jar.ResourceFile;
 import generic.stl.Pair;
 import generic.util.Path;
@@ -28,23 +30,25 @@ import ghidra.GhidraJarApplicationLayout;
 import ghidra.app.plugin.core.analysis.AutoAnalysisManager;
 import ghidra.app.plugin.core.osgi.BundleHost;
 import ghidra.app.script.*;
+import ghidra.app.script.JythonStubScriptProvider.JythonStubException;
 import ghidra.app.util.headless.HeadlessScript.HeadlessContinuationOption;
-import ghidra.app.util.importer.AutoImporter;
-import ghidra.app.util.importer.MessageLog;
-import ghidra.app.util.opinion.BinaryLoader;
+import ghidra.app.util.importer.ProgramLoader;
+import ghidra.app.util.opinion.*;
+import ghidra.formats.gfilesystem.*;
 import ghidra.framework.*;
 import ghidra.framework.client.ClientUtil;
 import ghidra.framework.client.RepositoryAdapter;
 import ghidra.framework.data.*;
+import ghidra.framework.main.AppInfo;
 import ghidra.framework.model.*;
 import ghidra.framework.project.DefaultProject;
 import ghidra.framework.project.DefaultProjectManager;
 import ghidra.framework.protocol.ghidra.*;
+import ghidra.framework.protocol.ghidra.GhidraURLQuery.LinkFileControl;
 import ghidra.framework.remote.User;
 import ghidra.framework.store.LockException;
 import ghidra.framework.store.local.LocalFileSystem;
 import ghidra.program.database.ProgramContentHandler;
-import ghidra.program.database.ProgramDB;
 import ghidra.program.model.address.AddressSetView;
 import ghidra.program.model.listing.Program;
 import ghidra.program.util.GhidraProgramUtilities;
@@ -55,16 +59,16 @@ import ghidra.util.task.TaskMonitor;
 import utilities.util.FileUtilities;
 
 /**
- * The class used kick-off and interact with headless processing.  All headless options have been 
- * broken out into their own class: {@link HeadlessOptions}.  This class is intended to be used 
+ * The class used kick-off and interact with headless processing.  All headless options have been
+ * broken out into their own class: {@link HeadlessOptions}.  This class is intended to be used
  * one of two ways:
  * <ul>
- *   <li>Used by {@link AnalyzeHeadless} to perform headless analysis based on arguments specified 
+ *   <li>Used by {@link AnalyzeHeadless} to perform headless analysis based on arguments specified
  *   on the command line.</li>
  *   <li>Used by another tool as a library to perform headless analysis.</li>
  * </ul>
  * <p>
- * Note: This class is not thread safe.  
+ * Note: This class is not thread safe.
  */
 public class HeadlessAnalyzer {
 
@@ -77,16 +81,19 @@ public class HeadlessAnalyzer {
 	private DomainFolder saveDomainFolder;
 	private Map<String, Object> storage;
 	private URLClassLoader classLoaderForDotClassScripts;
+	private FileSystemService fsService;
 
 	/**
-	 * Gets a headless analyzer, initializing the application if necessary with the specified 
-	 * logging parameters.  An {@link IllegalStateException} will be thrown if the application has 
+	 * Gets a headless analyzer, initializing the application if necessary with the specified
+	 * logging parameters.  An {@link IllegalStateException} will be thrown if the application has
 	 * already been initialized or a headless analyzer has already been retrieved.  In these cases,
 	 * the headless analyzer should be gotten with {@link HeadlessAnalyzer#getInstance()}.
 	 * 
-	 * @param logFile The desired application log file.  If null, no application logging will take place.
-	 * @param scriptLogFile The desired scripting log file.  If null, no script logging will take place.
-	 * @param useLog4j true if log4j is to be used; otherwise, false.  If this class is being used by 
+	 * @param logFile The desired application log file.  If null, the default application log file
+	 *   will be used (see {@link Application#initializeLogging}).
+	 * @param scriptLogFile The desired scripting log file.  If null, the default scripting log file
+	 *   will be used (see {@link Application#initializeLogging}).
+	 * @param useLog4j true if log4j is to be used; otherwise, false.  If this class is being used by
 	 *     another tool as a library, using log4j might interfere with that tool.
 	 * @return An instance of a new headless analyzer.
 	 * @throws IllegalStateException if an application or headless analyzer instance has already been initialized.
@@ -96,7 +103,7 @@ public class HeadlessAnalyzer {
 			boolean useLog4j) throws IllegalStateException, IOException {
 
 		// Prevent more than one headless analyzer from being instantiated.  Too much about it
-		// messes with global system settings, so under the current design of Ghidra, allowing 
+		// messes with global system settings, so under the current design of Ghidra, allowing
 		// more than one to exist could result in unpredictable behavior.
 		if (instance != null) {
 			throw new IllegalStateException(
@@ -134,7 +141,7 @@ public class HeadlessAnalyzer {
 
 	/**
 	 * Gets a headless analyzer instance, with the assumption that the application has already been
-	 * initialized.  If this is called before the application has been initialized, it will 
+	 * initialized.  If this is called before the application has been initialized, it will
 	 * initialize the application with no logging.
 	 * 
 	 * @return An instance of a new headless analyzer.
@@ -144,7 +151,7 @@ public class HeadlessAnalyzer {
 	public static HeadlessAnalyzer getInstance() throws IOException {
 
 		// Prevent more than one headless analyzer from being instantiated.  Too much about it
-		// messes with global system settings, so under the current design of Ghidra, allowing 
+		// messes with global system settings, so under the current design of Ghidra, allowing
 		// more than one to exist could result in unpredictable behavior.
 		if (instance != null) {
 			return instance;
@@ -178,8 +185,10 @@ public class HeadlessAnalyzer {
 			layout = new GhidraApplicationLayout();
 		}
 		catch (IOException e) {
+			Msg.debug(HeadlessAnalyzer.class,
+				"Unable to load the standard Ghidra application layout. " + e.getMessage() +
+					".  Attempting to load the Ghidra Jar application layout.");
 			layout = new GhidraJarApplicationLayout();
-
 		}
 		return layout;
 	}
@@ -194,16 +203,16 @@ public class HeadlessAnalyzer {
 		// Ghidra URL handler registration.  There's no harm in doing this more than once.
 		Handler.registerHandler();
 
-		// Ensure that we are running in "headless mode",  preventing Swing-based methods from 
+		// Ensure that we are running in "headless mode",  preventing Swing-based methods from
 		// running (causing headless operation to lose focus).
 		System.setProperty("java.awt.headless", "true");
 		System.setProperty(SystemUtilities.HEADLESS_PROPERTY, Boolean.TRUE.toString());
 
-		// Allows handling of old content which did not have a content type property
-		DomainObjectAdapter.setDefaultContentClass(ProgramDB.class);
-
 		// Put analyzer in its default state
 		reset();
+
+		// Initialize FileSytemService
+		fsService = FileSystemService.getInstance();
 	}
 
 	/**
@@ -234,18 +243,19 @@ public class HeadlessAnalyzer {
 	 * <li>perform auto-analysis if not disabled</li>
 	 * <li>execute ordered list of post-scripts</li>
 	 * </ol>
-	 * If no import files or directories have been specified the ordered list 
+	 * If no import files or directories have been specified the ordered list
 	 * of pre/post scripts will be executed once.
 	 * 
 	 * @param ghidraURL ghidra URL for existing server repository and optional
 	 *                  folder path
-	 * @param filesToImport directories and files to be imported (null or empty 
+	 * @param filesToImport directories and files to be imported (null or empty
 	 *                      is acceptable if we are in -process mode)
 	 * @throws IOException if there was an IO-related problem
 	 * @throws MalformedURLException specified URL is invalid
+	 * @throws URISyntaxException specified URL is invalid
 	 */
 	public void processURL(URL ghidraURL, List<File> filesToImport)
-			throws IOException, MalformedURLException {
+			throws IOException, MalformedURLException, URISyntaxException {
 
 		if (options.readOnly && options.commit) {
 			Msg.error(this,
@@ -258,7 +268,7 @@ public class HeadlessAnalyzer {
 			throw new MalformedURLException("Unsupported repository URL: " + ghidraURL);
 		}
 
-		if (GhidraURL.isLocalProjectURL(ghidraURL)) {
+		if (GhidraURL.isLocalURL(ghidraURL)) {
 			Msg.error(this,
 				"Ghidra URL command form does not supported local project URLs (ghidra:/path...)");
 			return;
@@ -283,72 +293,80 @@ public class HeadlessAnalyzer {
 
 			if (!path.endsWith("/")) {
 				// force explicit folder path so that non-existent folders are created on import
-				ghidraURL = new URL("ghidra", ghidraURL.getHost(), ghidraURL.getPort(), path + "/");
+				ghidraURL = new URI("ghidra", null, ghidraURL.getHost(), ghidraURL.getPort(),
+					path + "/", null, null).toURL();
 			}
 		}
 		else { // Running in -process mode
 			if (path.endsWith("/") && path.length() > 1) {
-				ghidraURL = new URL("ghidra", ghidraURL.getHost(), ghidraURL.getPort(),
-					path.substring(0, path.length() - 1));
+				ghidraURL = new URI("ghidra", null, ghidraURL.getHost(), ghidraURL.getPort(),
+					path.substring(0, path.length() - 1), null, null).toURL();
 			}
 		}
 
-		GhidraScriptUtil.initialize(new BundleHost(), options.scriptPaths);
+		BundleHost bundleHost = GhidraScriptUtil.acquireBundleHostReference();
+		bundleHost.add(parseScriptPaths(options.scriptPaths), true, true);
 		try {
-			initializeScriptPaths();
+			showConfiguredScriptPaths();
 			compileScripts();
 
 			Msg.info(HeadlessAnalyzer.class, "HEADLESS: execution starts");
 
-			GhidraURLConnection c = (GhidraURLConnection) ghidraURL.openConnection();
-			c.setReadOnly(options.readOnly); // writable repository connection
+			// force explicit folder access since file may have same name as folder
+			ghidraURL = GhidraURL.getFolderURL(ghidraURL);
 
-			if (c.getRepositoryName() == null) {
-				throw new MalformedURLException("Unsupported repository URL: " + ghidraURL);
-			}
+			Msg.info(this, "Opening ghidra repository folder: " + ghidraURL);
 
-			Msg.info(this, "Opening ghidra repository project: " + ghidraURL);
-			Object obj = c.getContent();
-			if (!(obj instanceof GhidraURLWrappedContent)) {
-				throw new IOException(
-					"Connect to repository folder failed. Response code: " + c.getResponseCode());
-			}
-			GhidraURLWrappedContent wrappedContent = (GhidraURLWrappedContent) obj;
-			Object content = null;
-			try {
-				content = wrappedContent.getContent(this);
-				if (!(content instanceof DomainFolder)) {
-					throw new IOException("Connect to repository folder failed");
-				}
+			GhidraURLQuery.queryRepositoryUrl(ghidraURL, options.readOnly,
+				new GhidraURLResultHandlerAdapter() {
 
-				DomainFolder folder = (DomainFolder) content;
-				project = new HeadlessProject(getProjectManager(), c);
+					@Override
+					public void processResult(DomainFolder domainFolder, URL url,
+							TaskMonitor monitor) throws IOException, CancelledException {
+						try {
+							project = new HeadlessProject(getProjectManager(),
+								domainFolder.getProjectData());
 
-				if (!checkUpdateOptions()) {
-					return; // TODO: Should an exception be thrown?
-				}
+							if (!checkUpdateOptions()) {
+								return; // TODO: Should an exception be thrown?
+							}
 
-				if (options.runScriptsNoImport) {
-					processNoImport(folder.getPathname());
-				}
-				else {
-					processWithImport(folder.getPathname(), filesToImport);
-				}
-			}
-			catch (NotFoundException e) {
-				throw new IOException("Connect to repository folder failed");
-			}
-			finally {
-				if (content != null) {
-					wrappedContent.release(content, this);
-				}
-				if (project != null) {
-					project.close();
-				}
-			}
+							if (options.runScriptsNoImport) {
+								processNoImport(domainFolder.getPathname());
+							}
+							else {
+								processWithImport(domainFolder.getPathname(), filesToImport);
+							}
+						}
+						finally {
+							if (project != null) {
+								project.close();
+							}
+						}
+					}
+
+					@Override
+					public void handleError(String title, String message, URL url,
+							IOException cause) throws IOException {
+						if (cause instanceof FileNotFoundException) {
+							throw new IOException("Connect to repository folder failed");
+						}
+						if (cause != null) {
+							throw cause;
+						}
+						throw new IOException(title + ": " + message);
+					}
+
+					// Link files are skipped to avoid duplicate processing
+					// Processing should be done on actual folder - not a linked folder
+				}, LinkFileControl.NO_FOLLOW, TaskMonitor.DUMMY);
+
+		}
+		catch (CancelledException e) {
+			throw new IOException(e); // unexpected
 		}
 		finally {
-			GhidraScriptUtil.dispose();
+			GhidraScriptUtil.releaseBundleHostReference();
 		}
 	}
 
@@ -359,16 +377,17 @@ public class HeadlessAnalyzer {
 	 * <li>perform auto-analysis if not disabled</li>
 	 * <li>execute ordered list of post-scripts</li>
 	 * </ol>
-	 * If no import files or directories have been specified the ordered list 
+	 * If no import files or directories have been specified the ordered list
 	 * of pre/post scripts will be executed once.
 	 * 
-	 * @param projectLocation directory path of project 
+	 * @param projectLocation directory path of project
 	 * 						  If project exists it will be opened, otherwise it will be created.
 	 * @param projectName project name
 	 * @param rootFolderPath root folder for imports
 	 * @param filesToImport directories and files to be imported (null or empty is acceptable if
 	 *        				we are in -process mode)
-	 * @throws IOException if there was an IO-related problem
+	 * @throws IOException if there was an IO-related problem.  If caused by a failure to obtain a
+	 * write-lock on the project the exception cause will a {@code LockException}.
 	 */
 	public void processLocal(String projectLocation, String projectName, String rootFolderPath,
 			List<File> filesToImport) throws IOException {
@@ -400,9 +419,10 @@ public class HeadlessAnalyzer {
 			}
 		}
 
-		GhidraScriptUtil.initialize(new BundleHost(), options.scriptPaths);
+		BundleHost bundleHost = GhidraScriptUtil.acquireBundleHostReference();
+		bundleHost.add(parseScriptPaths(options.scriptPaths), true, true);
 		try {
-			initializeScriptPaths();
+			showConfiguredScriptPaths();
 			compileScripts();
 
 			Msg.info(HeadlessAnalyzer.class, "HEADLESS: execution starts");
@@ -452,14 +472,14 @@ public class HeadlessAnalyzer {
 			}
 		}
 		finally {
-			GhidraScriptUtil.dispose();
+			GhidraScriptUtil.releaseBundleHostReference();
 		}
 	}
 
 	/**
 	 * Checks to see if the most recent analysis timed out.
 	 * 
-	 * @return true if the most recent analysis timed out; otherwise, false. 
+	 * @return true if the most recent analysis timed out; otherwise, false.
 	 */
 	public boolean checkAnalysisTimedOut() {
 		return analysisTimedOut;
@@ -569,16 +589,14 @@ public class HeadlessAnalyzer {
 			srcFile != null ? srcFile.getAbsolutePath() : (script.getClass().getName() + ".class");
 
 		try {
-			PrintWriter writer = new PrintWriter(System.out);
 			Msg.info(this, "SCRIPT: " + scriptName);
-			script.execute(scriptState, TaskMonitor.DUMMY, writer);
-			writer.flush();
+
+			// Execute the script, but don't directly write to stdout or stderr. The headless
+			// analyzer only uses the logging mechanism to get output to the user.
+			script.execute(scriptState, ScriptControls.NONE);
 		}
 		catch (Exception exc) {
-			Program prog = scriptState.getCurrentProgram();
-			String path = (prog != null ? " ( " + prog.getExecutablePath() + " ) " : "");
-			String logErrorMsg =
-				"REPORT SCRIPT ERROR: " + path + " " + scriptName + " : " + exc.getMessage();
+			String logErrorMsg = "REPORT SCRIPT ERROR: ";
 			Msg.error(this, logErrorMsg, exc);
 			return false;
 		}
@@ -591,9 +609,6 @@ public class HeadlessAnalyzer {
 	 * @return true if OK to continue
 	 */
 	private boolean checkUpdateOptions() {
-
-		boolean isImport = !options.runScriptsNoImport;
-		boolean commitAllowed = isCommitAllowed();
 
 		if (options.readOnly) {
 			String readOnlyError =
@@ -610,7 +625,13 @@ public class HeadlessAnalyzer {
 				return false;
 			}
 		}
+		else if (!isInWritableProject()) {
+			Msg.error(this, "Processing files within read-only project/repository " +
+				"- the -readOnly option is required.");
+			return false;
+		}
 
+		boolean commitAllowed = isCommitAllowed();
 		if (options.commit && !commitAllowed) {
 			Msg.error(this,
 				"Commit to repository not possible (due to permission or connection issue)");
@@ -629,6 +650,7 @@ public class HeadlessAnalyzer {
 		}
 
 		if (options.overwrite) {
+			boolean isImport = !options.runScriptsNoImport;
 			if (!isImport) {
 				Msg.info(this,
 					"Ignoring -overwrite because it is not applicable to -process mode.");
@@ -643,6 +665,10 @@ public class HeadlessAnalyzer {
 		return true;
 	}
 
+	private boolean isInWritableProject() {
+		return project.getProjectData().getRootFolder().isInWritableProject();
+	}
+
 	private boolean isCommitAllowed() {
 		RepositoryAdapter repository = project.getRepository();
 		if (repository == null) {
@@ -655,7 +681,7 @@ public class HeadlessAnalyzer {
 			}
 			User user = repository.getUser();
 			if (!user.hasWritePermission()) {
-				Msg.warn(this, "User '" + user.getName() +
+				Msg.error(this, "User '" + user.getName() +
 					"' does not have write permission to repository - commit not allowed");
 				return false;
 			}
@@ -668,10 +694,24 @@ public class HeadlessAnalyzer {
 		}
 	}
 
-	/**
-	 * Gather paths where scripts may be found.
-	 */
-	private void initializeScriptPaths() {
+	private List<ResourceFile> parseScriptPaths(List<String> scriptPaths) {
+		if (scriptPaths == null) {
+			return List.of();
+		}
+		List<ResourceFile> parsedScriptPaths = new ArrayList<>();
+		for (String path : scriptPaths) {
+			ResourceFile pathFile = Path.fromPathString(path);
+			if (pathFile.exists()) {
+				parsedScriptPaths.add(pathFile);
+			}
+			else {
+				Msg.warn(this, "REPORT: Could not find -scriptPath entry, skipping: " + pathFile);
+			}
+		}
+		return parsedScriptPaths;
+	}
+
+	private void showConfiguredScriptPaths() {
 		StringBuffer buf = new StringBuffer("HEADLESS Script Paths:");
 		for (ResourceFile dir : GhidraScriptUtil.getScriptSourceDirectories()) {
 			buf.append("\n    ");
@@ -737,7 +777,7 @@ public class HeadlessAnalyzer {
 				Class<?> c = Class.forName(className, true, classLoaderForDotClassScripts);
 
 				if (GhidraScript.class.isAssignableFrom(c)) {
-					// No issues, but return null, which signifies we don't actually have a 
+					// No issues, but return null, which signifies we don't actually have a
 					// ResourceFile to associate with the script name
 					return null;
 				}
@@ -844,6 +884,14 @@ public class HeadlessAnalyzer {
 				scriptName = scriptPair.first;
 				String[] scriptArgs = scriptPair.second;
 
+				StringBuilder buf = new StringBuilder();
+				for (String arg : scriptArgs) {
+					buf.append("'");
+					buf.append(arg);
+					buf.append("' ");
+				}
+				Msg.info(this, "REPORT: Execute script: " + scriptName + " " + buf.toString());
+
 				// For .class files, there is no ResourceFile mapping. Need to load from the
 				// stored 'classLoaderForDotClassScripts'
 				if (scriptName.endsWith(".class")) {
@@ -856,8 +904,8 @@ public class HeadlessAnalyzer {
 					Class<?> c = Class.forName(className, true, classLoaderForDotClassScripts);
 
 					// Get parent folder to pass to GhidraScript
-					File parentFile = new File(
-						c.getResource(c.getSimpleName() + ".class").toURI()).getParentFile();
+					File parentFile = new File(c.getResource(c.getSimpleName() + ".class").toURI())
+							.getParentFile();
 
 					currScript = (GhidraScript) c.getConstructor().newInstance();
 					currScript.setScriptArgs(scriptArgs);
@@ -873,8 +921,8 @@ public class HeadlessAnalyzer {
 
 					// GhidraScriptProvider case
 					GhidraScriptProvider provider = GhidraScriptUtil.getProvider(currScriptFile);
-					PrintWriter writer = new PrintWriter(System.out);
-					currScript = provider.getScriptInstance(currScriptFile, writer);
+					PrintWriter errWriter = new PrintWriter(System.err);
+					currScript = provider.getScriptInstance(currScriptFile, errWriter);
 					currScript.setScriptArgs(scriptArgs);
 
 					if (options.propertiesFilePaths.size() > 0) {
@@ -911,6 +959,14 @@ public class HeadlessAnalyzer {
 				}
 			}
 		}
+		catch (JythonStubException e) {
+			// We want to effectively exit with an error code, but this class may be used as a 
+			// Ghidra library method in some scenarios, so System.exit(1) is too aggressive.
+			// Throwing an Error allows Ghidra to exit with an uncaught exception when run from
+			// the command line, but allows for the possibility of a library client to handle
+			// the problem in a way that better suits their application.
+			throw new Error(e);
+		}
 		catch (Exception exc) {
 			String logErrorMsg = "REPORT SCRIPT ERROR: " + scriptName + " : " + exc.getMessage();
 			Msg.error(this, logErrorMsg, exc);
@@ -933,9 +989,9 @@ public class HeadlessAnalyzer {
 	 * @param fileAbsolutePath Path of the file to analyze.
 	 * @param program The program to analyze.
 	 * @return true if the program file should be kept.  If analysis or scripts have marked
-	 * 			the program as temporary changes should not be saved.  Returns false in 
+	 * 			the program as temporary changes should not be saved.  Returns false in
 	 * 			these cases:
-	 * 		- One of the scripts sets the Headless Continuation Option to "ABORT_AND_DELETE" or 
+	 * 		- One of the scripts sets the Headless Continuation Option to "ABORT_AND_DELETE" or
 	 * 			"CONTINUE_THEN_DELETE".
 	 */
 	private boolean analyzeProgram(String fileAbsolutePath, Program program) {
@@ -981,6 +1037,7 @@ public class HeadlessAnalyzer {
 
 		if (abortProcessing) {
 			Msg.info(this, "Processing aborted as a result of pre-script.");
+			mgr.dispose();
 			return !deleteProgram;
 		}
 
@@ -998,7 +1055,7 @@ public class HeadlessAnalyzer {
 					mgr.startAnalysis(TaskMonitor.DUMMY); // kick start
 
 					Msg.info(this, "REPORT: Analysis succeeded for file: " + fileAbsolutePath);
-					GhidraProgramUtilities.setAnalyzedFlag(program, true);
+					GhidraProgramUtilities.markProgramAnalyzed(program);
 				}
 				else {
 					HeadlessTimedTaskMonitor timerMonitor =
@@ -1011,6 +1068,7 @@ public class HeadlessAnalyzer {
 
 						// If no further scripts, just return the current program disposition
 						if (options.postScripts.isEmpty()) {
+							mgr.dispose();
 							return !deleteProgram;
 						}
 
@@ -1021,7 +1079,7 @@ public class HeadlessAnalyzer {
 						timerMonitor.cancel();
 
 						Msg.info(this, "REPORT: Analysis succeeded for file: " + fileAbsolutePath);
-						GhidraProgramUtilities.setAnalyzedFlag(program, true);
+						GhidraProgramUtilities.markProgramAnalyzed(program);
 					}
 				}
 			}
@@ -1078,6 +1136,7 @@ public class HeadlessAnalyzer {
 
 		}
 
+		mgr.dispose();
 		return !deleteProgram;
 	}
 
@@ -1089,6 +1148,8 @@ public class HeadlessAnalyzer {
 			return;
 		}
 
+		// Do not follow folder-links or consider program links.  Using content type
+		// to filter is best way to control this.
 		if (!ProgramContentHandler.PROGRAM_CONTENT_TYPE.equals(domFile.getContentType())) {
 			return; // skip non-Program files
 		}
@@ -1097,33 +1158,40 @@ public class HeadlessAnalyzer {
 		boolean keepFile = true; // if false file should be deleted after release
 		boolean terminateCheckoutWhenDone = false;
 
-		boolean readOnlyFile = options.readOnly || domFile.isReadOnly();
+		boolean readOnlyFile =
+			options.readOnly || domFile.isReadOnly() || !domFile.isInWritableProject();
 
 		try {
 			// Exclusive checkout required when commit option specified
-			if (!readOnlyFile) {
-				if (domFile.isVersioned()) {
-					if (!domFile.isCheckedOut()) {
-						if (!domFile.checkout(options.commit, TaskMonitor.DUMMY)) {
-							Msg.warn(this, "Skipped processing for " + domFile.getPathname() +
-								" -- failed to get exclusive file checkout required for commit");
-							return;
-						}
-					}
-					else if (options.commit && !domFile.isCheckedOutExclusive()) {
-						Msg.error(this, "Skipped processing for " + domFile.getPathname() +
-							" -- file is checked-out non-exclusive (commit requires exclusive checkout)");
+			if (!readOnlyFile && domFile.isVersioned()) {
+				if (!domFile.isCheckedOut()) {
+					if (!domFile.canCheckout()) {
+						Msg.warn(this, "Skipped processing for " + domFile.getPathname() +
+							" within read-only repository");
 						return;
 					}
+					if (!domFile.checkout(options.commit, TaskMonitor.DUMMY)) {
+						Msg.warn(this, "Skipped processing for " + domFile.getPathname() +
+							" -- failed to get exclusive file checkout required for commit");
+						return;
+					}
+					// Only terminate checkout when done if we did the checkout
+					terminateCheckoutWhenDone = true;
 				}
-				terminateCheckoutWhenDone = true;
+				else if (options.commit && !domFile.isCheckedOutExclusive()) {
+					Msg.error(this, "Skipped processing for " + domFile.getPathname() +
+						" -- file is checked-out non-exclusive (commit requires exclusive checkout)");
+					return;
+				}
 			}
 
 			program = (Program) domFile.getDomainObject(this, true, false, TaskMonitor.DUMMY);
 
-			Msg.info(this, "REPORT: Processing project file: " + domFile.getPathname());
+			String readOnlyText = readOnlyFile ? "read-only " : "";
+			Msg.info(this,
+				"REPORT: Processing " + readOnlyText + "project file: " + domFile.getPathname());
 
-			// This method already takes into account whether the user has set the "noanalysis" 
+			// This method already takes into account whether the user has set the "noanalysis"
 			// flag or not
 			keepFile = analyzeProgram(domFile.getPathname(), program) || readOnlyFile;
 
@@ -1166,7 +1234,6 @@ public class HeadlessAnalyzer {
 
 			if (options.commit) {
 
-				AutoAnalysisManager.getAnalysisManager(program).dispose();
 				program.release(this);
 				program = null;
 
@@ -1193,19 +1260,19 @@ public class HeadlessAnalyzer {
 			// This can never happen because there is no user interaction in headless!
 		}
 		catch (Exception exc) {
-			Msg.error(this, domFile.getPathname() + " Error during analysis: " + exc.getMessage());
+			Msg.error(this, domFile.getPathname() + " Error during analysis: " + exc.getMessage(),
+				exc);
 		}
 		finally {
 
 			if (program != null) {
-				AutoAnalysisManager.getAnalysisManager(program).dispose();
 				program.release(this);
 				program = null;
 			}
 
 			if (!readOnlyFile) { // can't change anything if read-only file
 
-				// Undo checkout of it is still checked-out and either the file is to be 
+				// Undo checkout of it is still checked-out and either the file is to be
 				// deleted, or we just checked it out and file changes have been committed
 				if (domFile.isCheckedOut()) {
 					if (!keepFile ||
@@ -1256,6 +1323,8 @@ public class HeadlessAnalyzer {
 
 		for (DomainFile domFile : parentFolder.getFiles()) {
 			if (filenamePattern == null || filenamePattern.matcher(domFile.getName()).matches()) {
+				// Do not follow folder-links or consider program links.  Using content type
+				// to filter is best way to control this.
 				if (ProgramContentHandler.PROGRAM_CONTENT_TYPE.equals(domFile.getContentType())) {
 					filesProcessed = true;
 					processFileNoImport(domFile);
@@ -1289,7 +1358,10 @@ public class HeadlessAnalyzer {
 		boolean filesProcessed = false;
 
 		DomainFile domFile = parentFolder.getFile(filename);
-		if (ProgramContentHandler.PROGRAM_CONTENT_TYPE.equals(domFile.getContentType())) {
+		// Do not follow folder-links or program links.  Using content type
+		// to filter is best way to control this.
+		if (domFile != null &&
+			ProgramContentHandler.PROGRAM_CONTENT_TYPE.equals(domFile.getContentType())) {
 			filesProcessed = true;
 			processFileNoImport(domFile);
 		}
@@ -1353,7 +1425,15 @@ public class HeadlessAnalyzer {
 		return p;
 	}
 
-	private boolean checkOverwrite(DomainFile df) throws IOException {
+	private boolean checkOverwrite(Loaded<? extends DomainObject> loaded) throws IOException {
+		DomainFolder folder = project.getProjectData().getFolder(loaded.getProjectFolderPath());
+		if (folder == null) {
+			return true;
+		}
+		DomainFile df = folder.getFile(loaded.getName());
+		if (df == null) {
+			return true;
+		}
 		if (options.overwrite) {
 			try {
 				if (df.isHijacked()) {
@@ -1447,7 +1527,7 @@ public class HeadlessAnalyzer {
 					public boolean createKeepFile() throws CancelledException {
 						return false;
 					}
-				}, true, TaskMonitor.DUMMY);
+				}, TaskMonitor.DUMMY);
 				Msg.info(this, "REPORT: Committed file changes to repository: " + df.getPathname());
 			}
 			catch (IOException e) {
@@ -1467,260 +1547,224 @@ public class HeadlessAnalyzer {
 		}
 	}
 
-	private boolean processFileWithImport(File file, String folderPath) {
+	private boolean processFileWithImport(FSRL fsrl, String folderPath) {
 
-		Msg.info(this, "IMPORTING: " + file.getAbsolutePath());
+		Msg.info(this, "IMPORTING: " + fsrl);
 
-		Program program = null;
-
+		// Perform the load.
+		// Note that loading 1 file may result in more than 1 thing getting loaded.
+		LoadResults<? extends DomainObject> loadResults = null;
 		try {
-			String dfName = null;
-			DomainFile df = null;
-			DomainFolder domainFolder = null;
-			try {
-				// Gets parent folder for import (creates path if doesn't exist)
-				domainFolder = getDomainFolder(folderPath, false);
+			loadResults = ProgramLoader.builder()
+					.source(fsrl)
+					.project(project)
+					.projectFolderPath(folderPath)
+					.mirror(options.mirror)
+					.language(options.language)
+					.compiler(options.compilerSpec)
+					.loaders(options.loaderClass)
+					.loaderArgs(options.loaderArgs)
+					.loadAll();
 
-				dfName = file.getName();
+			Msg.info(this, "IMPORTING: Loaded " + (loadResults.size() - 1) + " additional files");
 
-				if (dfName.toLowerCase().endsWith(".gzf") ||
-					dfName.toLowerCase().endsWith(".xml")) {
-					// Use filename without .gzf
-					int index = dfName.lastIndexOf('.');
-					dfName = dfName.substring(0, index);
-				}
-
-				if (!options.readOnly) {
-					if (domainFolder != null) {
-						df = domainFolder.getFile(dfName);
-					}
-					if (df != null && !checkOverwrite(df)) {
+			// Make sure we are allowed to save ALL domain objects to the project.
+			// If not, save none and fail.
+			if (!options.readOnly) {
+				for (Loaded<? extends DomainObject> loaded : loadResults) {
+					if (!checkOverwrite(loaded)) {
 						return false;
 					}
-					df = null;
-				}
-
-				program = loadProgram(file);
-				if (program == null) {
-					return false;
-				}
-
-				// Check if there are defined memory blocks; abort if not (there is nothing 
-				// to work with!)
-				if (program.getMemory().getAllInitializedAddressSet().isEmpty()) {
-					Msg.error(this, "REPORT: Error: No memory blocks were defined for file '" +
-						file.getAbsolutePath() + "'.");
-					return false;
 				}
 			}
-			catch (Exception exc) {
-				Msg.error(this, "REPORT: " + exc.getMessage(), exc);
-				exc.printStackTrace();
-				return false;
-			}
 
-			Msg.info(this,
-				"REPORT: Import succeeded with language \"" +
-					program.getLanguageID().getIdAsString() + "\" and cspec \"" +
-					program.getCompilerSpec().getCompilerSpecID().getIdAsString() +
-					"\" for file: " + file.getAbsolutePath());
-
-			boolean doSave;
+			boolean doSave = !options.readOnly;
+			Loaded<? extends DomainObject> primary = loadResults.getPrimary();
+			DomainObject primaryDomainObject = primary.getDomainObject(this);
 			try {
+				if (primaryDomainObject instanceof Program primaryProgram) {
+					// Check if there are defined memory blocks in the primary program.
+					// Abort if not (there is nothing to work with!).
+					if (primaryProgram.getMemory().getAllInitializedAddressSet().isEmpty()) {
+						Msg.error(this,
+							"REPORT: Error: No memory blocks were defined for file " + fsrl);
+						return false;
+					}
 
-				doSave = analyzeProgram(file.getAbsolutePath(), program) && !options.readOnly;
-
-				if (!doSave) {
-					program.setTemporary(true);
+					// Analyze the primary program, and determine if we should save.
+					// TODO: Analyze non-primary programs (GP-2965).
+					doSave = analyzeProgram(fsrl.toString(), primaryProgram) && doSave;
 				}
+			}
+			finally {
+				primaryDomainObject.release(this);
+			}
 
-				// The act of marking the program as temporary by a script will signal 
-				// us to discard any program changes.
-				if (program.isTemporary()) {
+			// The act of marking the program as temporary by a script will signal
+			// us to discard any changes
+			if (!doSave) {
+				loadResults.forEach(e -> e.apply(p -> p.setTemporary(true)));
+			}
+
+			// Apply saveDomainFolder to the primary program, if applicable.
+			// We don't support changing the save folder on any non-primary loaded programs.
+			// Note that saveDomainFolder is set by pre/post-scripts, so it can only be used
+			// after analysis happens.
+			if (saveDomainFolder != null) {
+				primary.setProjectFolderPath(saveDomainFolder.getPathname());
+				if (!checkOverwrite(primary)) {
+					return false;
+				}
+			}
+
+			// Save
+			for (Loaded<? extends DomainObject> loaded : loadResults) {
+				if (!loaded.check(DomainObject::isTemporary)) {
+					try {
+						DomainFile domainFile = loaded.save(TaskMonitor.DUMMY);
+						Msg.info(this, String.format("REPORT: Save succeeded for: %s (%s)", loaded,
+							domainFile));
+					}
+					catch (IOException e) {
+						Msg.info(this, "REPORT: Save failed for: " + loaded);
+					}
+				}
+				else {
 					if (options.readOnly) {
-						Msg.info(this, "REPORT: Discarded file import due to readOnly option: " +
-							file.getAbsolutePath());
+						Msg.info(this,
+							"REPORT: Discarded file import due to readOnly option: " + loaded);
 					}
 					else {
 						Msg.info(this, "REPORT: Discarded file import as a result of script " +
-							"activity or analysis timeout: " + file.getAbsolutePath());
+							"activity or analysis timeout: " + loaded);
 					}
-					return true;
-				}
-
-				try {
-					if (saveDomainFolder != null) {
-
-						df = saveDomainFolder.getFile(dfName);
-
-						// Return if file already exists and overwrite == false
-						if (df != null && !checkOverwrite(df)) {
-							return false;
-						}
-
-						domainFolder = saveDomainFolder;
-					}
-					else if (domainFolder == null) {
-						domainFolder = getDomainFolder(folderPath, true);
-					}
-					df = domainFolder.createFile(dfName, program, TaskMonitor.DUMMY);
-					Msg.info(this, "REPORT: Save succeeded for file: " + df.getPathname());
-
-					if (options.commit) {
-
-						AutoAnalysisManager.getAnalysisManager(program).dispose();
-						program.release(this);
-						program = null;
-
-						commitProgram(df);
-					}
-				}
-				catch (IOException e) {
-					e.printStackTrace();
-					throw new IOException("Cannot create file: " + domainFolder.getPathname() +
-						DomainFolder.SEPARATOR + dfName, e);
-				}
-			}
-			catch (Exception exc) {
-				String logErrorMsg =
-					file.getAbsolutePath() + " Error during analysis: " + exc.getMessage();
-				Msg.info(this, logErrorMsg);
-				return false;
-			}
-			finally {
-				if (program != null) {
-					AutoAnalysisManager.getAnalysisManager(program).dispose();
 				}
 			}
 
+			// Commit changes
+			if (options.commit) {
+				for (Loaded<? extends DomainObject> loaded : loadResults) {
+					if (!loaded.check(DomainObject::isTemporary)) {
+						loaded.close(); // we need to close before committing
+						commitProgram(loaded.getSavedDomainFile());
+					}
+				}
+			}
+
+			Msg.info(this, "REPORT: Import succeeded");
 			return true;
 		}
-		finally {
-			// Program must be released here, since the AutoAnalysisManager uses program to 
-			// call dispose() in the finally() block above.
-			if (program != null) {
-				program.release(this);
-				program = null;
-			}
-		}
-	}
-
-	private Program loadProgram(File file) throws VersionException, InvalidNameException,
-			DuplicateNameException, CancelledException, IOException {
-
-		MessageLog messageLog = new MessageLog();
-		Program program = null;
-
-		// NOTE: we must pass a null DomainFolder to the AutoImporter so as not to
-		// allow the DomainFile to be saved at this point.  DomainFile should be 
-		// saved after all applicable analysis/scripts are run.
-
-		if (options.loaderClass == null) {
-			// User did not specify a loader
-			if (options.language == null) {
-				program = AutoImporter.importByUsingBestGuess(file, null, this, messageLog,
-					TaskMonitor.DUMMY);
-			}
-			else {
-				program = AutoImporter.importByLookingForLcs(file, null, options.language,
-					options.compilerSpec, this, messageLog, TaskMonitor.DUMMY);
-			}
-		}
-		else {
-			// User specified a loader
-			if (options.language == null) {
-				program = AutoImporter.importByUsingSpecificLoaderClass(file, null,
-					options.loaderClass, options.loaderArgs, this, messageLog, TaskMonitor.DUMMY);
-			}
-			else {
-				program = AutoImporter.importByUsingSpecificLoaderClassAndLcs(file, null,
-					options.loaderClass, options.loaderArgs, options.language, options.compilerSpec,
-					this, messageLog, TaskMonitor.DUMMY);
-			}
-		}
-
-		if (program == null) {
-			Msg.error(this, "The AutoImporter could not successfully load " +
-				file.getAbsolutePath() +
+		catch (LoadException e) {
+			Msg.error(this, "The ProgramLoader could not successfully load " + fsrl +
 				" with the provided import parameters. Please ensure that any specified" +
 				" processor/cspec arguments are compatible with the loader that is used during" +
 				" import and try again.");
-
 			if (options.loaderClass != null && options.loaderClass != BinaryLoader.class) {
 				Msg.error(this,
 					"NOTE: Import failure may be due to missing opinion for \"" +
 						options.loaderClass.getSimpleName() +
 						"\". If so, please contact Ghidra team for assistance.");
 			}
-
-			return null;
+			return false;
 		}
-
-		return program;
+		catch (Exception e) {
+			Msg.error(this, "REPORT: " + e.getMessage(), e);
+			return false;
+		}
+		finally {
+			if (loadResults != null) {
+				loadResults.close();
+			}
+		}
 	}
 
-	private void processWithImport(File file, String folderPath, boolean isFirstTime)
+	private void processWithImport(FSRL fsrl, String folderPath, Integer depth, boolean isFirstTime)
 			throws IOException {
-
-		boolean importSucceeded;
-
-		if (file.isFile()) {
-
-			importSucceeded = processFileWithImport(file, folderPath);
-
-			// Check to see if there are transient programs lying around due
-			// to programs not being released during Importing
-			List<DomainFile> domainFileContainer = new ArrayList<>();
-			TransientDataManager.getTransients(domainFileContainer);
-			if (domainFileContainer.size() > 0) {
-				TransientDataManager.releaseFiles(this);
+		try (RefdFile refdFile = fsService.getRefdFile(fsrl, TaskMonitor.DUMMY)) {
+			GFile file = refdFile.file;
+			if (depth == null && isFirstTime) {
+				depth = file.isDirectory() ? 0 : 1; // set default depth
 			}
-
-			if (!importSucceeded) {
-				Msg.error(this, "REPORT: Import failed for file: " + file.getAbsolutePath());
+			if ((options.recursive || isFirstTime) && file.isDirectory()) {
+				processFS(file.getFilesystem(), file, folderPath, depth);
+				return;
 			}
-
-			return;
+			if (options.recursive && depth > 0 && processAsFS(fsrl, folderPath, depth)) {
+				return;
+			}
+			if (!file.isDirectory() && processWithLoader(fsrl, folderPath)) {
+				return;
+			}
 		}
+		catch (CancelledException e) {
+			Msg.info(this, "REPORT: Importing cancelled");
+		}
+	}
 
-		// Looks inside the folder if one of two situations is applicable:
-		//  - If user supplied a directory to import, and it is currently being
-		//    processed (if so, this will be the first time that this method is called)
-		//	- If -recursive is specified
-		if ((isFirstTime) || (!isFirstTime && options.recursive)) {
-			// Otherwise, is a directory
-			Msg.info(this, "REPORT: Importing all files from " + file.getName());
+	private void processFS(GFileSystem fs, GFile startDir, String folderPath, int depth)
+			throws CancelledException, IOException {
+		if (!folderPath.endsWith(DomainFolder.SEPARATOR)) {
+			folderPath += DomainFolder.SEPARATOR;
+		}
+		folderPath += startDir.getName();
 
-			File dirFile = file;
+		for (GFile file : fs.getListing(startDir)) {
+			String name = file.getName();
+			if (name.startsWith(".")) {
+				Msg.warn(this, "Ignoring file '" + name + "'.");
+				continue;
+			}
+			FSRL fqFSRL;
+			try {
+				fqFSRL = fsService.getFullyQualifiedFSRL(file.getFSRL(), TaskMonitor.DUMMY);
+			}
+			catch (IOException e) {
+				Msg.warn(this, "Error getting info for " + file.getFSRL());
+				continue;
+			}
+			try {
+				checkValidFilename(fqFSRL.getName());
+				processWithImport(fqFSRL, folderPath, depth, false);
+			}
+			catch (InvalidInputException e) {
+				// Just move on if not valid
+			}
+		}
+	}
 
+	private boolean processAsFS(FSRL fsrl, String folderPath, int depth) throws CancelledException {
+		try (FileSystemRef fsRef = fsService.probeFileForFilesystem(fsrl, TaskMonitor.DUMMY,
+			FileSystemProbeConflictResolver.CHOOSEFIRST)) {
+			if (fsRef == null) {
+				return false;
+			}
 			if (!folderPath.endsWith(DomainFolder.SEPARATOR)) {
 				folderPath += DomainFolder.SEPARATOR;
 			}
-
-			String subfolderPath = folderPath + file.getName();
-
-			String[] names = dirFile.list();
-			if (names != null) {
-				Collections.sort(Arrays.asList(names));
-				for (String name : names) {
-					if (name.charAt(0) == '.') {
-						Msg.warn(this, "Ignoring file '" + name + "'.");
-						continue;
-					}
-					file = new File(dirFile, name);
-
-					// Even a directory name has to have valid characters --
-					// can't create a folder if it's not valid
-					try {
-						checkValidFilename(file);
-						processWithImport(file, subfolderPath, false);
-					}
-					catch (InvalidInputException e) {
-						// Just move on if not valid
-					}
-				}
-			}
+			folderPath += fsrl.getName();
+			processWithImport(fsRef.getFilesystem().getFSRL(), folderPath, depth - 1, false);
+			return true;
 		}
+		catch (IOException e) {
+			return false;
+		}
+	}
+
+	private boolean processWithLoader(FSRL fsrl, String folderPath) {
+		boolean importSucceeded = processFileWithImport(fsrl, folderPath);
+
+		// Check to see if there are transient programs lying around due
+		// to programs not being released during Importing
+		List<DomainFile> domainFileContainer = new ArrayList<>();
+		TransientDataManager.getTransients(domainFileContainer);
+		if (domainFileContainer.size() > 0) {
+			TransientDataManager.releaseFiles(this);
+		}
+
+		if (!importSucceeded) {
+			Msg.error(this, "REPORT: Import failed for file: " + fsrl);
+		}
+		return importSucceeded;
 	}
 
 	private void processWithImport(String folderPath, List<File> inputDirFiles) throws IOException {
@@ -1730,8 +1774,9 @@ public class HeadlessAnalyzer {
 		if (inputDirFiles != null && !inputDirFiles.isEmpty()) {
 			Msg.info(this, "REPORT: Processing input files: ");
 			Msg.info(this, "     project: " + project.getProjectLocator());
-			for (File f : inputDirFiles) {
-				processWithImport(f, folderPath, true);
+			List<FSRL> fsrls = inputDirFiles.stream().map(f -> fsService.getLocalFSRL(f)).toList();
+			for (FSRL fsrl : fsrls) {
+				processWithImport(fsrl, folderPath, options.recursiveDepth, true);
 			}
 		}
 		else {
@@ -1753,7 +1798,7 @@ public class HeadlessAnalyzer {
 					return;
 
 				default:
-					// Just continue					
+					// Just continue
 			}
 
 			runScriptsList(options.postScripts, options.postScriptFileMap, scriptState,
@@ -1773,10 +1818,7 @@ public class HeadlessAnalyzer {
 		try {
 			tempProject = new HeadlessProject(getProjectManager(), locator);
 		}
-		catch (NotOwnerException e) {
-			throw new IOException(e);
-		}
-		catch (LockException e) {
+		catch (NotFoundException | NotOwnerException | LockException e) {
 			throw new IOException(e);
 		}
 
@@ -1787,27 +1829,18 @@ public class HeadlessAnalyzer {
 	/**
 	 * Checks to make sure the given file contains only valid characters in its name.
 	 * 
-	 * @param currFile The file to check.
-	 * @throws InvalidInputException if the given file contains invalid characters in it.
+	 * @param path The path of the file to check.
+	 * @throws InvalidInputException if the given file path contains invalid characters in it.
 	 */
-	static void checkValidFilename(File currFile) throws InvalidInputException {
-		boolean isDir = currFile.isDirectory();
-		String filename = currFile.getName();
+	static void checkValidFilename(String path) throws InvalidInputException {
+		String filename = FilenameUtils.getName(path);
 
 		for (int i = 0; i < filename.length(); i++) {
 			char c = filename.charAt(i);
 			if (!LocalFileSystem.isValidNameCharacter(c)) {
-				if (isDir) {
-					throw new InvalidInputException("The directory '" + filename +
-						"' contains the invalid characgter: \'" + c +
-						"\' and can not be created in the project (full path: " +
-						currFile.getAbsolutePath() +
-						"). To allow successful import of the directory and its contents, please rename the directory.");
-				}
 				throw new InvalidInputException(
-					"The file '" + filename + "' contains the invalid character: \'" + c +
-						"\' and can not be imported (full path: " + currFile.getAbsolutePath() +
-						"). Please rename the file.");
+					"'" + filename + "' contains the invalid character: \'" + c +
+						"\' and can not be imported (full path: " + path + "). Please rename.");
 			}
 		}
 	}
@@ -1820,19 +1853,20 @@ public class HeadlessAnalyzer {
 	}
 
 	/**
-	 * Ghidra project class required to gain access to specialized project constructor 
+	 * Ghidra project class required to gain access to specialized project constructor
 	 * for URL connection.
 	 */
 	private static class HeadlessProject extends DefaultProject {
 
-		HeadlessProject(HeadlessGhidraProjectManager projectManager, GhidraURLConnection connection)
-				throws IOException {
-			super(projectManager, connection);
+		HeadlessProject(HeadlessGhidraProjectManager projectManager, ProjectLocator projectLocator)
+				throws NotFoundException, NotOwnerException, LockException, IOException {
+			super(projectManager, projectLocator, false);
+			AppInfo.setActiveProject(this);
 		}
 
-		HeadlessProject(HeadlessGhidraProjectManager projectManager, ProjectLocator projectLocator)
-				throws NotOwnerException, LockException, IOException {
-			super(projectManager, projectLocator, false);
+		HeadlessProject(HeadlessGhidraProjectManager projectManager, ProjectData projectData) {
+			super(projectManager, (DefaultProjectData) projectData);
+			AppInfo.setActiveProject(this);
 		}
 	}
 

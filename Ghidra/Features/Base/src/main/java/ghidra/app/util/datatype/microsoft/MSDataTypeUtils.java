@@ -85,8 +85,10 @@ public class MSDataTypeUtils {
 			CategoryPath categoryPath, String structureName, int packValue) {
 		StructureDataType struct =
 			new StructureDataType(categoryPath, structureName, 0, dataTypeManager);
-		struct.setInternallyAligned(true);
-		struct.setPackingValue(packValue);
+		struct.setPackingEnabled(true);
+		if (packValue > 0) {
+			struct.setExplicitPackingValue(packValue);
+		}
 		return struct;
 	}
 
@@ -171,7 +173,7 @@ public class MSDataTypeUtils {
 				// Can't get data type archive so just do nothing.
 			}
 		}
-		return (matchingDt != null) ? matchingDt : comparisonDt;
+		return (matchingDt != null) ? matchingDt.clone(programDTM) : comparisonDt;
 	}
 
 	private static DataType findMatchingDataType(DataType comparisonDt,
@@ -271,7 +273,7 @@ public class MSDataTypeUtils {
 	 */
 	public static DataType getReferenceDataType(Program program, DataType referredToDataType) {
 		DataTypeManager dtm = program.getDataTypeManager();
-		return is64Bit(program) ? new ImageBaseOffset32DataType(dtm)
+		return is64Bit(program) ? new IBO32DataType(dtm)
 				: new PointerDataType(referredToDataType);
 	}
 }

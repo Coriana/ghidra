@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,28 +17,27 @@ package ghidra.app.util.opinion;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
+import generic.hash.HashUtilities;
 import ghidra.app.plugin.processors.generic.MemoryBlockDefinition;
 import ghidra.app.util.Option;
 import ghidra.app.util.OptionUtils;
 import ghidra.app.util.bin.ByteProvider;
 import ghidra.app.util.importer.MessageLog;
-import ghidra.framework.model.DomainFolder;
+import ghidra.formats.gfilesystem.FSRL;
 import ghidra.framework.model.DomainObject;
 import ghidra.framework.store.LockException;
 import ghidra.program.database.ProgramDB;
+import ghidra.program.database.function.OverlappingFunctionException;
 import ghidra.program.model.address.*;
 import ghidra.program.model.lang.*;
-import ghidra.program.model.listing.Function;
-import ghidra.program.model.listing.Program;
-import ghidra.program.model.mem.MemoryConflictException;
+import ghidra.program.model.listing.*;
+import ghidra.program.model.mem.*;
 import ghidra.program.model.symbol.*;
-import ghidra.program.model.util.AddressLabelInfo;
 import ghidra.program.util.DefaultLanguageService;
 import ghidra.program.util.GhidraProgramUtilities;
-import ghidra.util.*;
+import ghidra.util.MD5Utilities;
 import ghidra.util.exception.*;
 import ghidra.util.task.TaskMonitor;
 
@@ -47,7 +46,7 @@ import ghidra.util.task.TaskMonitor;
  * Subclasses are responsible for the actual load.
  * <p>
  * This {@link Loader} provides a couple processor-related options, as all {@link Program}s will
- * have a processor associated with them. 
+ * have a processor associated with them.
  */
 public abstract class AbstractProgramLoader implements Loader {
 
@@ -55,119 +54,103 @@ public abstract class AbstractProgramLoader implements Loader {
 	public static final String ANCHOR_LABELS_OPTION_NAME = "Anchor Processor Defined Labels";
 
 	/**
-	 * Loads program bytes in a particular format as a new {@link Program}. Multiple 
+	 * Loads bytes in a particular format as a new {@link Loaded} {@link Program}. Multiple
 	 * {@link Program}s may end up getting created, depending on the nature of the format.
+	 * <p>
+	 * Note that when the load completes, the returned {@link Loaded} {@link Program}s are not 
+	 * saved to a project.  That is the responsibility of the caller (see 
+	 * {@link Loaded#save(TaskMonitor)}).
+	 * <p>
+	 * It is also the responsibility of the caller to close the returned {@link Loaded} 
+	 * {@link Program}s with {@link Loaded#close()} when they are no longer needed.
 	 *
-	 * @param provider The bytes to load.
-	 * @param programName The name of the {@link Program} that's being loaded.
-	 * @param programFolder The {@link DomainFolder} where the loaded thing should be saved.  Could 
-	 *   be null if the thing should not be pre-saved.
-	 * @param loadSpec The {@link LoadSpec} to use during load.
-	 * @param options The load options.
-	 * @param log The message log.
-	 * @param consumer A consumer object for {@link Program}s generated.
-	 * @param monitor A cancelable task monitor.
-	 * @return A list of loaded {@link Program}s (element 0 corresponds to primary loaded 
-	 *   {@link Program}).
+	 * @param settings The {@link Loader.ImporterSettings}.
+	 * @return A {@link List} of one or more {@link Loaded} {@link Program}s (created but not 
+	 *   saved).
+	 * @throws LoadException if the load failed in an expected way.
 	 * @throws IOException if there was an IO-related problem loading.
 	 * @throws CancelledException if the user cancelled the load.
 	 */
-	protected abstract List<Program> loadProgram(ByteProvider provider, String programName,
-			DomainFolder programFolder, LoadSpec loadSpec, List<Option> options, MessageLog log,
-			Object consumer, TaskMonitor monitor) throws IOException, CancelledException;
+	protected abstract List<Loaded<Program>> loadProgram(ImporterSettings settings)
+			throws IOException, LoadException, CancelledException;
 
 	/**
-	 * Loads program bytes into the specified {@link Program}.  This method will not create any new 
+	 * Loads program bytes into the specified {@link Program}.  This method will not create any new
 	 * {@link Program}s.  It is only for adding to an existing {@link Program}.
 	 * <p>
 	 * NOTE: The loading that occurs in this method will automatically be done in a transaction.
 	 *
-	 * @param provider The bytes to load into the {@link Program}.
-	 * @param loadSpec The {@link LoadSpec} to use during load.
-	 * @param options The load options.
-	 * @param messageLog The message log.
 	 * @param program The {@link Program} to load into.
-	 * @param monitor A cancelable task monitor.
-	 * @return True if the file was successfully loaded; otherwise, false.
+	 * @param settings The {@link Loader.ImporterSettings}.
+	 * @throws LoadException if the load failed in an expected way.
 	 * @throws IOException if there was an IO-related problem loading.
 	 * @throws CancelledException if the user cancelled the load.
 	 */
-	protected abstract boolean loadProgramInto(ByteProvider provider, LoadSpec loadSpec,
-			List<Option> options, MessageLog messageLog, Program program, TaskMonitor monitor)
-			throws IOException, CancelledException;
+	protected abstract void loadProgramInto(Program program, ImporterSettings settings)
+			throws IOException, LoadException, CancelledException;
 
 	@Override
-	public final List<DomainObject> load(ByteProvider provider, String name, DomainFolder folder,
-			LoadSpec loadSpec, List<Option> options, MessageLog messageLog, Object consumer,
-			TaskMonitor monitor) throws IOException, CancelledException, InvalidNameException,
-			DuplicateNameException, VersionException {
+	public final LoadResults<? extends DomainObject> load(ImporterSettings settings)
+			throws IOException, CancelledException, VersionException, LoadException {
 
-		List<DomainObject> results = new ArrayList<>();
-
-		if (!loadSpec.isComplete()) {
-			return results;
+		if (!settings.loadSpec().isComplete()) {
+			throw new LoadException("Load spec is incomplete");
 		}
 
-		List<Program> programs =
-			loadProgram(provider, name, folder, loadSpec, options, messageLog, consumer, monitor);
+		List<Loaded<Program>> loadedPrograms = loadProgram(settings);
 
 		boolean success = false;
 		try {
-			monitor.checkCanceled();
-			List<Program> programsToFixup = new ArrayList<>();
-			for (Program loadedProgram : programs) {
-				monitor.checkCanceled();
-
-				applyProcessorLabels(options, loadedProgram);
-
-				loadedProgram.setEventsEnabled(true);
-
-				// TODO: null should not be used as a determinant for saving; don't allow null 
-				// folders?
-				if (folder == null) {
-					results.add(loadedProgram);
-					continue;
+			for (Loaded<Program> loadedProgram : loadedPrograms) {
+				settings.monitor().checkCancelled();
+				Program program = loadedProgram.getDomainObject(this);
+				try {
+					applyProcessorLabels(settings.options(), program);
+					program.setEventsEnabled(true);
 				}
-
-				if (createProgramFile(loadedProgram, folder, loadedProgram.getName(), messageLog,
-					monitor)) {
-					results.add(loadedProgram);
-					programsToFixup.add(loadedProgram);
-				}
-				else {
-					loadedProgram.release(consumer); // some kind of exception happened; see MessageLog
+				finally {
+					program.release(this);
 				}
 			}
 
 			// Subclasses can perform custom post-load fix-ups
-			postLoadProgramFixups(programsToFixup, folder, options, messageLog, monitor);
+			postLoadProgramFixups(loadedPrograms, settings);
+
+			// Discard temporary programs
+			Iterator<Loaded<Program>> iter = loadedPrograms.iterator();
+			while (iter.hasNext()) {
+				Loaded<Program> loaded = iter.next();
+				if (loaded.check(p -> p.isTemporary())) {
+					iter.remove();
+					loaded.close();
+				}
+			}
 
 			success = true;
+			return new LoadResults<Program>(loadedPrograms);
 		}
 		finally {
 			if (!success) {
-				release(programs, consumer);
+				loadedPrograms.forEach(Loaded::close);
 			}
+			postLoadCleanup(success);
 		}
-
-		return results;
 	}
 
 	@Override
-	public final boolean loadInto(ByteProvider provider, LoadSpec loadSpec, List<Option> options,
-			MessageLog messageLog, Program program, TaskMonitor monitor)
-			throws IOException, CancelledException {
+	public final void loadInto(Program program, ImporterSettings settings)
+			throws IOException, LoadException, CancelledException {
 
-		if (!loadSpec.isComplete()) {
-			return false;
+		if (!settings.loadSpec().isComplete()) {
+			throw new LoadException("Load spec is incomplete");
 		}
 
 		program.setEventsEnabled(false);
 		int transactionID = program.startTransaction("Loading - " + getName());
 		boolean success = false;
 		try {
-			success = loadProgramInto(provider, loadSpec, options, messageLog, program, monitor);
-			return success;
+			loadProgramInto(program, settings);
+			success = true;
 		}
 		finally {
 			program.endTransaction(transactionID, success);
@@ -177,19 +160,27 @@ public abstract class AbstractProgramLoader implements Loader {
 
 	@Override
 	public List<Option> getDefaultOptions(ByteProvider provider, LoadSpec loadSpec,
-			DomainObject domainObject, boolean isLoadIntoProgram) {
+			DomainObject domainObject, boolean loadIntoProgram, boolean mirrorFsLayout) {
 		ArrayList<Option> list = new ArrayList<>();
-		list.add(new Option(APPLY_LABELS_OPTION_NAME,
-			shouldApplyProcessorLabelsByDefault(),
-			Boolean.class, Loader.COMMAND_LINE_ARG_PREFIX + "-applyLabels"));
-		list.add(new Option(ANCHOR_LABELS_OPTION_NAME, true, Boolean.class,
-			Loader.COMMAND_LINE_ARG_PREFIX + "-anchorLabels"));
+		list.add(Option.newBoolean(APPLY_LABELS_OPTION_NAME)
+				.value(shouldApplyProcessorLabelsByDefault())
+				.commandLineArgument(createArg("-applyLabels"))
+				.description("Create processor labels at specific addresses as defined by the " +
+					"processor specification.")
+				.build());
+		list.add(Option.newBoolean(ANCHOR_LABELS_OPTION_NAME)
+				.value(true)
+				.commandLineArgument("-anchorLabels")
+				.description(
+					"Prevent processor labels from moving on imagebase or memory block change.")
+				.build());
 
 		return list;
 	}
 
 	@Override
-	public String validateOptions(ByteProvider provider, LoadSpec loadSpec, List<Option> options, Program program) {
+	public String validateOptions(ByteProvider provider, LoadSpec loadSpec, List<Option> options,
+			Program program) {
 		if (options != null) {
 			for (Option option : options) {
 				String name = option.getName();
@@ -205,21 +196,31 @@ public abstract class AbstractProgramLoader implements Loader {
 	}
 
 	/**
-	 * This gets called after the given list of {@link Program}s is finished loading.  It provides
-	 * subclasses an opportunity to do follow-on actions to the load.
-	 * 
-	 * @param loadedPrograms The {@link Program}s that got loaded.
-	 * @param folder The folder the programs were loaded to.
-	 * @param options The load options.
-	 * @param messageLog The message log.
-	 * @param monitor A cancelable task monitor.
+	 * This gets called after the given list of {@link Loaded loaded programs}s is finished loading.
+	 * It provides subclasses an opportunity to do follow-on actions to the load.
+	 *
+	 * @param loadedPrograms The {@link Loaded loaded programs} to be fixed up.
+	 * @param settings The {@link Loader.ImporterSettings}.
 	 * @throws IOException if there was an IO-related problem loading.
 	 * @throws CancelledException if the user cancelled the load.
 	 */
-	protected void postLoadProgramFixups(List<Program> loadedPrograms, DomainFolder folder,
-			List<Option> options, MessageLog messageLog, TaskMonitor monitor)
-			throws CancelledException, IOException {
-		// Default behavior is to do nothing.
+	protected void postLoadProgramFixups(List<Loaded<Program>> loadedPrograms,
+			ImporterSettings settings) throws CancelledException, IOException {
+		// Default behavior is to do nothing
+	}
+
+	/**
+	 * This gets called as the final step of the load process.  Subclasses may override it to ensure
+	 * any resources they created can be cleaned up after the load finishes.
+	 * <p>
+	 * NOTE: Subclasses should not use this method to release any {@link Program}s they created when
+	 * failure occurs. That should be done by the subclass as soon as it detects failure has
+	 * occurred.
+	 * 
+	 * @param success True if the load completed successfully; otherwise, false
+	 */
+	protected void postLoadCleanup(boolean success) {
+		// Default behavior is to do nothing
 	}
 
 	/**
@@ -257,68 +258,117 @@ public abstract class AbstractProgramLoader implements Loader {
 
 	/**
 	 * Creates a {@link Program} with the specified attributes.
-	 * 
-	 * @param provider The bytes that will make up the {@link Program}.
-	 * @param programName The name of the {@link Program}.
+	 *
 	 * @param imageBase  The image base address of the {@link Program}.
-	 * @param executableFormatName The file format name of the {@link Program}.  Typically this will
-	 *   be the {@link Loader} name.
-	 * @param language The {@link Language} of the {@link Program}.
-	 * @param compilerSpec The {@link CompilerSpec} of the {@link Program}.
-	 * @param consumer A consumer object for the {@link Program} generated.
+	 * @param settings The {@link Loader.ImporterSettings}.
 	 * @return The newly created {@link Program}.
 	 * @throws IOException if there was an IO-related problem with creating the {@link Program}.
 	 */
-	protected Program createProgram(ByteProvider provider, String programName, Address imageBase,
-			String executableFormatName, Language language, CompilerSpec compilerSpec,
-			Object consumer) throws IOException {
-		Program prog = new ProgramDB(programName, language, compilerSpec, consumer);
+	protected Program createProgram(Address imageBase, ImporterSettings settings)
+			throws IOException {
+
+		LanguageCompilerSpecPair pair = settings.loadSpec().getLanguageCompilerSpec();
+		Language language = getLanguageService().getLanguage(pair.languageID);
+		CompilerSpec compilerSpec = language.getCompilerSpecByID(pair.compilerSpecID);
+
+		String programName =
+			getProgramNameFromSourceData(settings.provider(), settings.importNameOnly());
+		Program prog = new ProgramDB(programName, language, compilerSpec, settings.consumer());
 		prog.setEventsEnabled(false);
 		int id = prog.startTransaction("Set program properties");
+		boolean success = false;
 		try {
-			prog.setExecutablePath(provider.getAbsolutePath());
-			if (executableFormatName != null) {
-				prog.setExecutableFormat(executableFormatName);
-			}
-			String md5 = computeBinaryMD5(provider);
-			prog.setExecutableMD5(md5);
-			String sha256 = computeBinarySHA256(provider);
-			prog.setExecutableSHA256(sha256);
-
-			if (shouldSetImageBase(prog, imageBase)) {
-				try {
+			setProgramProperties(prog, settings.provider(), getName());
+			try {
+				if (shouldSetImageBase(prog, imageBase)) {
 					prog.setImageBase(imageBase, true);
 				}
-				catch (AddressOverflowException e) {
-					// can't happen here
-				}
-				catch (LockException e) {
-					// can't happen here
-				}
+				success = true;
+				return prog;
+			}
+			catch (LockException | AddressOverflowException e) {
+				// shouldn't ever happen here
+				throw new IOException(e);
 			}
 		}
 		finally {
-			prog.endTransaction(id, true);
+			prog.endTransaction(id, true); // More efficient to commit when program will be discarded
+			if (!success) {
+				prog.release(settings.consumer());
+			}
 		}
-		return prog;
+	}
+
+	/**
+	 * Creates a {@link Program} with the specified attributes at the {@link LoadSpec}'s desired 
+	 * image base
+	 *
+	 * @param settings The {@link Loader.ImporterSettings}.
+	 * @return The newly created {@link Program}.
+	 * @throws IOException if there was an IO-related problem with creating the {@link Program}.
+	 */
+	protected Program createProgram(ImporterSettings settings) throws IOException {
+
+		Address imageBaseAddr = getLanguageService()
+				.getLanguage(settings.loadSpec().getLanguageCompilerSpec().languageID)
+				.getAddressFactory()
+				.getDefaultAddressSpace()
+				.getAddress(settings.loadSpec().getDesiredImageBase());
+
+		return createProgram(imageBaseAddr, settings);
+	}
+
+	/**
+	 * Sets a program's Executable Path, Executable Format, MD5, SHA256, and FSRL properties.
+	 *  
+	 * @param prog {@link Program} (with active transaction)
+	 * @param provider {@link ByteProvider} that the program was created from
+	 * @param executableFormatName executable format string
+	 * @throws IOException if error reading from ByteProvider
+	 */
+	public static void setProgramProperties(Program prog, ByteProvider provider,
+			String executableFormatName) throws IOException {
+		prog.setExecutablePath(provider.getAbsolutePath());
+		if (executableFormatName != null) {
+			prog.setExecutableFormat(executableFormatName);
+		}
+		FSRL fsrl = provider.getFSRL();
+		String md5 =
+			(fsrl != null && fsrl.getMD5() != null) ? fsrl.getMD5() : computeBinaryMD5(provider);
+		if (fsrl != null) {
+			if (fsrl.getMD5() == null) {
+				fsrl = fsrl.withMD5(md5);
+			}
+			FSRL.writeToProgramInfo(prog, fsrl);
+		}
+		prog.setExecutableMD5(md5);
+		String sha256 = computeBinarySHA256(provider);
+		prog.setExecutableSHA256(sha256);
+	}
+
+	private String getProgramNameFromSourceData(ByteProvider provider, String domainFileName) {
+		FSRL fsrl = provider.getFSRL();
+		if (fsrl != null) {
+			return fsrl.getName();
+		}
+
+		// If the ByteProvider doesn't have an FSRL, use the given domainFileName
+		return domainFileName;
 	}
 
 	/**
 	 * Creates default memory blocks for the given {@link Program}.
-	 * 
+	 *
 	 * @param program The {@link Program} to create default memory blocks for.
-	 * @param language The {@link Program}s {@link Language}.
-	 * @param log The log to use during memory block creation.
+	 * @param settings The {@link Loader.ImporterSettings}.
 	 */
-	protected void createDefaultMemoryBlocks(Program program, Language language, MessageLog log) {
+	protected void createDefaultMemoryBlocks(Program program, ImporterSettings settings) {
+		MessageLog log = settings.log();
 		int id = program.startTransaction("Create default blocks");
 		try {
-
-			MemoryBlockDefinition[] defaultMemoryBlocks = language.getDefaultMemoryBlocks();
-			if (defaultMemoryBlocks == null) {
-				return;
-			}
-			for (MemoryBlockDefinition blockDef : defaultMemoryBlocks) {
+			LanguageCompilerSpecPair pair = settings.loadSpec().getLanguageCompilerSpec();
+			Language language = getLanguageService().getLanguage(pair.languageID);
+			for (MemoryBlockDefinition blockDef : language.getDefaultMemoryBlocks()) {
 				try {
 					blockDef.createBlock(program);
 				}
@@ -335,12 +385,17 @@ public abstract class AbstractProgramLoader implements Loader {
 							blockDef);
 					log.appendMsg(" >> " + e.getMessage());
 				}
-				catch (DuplicateNameException e) {
+				catch (InvalidAddressException e) {
 					log.appendMsg(
-						"Failed to add language defined memory block due to name conflict " +
+						"Failed to add language defined memory block due to invalid address: " +
 							blockDef);
+					log.appendMsg(" >> Processor specification error (pspec): " + e.getMessage());
 				}
 			}
+		}
+		catch (LanguageNotFoundException e) {
+			log.appendMsg("Failed get language for: " +
+				settings.loadSpec().getLanguageCompilerSpec().languageID);
 		}
 		finally {
 			program.endTransaction(id, true);
@@ -348,58 +403,54 @@ public abstract class AbstractProgramLoader implements Loader {
 	}
 
 	/**
+	 * Mark this address as a function by creating a one byte function.  The single byte body
+	 * function is picked up by the function analyzer, disassembled, and the body fixed.
+	 * Marking the function this way keeps disassembly and follow on analysis out of the loaders.
+	 * 
+	 * @param program the program
+	 * @param name name of function, null if name not known
+	 * @param funcStart starting address of the function
+	 */
+	public static void markAsFunction(Program program, String name, Address funcStart) {
+		FunctionManager functionMgr = program.getFunctionManager();
+
+		if (functionMgr.getFunctionAt(funcStart) != null) {
+			return;
+		}
+		try {
+			functionMgr.createFunction(name, funcStart, new AddressSet(funcStart, funcStart),
+				SourceType.IMPORTED);
+		}
+		catch (InvalidInputException e) {
+			// ignore
+		}
+		catch (OverlappingFunctionException e) {
+			// ignore
+		}
+	}
+
+	/**
 	 * Gets the {@link Loader}'s language service.
 	 * <p>
 	 * The default behavior of this method is to return the {@link DefaultLanguageService}.
-	 * 
+	 *
 	 * @return The {@link Loader}'s language service.
 	 */
 	protected LanguageService getLanguageService() {
 		return DefaultLanguageService.getLanguageService();
 	}
 
-	/**
-	 * Releases the given consumer from each of the provided {@link DomainObject}s.
-	 * 
-	 * @param domainObjects A list of {@link DomainObject}s which are no longer being used.
-	 * @param consumer The consumer that was marking the {@link DomainObject}s as being used.
-	 */
-	protected final void release(List<? extends DomainObject> domainObjects, Object consumer) {
-		for (DomainObject dobj : domainObjects) {
-			dobj.release(consumer);
-		}
-	}
-
-	private boolean createProgramFile(Program program, DomainFolder programFolder,
-			String programName, MessageLog messageLog, TaskMonitor monitor)
-			throws CancelledException, InvalidNameException {
-
-		int uniqueNameIndex = 0;
-		String uniqueName = programName;
-		while (!monitor.isCancelled()) {
-			try {
-				programFolder.createFile(uniqueName, program, monitor);
-				break;
-			}
-			catch (DuplicateFileException e) {
-				uniqueName = programName + uniqueNameIndex;
-				++uniqueNameIndex;
-			}
-			catch (CancelledException | InvalidNameException e) {
-				throw e;
-			}
-			catch (Exception e) {
-				messageLog.appendMsg("Unexpected exception creating file: " + uniqueName);
-				messageLog.appendException(e);
-				return false;
+	private AddressSetView getProcessorDefinedMemoryBlockAddresses(Program program) {
+		AddressSet blockAddrSet = new AddressSet();
+		Memory memory = program.getMemory();
+		Language language = program.getLanguage();
+		for (MemoryBlockDefinition defaultMemoryBlockDef : language.getDefaultMemoryBlocks()) {
+			MemoryBlock block = memory.getBlock(defaultMemoryBlockDef.getBlockName());
+			if (block != null) {
+				blockAddrSet.add(block.getAddressRange());
 			}
 		}
-
-		// makes the data tree expand to show new file!
-		// The following line was disabled as it causes UI updates that are better
-		// done by the callers to this loader instead of this loader.
-		//programFolder.setActive();
-		return true;
+		return blockAddrSet;
 	}
 
 	private void applyProcessorLabels(List<Option> options, Program program) {
@@ -411,74 +462,68 @@ public abstract class AbstractProgramLoader implements Loader {
 			for (Register reg : lang.getRegisters()) {
 				Address addr = reg.getAddress();
 				if (addr.isMemoryAddress()) {
-					AddressLabelInfo info = new AddressLabelInfo(addr, reg.getName(),
-						reg.isBaseRegister(), SourceType.IMPORTED);
-					createSymbol(program, info, true);
+					createSymbol(program, reg.getName(), addr, null, false, true, true);
 				}
 			}
-			// optionally create default symbols defined by pspec
-			if (shouldApplyProcessorLabels(options)) {
-				boolean anchorSymbols = shouldAnchorSymbols(options);
-				List<AddressLabelInfo> labels = lang.getDefaultSymbols();
-				for (AddressLabelInfo info : labels) {
-					createSymbol(program, info, anchorSymbols);
+
+			// NOTE: pspec defined labels should always be defined if they correspond to a memory
+			// block defined by the pspec.
+			boolean applyAllProcessorLabels = shouldApplyProcessorLabels(options);
+			AddressSetView pspecDefinedBlockSet = getProcessorDefinedMemoryBlockAddresses(program);
+			boolean anchorSymbols = shouldAnchorSymbols(options);
+			List<AddressLabelInfo> labels = lang.getDefaultSymbols();
+			for (AddressLabelInfo info : labels) {
+				Address addr = info.getAddress();
+				boolean isRequiredLabel = pspecDefinedBlockSet.contains(addr);
+				if (isRequiredLabel || applyAllProcessorLabels) {
+					// NOTE: Required labels contained within a pspec-defined memory block do not 
+					// need to be pinned/anchored
+					boolean anchor = !isRequiredLabel && anchorSymbols;
+					createSymbol(program, info.getLabel(), info.getAddress(), info.getDescription(),
+						info.isEntry(), info.isPrimary(), anchor);
 				}
 			}
-			GhidraProgramUtilities.removeAnalyzedFlag(program);
+
+			GhidraProgramUtilities.resetAnalysisFlags(program);
 		}
 		finally {
 			program.endTransaction(id, true);
 		}
 	}
 
-	private void createSymbol(Program program, AddressLabelInfo info, boolean anchorSymbols) {
+	private static void createSymbol(Program program, String labelname, Address address,
+			String comment, boolean isEntry, boolean isPrimary, boolean anchorSymbols) {
 		SymbolTable symTable = program.getSymbolTable();
-		Address addr = info.getAddress();
+		Address addr = address;
 		Symbol s = symTable.getPrimarySymbol(addr);
 		try {
-			if (s == null || s.getSource() == SourceType.IMPORTED) {
-				Namespace namespace = program.getGlobalNamespace();
-				if (info.getScope() != null) {
-					namespace = info.getScope();
-				}
-				s = symTable.createLabel(addr, info.getLabel(), namespace,
-					info.getSource());
-				if (info.isEntry()) {
-					symTable.addExternalEntryPoint(addr);
-				}
-				if (info.isPrimary()) {
-					s.setPrimary();
-				}
-				if (anchorSymbols) {
-					s.setPinned(true);
-				}
+			Namespace namespace = program.getGlobalNamespace();
+			s = symTable.createLabel(addr, labelname, namespace, SourceType.IMPORTED);
+			if (comment != null) {
+				program.getListing().setComment(address, CommentType.EOL, comment);
 			}
-			else if (s.getSource() == SourceType.DEFAULT) {
-				String labelName = info.getLabel();
-				if (s.getSymbolType() == SymbolType.FUNCTION) {
-					Function f = (Function) s.getObject();
-					f.setName(labelName, SourceType.IMPORTED);
-				}
-				else {
-					s.setName(labelName, SourceType.IMPORTED);
-				}
-				if (anchorSymbols) {
-					s.setPinned(true);
-				}
+			if (isEntry) {
+				symTable.addExternalEntryPoint(addr);
+			}
+			if (isPrimary) {
+				s.setPrimary();
+			}
+			if (anchorSymbols) {
+				s.setPinned(true);
 			}
 		}
-		catch (DuplicateNameException | InvalidInputException e) {
+		catch (InvalidInputException e) {
 			// Nothing to do
 		}
 	}
 
-	private String computeBinaryMD5(ByteProvider provider) throws IOException {
+	private static String computeBinaryMD5(ByteProvider provider) throws IOException {
 		try (InputStream in = provider.getInputStream(0)) {
 			return MD5Utilities.getMD5Hash(in);
 		}
 	}
 
-	private String computeBinarySHA256(ByteProvider provider) throws IOException {
+	private static String computeBinarySHA256(ByteProvider provider) throws IOException {
 		try (InputStream in = provider.getInputStream(0)) {
 			return HashUtilities.getHash(HashUtilities.SHA256_ALGORITHM, in);
 		}

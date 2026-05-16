@@ -30,7 +30,7 @@ import ghidra.program.model.listing.DataTypeArchiveChangeSet;
 class DataTypeArchiveDBChangeSet implements DataTypeArchiveChangeSet, DomainObjectDBChangeSet {
 
 	private static final Schema STORED_ID_SCHEMA =
-		new Schema(0, "Key", new Class[] { LongField.class }, new String[] { "value" });
+		new Schema(0, "Key", new Field[] { LongField.INSTANCE }, new String[] { "value" });
 
 	private static final String DATATYPE_ADDITIONS = "DataType Additions";
 	private static final String DATATYPE_CHANGES = "DataType Changes";
@@ -79,7 +79,7 @@ class DataTypeArchiveDBChangeSet implements DataTypeArchiveChangeSet, DomainObje
 		if (!inTransaction) {
 			throw new IllegalStateException("Not in a transaction");
 		}
-		Long lid = new Long(id);
+		Long lid = Long.valueOf(id);
 		if (!addedDataTypeIds.contains(lid) && !tmpAddedDataTypeIds.contains(lid)) {
 			tmpChangedDataTypeIds.add(lid);
 		}
@@ -90,7 +90,7 @@ class DataTypeArchiveDBChangeSet implements DataTypeArchiveChangeSet, DomainObje
 		if (!inTransaction) {
 			throw new IllegalStateException("Not in a transaction");
 		}
-		tmpAddedDataTypeIds.add(new Long(id));
+		tmpAddedDataTypeIds.add(Long.valueOf(id));
 	}
 
 	@Override
@@ -108,7 +108,7 @@ class DataTypeArchiveDBChangeSet implements DataTypeArchiveChangeSet, DomainObje
 		if (!inTransaction) {
 			throw new IllegalStateException("Not in a transaction");
 		}
-		Long lid = new Long(id);
+		Long lid = Long.valueOf(id);
 		if (!addedCategoryIds.contains(lid) && !tmpAddedCategoryIds.contains(lid)) {
 			tmpChangedCategoryIds.add(lid);
 		}
@@ -119,7 +119,7 @@ class DataTypeArchiveDBChangeSet implements DataTypeArchiveChangeSet, DomainObje
 		if (!inTransaction) {
 			throw new IllegalStateException("Not in a transaction");
 		}
-		tmpAddedCategoryIds.add(new Long(id));
+		tmpAddedCategoryIds.add(Long.valueOf(id));
 	}
 
 	@Override
@@ -137,7 +137,7 @@ class DataTypeArchiveDBChangeSet implements DataTypeArchiveChangeSet, DomainObje
 		if (!inTransaction) {
 			throw new IllegalStateException("Not in a transaction");
 		}
-		tmpAddedSourceArchiveIds.add(new Long(id));
+		tmpAddedSourceArchiveIds.add(Long.valueOf(id));
 	}
 
 	@Override
@@ -145,7 +145,7 @@ class DataTypeArchiveDBChangeSet implements DataTypeArchiveChangeSet, DomainObje
 		if (!inTransaction) {
 			throw new IllegalStateException("Not in a transaction");
 		}
-		Long lid = new Long(id);
+		Long lid = Long.valueOf(id);
 		if (!addedSourceArchiveIds.contains(lid) && !tmpAddedSourceArchiveIds.contains(lid)) {
 			tmpChangedSourceArchiveIds.add(lid);
 		}
@@ -291,7 +291,7 @@ class DataTypeArchiveDBChangeSet implements DataTypeArchiveChangeSet, DomainObje
 			}
 			RecordIterator it = table.iterator();
 			while (it.hasNext()) {
-				Record rec = it.next();
+				DBRecord rec = it.next();
 				ids.add(rec.getLongValue(0));
 			}
 		}
@@ -321,7 +321,7 @@ class DataTypeArchiveDBChangeSet implements DataTypeArchiveChangeSet, DomainObje
 	private void writeIdRecords(DBHandle dbh, String tableName, Set<Long> ids) throws IOException {
 		if (ids.size() > 0) {
 			Table table = dbh.createTable(tableName, STORED_ID_SCHEMA);
-			Record rec = STORED_ID_SCHEMA.createRecord(0);
+			DBRecord rec = STORED_ID_SCHEMA.createRecord(0);
 			int key = 1;
 			for (long id : ids) {
 				rec.setKey(key++);

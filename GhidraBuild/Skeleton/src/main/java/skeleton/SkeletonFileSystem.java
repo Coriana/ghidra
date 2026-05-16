@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,20 +15,23 @@
  */
 package skeleton;
 
-import java.io.*;
-import java.util.*;
+import java.io.IOException;
+import java.util.Comparator;
+import java.util.List;
 
 import ghidra.app.util.bin.ByteProvider;
-import ghidra.app.util.bin.ByteProviderInputStream;
+import ghidra.app.util.bin.ByteProviderWrapper;
 import ghidra.formats.gfilesystem.*;
 import ghidra.formats.gfilesystem.annotations.FileSystemInfo;
-import ghidra.formats.gfilesystem.factory.GFileSystemFactoryFull;
-import ghidra.formats.gfilesystem.factory.GFileSystemProbeFull;
+import ghidra.formats.gfilesystem.factory.GFileSystemFactoryByteProvider;
+import ghidra.formats.gfilesystem.factory.GFileSystemProbeByteProvider;
+import ghidra.formats.gfilesystem.fileinfo.FileAttributeType;
+import ghidra.formats.gfilesystem.fileinfo.FileAttributes;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
 
 /**
- * TODO: Provide class-level documentation that describes what this file system does.
+ * Provide class-level documentation that describes what this file system does.
  */
 @FileSystemInfo(type = "fstypegoeshere", // ([a-z0-9]+ only)
 		description = "File system description goes here", factory = SkeletonFileSystem.MyFileSystemFactory.class)
@@ -60,7 +63,7 @@ public class SkeletonFileSystem implements GFileSystem {
 	public void mount(TaskMonitor monitor) {
 		monitor.setMessage("Opening " + SkeletonFileSystem.class.getSimpleName() + "...");
 
-		// TODO: Customize how things in the file system are stored.  The following should be 
+		// Customize how things in the file system are stored.  The following should be 
 		// treated as pseudo-code.
 		for (MyMetadata metadata : new MyMetadata[10]) {
 			if (monitor.isCancelled()) {
@@ -111,14 +114,19 @@ public class SkeletonFileSystem implements GFileSystem {
 	}
 
 	@Override
-	public InputStream getInputStream(GFile file, TaskMonitor monitor)
+	public GFile lookup(String path, Comparator<String> nameComp) throws IOException {
+		return fsih.lookup(null, path, nameComp);
+	}
+
+	@Override
+	public ByteProvider getByteProvider(GFile file, TaskMonitor monitor)
 			throws IOException, CancelledException {
 
-		// TODO: Get an input stream for a file.  The following is an example of how the metadata
-		// might be used to get an input stream from a stored provider offset.
+		// Get an ByteProvider for a file.  The following is an example of how the metadata
+		// might be used to get an sub-ByteProvider from a stored provider offset.
 		MyMetadata metadata = fsih.getMetadata(file);
 		return (metadata != null)
-				? new ByteProviderInputStream(provider, metadata.offset, metadata.size)
+				? new ByteProviderWrapper(provider, metadata.offset, metadata.size, file.getFSRL())
 				: null;
 	}
 
@@ -128,30 +136,25 @@ public class SkeletonFileSystem implements GFileSystem {
 	}
 
 	@Override
-	public String getInfo(GFile file, TaskMonitor monitor) {
+	public FileAttributes getFileAttributes(GFile file, TaskMonitor monitor) {
 		MyMetadata metadata = fsih.getMetadata(file);
-		return (metadata == null) ? null : FSUtilities.infoMapToString(getInfoMap(metadata));
+		FileAttributes result = new FileAttributes();
+		if (metadata != null) {
+			result.add(FileAttributeType.NAME_ATTR, metadata.name);
+			result.add(FileAttributeType.SIZE_ATTR, metadata.size);
+		}
+		return result;
 	}
 
-	public Map<String, String> getInfoMap(MyMetadata metadata) {
-		Map<String, String> info = new LinkedHashMap<>();
-
-		// TODO: Customize information about a file system entry.  The following is sample
-		// information that might be useful.
-		info.put("Name", metadata.name);
-		info.put("Size",
-			"" + Long.toString(metadata.size) + ", 0x" + Long.toHexString(metadata.size));
-		return info;
-	}
-
-	// TODO: Customize for the real file system.
+	// Customize for the real file system.
 	public static class MyFileSystemFactory
-			implements GFileSystemFactoryFull<SkeletonFileSystem>, GFileSystemProbeFull {
+			implements GFileSystemFactoryByteProvider<SkeletonFileSystem>,
+			GFileSystemProbeByteProvider {
 
 		@Override
-		public SkeletonFileSystem create(FSRL containerFSRL, FSRLRoot targetFSRL,
-				ByteProvider byteProvider, File containerFile, FileSystemService fsService,
-				TaskMonitor monitor) throws IOException, CancelledException {
+		public SkeletonFileSystem create(FSRLRoot targetFSRL,
+				ByteProvider byteProvider, FileSystemService fsService, TaskMonitor monitor)
+				throws IOException, CancelledException {
 
 			SkeletonFileSystem fs = new SkeletonFileSystem(targetFSRL, byteProvider);
 			fs.mount(monitor);
@@ -159,18 +162,17 @@ public class SkeletonFileSystem implements GFileSystem {
 		}
 
 		@Override
-		public boolean probe(FSRL containerFSRL, ByteProvider byteProvider, File containerFile,
-				FileSystemService fsService, TaskMonitor monitor)
-				throws IOException, CancelledException {
+		public boolean probe(ByteProvider byteProvider, FileSystemService fsService,
+				TaskMonitor monitor) throws IOException, CancelledException {
 
-			// TODO: Quickly and efficiently examine the bytes in 'byteProvider' to determine if 
+			// Quickly and efficiently examine the bytes in 'byteProvider' to determine if 
 			// it's a valid file system.  If it is, return true. 
 
 			return false;
 		}
 	}
 
-	// TODO: Customize with metadata from files in the real file system.  This is just a stub.
+	// Customize with metadata from files in the real file system.  This is just a stub.
 	// The elements of the file system will most likely be modeled by Java classes external to this
 	// file.
 	private static class MyMetadata {

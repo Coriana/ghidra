@@ -8,7 +8,7 @@
     <META http-equiv="Content-Type" content="text/html; charset=windows-1252">
 
     <TITLE>Listing Options</TITLE>
-    <LINK rel="stylesheet" type="text/css" href="../../shared/Frontpage.css">
+    <LINK rel="stylesheet" type="text/css" href="help/shared/DefaultStyle.css">
     <META name="generator" content="Microsoft FrontPage 4.0">
   </HEAD>
 
@@ -498,14 +498,9 @@
         <P>Use the following options to customize <A href=
         "CodeBrowser.htm#cursorTextHighlight">Cursor Text Highlighting</A>:</P>
 
-        <P><B>Alternate Highlight Color -</B> Sets the alternate color used for cursor text
-        highlighting. Double click on the color bar to bring up a color chooser dialog.</P>
+        <P><B>Enabled - </B> Select this checkbox to enable cursor text highlighting.</P>
 
-        <P><B>Enabled -</B> Select this checkbox to enable cursor text highlighting.</P>
-
-        <P><B>Highlight Color -</B> Sets the color used for cursor text highlighting. Double click
-        on the color bar to bring up a color chooser dialog.<BR>
-         <B><BR>
+         <P><B>
          Mouse Button To Activate</B> - Use the combo box to select which mouse button will be used
         to highlight text (Left, Right, Middle).</P>
 
@@ -513,29 +508,69 @@
         enable <A href="CodeBrowser.htm#Scope">Scoped highlighting</A> of registers within the
         operand field. If turned off, cursor highlighted text within an operand field is treated
         the same as text in other fields.</P>
+		
+		<P><B>Scoped Default Color -</B> Sets the color used for cursor text highlighting via 
+			middle-mouse. Double-click on the color bar to bring up a color chooser dialog.
+		</P>
+			
+		<P><B>Scoped Read Highlight Color -</B> Sets the color used for cursor text highlighting a
+			register when the register value is read.  The <I>Scope Register Operand</I> option
+			above must be on for this value to be used.
+			Double-click on the color bar to bring up a color chooser dialog.
+		</P>
+			
+		<P><B>Scoped Write Highlight Color -</B> Sets the color used for cursor text highlighting a
+			register when the register value is written to.  The <I>Scope Register Operand</I> option
+			above must be on for this value to be used.
+			Double-click on the color bar to bring up a color chooser dialog.
+		</P>
+		
+		
       </BLOCKQUOTE>
 
       <H3><A name="EOL_Comments_Field"></A>EOL Comments Field</H3>
 
       <BLOCKQUOTE>
-        <P>The EOL Comments field displays the end-of-line comment at this address. If there is no
-        EOL comment, it displays the repeatable comment. If there is no repeatable comment, it
-        displays the repeatable comments from all referenced addresses. If there aren't any
-        referenced repeatable comments, it displays an automatic comment if it can.</P>
+        <P>The EOL Comments field displays the end-of-line comment at this address.  By default, 
+        if there is no EOL comment, then other comment types may be displayed. 
+		</P>
 
-        <P><B>Always Show the Automatic Comment -</B> Normally automatic comments are not shown if
-        there is an EOL comment, repeatable comment, or referenced repeatable comment. By selecting
-        this option, the automatic comment will be shown even if there is an EOL comment,
-        repeatable comment, or referenced repeatable comment.</P>
+		<P><B>Additional Comment Types -</B> The following comment types may be optionally displayed
+		in the EOL Comments field.   For each type below, the following setting may be applied:
+			<UL>
+				<LI><B>ALWAYS -</B> Always show the comment type, regardless of other comment types
+				that are showing.  The appearance of any comment will be limited by the maximum 
+				number of lines currently set on the EOL Comments field. 
+				</LI>
+				<LI><B>DEFAULT -</B> Show the comment type only when there is no other comment type
+				of a higher precedence.  When all fields are set to this option, then the EOL 
+				Comments field will only display one comment type at a time.
+				</LI>
+				<LI><B>NEVER -</B> Do not show this comment type.
+				</LI>
+			</UL>
+		</P>
+		
+		<P>
+		Each of the comments below is listed in order of precedence.   The default behavior is to 
+		show one comment in the EOL Comments field at a time, based on this precedence, with the EOL
+		Comment being the highest.
+		</P>
+		
+			<BLOCKQUOTE>
+				<P><B>Repeatable -</B> The Repeatable Comment defined <I>at the current
+				code unit address</I>.</P>
+		
+		        <P><B>Referenced Repeatable -</B> The Repeatable Comment that is defined at the 
+		        target reference address that the code unit at this address refers to.</P>	
+		
+				<P><B>Automatic Function -</B> A preview of the referenced function.</P>
+		
+		        <P><B>Automatic Data -</B> A preview of the referenced data.  For example, a String
+		        reference will show a preview of the target String.</P>
+		        
+			</BLOCKQUOTE>
 
-        <P><B>Always Show the Referenced Repeatable Comment -</B> Normally referenced repeatable
-        comments are not shown if there is an EOL comment or repeatable comment. By selecting this
-        option, the referenced repeatable comment will be shown even if there is an EOL comment or
-        repeatable comment.</P>
-
-        <P><B>Always Show the Repeatable Comment -</B> Normally repeatable comments are not shown
-        if there is an EOL comment. By selecting this option, the repeatable comment will be shown
-        even if there is an EOL comment.</P>
 
         <P><B>Enable Word Wrapping -</B> If this option is not set, each comment line is displayed
         on a line by itself. By turning on word-wrapping, comment lines are displayed in paragraph
@@ -555,6 +590,70 @@
         <P><B>Use Abbreviated Automatic Comments -</B> When possible, the auto comment will 
         be made as small as possible.  For example, when showing an offcut string reference, 
         only the portion of the string that is used will be displayed.</P>
+      </BLOCKQUOTE>
+      
+      <H3><A name="File_Offset_Field"></A>File Offset Field</H3>
+
+      <BLOCKQUOTE>
+        <P>The File Offset field shows the filename and file offset of the original imported byte
+        value for the given address.  If the address's byte was not derived from an imported binary 
+        file, or file offset tracking is not supported by the binary file's importer, no offset is
+        shown.</P>
+        <P><B>Show Name -</B> Option to prefix the file offset with the source filename.  This
+        is useful if more than one binary file has been imported into a program.</P>
+        <P><B>Use Hex -</B> Option to display the file offset in hexadecimal rather than 
+        decimal.</P>
+        <P><IMG src="help/shared/note.png" border="0">The File Offset field is disabled by default.
+        To enable the field, see the <A HREF="Browser_Field_Formatter.htm#Enable_Field">Enable Field
+        </A> section.
+        </P>
+        
+      </BLOCKQUOTE>
+      
+      <H3><A name="Function_Offset_Field"></A>Function Offset Field</H3>
+
+      <BLOCKQUOTE>
+        <P>The Function Offset field shows the function name and function offset of the
+        the given address.  If the address is not in a function, no offset is shown.</P>
+        <P><B>Show Name -</B> Option to prefix the function offset with the function name.</P>
+        <P><B>Use Hex -</B> Option to display the function offset in hexadecimal rather than 
+        decimal.</P>
+        <P><IMG src="help/shared/note.png" border="0">The Function Offset field is disabled by 
+        default. To enable the field, see the
+        <A HREF="Browser_Field_Formatter.htm#Enable_Field">Enable Field</A> section.
+        </P>
+        
+      </BLOCKQUOTE>
+      
+      <H3><A name="Imagebase_Offset_Field"></A>Imagebase Offset Field</H3>
+
+      <BLOCKQUOTE>
+        <P>The Imagebase Offset field shows the imagebase offset of the given address. If the 
+        address and the imagebase are in different address spaces, no offset is shown.</P>
+        <P><B>Show Name -</B> Option to prefix the imagebase offset with "imagebase".</P>
+        <P><B>Use Hex -</B> Option to display the imagebase offset in hexadecimal rather than 
+        decimal.</P>
+        <P><IMG src="help/shared/note.png" border="0">The Imagebase Offset field is disabled by 
+        default. To enable the field, see the
+        <A HREF="Browser_Field_Formatter.htm#Enable_Field">Enable Field</A> section.
+        </P>
+        
+      </BLOCKQUOTE>
+      
+      <H3><A name="MemoryBlock_Offset_Field"></A>MemoryBlock Offset Field</H3>
+
+      <BLOCKQUOTE>
+        <P>The MemoryBlock Offset field shows the memory block name and memory block offset of the
+        given address.</P>
+        <P><B>Show Name -</B> Option to prefix the memory block offset with the memory block 
+        name.</P>
+        <P><B>Use Hex -</B> Option to display the memory block offset in hexadecimal rather than 
+        decimal.</P>
+        <P><IMG src="help/shared/note.png" border="0">The MemoryBlock Offset field is disabled by 
+        default. To enable the field, see the
+        <A HREF="Browser_Field_Formatter.htm#Enable_Field">Enable Field</A> section.
+        </P>
+        
       </BLOCKQUOTE>
 
       <H3><A name="Format_Code"></A>Format Code</H3>
@@ -715,11 +814,11 @@
           </TBODY>
         </TABLE>
 
-        <P><IMG src="../../shared/note.png" border="0">If comments already exist in the listing,
+        <P><IMG src="help/shared/note.png" border="0">If comments already exist in the listing,
         then the options to show the comments fields for formatting are ignored. The options that
         specify a number of blank lines are used regardless of whether comments exist.</P>
 
-        <P><IMG src="../../shared/note.png" border="0">Applying the format options does not alter
+        <P><IMG src="help/shared/note.png" border="0">Applying the format options does not alter
         the program.</P>
       </BLOCKQUOTE>
 
@@ -749,6 +848,10 @@
         this off, the function name will only appear in the function signature. If it's on, the
         function name will also appear as a label below the function header.</P>
 
+		<P><B>Maximum Number of Labels to Display -</B> Sets the maximum number of labels to 
+		display.  If the max is reached, a '[more]' field will appear.  You can double-click that 
+		field to see all labels at that address.</P>
+		
         <P><B>Display Non-local Namespace -</B> Select this option to prepend the namespace to all
         labels that are not in the current Function's namespace.&nbsp; Currently, this would only
         affect a label that is not global, but is in a namespace other than the function that
@@ -811,14 +914,14 @@
         contains the prefix to use for local labels.</P>
 
         <P><B>Enable Word Wrapping -</B> Option to wrap strings in operand lines that are too long
-        to fit in the operand field. Note that that word wrapping can only occur where spaces exist
+        to fit in the operand field. Note that word wrapping can only occur where spaces exist
         in the string.<BR>
         </P>
         
         <P><B>Follow Read or Indirect Pointer References -</B> Option to follow referenced pointers, 
         for read or indirect reference types, to show pointer's referenced symbol instead of 
         symbol at pointer.  When applied the resulting operand label will be preceded by a 
-        "<IMG src="../../shared/arrow.gif">".<BR>
+        "<IMG src="help/shared/arrow.gif">".<BR>
         </P>
 
         <P><B>Include Scalar Reference Adjustment -</B> Option to include a scalar expression which
@@ -888,11 +991,16 @@
         </UL>
 
         <BLOCKQUOTE>
-          <P><IMG src="../../shared/note.png" border="0"> You can change the color of the underline
+          <P><IMG src="help/shared/note.png" border="0"> You can change the color of the underline
           from the <I><A href="#Listing_Display">Listing Display</A></I> options panel; select
           <I>Underline</I> from the <I>Screen Element</I> list.</P>
         </BLOCKQUOTE>
-      </BLOCKQUOTE>
+ 		<P><B>Wrap on Semicolons -</B> Option to wrap operand fields on semicolons. Some processors
+		have multiple sub instructions encoded at the same address. Normally, these are shown on
+		one line and the additional instructions are all shown within the operand field and 
+		separated by semicolons. With this option on, each follow on instruction will be displayed
+		on its own line within the operand field.
+		</P>     </BLOCKQUOTE>
 
       <H3><A name="Pcode_Field"></A>PCode Field</H3>
 
@@ -902,7 +1010,7 @@
         Option to display the raw PCode directly in the Code Browser (i.e., detailed varnode 
         specifications are provided).</P>
 
-        <P><B>Maximum Lines to Display -</B> The maximum number of lines used to display PCode. Any
+        <P><B>Maximum Lines to Display</B> - The maximum number of lines used to display PCode. Any
         additional lines of PCode will not be shown.</P>
       </BLOCKQUOTE>
 
@@ -919,6 +1027,51 @@
         "CodeBrowser.htm#Selection">Selection</A> color.</P>
       </BLOCKQUOTE>
 
+      <H3><A name="Source_Map_Field"></A>Source Map Field</H3>
+      <BLOCKQUOTE>
+        <P><B>Show Filename Only</B> -
+        If selected, only the file name will be shown in the Listing field (rather than the full 
+        path).</P>
+
+        <P><B>Show Source Info at Every Address</B> - If selected, source map information will be 
+        displayed for each address in the Listing. Otherwise the source information for a given
+        source map entry will only be displayed at the minimum address of the corresponding  
+        range.</P>
+        
+        <P><B>Maximum Number of Source Map Entries to Display</B> - Maximum number of source
+        map entries to display per address.</P>
+        
+        <P><B>Show Identifier</B> - If selected, the source file identifier (md5, sha1,...) will
+        be shown in the Listing.  Note that a source file might not have an identifier.</P>
+      </BLOCKQUOTE>
+      
+      <H3><A name="Template_Display_Options"></A>Template Display Options</H3>
+      <BLOCKQUOTE>
+        <P><B>Max Template Depth</B> - Sets the depth to display nested templates. A
+        depth of 0 completely simplifies the entire template, while a depth of 1 will
+        show 1 level of templates.For example, if the name was "foo&lt;char,bar&lt;int, dog&lt;char&gt;&gt;",
+        a nesting depth of 0 would display "foo&lt;&gt;" and an nesting depth of 1 would display
+        "foo&lt;char, bar&lt;&gt;&gt;".
+        </P>
+
+        <P><B>Max Template Length</B> - This is the maximum length any template string will display.
+        If the template string exceeds this length, the middle part of the template will be replaced
+        with "..." to get the string down to the minimum length. For example, the string 
+        "foo&lt;abcdefghijklmnopqrstuvwxyz,0123456789&gt;" would display something like "foo&lt;abcd...6789&gt;" 
+        if the max length was set to 10. Note that this restriction is applied AFTER 
+        any simplifications from the nesting depth.
+		</P>
+
+        <P><B>Min Template Length</B> - This is the minimum length of a template before template 
+        simplification is applied. In other words, if the template string is less than this length,
+        then the template will not be simplified. This is done so that simple templates such as 
+        "foo&lt;char&gt;" are not simplified to "foo&lt;&gt;", even if the template nesting depth is set to 0.
+        </P>
+        
+        <P><B>Simplify Templated Names</B> - This turns the entire templating simplification feature
+        on or off. If this is off, none of the other option have any effect.</P>
+      </BLOCKQUOTE>
+
       <H3><A name="XREFs_Field"></A>XREFs Field</H3>
 
       <BLOCKQUOTE>
@@ -927,22 +1080,43 @@
         <P><B>Display Local Block -</B> Prepends the name of the memory block containing the XREF
         source address to each XREF.</P>
 
+        <P><B>Namespace Options: </B>
+
+			<BLOCKQUOTE>
+	        <P><B>Display Non-local Namespace -</B> Select this option to prepend the namespace to all
+	        XREFs that are not from an instruction within the current Function's body.&nbsp; Currently,
+	        this would only affect XREFs that originate in some other function.<BR>
+	        </P>
+	
+			<P><B>Display Library in Namespace -</B> Include the library name in the namespace.<BR>
+			</P>
+	
+	        <P><B>Display Local Namespace -</B> Select this option to prepend the namespace to all
+	        XREFs that are from the current Function.<BR>
+	        </P>
+				<BLOCKQUOTE>
+		        <P><B>Use Local Namespace Override</B> - Select this
+		        option to show a fixed prefix for local XREFs instead of the function's name.&nbsp; This
+		        option is only available if the "Display Local Namespace" option is on.&nbsp; The text box
+		        contains the prefix to use for local XREFs.</P>
+		        </BLOCKQUOTE>
+	        </BLOCKQUOTE>
+        
+        <P><B>Display Reference Type -</B> Shows a single letter to represent the type of reference.
+        Some of the possible types are: 
+        <CODE>Read (R), Write (W), Data (*), Call (c), Jump (j) and Thunk (T)</CODE>.        
+        
+        <P><B>Group by Function -</B> Groups all references by the containing source function.  
+        With this option off, all references within a function are displayed on their on row.  
+        With this feature on, each function will get a single row, with all references displayed on
+        that row. 
+        
         <P><B>Maximum Number of XREFs To Display -</B> The maximum number of lines used to display
         XREFs. Additional XREFs will not be displayed.</P>
-
-        <P><B>Display Non-local Namespace -</B> Select this option to prepend the namespace to all
-        XREFs that are not from an instruction within the current Function's body.&nbsp; Currently,
-        this would only affect XREFs that originate in some other function.<BR>
-        </P>
-
-        <P><B>Display Local Namespace -</B> Select this option to prepend the namespace to all
-        XREFs that are from the current Function.<BR>
-        </P>
-
-        <P><SPAN style="font-weight: bold;">Use Local Namespace Override</SPAN> - Select this
-        option to show a fixed prefix for local XREFs instead of the function's name.&nbsp; This
-        option is only available if the "Display Local Namespace" option is on.&nbsp; The text box
-        contains the prefix to use for local XREFs.</P>
+        
+        <P><B>Sort References by -</B> Allows the references to be sorted by Address or by type.
+        This is most useful when <B>Group by Function</B> is off.
+        
       </BLOCKQUOTE>
     </BLOCKQUOTE>
 

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -53,16 +53,18 @@ public class SimpleDestReferenceIterator implements CodeBlockReferenceIterator {
     /**
      * @see ghidra.program.model.block.CodeBlockReferenceIterator#next()
      */
-    public CodeBlockReference next() throws CancelledException {
-    	monitor.checkCanceled();
+    @Override
+	public CodeBlockReference next() throws CancelledException {
+    	monitor.checkCancelled();
     	return blockRefQueue.isEmpty() ? null : blockRefQueue.removeFirst();
     }
 
     /**
      * @see ghidra.program.model.block.CodeBlockReferenceIterator#hasNext()
      */
-    public boolean hasNext() throws CancelledException {
-    	monitor.checkCanceled();
+    @Override
+	public boolean hasNext() throws CancelledException {
+    	monitor.checkCancelled();
 		return !blockRefQueue.isEmpty();
     }
     
@@ -249,7 +251,7 @@ public class SimpleDestReferenceIterator implements CodeBlockReferenceIterator {
 			Reference refs[] = primitive.getReferencesFrom();
 			for (int i = 0; i < refs.length; i++) {
 				
-				monitor.checkCanceled();
+				monitor.checkCancelled();
 				
 				CodeBlock destBlock = null;
 				

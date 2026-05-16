@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -23,33 +23,39 @@ import ghidra.util.Msg;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
 
-class ClassPackage extends ClassLocation {
+class ClassPackage implements ClassLocation {
 
 	private static final FileFilter CLASS_FILTER =
 		pathname -> pathname.getName().endsWith(CLASS_EXT);
 
 	private Set<ClassPackage> children = new HashSet<>();
-	private File rootDir;
+	private ClassDir classDir;
 	private File packageDir;
 	private String packageName;
+	private Set<ClassFileInfo> classes = new HashSet<>();
 
-	ClassPackage(File rootDir, String packageName, TaskMonitor monitor) throws CancelledException {
-		monitor.checkCanceled();
-		this.rootDir = rootDir;
+	ClassPackage(ClassDir classDir, String packageName, TaskMonitor monitor)
+			throws CancelledException {
+		monitor.checkCancelled();
+
+		this.classDir = classDir;
+
+		File rootDir = classDir.getDir();
 		this.packageName = packageName;
-		this.packageDir = getPackageDir(rootDir, packageName);
-		scanClasses();
+		this.packageDir = new File(rootDir, packageName.replace('.', File.separatorChar));
+		scanClasses(rootDir);
 		scanSubPackages(monitor);
 	}
 
-	private void scanClasses() {
+	private void scanClasses(File rootDir) {
 
 		String path = rootDir.getAbsolutePath();
 		Set<String> allClassNames = getAllClassNames();
 		for (String className : allClassNames) {
-			Class<?> c = ClassFinder.loadExtensionPoint(path, className);
-			if (c != null) {
-				classes.add(c);
+			String epName = ClassSearcher.getExtensionPointSuffix(className);
+			if (epName != null) {
+				String module = classDir.getModulePath();
+				classes.add(new ClassFileInfo(path, className, epName, module));
 			}
 		}
 	}
@@ -63,7 +69,7 @@ class ClassPackage extends ClassLocation {
 		}
 
 		for (File subdir : subdirs) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			if (!subdir.isDirectory()) {
 				continue;
 			}
@@ -78,27 +84,20 @@ class ClassPackage extends ClassLocation {
 				pkg = packageName + "." + pkg;
 			}
 
-			monitor.setMessage("scanning package: " + pkg);
-			children.add(new ClassPackage(rootDir, pkg, monitor));
+			monitor.setMessage("Scanning package: " + pkg);
+			children.add(new ClassPackage(classDir, pkg, monitor));
 		}
 	}
 
-	private File getPackageDir(File lRootDir, String lPackageName) {
-		return new File(lRootDir, lPackageName.replace('.', File.separatorChar));
-	}
-
 	@Override
-	void getClasses(Set<Class<?>> set, TaskMonitor monitor) throws CancelledException {
+	public void getClasses(List<ClassFileInfo> list, TaskMonitor monitor)
+			throws CancelledException {
 
-		checkForDuplicates(set);
+		list.addAll(classes);
 
-		set.addAll(classes);
-
-		Iterator<ClassPackage> it = children.iterator();
-		while (it.hasNext()) {
-			monitor.checkCanceled();
-			ClassPackage subPkg = it.next();
-			subPkg.getClasses(set, monitor);
+		for (ClassPackage subPkg : children) {
+			monitor.checkCancelled();
+			subPkg.getClasses(list, monitor);
 		}
 	}
 
@@ -119,5 +118,10 @@ class ClassPackage extends ClassLocation {
 			results.add(name);
 		}
 		return results;
+	}
+
+	@Override
+	public String toString() {
+		return packageDir.toString();
 	}
 }

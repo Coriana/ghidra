@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,8 +16,7 @@
 package db.buffers;
 
 import java.io.IOException;
-import java.rmi.NoSuchObjectException;
-import java.rmi.Remote;
+import java.rmi.*;
 import java.util.NoSuchElementException;
 
 import ghidra.util.Msg;
@@ -28,7 +27,7 @@ import ghidra.util.Msg;
  */
 public class BufferFileAdapter implements BufferFile {
 
-	private BufferFileHandle bufferFileHandle;
+	private final BufferFileHandle bufferFileHandle;
 
 	/**
 	 * Constructor.
@@ -40,7 +39,16 @@ public class BufferFileAdapter implements BufferFile {
 
 	@Override
 	public int getParameter(String name) throws NoSuchElementException, IOException {
-		return bufferFileHandle.getParameter(name);
+		try {
+			return bufferFileHandle.getParameter(name);
+		}
+		catch (RemoteException e) {
+			Throwable cause = e.getCause();
+			if (cause instanceof NoSuchElementException nse) {
+				throw nse;
+			}
+			throw e;
+		}
 	}
 
 	@Override
@@ -104,8 +112,8 @@ public class BufferFileAdapter implements BufferFile {
 			bufferFileHandle.dispose();
 		}
 		catch (IOException e) {
-			// handle may have already been disposed
-			if (!(e instanceof NoSuchObjectException)) {
+			// handle may have already been disposed or disconnected
+			if (!(e instanceof NoSuchObjectException) && !(e instanceof ConnectException)) {
 				Msg.error(this, e);
 			}
 		}

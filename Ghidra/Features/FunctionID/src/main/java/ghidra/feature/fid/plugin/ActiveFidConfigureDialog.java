@@ -24,6 +24,7 @@ import javax.swing.*;
 
 import docking.DialogComponentProvider;
 import docking.widgets.checkbox.GCheckBox;
+import generic.theme.GThemeDefaults;
 import ghidra.feature.fid.db.FidFile;
 import ghidra.util.HelpLocation;
 import ghidra.util.layout.VerticalLayout;
@@ -61,6 +62,7 @@ public class ActiveFidConfigureDialog extends DialogComponentProvider {
 		panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 		panel.add(buildCheckboxPanelScroller(), BorderLayout.CENTER);
 		panel.add(buildButtonPanel(), BorderLayout.SOUTH);
+		panel.getAccessibleContext().setAccessibleName("Active Fid Configuration");
 		return panel;
 	}
 
@@ -70,8 +72,11 @@ public class ActiveFidConfigureDialog extends DialogComponentProvider {
 		JButton noneButton = new JButton("Select None");
 		allButton.addActionListener(e -> selectAllCheckboxes(true));
 		noneButton.addActionListener(e -> selectAllCheckboxes(false));
+		allButton.getAccessibleContext().setAccessibleName("All");
+		noneButton.getAccessibleContext().setAccessibleName("None");
 		panel.add(allButton);
 		panel.add(noneButton);
+		panel.getAccessibleContext().setAccessibleName("Select All or None");
 		return panel;
 	}
 
@@ -83,21 +88,24 @@ public class ActiveFidConfigureDialog extends DialogComponentProvider {
 
 	private Component buildCheckboxPanelScroller() {
 		JScrollPane scrollPane = new JScrollPane(buildCheckBoxPanel());
+		scrollPane.getAccessibleContext().setAccessibleName("Checkbox Scroll");
 		return scrollPane;
 	}
 
 	private Component buildCheckBoxPanel() {
 		JPanel panel = new JPanel(new VerticalLayout(5));
 		panel.setOpaque(true);
-		panel.setBackground(Color.WHITE);
+		panel.setBackground(GThemeDefaults.Colors.BACKGROUND);
 		panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 		for (FidFile fidFile : fidFiles) {
 			GCheckBox checkbox = new GCheckBox(fidFile.getName(), fidFile.isActive());
 			checkbox.setToolTipText(fidFile.getPath());
+			checkbox.getAccessibleContext().setAccessibleName(fidFile.getBaseName());
 			checkboxes.add(checkbox);
 			checkbox.addItemListener(e -> fidFile.setActive(checkbox.isSelected()));
 			panel.add(checkbox);
 		}
+		panel.getAccessibleContext().setAccessibleName("Checkboxes");
 		return panel;
 	}
 }

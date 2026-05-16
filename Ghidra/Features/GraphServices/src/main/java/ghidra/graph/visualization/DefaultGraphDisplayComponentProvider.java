@@ -15,10 +15,14 @@
  */
 package ghidra.graph.visualization;
 
+import java.awt.event.MouseEvent;
+
 import javax.swing.JComponent;
 
+import docking.ActionContext;
 import ghidra.framework.plugintool.ComponentProviderAdapter;
 import ghidra.framework.plugintool.PluginTool;
+import ghidra.service.graph.GraphDisplay;
 import ghidra.util.HelpLocation;
 
 /**
@@ -28,7 +32,7 @@ public class DefaultGraphDisplayComponentProvider extends ComponentProviderAdapt
 
 	static final String WINDOW_GROUP = "ProgramGraph";
 	private static final String WINDOW_MENU_GROUP_NAME = "Graph";
-	private final DefaultGraphDisplay display;
+	private DefaultGraphDisplay display;
 
 	DefaultGraphDisplayComponentProvider(DefaultGraphDisplay display, PluginTool pluginTool) {
 		super(pluginTool, "Graph", "DefaultGraphDisplay");
@@ -37,7 +41,6 @@ public class DefaultGraphDisplayComponentProvider extends ComponentProviderAdapt
 		setIcon(DefaultDisplayGraphIcons.PROGRAM_GRAPH_ICON);
 		setTransient();
 		setWindowGroup(WINDOW_GROUP);
-		setSubTitle(Integer.toString(display.getId()));
 	}
 
 	@Override
@@ -52,7 +55,24 @@ public class DefaultGraphDisplayComponentProvider extends ComponentProviderAdapt
 
 	@Override
 	public void closeComponent() {
-		super.closeComponent();
-		display.close();
+		if (display != null) {
+			super.closeComponent();
+			// to prevent looping, null out display before calling its close method.
+			GraphDisplay closingDisplay = display;
+			display = null;
+			closingDisplay.close();
+			removeAllLocalActions();
+		}
+	}
+
+	@Override
+	public ActionContext getActionContext(MouseEvent event) {
+		return display.getActionContext(event);
+	}
+
+	// overridden to make it accessible
+	@Override
+	public void removeAllLocalActions() {
+		super.removeAllLocalActions();
 	}
 }

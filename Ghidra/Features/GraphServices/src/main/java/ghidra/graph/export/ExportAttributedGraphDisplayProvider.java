@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 package ghidra.graph.export;
+
+import java.util.Collections;
+import java.util.List;
 
 import ghidra.framework.options.Options;
 import ghidra.framework.plugintool.PluginTool;
@@ -28,7 +31,7 @@ import ghidra.util.task.TaskMonitor;
  * {@link GraphDisplay} is mostly just a placeholder for executing the export function.  By
  * hijacking the {@link GraphDisplayProvider} and {@link GraphDisplay} interfaces for exporting,
  * all graph generating operations can be exported instead of being displayed without changing
- * the graph generation code.    
+ * the graph generation code.
  */
 public class ExportAttributedGraphDisplayProvider implements GraphDisplayProvider {
 
@@ -49,10 +52,18 @@ public class ExportAttributedGraphDisplayProvider implements GraphDisplayProvide
 	}
 
 	@Override
-	public GraphDisplay getGraphDisplay(boolean reuseGraph,
-			TaskMonitor monitor) {
-
+	public GraphDisplay getGraphDisplay(boolean reuseGraph, boolean append, TaskMonitor monitor) {
 		return new ExportAttributedGraphDisplay(this);
+	}
+
+	@Override
+	public GraphDisplay getActiveGraphDisplay() {
+		return null; // one-time graph; no active graph
+	}
+
+	@Override
+	public List<GraphDisplay> getAllGraphDisplays() {
+		return Collections.emptyList(); // one-time graph; no active displays
 	}
 
 	@Override
@@ -73,6 +84,6 @@ public class ExportAttributedGraphDisplayProvider implements GraphDisplayProvide
 
 	@Override
 	public HelpLocation getHelpLocation() {
-		return new HelpLocation("GraphServices", "Default_Graph_Exporter");
+		return new HelpLocation("GraphServices", "Graph_Exporter");
 	}
 }

@@ -17,15 +17,26 @@
 
 package ghidra.program.model.symbol;
 
+import ghidra.program.model.address.Address;
+import ghidra.program.model.block.CodeBlock;
+import ghidra.program.model.listing.CodeUnit;
+import ghidra.program.model.listing.Instruction;
+import ghidra.program.model.pcode.PcodeOp;
+
 /**
- * Class to define reference types.
+ * {@link RefType} defines reference types used to specify the nature of a directional 
+ * relationship between a source-location and a destination-location where a "location" 
+ * may correspond to a {@link Address}, {@link CodeUnit}, {@link CodeBlock} or other 
+ * code related objects.  Reference types are generally identified as either 
+ * {@link #isData() data} (see {@link DataRefType}) or {@link #isFlow() flow} 
+ * (see {@link FlowType}).
  */
 public abstract class RefType {
 
 	//
-	// NOTE:
-	// When creating a new flow type, be sure
-	// to add code to the RefTypeFactory
+	// IMPORTANT:
+	// - When creating a new flow type, be sure to add code to the RefTypeFactory
+	// - Once a RefType value is defined it must be maintained for upgrade use
 	//
 
 	static final byte __INVALID = -2;
@@ -68,133 +79,367 @@ public abstract class RefType {
 	static final byte __WRITE_IND = 105;
 	static final byte __READ_WRITE_IND = 106;
 	static final byte __UNKNOWNPARAM = 107;
+
 	@Deprecated
-	static final byte __STACK_READ = 110; // Use __READ instead
+	static final byte __STACK_READ = 110; // Use __READ instead - retained for upgrade use
 	@Deprecated
-	static final byte __STACK_WRITE = 111; // Use __WRITE instead
+	static final byte __STACK_WRITE = 111; // Use __WRITE instead - retained for upgrade use
+
 	static final byte __EXTERNAL_REF = 113;
 	static final byte __UNKNOWNDATA_IND = 114;
 
 	static final byte __DYNAMICDATA = 127;
 
+	/**
+	 * {@link #INVALID} corresponds to an unknown {@link FlowType} which encountered an error
+	 * when determining the flow-type of the instruction at the from address.
+	 */
 	public static final FlowType INVALID =
-		new FlowType.Builder(__INVALID, "INVALID").setHasFall().build();
+		new FlowType.Builder(__INVALID, "INVALID")
+				.setHasFall()
+				.build();
+	/**
+	 * {@link #FLOW} corresponds to a complex or generic {@link FlowType}.  This may be used 
+	 * to describe the flow-type of an instruction or code-block which contains multiple outbound 
+	 * flows of differing types.  This should not be used for a specific flow {@link Reference}.
+	 */
 	public static final FlowType FLOW =
-		new FlowType.Builder(__UNKNOWNFLOW, "FLOW").setHasFall().build();
-	public static final FlowType FALL_THROUGH =
-		new FlowType.Builder(__FALL_THROUGH, "FALL_THROUGH").setHasFall().build();
-	public static final FlowType UNCONDITIONAL_JUMP =
-		new FlowType.Builder(__UNCONDITIONAL_JUMP, "UNCONDITIONAL_JUMP").setIsJump().build();
-	public static final FlowType CONDITIONAL_JUMP = new FlowType.Builder(__CONDITIONAL_JUMP,
-		"CONDITIONAL_JUMP").setHasFall().setIsJump().setIsConditional().build();
-	public static final FlowType UNCONDITIONAL_CALL = new FlowType.Builder(__UNCONDITIONAL_CALL,
-		"UNCONDITIONAL_CALL").setHasFall().setIsCall().build();
-	public static final FlowType CONDITIONAL_CALL = new FlowType.Builder(__CONDITIONAL_CALL,
-		"CONDITIONAL CALL").setHasFall().setIsCall().setIsConditional().build();
-	public static final FlowType TERMINATOR =
-		new FlowType.Builder(__TERMINATOR, "TERMINATOR").setIsTerminal().build();
-	public static final FlowType COMPUTED_JUMP =
-		new FlowType.Builder(__COMPUTED_JUMP, "COMPUTED_JUMP").setIsJump().setIsComputed().build();
-	public static final FlowType CONDITIONAL_TERMINATOR =
-		new FlowType.Builder(__CONDITIONAL_TERMINATOR,
-			"CONDITIONAL_TERMINATOR").setHasFall().setIsTerminal().setIsConditional().build();
-	public static final FlowType COMPUTED_CALL = new FlowType.Builder(__COMPUTED_CALL,
-		"COMPUTED_CALL").setHasFall().setIsCall().setIsComputed().build();
-	public static final FlowType CALL_TERMINATOR = new FlowType.Builder(__CALL_TERMINATOR,
-		"CALL_TERMINATOR").setIsCall().setIsTerminal().build();
-	public static final FlowType COMPUTED_CALL_TERMINATOR =
-		new FlowType.Builder(__COMPUTED_CALL_TERMINATOR,
-			"COMPUTED_CALL_TERMINATOR").setIsCall().setIsTerminal().setIsComputed().build();
-	public static final FlowType CONDITIONAL_CALL_TERMINATOR =
-		new FlowType.Builder(__CONDITIONAL_CALL_TERMINATOR,
-			"CONDITIONAL_CALL_TERMINATOR").setIsCall().setIsTerminal().setIsConditional().build();
-	public static final FlowType CONDITIONAL_COMPUTED_CALL = new FlowType.Builder(
-		__CONDITIONAL_COMPUTED_CALL,
-		"CONDITIONAL_COMPUTED_CALL").setHasFall().setIsCall().setIsComputed().setIsConditional().build();
-	public static final FlowType CONDITIONAL_COMPUTED_JUMP = new FlowType.Builder(
-		__CONDITIONAL_COMPUTED_JUMP,
-		"CONDITIONAL_COMPUTED_JUMP").setHasFall().setIsJump().setIsComputed().setIsConditional().build();
-	public static final FlowType JUMP_TERMINATOR = new FlowType.Builder(__JUMP_TERMINATOR,
-		"JUMP_TERMINATOR").setIsJump().setIsTerminal().build();
-	public static final FlowType INDIRECTION =
-		new FlowType.Builder(__INDIRECTION, "INDIRECTION").build();
-	public static final FlowType CALL_OVERRIDE_UNCONDITIONAL =
-		new FlowType.Builder(__CALL_OVERRIDE_UNCONDITIONAL,
-			"CALL_OVERRIDE_UNCONDITIONAL").setHasFall().setIsCall().setIsOverride().build();
-	public static final FlowType JUMP_OVERRIDE_UNCONDITIONAL =
-		new FlowType.Builder(__JUMP_OVERRIDE_UNCONDITIONAL,
-			"JUMP_OVERRIDE_UNCONDITIONAL").setIsJump().setIsOverride().build();
-	public static final FlowType CALLOTHER_OVERRIDE_CALL =
-		new FlowType.Builder(__CALLOTHER_OVERRIDE_CALL,
-			"CALLOTHER_OVERRIDE_CALL").setHasFall().setIsCall().setIsOverride().build();
-	public static final FlowType CALLOTHER_OVERRIDE_JUMP =
-		new FlowType.Builder(__CALLOTHER_OVERRIDE_JUMP,
-			"CALLOTHER_OVERRIDE_JUMP").setIsJump().setIsOverride().build();
+		new FlowType.Builder(__UNKNOWNFLOW, "FLOW")
+				.setHasFall()
+				.build();
 
 	/**
-	 * Reference type is unknown.
+	 * {@link #FALL_THROUGH} corresponds to an instruction fall-through override where modeling
+	 * requires a fall-through instruction to convey a branch around other {@link CodeUnit}s.
+	 * While this may be freely used to describe the flow-type of a code-block or its relationship
+	 * to another code-block, its use with a {@link Reference} is <b>reserved for internal use</b> 
+	 * to reflect an {@link Instruction} fall-through-override or length-override condition.
 	 */
+	public static final FlowType FALL_THROUGH =
+		new FlowType.Builder(__FALL_THROUGH, "FALL_THROUGH")
+				.setHasFall()
+				.build();
 
+	/**
+	 * {@link #UNCONDITIONAL_JUMP} corresponds to an unconditional jump/branch {@link FlowType}.  
+	 * This may be used to describe the flow-type of an instruction or code-block, or
+	 * {@link Reference} to another instruction or code-block.
+	 */
+	public static final FlowType UNCONDITIONAL_JUMP =
+		new FlowType.Builder(__UNCONDITIONAL_JUMP, "UNCONDITIONAL_JUMP")
+				.setIsJump()
+				.build();
+
+	/**
+	 * {@link #CONDITIONAL_JUMP} corresponds to a conditional jump/branch {@link FlowType}.  
+	 * This may be used to describe the flow-type of an instruction or code-block, or
+	 * {@link Reference} to another instruction or code-block.
+	 */
+	public static final FlowType CONDITIONAL_JUMP =
+		new FlowType.Builder(__CONDITIONAL_JUMP, "CONDITIONAL_JUMP")
+				.setHasFall()
+				.setIsJump()
+				.setIsConditional()
+				.build();
+
+	/**
+	 * {@link #UNCONDITIONAL_CALL} corresponds to an unconditional call {@link FlowType} with fall-through.   
+	 * This may be used to describe the flow-type of an instruction or code-block, or
+	 * call {@link Reference} to another instruction or code-block.
+	 */
+	public static final FlowType UNCONDITIONAL_CALL =
+		new FlowType.Builder(__UNCONDITIONAL_CALL, "UNCONDITIONAL_CALL")
+				.setHasFall()
+				.setIsCall()
+				.build();
+
+	/**
+	 * {@link #CONDITIONAL_CALL} corresponds to a conditional call {@link FlowType} with fall-through.   
+	 * This may be used to describe the flow-type of an instruction or code-block, or
+	 * call {@link Reference} to another instruction or code-block.
+	 */
+	public static final FlowType CONDITIONAL_CALL =
+		new FlowType.Builder(__CONDITIONAL_CALL, "CONDITIONAL_CALL")
+				.setHasFall()
+				.setIsCall()
+				.setIsConditional()
+				.build();
+
+	/**
+	 * {@link #TERMINATOR} corresponds to a terminal {@link FlowType} (e.g., return from a 
+	 * function).  This may be used to describe the flow-type of an instruction or code-block 
+	 * but should generally not be used with a {@link Reference}.
+	 */
+	public static final FlowType TERMINATOR =
+		new FlowType.Builder(__TERMINATOR, "TERMINATOR")
+				.setIsTerminal()
+				.build();
+
+	/**
+	 * {@link #COMPUTED_JUMP} corresponds to a computed jump/branch {@link FlowType}.  
+	 * This may be used to describe the flow-type of an instruction or code-block, or
+	 * {@link Reference} to another instruction or code-block.
+	 */
+	public static final FlowType COMPUTED_JUMP =
+		new FlowType.Builder(__COMPUTED_JUMP, "COMPUTED_JUMP")
+				.setIsJump()
+				.setIsComputed()
+				.build();
+
+	/**
+	 * {@link #TERMINATOR} corresponds to a terminal {@link FlowType} (e.g., conditional return 
+	 * from a function).  This may be used to describe the flow-type of an instruction or code-block 
+	 * but should generally not be used with a {@link Reference}.
+	 */
+	public static final FlowType CONDITIONAL_TERMINATOR =
+		new FlowType.Builder(__CONDITIONAL_TERMINATOR, "CONDITIONAL_TERMINATOR")
+				.setHasFall()
+				.setIsTerminal()
+				.setIsConditional()
+				.build();
+
+	/**
+	 * {@link #COMPUTED_CALL} corresponds to a computed call {@link FlowType} with fall-through.  
+	 * This may be used to describe the flow-type of an instruction or code-block, or
+	 * call {@link Reference} to another instruction or code-block.
+	 */
+	public static final FlowType COMPUTED_CALL =
+		new FlowType.Builder(__COMPUTED_CALL, "COMPUTED_CALL")
+				.setHasFall()
+				.setIsCall()
+				.setIsComputed()
+				.build();
+
+	/**
+	 * {@link #CALL_TERMINATOR} corresponds to an unconditional call {@link FlowType}
+	 * followed by a terminal without fall-through (e.g., unconditional return from a function).  
+	 * This may be used to describe the flow-type of an instruction or code-block but 
+	 * should generally not be used with a {@link Reference}.  A corresponding {@link Reference}
+	 * should generally specify {@link #__UNCONDITIONAL_CALL}.
+	 */
+	public static final FlowType CALL_TERMINATOR =
+		new FlowType.Builder(__CALL_TERMINATOR, "CALL_TERMINATOR")
+				.setIsCall()
+				.setIsTerminal()
+				.build();
+
+	/**
+	 * {@link #COMPUTED_CALL_TERMINATOR} corresponds to an unconditional call {@link FlowType}
+	 * followed by a terminal without fall-through (e.g., unconditional return from a function).  
+	 * This may be used to describe the flow-type of an instruction or code-block but 
+	 * should generally not be used with a {@link Reference}.  A corresponding {@link Reference}
+	 * should generally specify {@link #COMPUTED_CALL}.
+	 */
+	public static final FlowType COMPUTED_CALL_TERMINATOR =
+		new FlowType.Builder(__COMPUTED_CALL_TERMINATOR, "COMPUTED_CALL_TERMINATOR")
+				.setIsCall()
+				.setIsTerminal()
+				.setIsComputed()
+				.build();
+
+	/**
+	 * {@link #CONDITIONAL_CALL_TERMINATOR} corresponds to a conditional call {@link FlowType}
+	 * followed by a terminal without fall-through (e.g., unconditional return from a function).  
+	 * This may be used to describe the flow-type of an instruction or code-block but 
+	 * should generally not be used with a {@link Reference}.  A corresponding {@link Reference}
+	 * should generally specify {@link #CONDITIONAL_CALL}.
+	 */
+	public static final FlowType CONDITIONAL_CALL_TERMINATOR =
+		new FlowType.Builder(__CONDITIONAL_CALL_TERMINATOR, "CONDITIONAL_CALL_TERMINATOR")
+				.setIsCall()
+				.setIsTerminal()
+				.setIsConditional()
+				.build();
+
+	/**
+	 * {@link #CONDITIONAL_COMPUTED_CALL} corresponds to a conditional computed call {@link FlowType} 
+	 * with fall-through. This may be used to describe the flow-type of an instruction or 
+	 * code-block, or call {@link Reference} to another instruction or code-block.
+	 */
+	public static final FlowType CONDITIONAL_COMPUTED_CALL = new FlowType.Builder(
+		__CONDITIONAL_COMPUTED_CALL, "CONDITIONAL_COMPUTED_CALL")
+				.setHasFall()
+				.setIsCall()
+				.setIsComputed()
+				.setIsConditional()
+				.build();
+
+	/**
+	 * {@link #CONDITIONAL_COMPUTED_JUMP} corresponds to a conditional computed jump/branch 
+	 * {@link FlowType}.  This may be used to describe the flow-type of an instruction or 
+	 * code-block, or {@link Reference} to another instruction or code-block.
+	 */
+	public static final FlowType CONDITIONAL_COMPUTED_JUMP =
+		new FlowType.Builder(__CONDITIONAL_COMPUTED_JUMP, "CONDITIONAL_COMPUTED_JUMP")
+				.setHasFall()
+				.setIsJump()
+				.setIsComputed()
+				.setIsConditional()
+				.build();
+
+	/**
+	 * {@link #JUMP_TERMINATOR} corresponds to a conditional jump/branch {@link FlowType}
+	 * followed by a terminal without fall-through (e.g., unconditional return from a function).  
+	 * This may be used to describe the flow-type of an instruction or code-block but 
+	 * should generally not be used with a {@link Reference}.  A corresponding {@link Reference}
+	 * should generally specify {@link #CONDITIONAL_JUMP}.
+	 */
+	public static final FlowType JUMP_TERMINATOR =
+		new FlowType.Builder(__JUMP_TERMINATOR, "JUMP_TERMINATOR")
+				.setIsJump()
+				.setIsTerminal()
+				.build();
+
+	/**
+	 * {@link #INDIRECTION} corresponds to a flow {@link Reference} placed on a pointer data location
+	 * that is utilized indirectly by a computed jump/branch or call instruction.
+	 */
+	public static final FlowType INDIRECTION =
+		new FlowType.Builder(__INDIRECTION, "INDIRECTION")
+				.build();
+
+	/**
+	 * {@link #__CALL_OVERRIDE_UNCONDITIONAL} is used with a memory {@link Reference} to
+	 * override the destination of an instruction {@link PcodeOp#CALL} or {@link PcodeOp#CALLIND} 
+	 * pcode operation. {@link PcodeOp#CALLIND} operations are changed to {@link PcodeOp#CALL} 
+	 * operations. The new call target is the "to" address of the {@link Reference}. The override 
+	 * only takes effect when the {@link Reference} is primary, and only when there is exactly 
+	 * one {@link #__CALL_OVERRIDE_UNCONDITIONAL} {@link Reference} at the "from" address of 
+	 * the reference.
+	 */
+	public static final FlowType CALL_OVERRIDE_UNCONDITIONAL =
+		new FlowType.Builder(__CALL_OVERRIDE_UNCONDITIONAL, "CALL_OVERRIDE_UNCONDITIONAL")
+				.setHasFall()
+				.setIsCall()
+				.setIsOverride()
+				.build();
+
+	/**
+	 * {@link #JUMP_OVERRIDE_UNCONDITIONAL} is used with a memory {@link Reference} to
+	 * override the destination of an instruction {@link PcodeOp#BRANCH} or {@link PcodeOp#CBRANCH} 
+	 * pcode operation. {@link PcodeOp#CBRANCH} operations are changed to {@link PcodeOp#BRANCH} 
+	 * operations. The new jump target is the "to" address of the {@link Reference}. The override 
+	 * only takes effect when the {@link Reference} is primary, and only when there is exactly 
+	 * one {@link #JUMP_OVERRIDE_UNCONDITIONAL} reference at the "from" address of 
+	 * the reference.
+	 */
+	public static final FlowType JUMP_OVERRIDE_UNCONDITIONAL =
+		new FlowType.Builder(__JUMP_OVERRIDE_UNCONDITIONAL, "JUMP_OVERRIDE_UNCONDITIONAL")
+				.setIsJump()
+				.setIsOverride()
+				.build();
+
+	/**
+	 * {@link #CALLOTHER_OVERRIDE_CALL} is used to change a {@link PcodeOp#CALLOTHER} pcode operation 
+	 * to a {@link PcodeOp#CALL} operation. The new call target is the "to" address of the 
+	 * {@link Reference}. Any inputs to the original {@link PcodeOp#CALLOTHER} are discarded; 
+	 * the new {@link PcodeOp#CALL} may have inputs assigned to it during decompilation. The 
+	 * override only takes effect when the {@link Reference} is primary, and only when there is 
+	 * exactly one {@link #CALLOTHER_OVERRIDE_CALL} reference at the "from" address of the 
+	 * reference. Only the first {@link PcodeOp#CALLOTHER} operation at the "from" address of the 
+	 * reference is changed. Applying this override to instances of a {@link PcodeOp#CALLOTHER}
+	 * that have an output is not recommended and can adversely affect decompilation 
+	 * (e.g., the decompiler may throw an exception). Note that this reference override takes 
+	 * precedence over {@link #CALLOTHER_OVERRIDE_JUMP} references.
+	 */
+	public static final FlowType CALLOTHER_OVERRIDE_CALL =
+		new FlowType.Builder(__CALLOTHER_OVERRIDE_CALL, "CALLOTHER_OVERRIDE_CALL")
+				.setHasFall()
+				.setIsCall()
+				.setIsOverride()
+				.build();
+
+	/**
+	 * {@link #CALLOTHER_OVERRIDE_CALL} is used to change a {@link PcodeOp#CALLOTHER} pcode 
+	 * operation to a {@link PcodeOp#BRANCH} operation. The new jump target is the "to" address 
+	 * of the {@link Reference}. The override only takes effect when the {@link Reference} is 
+	 * primary, and only when there is exactly one {@link #CALLOTHER_OVERRIDE_CALL} reference at 
+	 * the "from" address of the reference. Only the first {@link PcodeOp#CALLOTHER} operation 
+	 * at the "from" address of the reference is changed. Applying this override to an instance 
+	 * of a {@link PcodeOp#CALLOTHER} with output is not recommended 
+	 * (see {@link #CALLOTHER_OVERRIDE_CALL}).
+	 */
+	public static final FlowType CALLOTHER_OVERRIDE_JUMP =
+		new FlowType.Builder(__CALLOTHER_OVERRIDE_JUMP, "CALLOTHER_OVERRIDE_JUMP")
+				.setIsJump()
+				.setIsOverride()
+				.build();
+
+	/**
+	 * {@link #THUNK} type identifies the relationship between a thunk-function and its
+	 * corresponding thunked-function which do not rely on a stored {@link Reference}.
+	 */
 	public static final RefType THUNK = new DataRefType(__DYNAMICDATA, "THUNK", 0);
 
 	/**
-	 * Reference type assigned when data access is unknown.
+	 * {@link #DATA} type identifies a generic reference from either an instruction,
+	 * when the read/write data access is unknown, or from pointer data when it refers to
+	 * data or it's unknown if it refers to code.  A pointer that is known to refer to code
+	 * should generally have a {@link #INDIRECTION} type if used for by a computed 
+	 * jump/branch or call.
 	 */
 	public static final RefType DATA = new DataRefType(__UNKNOWNDATA, "DATA", 0);
 
 	/**
-	 * Reference type assigned when data (constant or pointer) is passed to a function
+	 * {@link #PARAM} type is used to identify data (constant or pointer) that is passed 
+	 * to a function.
 	 */
 	public static final RefType PARAM = new DataRefType(__UNKNOWNPARAM, "PARAM", 0);
 
+	/**
+	 * {@link #DATA_IND} corresponds to a data {@link Reference} placed on a pointer data location
+	 * that is utilized indirectly to access a data location.
+	 * @deprecated use of this type is discouraged and may be eliminated in a future release.  
+	 * The type {@link #DATA} should generally be used in place of this type.
+	 */
 	public static final RefType DATA_IND =
 		new DataRefType(__UNKNOWNDATA_IND, "DATA_IND", DataRefType.INDX);
 
 	/**
-	 * Reference type assigned when data is being read.
+	 * {@link #READ} type identifies an instruction reference to a data location that is directly 
+	 * read.
 	 */
 	public static final RefType READ = new DataRefType(__READ, "READ", DataRefType.READX);
+
 	/**
-	 * Reference type assigned when data is being written.
+	 * {@link #WRITE} type identifies an instruction reference to a data location that is directly 
+	 * written.
 	 */
 	public static final RefType WRITE = new DataRefType(__WRITE, "WRITE", DataRefType.WRITEX);
+
 	/**
-	 * Reference type assigned when data is read and written.
+	 * {@link #READ_WRITE} type identifies an instruction reference to a data location that is 
+	 * both directly read and written.
 	 */
 	public static final RefType READ_WRITE =
 		new DataRefType(__READ_WRITE, "READ_WRITE", DataRefType.READX | DataRefType.WRITEX);
+
 	/**
-	 * Reference type assigned when data is being read.
+	 * {@link #READ_IND} type identifies an instruction reference to a data location that is 
+	 * indirectly read using a stored pointer or computed value.
 	 */
 	public static final RefType READ_IND =
 		new DataRefType(__READ_IND, "READ_IND", DataRefType.READX | DataRefType.INDX);
+
 	/**
-	 * Reference type assigned when data is being written.
+	 * {@link #WRITE_IND} type identifies an instruction reference to a data location that is 
+	 * indirectly written using a stored pointer or computed value.
 	 */
 	public static final RefType WRITE_IND =
 		new DataRefType(__WRITE_IND, "WRITE_IND", DataRefType.WRITEX | DataRefType.INDX);
+
 	/**
-	 * Reference type assigned when data is read and written.
+	 * {@link #READ_WRITE_IND} type identifies an instruction reference to a data location that is 
+	 * both indirectly read and written using a stored pointer or computed value.
 	 */
 	public static final RefType READ_WRITE_IND = new DataRefType(__READ_WRITE_IND, "READ_WRITE_IND",
 		DataRefType.READX | DataRefType.WRITEX | DataRefType.INDX);
+
 	/**
-	 * Reference type assigned for stack variable being read.
-	 * @deprecated use {@link RefType#READ} instead
-	 */
-	@Deprecated
-	public static final RefType STACK_READ =
-		new DataRefType(__STACK_READ, "STACK_READ", DataRefType.READX);
-	/**
-	 * Reference type assigned for stack variable being written.
-	 * @deprecated use {@link RefType#WRITE} instead
-	 */
-	@Deprecated
-	public static final RefType STACK_WRITE =
-		new DataRefType(__STACK_WRITE, "STACK_WRITE", DataRefType.WRITEX);
-	/**
-	 * Reference type used internally to identify external entry points.  
-	 * The use of this RefType for references to external library data or functions 
+	 * {@link #EXTERNAL_REF} type is used internally to identify external entry point locations
+	 * using a from address of {@link Address#NO_ADDRESS}.
+	 * <p>
+	 * NOTE: The use of this type for references to external library data or functions
 	 * is deprecated and should not be used for that purpose.
 	 */
 	public static final RefType EXTERNAL_REF = new DataRefType(__EXTERNAL_REF, "EXTERNAL", 0);
@@ -203,126 +448,59 @@ public abstract class RefType {
 	private String name;
 
 	/**
-	 * Constructor
+	 * Returns an easy to read display string for this ref type.
+	 * @return the string
 	 */
+	public String getDisplayString() {
+		if (this == RefType.THUNK) {
+			return "Thunk";
+		}
+		if (this == RefType.FALL_THROUGH) {
+			return "FallThrough";
+		}
+
+		if (isRead() && isWrite()) {
+			return "RW";
+		}
+		if (isRead()) {
+			return "Read";
+		}
+		if (isWrite()) {
+			return "Write";
+		}
+		if (isData()) {
+			return "Data";
+		}
+		if (isCall()) {
+			return "Call";
+		}
+		if (isJump()) {
+			return (isConditional() ? "Branch" : "Jump");
+		}
+		return "Unknown";
+	}
+
 	protected RefType(byte type, String name) {
 		this.type = type;
 		this.name = name;
 	}
 
 	/**
-	 * Get the int value for this RefType object.
+	 * Get the int value for this RefType object
+	 * @return the value
 	 */
 	public byte getValue() {
 		return type;
 	}
 
 	/**
-	 * Returns true if the reference is to data
+	 * Returns name of ref-type
+	 * @return the name
 	 */
-	public boolean isData() {
-		return false;
+	public String getName() {
+		return name;
 	}
 
-	/**
-	 * Returns true if the reference is a read.
-	 */
-	public boolean isRead() {
-		return false;
-	}
-
-	/**
-	 * Returns true if the reference is a write.
-	 */
-	public boolean isWrite() {
-		return false;
-	}
-
-	/**
-	 * Returns true if the reference is indirect
-	 */
-	public boolean isIndirect() {
-		if (this == INDIRECTION) {
-			return true;
-		}
-		return false;
-	}
-
-	/**
-	 * Returns true if the reference is an instruction flow reference.
-	 */
-	public boolean isFlow() {
-		return false;
-	}
-
-	/**
-	 * Return true if this flow type is one that does not cause
-	 * a break in control flow.
-	 */
-	public final boolean isFallthrough() {
-		return this == FALL_THROUGH;
-	}
-
-	/**
-	 * Returns true if this flow type can fall through.
-	 */
-	public boolean hasFallthrough() {
-		return false;
-	}
-
-	/**
-	 * Returns true if the flow is call
-	 */
-	public boolean isCall() {
-		return false;
-	}
-
-	/**
-	 * Returns true if the flow is jump
-	 */
-	public boolean isJump() {
-		return false;
-	}
-
-	/**
-	 * Returns true if the flow is an unconditional call or jump.
-	 */
-	public boolean isUnConditional() {
-		return !isConditional();
-	}
-
-	/**
-	 * Returns true if the flow is a conditional call or jump.
-	 */
-	public boolean isConditional() {
-		return false;
-	}
-
-	/**
-	 * Returns true if the flow is a computed call or compute jump.
-	 */
-	public boolean isComputed() {
-		return false;
-	}
-
-	/**
-	 * returns true if this instruction terminates.
-	 */
-	public boolean isTerminal() {
-		return false;
-	}
-
-	/**
-	 * 
-	 * @return true precisely when the reference is an overriding reference
-	 */
-	public boolean isOverride() {
-		return false;
-	}
-
-	/**
-	 * @see java.lang.Object#equals(java.lang.Object)
-	 */
 	@Override
 	public boolean equals(Object obj) {
 		if (obj == null || !getClass().equals(obj.getClass())) {
@@ -332,28 +510,137 @@ public abstract class RefType {
 		return type == other.type;
 	}
 
-	/**
-	 * @see java.lang.Object#hashCode()
-	 */
 	@Override
 	public int hashCode() {
 		return type;
 	}
 
-	/**
-	 * 
-	 * @see java.lang.Object#toString()
-	 */
 	@Override
 	public String toString() {
 		return name;
 	}
 
+	//
+	// Data related methods
+	//
+
 	/**
-	 * Returns name of ref-type
+	 * Returns true if the reference is to data
+	 * @return true if the reference is to data
 	 */
-	public String getName() {
-		return name;
+	public boolean isData() {
+		return false;
+	}
+
+	/**
+	 * Returns true if the reference is a read
+	 * @return true if the reference is a read
+	 */
+	public boolean isRead() {
+		return false;
+	}
+
+	/**
+	 * Returns true if the reference is a write
+	 * @return true if the reference is a write
+	 */
+	public boolean isWrite() {
+		return false;
+	}
+
+	//
+	// Flow related methods
+	//
+
+	/**
+	 * Returns true if the reference is an instruction flow reference
+	 * @return true if the reference is an instruction flow reference
+	 */
+	public boolean isFlow() {
+		return false;
+	}
+
+	/**
+	 * Returns true if the reference is indirect
+	 * @return true if the reference is indirect
+	 */
+	public boolean isIndirect() {
+		if (this == INDIRECTION) {
+			return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Return true if this flow type is one that does not cause a break in control flow
+	 * @return if this flow type is one that does not cause a break in control flow
+	 */
+	public final boolean isFallthrough() {
+		return this == FALL_THROUGH;
+	}
+
+	/**
+	 * Returns true if this flow type can fall through
+	 * @return true if can fall through
+	 */
+	public boolean hasFallthrough() {
+		return false;
+	}
+
+	/**
+	 * Returns true if the flow is call
+	 * @return true if is a call
+	 */
+	public boolean isCall() {
+		return false;
+	}
+
+	/**
+	 * Returns true if the flow is jump
+	 * @return true if is a jump
+	 */
+	public boolean isJump() {
+		return false;
+	}
+
+	/**
+	 * Returns true if the flow is an unconditional call or jump
+	 * @return true if unconditional
+	 */
+	public boolean isUnConditional() {
+		return !isConditional();
+	}
+
+	/**
+	 * Returns true if the flow is a conditional call or jump
+	 * @return true if is conditional
+	 */
+	public boolean isConditional() {
+		return false;
+	}
+
+	/**
+	 * Returns true if the flow is a computed call or compute jump
+	 * @return true if is computed
+	 */
+	public boolean isComputed() {
+		return false;
+	}
+
+	/**
+	 * Returns true if this instruction terminates
+	 * @return true if terminal
+	 */
+	public boolean isTerminal() {
+		return false;
+	}
+
+	/**
+	 * True if this is an override reference
+	 * @return true if this is an override reference
+	 */
+	public boolean isOverride() {
+		return false;
 	}
 
 }

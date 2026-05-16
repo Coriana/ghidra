@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,58 +15,70 @@
  */
 package ghidra.program.model.data;
 
-import ghidra.docking.settings.Settings;
-import ghidra.docking.settings.SettingsDefinition;
+import ghidra.docking.settings.*;
 import ghidra.program.database.data.DataTypeUtilities;
 import ghidra.program.model.mem.MemBuffer;
+import ghidra.util.InvalidNameException;
 import ghidra.util.UniversalID;
 
 /**
  * 
- * Basic implementation for the typedef dataType
+ * Basic implementation for the typedef dataType.
+ * 
+ * NOTE: Settings are immutable when a DataTypeManager has not been specified (i.e., null).
  */
 public class TypedefDataType extends GenericDataType implements TypeDef {
-	private final static long serialVersionUID = 1;
 
 	private DataType dataType;
+	private SettingsDefinition[] settingsDef;
+	private boolean isAutoNamed = false;
 	private boolean deleted = false;
 
+	/**
+	 * Construct a new typedef within the root category
+	 * @param name name of this typedef
+	 * @param dt data type that is being typedef'ed (may not be null)
+	 */
 	public TypedefDataType(String name, DataType dt) {
-		this(CategoryPath.ROOT, name, dt, null);
+		this(CategoryPath.ROOT, name, dt, dt.getDataTypeManager());
 	}
 
 	/**
 	 * Construct a new typedef.
-	 * @param name name to use as the alias
-	 * @param dt data type that is being typedef'ed
+	 * @param path category path for this datatype
+	 * @param name name of this typedef
+	 * @param dt data type that is being typedef'ed (may not be null)
 	 */
 	public TypedefDataType(CategoryPath path, String name, DataType dt) {
-		this(path, name, dt, null);
+		this(path, name, dt, dt.getDataTypeManager());
 	}
 
 	/**
 	 * Construct a new typedef.
-	 * @param name name to use as the alias
-	 * @param dt data type that is being typedef'ed
+	 * @param path category path for this datatype
+	 * @param name name of this typedef
+	 * @param dt data type that is being typedef'ed (may not be null)
+	 * @param dtm the data type manager associated with this data type. This can be null. 
 	 */
 	public TypedefDataType(CategoryPath path, String name, DataType dt, DataTypeManager dtm) {
 		super(path, name, dtm);
 		validate(dt);
 		this.dataType = dt.clone(dtm);
 		dt.addParent(this);
+		defaultSettings = null; // use lazy initialization
 	}
 
 	/**
 	 * Construct a new typedef.
-	 * @param path the category path indicating where this data type is located.
-	 * @param name the name of the new structure
+	 * @param path category path for this datatype
+	 * @param name name of this typedef
+	 * @param dt data type that is being typedef'ed (may not be null)
 	 * @param universalID the id for the data type
 	 * @param sourceArchive the source archive for this data type
 	 * @param lastChangeTime the last time this data type was changed
 	 * @param lastChangeTimeInSourceArchive the last time this data type was changed in
 	 * its source archive.
 	 * @param dtm the data type manager associated with this data type. This can be null. 
-	 * Also, the data type manager may not contain this actual data type.
 	 */
 	public TypedefDataType(CategoryPath path, String name, DataType dt, UniversalID universalID,
 			SourceArchive sourceArchive, long lastChangeTime, long lastChangeTimeInSourceArchive,
@@ -76,36 +88,83 @@ public class TypedefDataType extends GenericDataType implements TypeDef {
 		validate(dt);
 		this.dataType = dt.clone(dtm);
 		dt.addParent(this);
+		defaultSettings = null; // use lazy initialization
 	}
 
 	private void validate(DataType dt) {
+		if (dataType instanceof VoidDataType) {
+			throw new IllegalArgumentException("TypeDef data type may not be 'void' data type");
+		}
+		if (dataType instanceof DefaultDataType) {
+			throw new IllegalArgumentException(
+				"TypeDef data type may not be 'default' undefined data type");
+		}
 		if (dt instanceof BitFieldDataType) {
 			throw new IllegalArgumentException(
-				"TypeDef data-type may not be a bitfield: " + dt.getName());
+				"TypeDef data type may not be a bitfield: " + dt.getName());
 		}
 		if (dt instanceof FactoryDataType) {
 			throw new IllegalArgumentException(
-				"TypeDef data-type may not be a Factory data-type: " + dt.getName());
+				"TypeDef data type may not be a Factory data type: " + dt.getName());
 		}
 		if (dt instanceof Dynamic) {
 			throw new IllegalArgumentException(
-				"TypeDef data-type may not be a Dynamic data-type: " + dt.getName());
+				"TypeDef data type may not be a Dynamic data type: " + dt.getName());
 		}
+	}
+
+	@Override
+	public void enableAutoNaming() {
+		if (isAutoNamed) {
+			return;
+		}
+		isAutoNamed = true;
+		notifyNameChanged(name);
+	}
+
+	@Override
+	public boolean isAutoNamed() {
+		return isAutoNamed;
 	}
 
 	@Override
 	public String getDefaultLabelPrefix() {
+		if (isAutoNamed()) {
+			return getDataType().getDefaultLabelPrefix();
+		}
 		return getName();
 	}
 
 	@Override
-	public boolean isNotYetDefined() {
-		return dataType.isNotYetDefined();
+	public String getDefaultLabelPrefix(MemBuffer buf, Settings settings, int len,
+			DataTypeDisplayOptions options) {
+		if (isAutoNamed()) {
+			return getDataType().getDefaultLabelPrefix(buf, settings, len, options);
+		}
+		return super.getDefaultLabelPrefix(buf, settings, len, options);
 	}
 
 	@Override
-	public boolean isDynamicallySized() {
-		return dataType.isDynamicallySized();
+	public String getDefaultAbbreviatedLabelPrefix() {
+		if (isAutoNamed()) {
+			return getDataType().getDefaultAbbreviatedLabelPrefix();
+		}
+		return super.getDefaultAbbreviatedLabelPrefix();
+	}
+
+	@Override
+	public String getDefaultOffcutLabelPrefix(MemBuffer buf, Settings settings, int len,
+			DataTypeDisplayOptions options, int offcutLength) {
+		if (isAutoNamed()) {
+			return getDataType().getDefaultOffcutLabelPrefix(buf, settings, len, options,
+				offcutLength);
+		}
+		return super.getDefaultOffcutLabelPrefix(buf, settings, len, options, offcutLength);
+	}
+
+	@Override
+	public boolean hasLanguageDependantLength() {
+		return dataType.hasLanguageDependantLength();
 	}
 
 	@Override
@@ -116,14 +175,28 @@ public class TypedefDataType extends GenericDataType implements TypeDef {
 		if (obj == this) {
 			return true;
 		}
-		if (obj instanceof TypeDef) {
-			TypeDef td = (TypeDef) obj;
-			if (!DataTypeUtilities.equalsIgnoreConflict(name, td.getName())) {
-				return false;
-			}
-			return DataTypeUtilities.isSameOrEquivalentDataType(getDataType(), td.getDataType());
+		if (!(obj instanceof TypeDef td)) {
+			return false;
 		}
-		return false;
+
+		if (isAutoNamed != td.isAutoNamed()) {
+			return false;
+		}
+
+		if (!isAutoNamed && !DataTypeUtilities.equalsIgnoreConflict(getName(), td.getName())) {
+			return false;
+		}
+
+		if (!hasSameTypeDefSettings(td)) {
+			return false;
+		}
+
+		DataType otherDataType = td.getDataType();
+		if (DataTypeUtilities.isSameDataType(dataType, otherDataType)) {
+			return true;
+		}
+
+		return dataType.isEquivalent(otherDataType);
 	}
 
 	@Override
@@ -142,8 +215,18 @@ public class TypedefDataType extends GenericDataType implements TypeDef {
 	}
 
 	@Override
+	public boolean isZeroLength() {
+		return dataType.isZeroLength();
+	}
+
+	@Override
 	public int getLength() {
 		return dataType.getLength();
+	}
+
+	@Override
+	public int getAlignedLength() {
+		return dataType.getAlignedLength();
 	}
 
 	@Override
@@ -161,24 +244,78 @@ public class TypedefDataType extends GenericDataType implements TypeDef {
 		return dataType.getValueClass(settings);
 	}
 
-	@Override
-	public DataType clone(DataTypeManager dtm) {
-		if (getDataTypeManager() == dtm) {
-			return this;
+	public static TypeDef clone(TypeDef typedef, DataTypeManager dtm) {
+		if (typedef.getDataTypeManager() == dtm) {
+			return typedef;
 		}
-		return new TypedefDataType(categoryPath, name, dataType, getUniversalID(),
-			getSourceArchive(), getLastChangeTime(), getLastChangeTimeInSourceArchive(), dtm);
+		TypedefDataType newTypedef =
+			new TypedefDataType(typedef.getCategoryPath(), typedef.getName(), typedef.getDataType(),
+				typedef.getUniversalID(), typedef.getSourceArchive(), typedef.getLastChangeTime(),
+				typedef.getLastChangeTimeInSourceArchive(), dtm);
+		copyTypeDefSettings(typedef, newTypedef, false);
+		newTypedef.isAutoNamed = typedef.isAutoNamed();
+		return newTypedef;
+	}
+
+	public static TypedefDataType copy(TypeDef typedef, DataTypeManager dtm) {
+		TypedefDataType newTypedef = new TypedefDataType(typedef.getCategoryPath(),
+			typedef.getName(), typedef.getDataType(), dtm);
+		copyTypeDefSettings(typedef, newTypedef, false);
+		newTypedef.isAutoNamed = typedef.isAutoNamed();
+		return newTypedef;
 	}
 
 	@Override
-	public DataType copy(DataTypeManager dtm) {
-		return new TypedefDataType(categoryPath, name, dataType, dtm);
+	public TypedefDataType clone(DataTypeManager dtm) {
+		return (TypedefDataType) clone(this, dtm);
+	}
+
+	@Override
+	public TypedefDataType copy(DataTypeManager dtm) {
+		return copy(this, dtm);
+	}
+
+	@Override
+	public String getName() {
+		if (isAutoNamed()) {
+			return generateTypedefName(this);
+		}
+		return super.getName();
+	}
+
+	@Override
+	public void setName(String name) throws InvalidNameException {
+		super.setName(name);
+		isAutoNamed = false;
+	}
+
+	@Override
+	public void setCategoryPath(CategoryPath path) {
+		if (isAutoNamed()) {
+			return; // ignore category change if auto-naming enabled
+		}
+		super.setCategoryPath(path);
+	}
+
+	@Override
+	public CategoryPath getCategoryPath() {
+		if (isAutoNamed()) {
+			return getDataType().getCategoryPath();
+		}
+		return super.getCategoryPath();
 	}
 
 	@Override
 	public void dataTypeSizeChanged(DataType dt) {
 		if (dt == dataType) {
 			notifySizeChanged();
+		}
+	}
+
+	@Override
+	public void dataTypeAlignmentChanged(DataType dt) {
+		if (dt == dataType) {
+			notifyAlignmentChanged();
 		}
 	}
 
@@ -205,18 +342,74 @@ public class TypedefDataType extends GenericDataType implements TypeDef {
 
 	@Override
 	public SettingsDefinition[] getSettingsDefinitions() {
-		return dataType.getSettingsDefinitions();
+		if (settingsDef == null) {
+			DataType dt = getDataType();
+			SettingsDefinition[] settingsDefinitions = dt.getSettingsDefinitions();
+			TypeDefSettingsDefinition[] typeDefSettingsDefinitions =
+				dt.getTypeDefSettingsDefinitions();
+			settingsDef = new SettingsDefinition[settingsDefinitions.length +
+				typeDefSettingsDefinitions.length];
+			System.arraycopy(settingsDefinitions, 0, settingsDef, 0, settingsDefinitions.length);
+			System.arraycopy(typeDefSettingsDefinitions, 0, settingsDef, settingsDefinitions.length,
+				typeDefSettingsDefinitions.length);
+		}
+		return settingsDef;
+	}
+
+	@Override
+	public TypeDefSettingsDefinition[] getTypeDefSettingsDefinitions() {
+		return getDataType().getTypeDefSettingsDefinitions();
+	}
+
+	@Override
+	public Settings getDefaultSettings() {
+		// This class allows for lazy initialization of defaultSettings
+		// Only applies if DataTypeManager has been specified
+		if (defaultSettings == null) {
+			DataType dt = getDataType();
+			SettingsImpl settings;
+			if (dt.getTypeDefSettingsDefinitions().length == 0) {
+				// No viable settings - block changes to default settings
+				settings = new SettingsImpl(true);
+			}
+			else {
+				// Limit default settings changes to allowed definitions
+				// which support resolve and equivalence checks
+				settings = new SettingsImpl(n -> isAllowedSetting(n));
+			}
+			settings.setDefaultSettings(getDataType().getDefaultSettings());
+			defaultSettings = settings;
+		}
+		return defaultSettings;
+	}
+
+	private boolean isAllowedSetting(String settingName) {
+		// non-TypeDefSettingsDefinition settings are not permitted in Impl TypeDef
+		// since they will be discarded during resolve and ignored for equivalence checks
+		for (TypeDefSettingsDefinition def : getTypeDefSettingsDefinitions()) {
+			if (def.getStorageKey().equals(settingName)) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	@Override
 	public void dataTypeReplaced(DataType oldDt, DataType newDt) {
-		validate(newDt);
 		if (oldDt == dataType) {
+			DataTypeUtilities.checkValidReplacement(oldDt, newDt);
+			settingsDef = null;
+			if (dataMgr != null) {
+				defaultSettings = null;
+			}
 			dataType = newDt;
 			oldDt.removeParent(this);
 			newDt.addParent(this);
 			if (oldDt.getLength() != newDt.getLength()) {
 				notifySizeChanged();
+			}
+			else if (oldDt.getAlignment() != newDt.getAlignment()) {
+				notifyAlignmentChanged();
 			}
 		}
 	}
@@ -234,7 +427,65 @@ public class TypedefDataType extends GenericDataType implements TypeDef {
 
 	@Override
 	public String toString() {
+		if (isAutoNamed()) {
+			return getName();
+		}
 		return "typedef " + getName() + " " + dataType.getName();
+	}
+
+	/**
+	 * Copy all default settings , which correspond to a TypeDefSettingsDefinition,
+	 * from the specified src TypeDef to the specified dest TypeDef.
+	 * @param src settings source TypeDef
+	 * @param dest settings destination TypeDef
+	 * @param clearBeforeCopy if true dest default settings will be cleared before copy performed
+	 */
+	public static void copyTypeDefSettings(TypeDef src, TypeDef dest, boolean clearBeforeCopy) {
+		if (clearBeforeCopy) {
+			Settings settings = dest.getDefaultSettings();
+			settings.clearAllSettings();
+		}
+
+		Settings otherSettings = src.getDefaultSettings();
+		if (otherSettings.isEmpty()) {
+			return;
+		}
+
+		Settings settings = dest.getDefaultSettings();
+		for (TypeDefSettingsDefinition def : dest.getTypeDefSettingsDefinitions()) {
+			def.copySetting(otherSettings, settings);
+		}
+	}
+
+	/**
+	 * Generate a name for the typedef based upon its current {@link TypeDefSettingsDefinition} settings.
+	 * @param modelType model typedef from which name should be derived
+	 * @return generated typedef auto-name with attribute specification
+	 */
+	public static String generateTypedefName(TypeDef modelType) {
+
+		// Examples:
+		//   string *32 __((relative))
+		//   char *32 __((image-base-relative))
+		//   char *16 __((space(data)))
+
+		Settings settings = modelType.getDefaultSettings();
+		StringBuilder attributesBuf = new StringBuilder();
+		for (TypeDefSettingsDefinition def : modelType.getTypeDefSettingsDefinitions()) {
+			String attribute = def.getAttributeSpecification(settings);
+			if (attribute != null) {
+				if (attributesBuf.length() != 0) {
+					attributesBuf.append(',');
+				}
+				attributesBuf.append(attribute);
+			}
+		}
+		StringBuilder buf = new StringBuilder(modelType.getDataType().getName());
+		buf.append(' ');
+		buf.append(DataType.TYPEDEF_ATTRIBUTE_PREFIX);
+		buf.append(attributesBuf);
+		buf.append(DataType.TYPEDEF_ATTRIBUTE_SUFFIX);
+		return buf.toString();
 	}
 
 }

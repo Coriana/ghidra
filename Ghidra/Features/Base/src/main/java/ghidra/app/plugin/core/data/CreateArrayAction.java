@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,13 +19,13 @@ import java.awt.event.KeyEvent;
 
 import javax.swing.KeyStroke;
 
-import docking.ActionContext;
 import docking.action.*;
 import docking.widgets.OptionDialog;
 import docking.widgets.dialogs.NumberInputDialog;
 import ghidra.app.cmd.data.CreateArrayCmd;
 import ghidra.app.cmd.data.CreateArrayInStructureCmd;
 import ghidra.app.context.ListingActionContext;
+import ghidra.app.context.ListingContextAction;
 import ghidra.framework.cmd.Command;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.*;
@@ -34,7 +34,7 @@ import ghidra.program.model.listing.*;
 import ghidra.program.model.mem.MemoryBlock;
 import ghidra.program.util.*;
 
-class CreateArrayAction extends DockingAction {
+class CreateArrayAction extends ListingContextAction {
 
 	private static final KeyStroke DEFAULT_KEY_STROKE =
 		KeyStroke.getKeyStroke(KeyEvent.VK_OPEN_BRACKET, 0);
@@ -62,12 +62,10 @@ class CreateArrayAction extends DockingAction {
 	}
 
 	@Override
-	public void actionPerformed(ActionContext context) {
-		ListingActionContext programActionContext =
-			(ListingActionContext) context.getContextObject();
-		Program program = programActionContext.getProgram();
-		ProgramLocation loc = programActionContext.getLocation();
-		ProgramSelection sel = programActionContext.getSelection();
+	protected void actionPerformed(ListingActionContext context) {
+		Program program = context.getProgram();
+		ProgramLocation loc = context.getLocation();
+		ProgramSelection sel = context.getSelection();
 
 		if (sel != null && !sel.isEmpty()) {
 			InteriorSelection interiorSel = sel.getInteriorSelection();
@@ -114,7 +112,7 @@ class CreateArrayAction extends DockingAction {
 		int maxNoConflictElements = getMaxNoConflictElements(struct, comp.getComponentIndex(), dt);
 		int numElements = getNumElements(dt, maxNoConflictElements, maxElements);
 
-		Command cmd = new CreateArrayInStructureCmd(addr, numElements, dt, compPath);
+		Command<Program> cmd = new CreateArrayInStructureCmd(addr, numElements, dt, compPath);
 		if (!tool.execute(cmd, program)) {
 			tool.setStatusInfo(cmd.getStatusMsg());
 		}
@@ -143,9 +141,10 @@ class CreateArrayAction extends DockingAction {
 		}
 
 		int length = sel.getByteLength();
-		int numElements = length / dt.getLength();
+		// Arrays currently use aligned-length only
+		int numElements = length / dt.getAlignedLength();
 
-		Command cmd = new CreateArrayInStructureCmd(from.getAddress(), numElements, dt,
+		Command<Program> cmd = new CreateArrayInStructureCmd(from.getAddress(), numElements, dt,
 			from.getComponentPath());
 		if (!tool.execute(cmd, program)) {
 			tool.setStatusInfo(cmd.getStatusMsg());
@@ -163,7 +162,8 @@ class CreateArrayAction extends DockingAction {
 			}
 			length += dtc.getLength();
 		}
-		return length / dt.getLength();
+		// Arrays currently use aligned-length only
+		return length / dt.getAlignedLength();
 	}
 
 	private int getMaxElements(Structure struct, int index, DataType dt) {
@@ -173,7 +173,8 @@ class CreateArrayAction extends DockingAction {
 			DataTypeComponent dtc = struct.getComponent(index++);
 			length += dtc.getLength();
 		}
-		return length / dt.getLength();
+		// Arrays currently use aligned-length only
+		return length / dt.getAlignedLength();
 	}
 
 	private void createArrayAtAddress(Program program, Address addr) {
@@ -212,10 +213,13 @@ class CreateArrayAction extends DockingAction {
 			return;
 		}
 		DataType dt = data.getDataType();
-		int dtLength = data.getLength();
+		int elementLength = data.getLength();
+		if (!(dt instanceof Dynamic)) {
+			elementLength = dt.getAlignedLength();
+		}
 		int length = (int) range.getLength();
-		int numElements = length / dtLength;
-		CreateArrayCmd cmd = new CreateArrayCmd(addr, numElements, dt, dtLength);
+		int numElements = length / elementLength;
+		CreateArrayCmd cmd = new CreateArrayCmd(addr, numElements, dt, elementLength);
 		if (!tool.execute(cmd, program)) {
 			tool.setStatusInfo(cmd.getStatusMsg());
 		}
@@ -322,12 +326,8 @@ class CreateArrayAction extends DockingAction {
 	}
 
 	@Override
-	public boolean isEnabledForContext(ActionContext context) {
-		Object contextObject = context.getContextObject();
-		if (contextObject instanceof ListingActionContext) {
-			return plugin.isCreateDataAllowed(((ListingActionContext) contextObject));
-		}
-		return false;
+	protected boolean isEnabledForContext(ListingActionContext context) {
+		return plugin.isCreateDataAllowed(context);
 	}
 
 }

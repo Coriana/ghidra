@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -28,6 +28,7 @@ import docking.widgets.OptionDialog;
 import docking.widgets.label.GIconLabel;
 import docking.widgets.label.GLabel;
 import ghidra.util.HTMLUtilities;
+import ghidra.util.Swing;
 
 public class MultiLineMessageDialog extends DialogComponentProvider {
 	/** Used for error messages. */
@@ -51,7 +52,7 @@ public class MultiLineMessageDialog extends DialogComponentProvider {
 	 * 6 characters of the string are <code>&lt;html&gt;</code>).
 	 * <p>
 	 * This method will not return until the user presses the OK button.
-	 * <p>
+	 * 
 	 * @param parent - parent component or null
 	 * @param title - dialog title
 	 * @param shortMessage - short message that appears above the main message.
@@ -61,16 +62,20 @@ public class MultiLineMessageDialog extends DialogComponentProvider {
 	 */
 	public static void showModalMessageDialog(Component parent, String title, String shortMessage,
 			String detailedMessage, int messageType) {
-		MultiLineMessageDialog mlmd =
-			new MultiLineMessageDialog(title, shortMessage, detailedMessage, messageType, true);
-		DockingWindowManager.showDialog(parent, mlmd);
+		Swing.runNow(() -> {
+			MultiLineMessageDialog dialog =
+				new MultiLineMessageDialog(title, shortMessage, detailedMessage, messageType, true);
+			DockingWindowManager.showDialog(parent, dialog);
+		});
 	}
 
 	public static void showMessageDialog(Component parent, String title, String shortMessage,
 			String detailedMessage, int messageType) {
-		MultiLineMessageDialog mlmd =
-			new MultiLineMessageDialog(title, shortMessage, detailedMessage, messageType, false);
-		DockingWindowManager.showDialog(parent, mlmd);
+		Swing.runNow(() -> {
+			MultiLineMessageDialog dialog = new MultiLineMessageDialog(title, shortMessage,
+				detailedMessage, messageType, false);
+			DockingWindowManager.showDialog(parent, dialog);
+		});
 	}
 
 	/**
@@ -87,10 +92,11 @@ public class MultiLineMessageDialog extends DialogComponentProvider {
 
 		JPanel workPanel = new JPanel(new BorderLayout());
 		workPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-
+		workPanel.getAccessibleContext().setAccessibleName("Multi Line Message");
 		if (!StringUtils.isBlank(shortMessage)) {
 			JLabel shortMessageLabel = new GLabel(shortMessage);
 			shortMessageLabel.setBorder(BorderFactory.createEmptyBorder(10, 5, 10, 10));
+			shortMessageLabel.getAccessibleContext().setAccessibleName("Short Message");
 			workPanel.add(shortMessageLabel, BorderLayout.NORTH);
 		}
 
@@ -105,6 +111,7 @@ public class MultiLineMessageDialog extends DialogComponentProvider {
 			// to get us back to the same font the rest of the GUI is using.
 
 			JTextPane textPane = new JTextPane();
+			textPane.getAccessibleContext().setAccessibleName("Detailed Message");
 			String fontfamily = textPane.getFont().getFamily();
 			detailedMessage = "<html><body style=\"font-family: " + fontfamily + "\">" +
 				detailedMessage.substring(6);
@@ -119,6 +126,7 @@ public class MultiLineMessageDialog extends DialogComponentProvider {
 
 			DockingUtils.setTransparent(textPane);
 			JScrollPane scrollPane = new JScrollPane(textPane);
+			scrollPane.getAccessibleContext().setAccessibleName("Detailed Mesage");
 			DockingUtils.setTransparent(scrollPane);
 			scrollPane.setBorder(BorderFactory.createEmptyBorder());
 			workPanel.add(scrollPane, BorderLayout.CENTER);
@@ -130,9 +138,10 @@ public class MultiLineMessageDialog extends DialogComponentProvider {
 		else {
 			JTextArea textArea = new JTextArea(detailedMessage);
 			textArea.setEditable(false);
-
+			textArea.getAccessibleContext().setAccessibleName("Detailed Message");
 			DockingUtils.setTransparent(textArea);
 			JScrollPane scrollPane = new JScrollPane(textArea);
+			scrollPane.getAccessibleContext().setAccessibleName("Detailed Message");
 			DockingUtils.setTransparent(scrollPane);
 			workPanel.add(scrollPane, BorderLayout.CENTER);
 
@@ -148,6 +157,7 @@ public class MultiLineMessageDialog extends DialogComponentProvider {
 			workPanel.add(iconLabel, BorderLayout.WEST);
 		}
 
+		setTransient(true);
 		addWorkPanel(workPanel);
 		addOKButton();
 

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -110,10 +110,11 @@ public class SymbolTreeNavigationTest extends AbstractProgramBasedTest {
 
 		Address addr = addr("0x01004896");
 		String nameLowInOrgNodes = labelsPrefix + "3700";
-		createGlobalLabel(addr, nameLowInOrgNodes);
+		Symbol firstSymbol = createGlobalLabel(addr, nameLowInOrgNodes);
 
 		util.collapseTree();
 		goTo(addr);
+		assertSelectedNode(firstSymbol);
 
 		// create a name next to the one above so it gets 'insert'ed into the same parent node
 		nameLowInOrgNodes = labelsPrefix + "37000";
@@ -449,21 +450,16 @@ public class SymbolTreeNavigationTest extends AbstractProgramBasedTest {
 	}
 
 	private void rename(Symbol symbol, String newName) {
-
-		String oldName = symbol.getName();
-		RenameLabelCmd cmd =
-			new RenameLabelCmd(symbol.getAddress(), oldName, newName, SourceType.USER_DEFINED);
+		RenameLabelCmd cmd = new RenameLabelCmd(symbol, newName, SourceType.USER_DEFINED);
 		applyCmd(cmd);
 		util.waitForTree();
 	}
 
 	private Symbol createGlobalLabel(Address addr) {
-
 		return createGlobalLabel(addr, "GlobalLabel");
 	}
 
 	private Symbol createGlobalLabel(Address addr, String labelName) {
-
 		AddLabelCmd cmd = new AddLabelCmd(addr, labelName, SourceType.USER_DEFINED);
 		applyCmd(cmd);
 		Symbol symbol = cmd.getSymbol();
@@ -562,7 +558,7 @@ public class SymbolTreeNavigationTest extends AbstractProgramBasedTest {
 		assertNull("Found a selected node when there should be no selection", node);
 	}
 
-	public void applyCmd(Command cmd) throws RollbackException {
+	public void applyCmd(Command<Program> cmd) throws RollbackException {
 		boolean success = applyCmd(program, cmd);
 		assertTrue("Command failed - " + cmd.getName() + "; status = " + cmd.getStatusMsg(),
 			success);

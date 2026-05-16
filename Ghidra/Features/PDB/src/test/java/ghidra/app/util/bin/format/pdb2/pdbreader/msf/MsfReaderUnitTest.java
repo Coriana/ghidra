@@ -15,17 +15,22 @@
  */
 package ghidra.app.util.bin.format.pdb2.pdbreader.msf;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.*;
 
 import java.io.*;
+import java.nio.file.AccessMode;
 import java.util.*;
 
 import org.junit.*;
 
 import generic.test.AbstractGenericTest;
+import ghidra.app.util.bin.ByteProvider;
+import ghidra.app.util.bin.FileByteProvider;
 import ghidra.app.util.bin.format.pdb2.pdbreader.PdbByteWriter;
 import ghidra.app.util.bin.format.pdb2.pdbreader.PdbReaderOptions;
+import ghidra.formats.gfilesystem.FileSystemService;
 import ghidra.util.Msg;
+import ghidra.util.exception.AssertException;
 import ghidra.util.task.TaskMonitor;
 
 public class MsfReaderUnitTest extends AbstractGenericTest {
@@ -55,7 +60,7 @@ public class MsfReaderUnitTest extends AbstractGenericTest {
 
 	//==============================================================================================
 	/**
-	 * @throws IOException Upon file IO issues.
+	 * @throws IOException Upon file IO issues
 	 */
 	@BeforeClass
 	public static void setUp() throws IOException {
@@ -88,13 +93,13 @@ public class MsfReaderUnitTest extends AbstractGenericTest {
 	//==============================================================================================
 	/**
 	 * Dumps a number bytes of information from a Stream in the AbstractStreamFile to String.
-	 *  for debug purposes.
-	 * @param streamFile The AbstractStreamFile to be used.
-	 * @param streamNumber The streamNumber of the file to dump.
-	 * @param maxOut Maximum number of bytes to dump.
-	 * @return String containing the output.
+	 *  for debug purposes
+	 * @param streamFile the AbstractStreamFile to be used
+	 * @param streamNumber the streamNumber of the file to dump
+	 * @param maxOut maximum number of bytes to dump
+	 * @return string containing the output
 	 */
-	public static String dumpStream(AbstractMsf streamFile, int streamNumber, int maxOut) {
+	public static String dumpStream(Msf streamFile, int streamNumber, int maxOut) {
 		MsfStream stream = streamFile.getStream(streamNumber);
 		StringBuilder builder = new StringBuilder();
 		builder.append("Stream: " + streamNumber + "\n");
@@ -107,8 +112,11 @@ public class MsfReaderUnitTest extends AbstractGenericTest {
 	//==============================================================================================
 	@Test
 	public void testStreamFile200Header() {
-		try (AbstractMsf streamFile =
-			MsfParser.parse(testFileName200, new PdbReaderOptions(), TaskMonitor.DUMMY)) {
+		File file = new File(testFileName200);
+		try (ByteProvider byteProvider = new FileByteProvider(file,
+			FileSystemService.getInstance().getLocalFSRL(file), AccessMode.READ);
+				Msf streamFile =
+					MsfParser.parse(byteProvider, new PdbReaderOptions(), TaskMonitor.DUMMY)) {
 			int numStreams = streamFile.getNumStreams();
 			StringBuilder builder = new StringBuilder();
 			builder.append("NumStreams: " + numStreams + "\n");
@@ -125,8 +133,11 @@ public class MsfReaderUnitTest extends AbstractGenericTest {
 
 	@Test
 	public void testStreamFile700Header() {
-		try (AbstractMsf streamFile =
-			MsfParser.parse(testFileName700, new PdbReaderOptions(), TaskMonitor.DUMMY)) {
+		File file = new File(testFileName700);
+		try (ByteProvider byteProvider = new FileByteProvider(file,
+			FileSystemService.getInstance().getLocalFSRL(file), AccessMode.READ);
+				Msf streamFile =
+					MsfParser.parse(byteProvider, new PdbReaderOptions(), TaskMonitor.DUMMY)) {
 			int numStreams = streamFile.getNumStreams();
 			StringBuilder builder = new StringBuilder();
 			builder.append("NumStreams: " + numStreams + "\n");
@@ -271,7 +282,9 @@ public class MsfReaderUnitTest extends AbstractGenericTest {
 		}
 
 		void reservePage(int pageNumber) {
-			assert freePage[pageNumber];
+			if (!freePage[pageNumber]) {
+				fail("Page already free... terminating");
+			}
 			freePage[pageNumber] = false;
 		}
 
@@ -303,8 +316,9 @@ public class MsfReaderUnitTest extends AbstractGenericTest {
 					return i;
 				}
 			}
-			assert false;
-			return -1;
+			String msg = "Unexpected algorithm flow";
+			Msg.error(null, msg);
+			throw new AssertException(msg);
 		}
 
 		private byte[] serializedFreePageMap200() {
@@ -521,7 +535,11 @@ public class MsfReaderUnitTest extends AbstractGenericTest {
 			else {
 				ds = new DirectoryStream(this);
 			}
-			assert ds.streamNum == 0;
+			if (ds.streamNum != 0) {
+				String msg = "Stream 0 expected... terminating";
+				Msg.error(null, msg);
+				throw new AssertException(msg);
+			}
 			header.init();
 			fpm.init();
 			st.init();
@@ -549,8 +567,16 @@ public class MsfReaderUnitTest extends AbstractGenericTest {
 		}
 
 		void fillPages(byte[] inputBuffer, List<Integer> pageList) {
-			assert outputBuffer != null;
-			assert pageList.size() > 0;
+			if (outputBuffer == null) {
+				String msg = "Output buffer is null... terminating";
+				Msg.error(null, msg);
+				throw new AssertException(msg);
+			}
+			if (pageList.size() <= 0) {
+				String msg = "Invalid page list size... terminating";
+				Msg.error(null, msg);
+				throw new AssertException(msg);
+			}
 			int outputIndex;
 			int inputIndex = 0;
 			for (int i = 0; i < pageList.size() - 1; i++) {

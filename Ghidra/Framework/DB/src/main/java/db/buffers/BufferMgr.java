@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,14 +21,12 @@ import java.util.*;
 import db.DBChangeSet;
 import db.DBHandle;
 import db.buffers.LocalBufferFile.BufferFileFilter;
-import ghidra.framework.ShutdownHookRegistry;
-import ghidra.framework.ShutdownPriority;
+import ghidra.framework.*;
 import ghidra.util.Msg;
 import ghidra.util.SystemUtilities;
 import ghidra.util.datastruct.ObjectArray;
 import ghidra.util.exception.*;
 import ghidra.util.task.TaskMonitor;
-import ghidra.util.task.TaskMonitorAdapter;
 
 /**
  * <code>BufferMgr</code> provides low-level buffer management and caching.
@@ -70,6 +68,7 @@ public class BufferMgr {
 	private Object snapshotLock = new Object(); // Used to prevent BufferNode modifications during snapshot
 	private boolean modifiedSinceSnapshot = false;
 	private boolean hasNonUndoableChanges = false;
+	private long modCount;
 
 	private int bufferSize;
 
@@ -80,8 +79,8 @@ public class BufferMgr {
 	 */
 	private BufferNode cacheHead;
 	private BufferNode cacheTail;
-	private int cacheSize = 0;
-	private int buffersOnHand = 0;
+	private int cacheSize;
+	private int buffersOnHand;
 	private int lockCount = 0;
 
 	/**
@@ -137,7 +136,7 @@ public class BufferMgr {
 	private static final int INITIAL_BUFFER_TABLE_SIZE = 1024;
 
 	/**
-	 * An optional pre-cache of all buffers can be performed within a separate 
+	 * An optional pre-cache of all buffers can be performed within a separate
 	 * thread if enabled.
 	 */
 	private enum PreCacheStatus {
@@ -176,7 +175,7 @@ public class BufferMgr {
 	 * @param sourceFile buffer file
 	 * @throws IOException if source or cache file access error occurs
 	 */
-	public BufferMgr(BufferFile sourceFile) throws FileNotFoundException, IOException {
+	public BufferMgr(BufferFile sourceFile) throws IOException {
 		this(sourceFile, DEFAULT_BUFFER_SIZE, DEFAULT_CACHE_SIZE, DEFAULT_CHECKPOINT_COUNT);
 	}
 
@@ -188,8 +187,7 @@ public class BufferMgr {
 	 * @param maxUndos maximum number of checkpoints retained for undo (Minimum=1).
 	 * @throws IOException if source or cache file access error occurs
 	 */
-	public BufferMgr(BufferFile sourceFile, long approxCacheSize, int maxUndos)
-			throws FileNotFoundException, IOException {
+	public BufferMgr(BufferFile sourceFile, long approxCacheSize, int maxUndos) throws IOException {
 		this(sourceFile, 0, approxCacheSize, maxUndos);
 	}
 
@@ -202,9 +200,9 @@ public class BufferMgr {
 	 * @param maxUndos maximum number of checkpoints retained for undo (Minimum=1).
 	 * @throws IOException if source or cache file access error occurs
 	 */
-	private BufferMgr(BufferFile sourceFile, int requestedbufferSize, long approxCacheSize,
+	private BufferMgr(BufferFile sourceFile, int requestedBufferSize, long approxCacheSize,
 			int maxUndos) throws FileNotFoundException, IOException {
-		bufferSize = requestedbufferSize;
+		bufferSize = requestedBufferSize;
 		if (sourceFile != null) {
 			this.sourceFile = sourceFile;
 			int cnt = sourceFile.getIndexCount();
@@ -226,32 +224,49 @@ public class BufferMgr {
 			approxCacheSize < MINIMUM_CACHE_SIZE ? MINIMUM_CACHE_SIZE : approxCacheSize;
 		maxCacheSize = (int) (approxCacheSize / bufferSize);
 
+		// Setup baseline - checkpoint 0
+		startCheckpoint();
+		baselineCheckpointHead = currentCheckpointHead;
+		currentCheckpointHead = null;
+
+		initializeCache();
+
+		addInstance(this);
+	}
+
+	private void initializeCache() throws IOException {
+
+		if (lockCount != 0) {
+			throw new IOException("Unable to re-initialize buffer cache while in-use");
+		}
+
+		if (cacheFile != null) {
+			cacheFile.delete();
+		}
+
 		// Setup memory cache list
 		cacheHead = new BufferNode(HEAD, -1);
 		cacheTail = new BufferNode(TAIL, -1);
 		cacheHead.nextCached = cacheTail;
 		cacheTail.prevCached = cacheHead;
 
+		cacheSize = 0;
+		buffersOnHand = 0;
+
 		// Create disk cache file
 		cacheFile = new LocalBufferFile(bufferSize, CACHE_FILE_PREFIX, CACHE_FILE_EXT);
 
 		cacheIndexProvider = new IndexProvider();
 
-		// Setup baseline - checkpoint 0
-		startCheckpoint();
-		baselineCheckpointHead = currentCheckpointHead;
-		currentCheckpointHead = null;
-
 		// Copy file parameters into cache file
 		if (sourceFile != null) {
 			String[] parmNames = sourceFile.getParameterNames();
-			for (int i = 0; i < parmNames.length; i++) {
-				String name = parmNames[i];
+			for (String name : parmNames) {
 				cacheFile.setParameter(name, sourceFile.getParameter(name));
 			}
 		}
 
-		addInstance(this);
+		resetCacheStatistics();
 
 		if (alwaysPreCache) {
 			startPreCacheIfNeeded();
@@ -260,7 +275,7 @@ public class BufferMgr {
 
 	/**
 	 * Enable and start source buffer file pre-cache if appropriate.
-	 * This may be forced for all use cases by setting the System property 
+	 * This may be forced for all use cases by setting the System property
 	 * db.always.precache=true
 	 * WARNING! EXPERIMENTAL !!!
 	 */
@@ -284,14 +299,13 @@ public class BufferMgr {
 			openInstances = new HashSet<>();
 
 			Runnable cleanupTask = () -> {
-				Object[] instanceList;
+				BufferMgr[] instanceList;
 				synchronized (BufferMgr.class) {
-					instanceList = openInstances.toArray();
+					instanceList = openInstances.toArray(new BufferMgr[openInstances.size()]);
 				}
-				for (int i = 0; i < instanceList.length; i++) {
-					BufferMgr bufferMgr = (BufferMgr) instanceList[i];
+				for (BufferMgr bufferMgr : instanceList) {
 					try {
-						bufferMgr.dispose();
+						bufferMgr.dispose(true);
 					}
 					catch (Throwable t) {
 						// Ignore errors
@@ -362,6 +376,9 @@ public class BufferMgr {
 
 	/**
 	 * Get file parameter
+	 * @param name parameter name/key
+	 * @return parameter value
+	 * @throws NoSuchElementException if parameter not found
 	 */
 	int getParameter(String name) throws NoSuchElementException {
 		return cacheFile.getParameter(name);
@@ -369,8 +386,8 @@ public class BufferMgr {
 
 	/**
 	 * Set file parameter
-	 * @param name
-	 * @param value
+	 * @param name parameter name/key
+	 * @param value parameter value
 	 */
 	void setParameter(String name, int value) {
 		cacheFile.setParameter(name, value);
@@ -391,7 +408,8 @@ public class BufferMgr {
 	 * buffer file.
 	 * This method should be called when this buffer manager instance
 	 * is no longer needed.
-	 * @param keepRecoveryData
+	 * @param keepRecoveryData true if existing snapshot recovery files
+	 * should not be deleted.
 	 */
 	public void dispose(boolean keepRecoveryData) {
 
@@ -418,9 +436,7 @@ public class BufferMgr {
 
 				// Dispose all buffer nodes - speeds up garbage collection
 				if (checkpointHeads != null) {
-					Iterator<BufferNode> iter = checkpointHeads.iterator();
-					while (iter.hasNext()) {
-						BufferNode node = iter.next();
+					for (BufferNode node : checkpointHeads) {
 						while (node != null) {
 							BufferNode next = node.nextInCheckpoint;
 							node.buffer = null;
@@ -436,9 +452,7 @@ public class BufferMgr {
 					checkpointHeads = null;
 				}
 				if (redoCheckpointHeads != null) {
-					Iterator<BufferNode> iter = redoCheckpointHeads.iterator();
-					while (iter.hasNext()) {
-						BufferNode node = iter.next();
+					for (BufferNode node : redoCheckpointHeads) {
 						while (node != null) {
 							BufferNode next = node.nextInCheckpoint;
 							node.buffer = null;
@@ -626,7 +640,6 @@ public class BufferMgr {
 	/**
 	 * Remove a buffer node from memory cache.
 	 * @param node buffer node
-	 * @return buffer object, or null if buffer node was not cached
 	 */
 	private void removeFromCache(BufferNode node) {
 		if (node.buffer != null) {
@@ -690,7 +703,7 @@ public class BufferMgr {
 
 	/**
 	 * Start pre-cache of source file if appropriate.
-	 * This targets remote buffer file adapters only. 
+	 * This targets remote buffer file adapters only.
 	 */
 	private void startPreCacheIfNeeded() {
 		if (preCacheThread != null) {
@@ -704,24 +717,7 @@ public class BufferMgr {
 			return; // only pre-cache remote buffer files
 		}
 		synchronized (preCacheLock) {
-			preCacheThread = new Thread(() -> {
-				try {
-					preCacheSourceFile();
-				}
-				catch (InterruptedIOException e) {
-					// ignore
-				}
-				catch (IOException e) {
-					Msg.error(BufferMgr.this, "pre-cache failure: " + e.getMessage(), e);
-				}
-				finally {
-					synchronized (preCacheLock) {
-						preCacheStatus = PreCacheStatus.STOPPED;
-						preCacheThread = null;
-						preCacheLock.notifyAll();
-					}
-				}
-			});
+			preCacheThread = new Thread(() -> preCacheSourceFile());
 			preCacheThread.setName("Pre-Cache");
 			preCacheThread.setPriority(Thread.MIN_PRIORITY);
 			preCacheThread.start();
@@ -730,26 +726,41 @@ public class BufferMgr {
 	}
 
 	/**
-	 * Pre-cache source file into cache file.  This is intended to be run in a 
+	 * Pre-cache source file into cache file.  This is intended to be run in a
 	 * dedicated thread when the source file is remote.
 	 */
-	private void preCacheSourceFile() throws IOException {
-		if (!(sourceFile instanceof BufferFileAdapter)) {
-			throw new UnsupportedOperationException("unsupported use of preCacheSourceFile");
-		}
-		Msg.trace(BufferMgr.this, "Pre-cache started...");
-		int cacheCount = 0;
-		BufferFileAdapter sourceAdapter = (BufferFileAdapter) sourceFile;
-		try (InputBlockStream inputBlockStream = sourceAdapter.getInputBlockStream()) {
-			BufferFileBlock block;
-			while (!Thread.interrupted() && (block = inputBlockStream.readBlock()) != null) {
-				DataBuffer buf = LocalBufferFile.getDataBuffer(block);
-				if (buf != null && !buf.isEmpty() && preCacheBuffer(buf)) { // skip head block and empty blocks
-					++cacheCount;
-				}
+	private void preCacheSourceFile() {
+		try {
+			if (!(sourceFile instanceof BufferFileAdapter)) {
+				throw new UnsupportedOperationException("unsupported use of preCacheSourceFile");
 			}
-			Msg.trace(BufferMgr.this, "Pre-cache added " + cacheCount + " of " +
-				sourceFile.getIndexCount() + " buffers to cache");
+			Msg.trace(BufferMgr.this, "Pre-cache started...");
+			int cacheCount = 0;
+			BufferFileAdapter sourceAdapter = (BufferFileAdapter) sourceFile;
+			try (InputBlockStream inputBlockStream = sourceAdapter.getInputBlockStream()) {
+				BufferFileBlock block;
+				while (!Thread.interrupted() && (block = inputBlockStream.readBlock()) != null) {
+					DataBuffer buf = LocalBufferFile.getDataBuffer(block);
+					if (buf != null && !buf.isEmpty() && preCacheBuffer(buf)) { // skip head block and empty blocks
+						++cacheCount;
+					}
+				}
+				Msg.trace(BufferMgr.this, "Pre-cache added " + cacheCount + " of " +
+					sourceFile.getIndexCount() + " buffers to cache");
+			}
+		}
+		catch (InterruptedIOException e) {
+			// ignore
+		}
+		catch (IOException e) {
+			Msg.error(BufferMgr.this, "pre-cache failure: " + e.getMessage(), e);
+		}
+		finally {
+			synchronized (preCacheLock) {
+				preCacheStatus = PreCacheStatus.STOPPED;
+				preCacheThread = null;
+				preCacheLock.notifyAll();
+			}
 		}
 	}
 
@@ -816,7 +827,7 @@ public class BufferMgr {
 			return node;
 		}
 		else if (node.locked) {
-			throw new IOException("Locked buffer");
+			throw new IOException("Locked buffer: " + id);
 		}
 
 		// if requested, load from disk cache file and add node to memory cache list
@@ -1010,9 +1021,11 @@ public class BufferMgr {
 	}
 
 	/**
-	 * Return buffer.
+	 * Release buffer back to buffer manager.
 	 * After invoking this method, the buffer object should not
 	 * be used and all references should be dropped.
+	 * @param buf data buffer
+	 * @throws IOException if IO error occurs
 	 */
 	public void releaseBuffer(DataBuffer buf) throws IOException {
 
@@ -1031,12 +1044,18 @@ public class BufferMgr {
 
 	/**
 	 * Handle exception which indicates a potential corruption of the BufferMgr state
-	 * @param exception
-	 * @param errorText
-	 * @throws IOException
+	 * @param exception exception
+	 * @param errorText associated error text
+	 * @throws IOException exception thrown if instance of IOException
 	 */
 	private void handleCorruptionException(Exception exception, String errorText)
 			throws IOException {
+
+		if (exception instanceof ClosedException) {
+			// not a corruption exception, but rather it can happen when closing the database
+			throw (IOException) exception;
+		}
+
 		Msg.error(this, errorText, exception);
 		corruptedState = true;
 		if (exception instanceof IOException) {
@@ -1075,6 +1094,7 @@ public class BufferMgr {
 					throw new AssertException();
 				}
 
+				++modCount;
 				modifiedSinceSnapshot = true;
 
 				// Establish current checkpoint if necessary
@@ -1182,7 +1202,15 @@ public class BufferMgr {
 	}
 
 	/**
-	 * Returns true if unsaved "buffer" changes exist.
+	 * Provides a means of detecting changes to the underlying database during a transaction.
+	 * @return current modification count
+	 */
+	public synchronized long getModCount() {
+		return modCount;
+	}
+
+	/**
+	 * @return true if unsaved "buffer" changes exist.
 	 * If no changes have been made, or all changes have been
 	 * "undone", false will be returned.  Parameter changes
 	 * are no considered.
@@ -1194,9 +1222,6 @@ public class BufferMgr {
 	/**
 	 * Create a new checkpoint node list.
 	 * The redo stack will be cleared.
-	 * @param force if true the checkpoint will be performed regardless of
-	 * the lock count.
-	 * @return true if checkpoint successful, or false if buffers are read-only
 	 */
 	private void startCheckpoint() {
 
@@ -1235,21 +1260,25 @@ public class BufferMgr {
 	}
 
 	/**
-	 * Returns number of undo-able transactions
+	 * @return number of undo-able transactions
 	 */
 	public int getAvailableUndoCount() {
 		return checkpointHeads.size() - 1;
 	}
 
 	/**
-	 * Returns the number of redo-able transactions
+	 * @return the number of redo-able transactions
 	 */
 	public int getAvailableRedoCount() {
 		return redoCheckpointHeads.size();
 	}
 
 	/**
-	 * Backup to previous checkpoint.
+	 * Backup to previous checkpoint.  Method should not be invoked
+	 * when one or more buffers are locked.
+	 * @param redoable true if currrent checkpoint should be moved to redo stack
+	 * @return true if successful else false
+	 * @throws IOException if IO error occurs
 	 */
 	public boolean undo(boolean redoable) throws IOException {
 		synchronized (snapshotLock) {
@@ -1337,7 +1366,9 @@ public class BufferMgr {
 	}
 
 	/**
-	 * Redo next checkpoint.
+	 * Redo next checkpoint. Method should not be invoked
+	 * when one or more buffers are locked.
+	 * @return true if successful else false
 	 */
 	public boolean redo() {
 		synchronized (snapshotLock) {
@@ -1414,7 +1445,8 @@ public class BufferMgr {
 	}
 
 	/**
-	 * Returns true if save operation can be performed.
+	 * @return true if save operation can be performed.
+	 * @throws IOException if IO error occurs
 	 */
 	public boolean canSave() throws IOException {
 		if (corruptedState) {
@@ -1427,7 +1459,7 @@ public class BufferMgr {
 	}
 
 	/**
-	 * Returns true if buffers have been modified since opening or since
+	 * @return true if buffers have been modified since opening or since
 	 * last snapshot.
 	 */
 	public synchronized boolean modifiedSinceSnapshot() {
@@ -1440,6 +1472,8 @@ public class BufferMgr {
 	 * made since the last version.
 	 * @param monitor task monitor
 	 * @return true if snapshot successful, false if
+	 * @throws IOException if IO error occurs
+	 * @throws CancelledException if task monitor is cancelled
 	 */
 	public boolean takeRecoverySnapshot(DBChangeSet changeSet, TaskMonitor monitor)
 			throws IOException, CancelledException {
@@ -1486,7 +1520,7 @@ public class BufferMgr {
 
 				for (int id = 0; id < indexCnt; id++) {
 
-					monitor.checkCanceled();
+					monitor.checkCancelled();
 					monitor.setProgress(id);
 
 					// Check for cached buffer
@@ -1548,13 +1582,16 @@ public class BufferMgr {
 	 * Returns the recovery changeSet data file for reading or null if one is not available.
 	 * The caller must dispose of the returned file before peforming generating any new
 	 * recovery snapshots.
-	 * @throws IOException
+	 * @return recovery change set buffer file
+	 * @throws IOException if IO error occurs
 	 */
 	public LocalBufferFile getRecoveryChangeSetFile() throws IOException {
-		if (recoveryMgr != null) {
-			return recoveryMgr.getRecoveryChangeSetFile();
+		synchronized (snapshotLock) {
+			if (recoveryMgr != null) {
+				return recoveryMgr.getRecoveryChangeSetFile();
+			}
+			return null;
 		}
-		return null;
 	}
 
 	/**
@@ -1580,6 +1617,9 @@ public class BufferMgr {
 	 * If recovery is cancelled, this buffer manager must be disposed.
 	 * since the underlying state will be corrupt.
 	 * @param monitor task monitor
+	 * @return true if recovery successful else false
+	 * @throws IOException if IO error occurs
+	 * @throws CancelledException if task monitor is cancelled
 	 */
 	public boolean recover(TaskMonitor monitor) throws IOException, CancelledException {
 		synchronized (snapshotLock) {
@@ -1600,9 +1640,12 @@ public class BufferMgr {
 
 	/**
 	 * Recover data from recovery file
-	 * @param recoveryFile
-	 * @param monitor
-	 * @throws CancelledException
+	 * @param recoveryFile recovery file
+	 * @param recoveryIndex recovery index (0 or 1) which corresponds to
+	 * recoveryFile.
+	 * @param monitor task monitor
+	 * @throws IOException if IO error occurs
+	 * @throws CancelledException if task monitor is cancelled
 	 */
 	synchronized void recover(RecoveryFile recoveryFile, int recoveryIndex, TaskMonitor monitor)
 			throws IOException, CancelledException {
@@ -1631,18 +1674,17 @@ public class BufferMgr {
 
 			// Recover free buffer list
 			int[] freeIndexes = recoveryFile.getFreeIndexList();
-			for (int i = 0; i < freeIndexes.length; i++) {
-				monitor.checkCanceled();
-				if (freeIndexes[i] >= origIndexCount) {
+			for (int index : freeIndexes) {
+				monitor.checkCancelled();
+				if (index >= origIndexCount) {
 					// Newly allocated free buffer
-					BufferNode node =
-						createNewBufferNode(freeIndexes[i], currentCheckpointHead, null);
+					BufferNode node = createNewBufferNode(index, currentCheckpointHead, null);
 					node.isDirty = true;
 					node.modified = true;
 					node.empty = true;
 				}
-				else if (!indexProvider.isFree(freeIndexes[i])) {
-					deleteBuffer(freeIndexes[i]);
+				else if (!indexProvider.isFree(index)) {
+					deleteBuffer(index);
 				}
 			}
 
@@ -1657,7 +1699,7 @@ public class BufferMgr {
 			Arrays.sort(bufferIndexes);
 			for (int i = 0; i < bufferIndexes.length; i++) {
 
-				monitor.checkCanceled();
+				monitor.checkCancelled();
 				monitor.setProgress(i + 1);
 
 				// Get recovery buffer
@@ -1725,6 +1767,51 @@ public class BufferMgr {
 	}
 
 	/**
+	 * Set the source buffer file with a newer local buffer file version.
+	 * Intended for use following a merge or commit operation only where a local checkout has been
+	 * retained.
+	 * @param versionedSourceBufferFile updated local source buffer file opened for versioning 
+	 * update (NOTE: file itself is read-only).
+	 * @throws IOException if an IO error occurs
+	 */
+	public void setDBVersionedSourceFile(LocalManagedBufferFile versionedSourceBufferFile)
+			throws IOException {
+
+		synchronized (snapshotLock) {
+			synchronized (this) {
+				if (!(sourceFile instanceof LocalManagedBufferFile)) {
+					throw new UnsupportedOperationException(getClass().getSimpleName() +
+						".setDBSourceFile not allowed: " + sourceFile.getClass());
+				}
+				if (bufferSize != sourceFile.getBufferSize()) {
+					throw new IllegalArgumentException("Buffer size mismatch");
+				}
+
+				if (corruptedState) {
+					throw new IOException("Corrupted BufferMgr state");
+				}
+
+				if (lockCount != 0) {
+					throw new IOException("Attempted checkout update while buffers are locked");
+				}
+
+				stopPreCache();
+
+				clearCheckpoints();
+
+				doSetSourceFile(versionedSourceBufferFile);
+
+				// re-initialize cached file data
+				int cnt = sourceFile.getIndexCount();
+				indexProvider = new IndexProvider(cnt, sourceFile.getFreeIndexes());
+				bufferTable = new ObjectArray(cnt + INITIAL_BUFFER_TABLE_SIZE);
+
+				initializeCache();
+			}
+		}
+	}
+
+	/**
 	 * Save the current set of buffers to a new version of the source buffer file.
 	 * If the buffer manager was not instantiated with a source file an
 	 * IllegalStateException will be thrown.
@@ -1755,7 +1842,7 @@ public class BufferMgr {
 				}
 
 				if (monitor == null) {
-					monitor = TaskMonitorAdapter.DUMMY_MONITOR;
+					monitor = TaskMonitor.DUMMY;
 				}
 
 				boolean oldCancelState = monitor.isCancelEnabled();
@@ -1805,7 +1892,7 @@ public class BufferMgr {
 					monitor.setCancelEnabled(oldCancelState & !monitor.isCancelled());
 				}
 
-				setSourceFile(outFile);
+				doSetSourceFile(outFile);
 			}
 		}
 	}
@@ -1840,7 +1927,7 @@ public class BufferMgr {
 				}
 
 				if (monitor == null) {
-					monitor = TaskMonitorAdapter.DUMMY_MONITOR;
+					monitor = TaskMonitor.DUMMY;
 				}
 
 				int indexCnt = indexProvider.getIndexCount();
@@ -1861,7 +1948,7 @@ public class BufferMgr {
 					monitor.setCancelEnabled(true);
 				}
 				if (associateWithNewFile) {
-					setSourceFile(outFile);
+					doSetSourceFile(outFile);
 				}
 			}
 		}
@@ -1871,7 +1958,7 @@ public class BufferMgr {
 	 * Write all changes to the specified outFile
 	 * @param outFile output buffer file
 	 * @param monitor task monitor
-	 * @throws IOException
+	 * @throws IOException if IO error occurs
 	 * @throws CancelledException thrown if task cancelled
 	 */
 	private void doSave(BufferFile outFile, TaskMonitor monitor)
@@ -1880,7 +1967,7 @@ public class BufferMgr {
 		int preSaveCnt = outFile.getIndexCount();
 
 		if (monitor == null) {
-			monitor = TaskMonitorAdapter.DUMMY_MONITOR;
+			monitor = TaskMonitor.DUMMY;
 		}
 		monitor.initialize(indexCnt);
 		monitor.setMessage("Saving file...");
@@ -1890,7 +1977,8 @@ public class BufferMgr {
 		// Empty buffers will be flushed when outFile is closed
 		int bufCount = 0;
 		for (int id = 0; id < indexCnt; id++) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
+			monitor.setProgress(id);
 			BufferNode node = getCachedBufferNode(id);
 			if (node != null) {
 				// check nod which resides in cache
@@ -1909,10 +1997,12 @@ public class BufferMgr {
 			}
 		}
 
+		monitor.initialize(indexCnt);
+
 		// write/update all non-empty buffers
 		try (OutputBlockStream out = LocalBufferFile.getOutputBlockStream(outFile, bufCount)) {
 			for (int id = 0; id < indexCnt; id++) {
-				monitor.checkCanceled();
+				monitor.checkCancelled();
 				monitor.setProgress(id);
 
 				// get buffer node from cache
@@ -1937,13 +2027,12 @@ public class BufferMgr {
 
 		// Copy file parameters from cache file
 		String[] parmNames = cacheFile.getParameterNames();
-		for (int i = 0; i < parmNames.length; i++) {
-			String name = parmNames[i];
+		for (String name : parmNames) {
 			outFile.setParameter(name, cacheFile.getParameter(name));
 		}
 	}
 
-	private void setSourceFile(BufferFile newFile) {
+	private void doSetSourceFile(BufferFile newFile) {
 
 		// Close buffer file
 		if (sourceFile != null) {
@@ -1988,7 +2077,7 @@ public class BufferMgr {
 	public void resetCacheStatistics() {
 		cacheHits = 0;
 		cacheMisses = 0;
-		lowWaterMark = cacheSize;
+		lowWaterMark = cacheSize - 1;
 	}
 
 	public String getStatusInfo() {
@@ -2029,14 +2118,14 @@ public class BufferMgr {
 	}
 
 	public static void cleanupOldCacheFiles() {
-		File tmpDir = new File(System.getProperty("java.io.tmpdir"));
+		File tmpDir = Application.getUserTempDirectory();
 		File[] cacheFiles =
 			tmpDir.listFiles(new BufferFileFilter(CACHE_FILE_PREFIX, CACHE_FILE_EXT));
 		if (cacheFiles == null) {
 			return;
 		}
-		for (int i = 0; i < cacheFiles.length; i++) {
-			cacheFiles[i].delete();
+		for (File file : cacheFiles) {
+			file.delete();
 		}
 	}
 }

@@ -15,21 +15,16 @@
  */
 package ghidra.app.util.bin.format.pe.debug;
 
+import java.io.IOException;
+
+import ghidra.app.util.bin.BinaryReader;
 import ghidra.app.util.bin.StructConverter;
-import ghidra.app.util.bin.format.FactoryBundledWithBinaryReader;
-import ghidra.app.util.bin.format.pdb.PdbFactory;
-import ghidra.app.util.bin.format.pdb.PdbInfoDotNetIface;
-import ghidra.app.util.bin.format.pdb.PdbInfoIface;
+import ghidra.app.util.bin.format.pdb.PdbInfoCodeView;
+import ghidra.app.util.bin.format.pdb.PdbInfoDotNet;
 import ghidra.app.util.bin.format.pe.OffsetValidator;
-import ghidra.program.model.data.ArrayDataType;
-import ghidra.program.model.data.CategoryPath;
-import ghidra.program.model.data.DataType;
-import ghidra.program.model.data.Structure;
-import ghidra.program.model.data.StructureDataType;
+import ghidra.program.model.data.*;
 import ghidra.util.Msg;
 import ghidra.util.exception.DuplicateNameException;
-
-import java.io.IOException;
 
 /**
  * A class to represent the code view debug information.
@@ -37,8 +32,8 @@ import java.io.IOException;
 public class DebugCodeView implements StructConverter {
 	private DebugDirectory debugDir;
 	private DebugCodeViewSymbolTable symbolTable;
-	private PdbInfoIface pdbInfo;
-	private PdbInfoDotNetIface dotNetPdbInfo;
+	private PdbInfoCodeView pdbInfo;
+	private PdbInfoDotNet dotNetPdbInfo;
 
 	/**
 	 * Constructor.
@@ -46,22 +41,8 @@ public class DebugCodeView implements StructConverter {
 	 * @param debugDir the code view debug directory
 	 * @param ntHeader 
 	 */
-	static DebugCodeView createDebugCodeView(FactoryBundledWithBinaryReader reader,
-			DebugDirectory debugDir, OffsetValidator validator) throws IOException {
-		DebugCodeView debugCodeView =
-			(DebugCodeView) reader.getFactory().create(DebugCodeView.class);
-		debugCodeView.initDebugCodeView(reader, debugDir, validator);
-		return debugCodeView;
-	}
-
-	/**
-	 * DO NOT USE THIS CONSTRUCTOR, USE create*(GenericFactory ...) FACTORY METHODS INSTEAD.
-	 */
-	public DebugCodeView() {
-	}
-
-	private void initDebugCodeView(FactoryBundledWithBinaryReader reader, DebugDirectory debugDir,
-			OffsetValidator validator) throws IOException {
+	DebugCodeView(BinaryReader reader, DebugDirectory debugDir, OffsetValidator validator)
+			throws IOException {
 		this.debugDir = debugDir;
 
 		int ptr = debugDir.getPointerToRawData();
@@ -70,19 +51,18 @@ public class DebugCodeView implements StructConverter {
 			return;
 		}
 
-		dotNetPdbInfo = PdbFactory.getPdbInfoDotNetInstance(reader, ptr);
-		pdbInfo = PdbFactory.getPdbInfoInstance(reader, ptr);
+		dotNetPdbInfo = PdbInfoDotNet.isMatch(reader, ptr) ? PdbInfoDotNet.read(reader, ptr) : null;
+		pdbInfo = PdbInfoCodeView.isMatch(reader, ptr) ? PdbInfoCodeView.read(reader, ptr) : null;
 		if (DebugCodeViewSymbolTable.isMatch(reader, ptr)) {
-			symbolTable =
-				DebugCodeViewSymbolTable.createDebugCodeViewSymbolTable(reader,
-					debugDir.getSizeOfData(), debugDir.getPointerToRawData(), ptr);
+			symbolTable = new DebugCodeViewSymbolTable(reader, debugDir.getSizeOfData(),
+				debugDir.getPointerToRawData(), ptr);
 		}
 		else {
 			//TODO??
-//            Err.warn(this, null, "Warning", "Unhandled CodeView Information Format: "+
-//			                        Integer.toHexString(reader.readShort(ptr+0)&0xffff)+
-//			                        " "+
-//			                        Integer.toHexString(reader.readShort(ptr+1)&0xffff));
+//	            Err.warn(this, null, "Warning", "Unhandled CodeView Information Format: "+
+//				                        Integer.toHexString(reader.readShort(ptr+0)&0xffff)+
+//				                        " "+
+//				                        Integer.toHexString(reader.readShort(ptr+1)&0xffff));
 		}
 	}
 
@@ -106,17 +86,18 @@ public class DebugCodeView implements StructConverter {
 	 * Returns the code view .PDB info.
 	 * @return the code view .PDB info
 	 */
-	public PdbInfoIface getPdbInfo() {
+	public PdbInfoCodeView getPdbInfo() {
 		return pdbInfo;
 	}
 
-	public PdbInfoDotNetIface getDotNetPdbInfo() {
+	public PdbInfoDotNet getDotNetPdbInfo() {
 		return dotNetPdbInfo;
 	}
 
 	/**
 	 * @see ghidra.app.util.bin.StructConverter#toDataType()
 	 */
+	@Override
 	public DataType toDataType() throws DuplicateNameException {
 		Structure es = new StructureDataType("DebugCodeView", 0);
 		es.add(WORD, "Signature", null);

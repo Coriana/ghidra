@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,12 +15,10 @@
  */
 package ghidra.app.util.bin.format.pe.debug;
 
-import ghidra.app.util.bin.*;
-import ghidra.app.util.bin.format.*;
-import ghidra.util.*;
+import java.io.IOException;
+import java.util.ArrayList;
 
-import java.io.*;
-import java.util.*;
+import ghidra.app.util.bin.BinaryReader;
 
 /**
  * A class to represent the Object Module Format (OMF) Source Module data structure.
@@ -48,44 +46,38 @@ public class OMFSrcModule {
 
 	private ArrayList<OMFSrcModuleFile> moduleFileList = new ArrayList<OMFSrcModuleFile>();
 
-    static OMFSrcModule createOMFSrcModule(
-            FactoryBundledWithBinaryReader reader, int ptr) throws IOException {
-        OMFSrcModule omfSrcModule = (OMFSrcModule) reader.getFactory().create(OMFSrcModule.class);
-        omfSrcModule.initOMFSrcModule(reader, ptr);
-        return omfSrcModule;
-    }
-
-    /**
-     * DO NOT USE THIS CONSTRUCTOR, USE create*(GenericFactory ...) FACTORY METHODS INSTEAD.
-     */
-    public OMFSrcModule() {}
-
-	private void initOMFSrcModule(FactoryBundledWithBinaryReader reader, int ptr) throws IOException {
+	OMFSrcModule(BinaryReader reader, int ptr) throws IOException {
 		int index = ptr;
 
-		cFile = reader.readShort(index); index+=BinaryReader.SIZEOF_SHORT;
-		cSeg  = reader.readShort(index); index+=BinaryReader.SIZEOF_SHORT;
+		cFile = reader.readShort(index);
+		index += BinaryReader.SIZEOF_SHORT;
+		cSeg = reader.readShort(index);
+		index += BinaryReader.SIZEOF_SHORT;
 
-		baseSrcFile = new int[Conv.shortToInt(cFile)];
-		for (int i = 0 ; i < Conv.shortToInt(cFile) ; ++i) {
-			baseSrcFile[i] = reader.readInt(index); index+=BinaryReader.SIZEOF_INT;
+		baseSrcFile = new int[Short.toUnsignedInt(cFile)];
+		for (int i = 0; i < Short.toUnsignedInt(cFile); ++i) {
+			baseSrcFile[i] = reader.readInt(index);
+			index += BinaryReader.SIZEOF_INT;
 		}
 
-		starts = new int[Conv.shortToInt(cSeg)];
-		ends   = new int[Conv.shortToInt(cSeg)];
+		starts = new int[Short.toUnsignedInt(cSeg)];
+		ends = new int[Short.toUnsignedInt(cSeg)];
 
-		for (int i = 0 ; i < Conv.shortToInt(cSeg) ; ++i) {
-			starts[i] = reader.readInt(index); index+=BinaryReader.SIZEOF_INT;
-			ends  [i] = reader.readInt(index); index+=BinaryReader.SIZEOF_INT;
+		for (int i = 0; i < Short.toUnsignedInt(cSeg); ++i) {
+			starts[i] = reader.readInt(index);
+			index += BinaryReader.SIZEOF_INT;
+			ends[i] = reader.readInt(index);
+			index += BinaryReader.SIZEOF_INT;
 		}
 
-		segs = new short[Conv.shortToInt(cSeg)];
-		for (int i = 0 ; i < Conv.shortToInt(cSeg) ; ++i) {
-			segs[i] = reader.readShort(index); index+=BinaryReader.SIZEOF_SHORT;
+		segs = new short[Short.toUnsignedInt(cSeg)];
+		for (int i = 0; i < Short.toUnsignedInt(cSeg); ++i) {
+			segs[i] = reader.readShort(index);
+			index += BinaryReader.SIZEOF_SHORT;
 		}
 
-		for (int i = 0 ; i < Conv.shortToInt(cFile) ; ++i) {
-			moduleFileList.add(OMFSrcModuleFile.createOMFSrcModuleFile(reader, ptr+baseSrcFile[i]));
+		for (int i = 0; i < Short.toUnsignedInt(cFile); ++i) {
+			moduleFileList.add(new OMFSrcModuleFile(reader, ptr, ptr + baseSrcFile[i]));
 		}
 	}
 

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,7 +22,6 @@ import ghidra.program.database.symbol.CodeSymbol;
 import ghidra.program.database.symbol.FunctionSymbol;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.DataType;
-import ghidra.program.model.listing.Data;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolTable;
@@ -51,8 +50,8 @@ public class GlobalSymbolMap {
 		program = f.getFunction().getProgram();
 		func = f;
 		symbolTable = program.getSymbolTable();
-		addrMappedSymbols = new HashMap<Address, HighSymbol>();
-		symbolMap = new HashMap<Long, HighSymbol>();
+		addrMappedSymbols = new HashMap<>();
+		symbolMap = new HashMap<>();
 		uniqueSymbolId = 0;
 	}
 
@@ -87,18 +86,7 @@ public class GlobalSymbolMap {
 		}
 		HighSymbol highSym = null;
 		if (symbol instanceof CodeSymbol) {
-			if (dataType == null) {
-				Object dataObj = symbol.getObject();
-				if (dataObj instanceof Data) {
-					dataType = ((Data) dataObj).getDataType();
-					sz = dataType.getLength();
-				}
-				else {
-					dataType = DataType.DEFAULT;
-					sz = 1;
-				}
-			}
-			highSym = new HighCodeSymbol((CodeSymbol) symbol, dataType, sz, func);
+			highSym = new HighCodeSymbol((CodeSymbol) symbol, func);
 		}
 		else if (symbol instanceof FunctionSymbol) {
 			highSym = new HighFunctionShellSymbol(id, symbol.getName(), symbol.getAddress(),
@@ -109,6 +97,34 @@ public class GlobalSymbolMap {
 		}
 		insertSymbol(highSym, symbol.getAddress());
 		return highSym;
+	}
+
+	/**
+	 * Some Varnode annotations refer to global symbols.  Check if there is symbol at the
+	 * Varnode address and, if there is, create a corresponding HighSymbol
+	 * @param vn is the annotation Varnode
+	 */
+	public void populateAnnotation(Varnode vn) {
+		Address addr = vn.getAddress();
+		if (!addr.isLoadedMemoryAddress() || addrMappedSymbols.containsKey(addr)) {
+			return;
+		}
+		Symbol symbol = symbolTable.getPrimarySymbol(addr);
+		if (symbol == null) {
+			return;
+		}
+		HighSymbol highSym;
+		if (symbol instanceof CodeSymbol) {
+			highSym = new HighCodeSymbol((CodeSymbol) symbol, func);
+		}
+		else if (symbol instanceof FunctionSymbol) {
+			highSym = new HighFunctionShellSymbol(symbol.getID(), symbol.getName(),
+				symbol.getAddress(), func.getDataTypeManager());
+		}
+		else {
+			return;
+		}
+		insertSymbol(highSym, symbol.getAddress());
 	}
 
 	/**

@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.StringTokenizer;
 
 import db.*;
+import ghidra.framework.data.OpenMode;
 import ghidra.program.database.ProgramDB;
 import ghidra.program.database.map.AddressMap;
 import ghidra.program.database.util.DatabaseVersionException;
@@ -68,16 +69,15 @@ class PrototypeManager {
 	final static Schema REGISTER_SCHEMA = createRegisterSchema();
 
 	private static Schema createPrototypeSchema() {
-		Schema schema =
-			new Schema(1, "Keys", new Class[] { BinaryField.class, LongField.class,
-				BooleanField.class }, new String[] { "Bytes", "Address", "InDelaySlot" });
+		Schema schema = new Schema(1, "Keys",
+			new Field[] { BinaryField.INSTANCE, LongField.INSTANCE, BooleanField.INSTANCE },
+			new String[] { "Bytes", "Address", "InDelaySlot" });
 		return schema;
 	}
 
 	private static Schema createRegisterSchema() {
-		Schema schema =
-			new Schema(1, "Keys", new Class[] { StringField.class },
-				new String[] { "Register Context" });
+		Schema schema = new Schema(1, "Keys", new Field[] { StringField.INSTANCE },
+			new String[] { "Register Context" });
 		return schema;
 	}
 
@@ -93,19 +93,19 @@ class PrototypeManager {
 	 * @throws VersionException thrown if the database version doesn't match this adapter version
 	 * @throws IOException if a database io error occurs.
 	 */
-	PrototypeManager(DBHandle dbHandle, AddressMap addrMap, int openMode, TaskMonitor monitor)
+	PrototypeManager(DBHandle dbHandle, AddressMap addrMap, OpenMode openMode, TaskMonitor monitor)
 			throws VersionException, IOException {
 
 		this.addrMap = addrMap;
 
-		if (openMode == DBConstants.CREATE) {
+		if (openMode == OpenMode.CREATE) {
 			createDBTables(dbHandle);
 			contextTable = dbHandle.createTable(CONTEXT_TABLE_NAME, REGISTER_SCHEMA);
 		}
 		findAdapters(dbHandle, openMode);
 		loadContextTable(dbHandle, openMode);
 
-		if (openMode == DBConstants.UPGRADE) {
+		if (openMode == OpenMode.UPGRADE) {
 			upgradeTable(dbHandle, monitor);
 		}
 // debug for enormous prototype problem
@@ -134,7 +134,7 @@ class PrototypeManager {
 				if (monitor.isCancelled()) {
 					throw new IOException("Upgrade Cancelled");
 				}
-				Record rec = it.next();
+				DBRecord rec = it.next();
 				String oldValue = rec.getString(0);
 				rec.setString(0, convertString(oldValue));
 				tempTable.putRecord(rec);
@@ -148,7 +148,7 @@ class PrototypeManager {
 				if (monitor.isCancelled()) {
 					throw new IOException("Upgrade Cancelled");
 				}
-				Record rec = it.next();
+				DBRecord rec = it.next();
 				contextTable.putRecord(rec);
 			}
 		}
@@ -193,7 +193,7 @@ class PrototypeManager {
 				if (monitor.isCancelled()) {
 					throw new IOException("Upgrade Cancelled");
 				}
-				Record rec = it.next();
+				DBRecord rec = it.next();
 				tempAdapter.createRecord((int) rec.getKey(), rec.getLongValue(ADDR_COL),
 					rec.getBinaryData(BYTES_COL), rec.getBooleanValue(DELAY_COL));
 			}
@@ -208,7 +208,7 @@ class PrototypeManager {
 				if (monitor.isCancelled()) {
 					throw new IOException("Upgrade Cancelled");
 				}
-				Record rec = it.next();
+				DBRecord rec = it.next();
 				protoAdapter.createRecord((int) rec.getKey(), rec.getLongValue(ADDR_COL),
 					rec.getBinaryData(BYTES_COL), rec.getBooleanValue(DELAY_COL));
 
@@ -280,7 +280,7 @@ class PrototypeManager {
 				String valueStr =
 					registerValue != null ? registerValue.getUnsignedValueIgnoreMask().toString()
 							: "0";
-				Record record = REGISTER_SCHEMA.createRecord(protoID);
+				DBRecord record = REGISTER_SCHEMA.createRecord(protoID);
 				record.setString(0, valueStr);
 				contextTable.putRecord(record);
 			}
@@ -308,15 +308,19 @@ class PrototypeManager {
 
 	private void populatePrototypes() {
 		try {
+			// Prior to language upgrade force use of invalid prototypes
+			boolean forceInvalidPrototypes = program.isLanguageUpgradePending();
 
 			RecordIterator iter = protoAdapter.getRecords();
 			while (iter.hasNext()) {
-				Record record = iter.next();
+				DBRecord record = iter.next();
 
 				int protoID = (int) record.getKey();
 
 				if (protoArray.get(protoID) == null) {
-					InstructionPrototype proto = createPrototype(protoID, record);
+					InstructionPrototype proto =
+						forceInvalidPrototypes ? new InvalidPrototype(language)
+								: createPrototype(protoID, record);
 					protoArray.put(protoID, proto);
 					protoHt.put(proto, protoID);
 				}
@@ -345,7 +349,7 @@ class PrototypeManager {
 
 	int getOriginalPrototypeLength(int protoId) {
 		try {
-			Record record = protoAdapter.getRecord(protoId);
+			DBRecord record = protoAdapter.getRecord(protoId);
 			if (record != null) {
 				byte[] bytes = record.getBinaryData(BYTES_COL);
 				return bytes.length;
@@ -360,7 +364,7 @@ class PrototypeManager {
 	RegisterValue getOriginalPrototypeContext(InstructionPrototype prototype,
 			Register baseContextReg) throws NoValueException {
 		try {
-			Record record = contextTable.getRecord(protoHt.get(prototype));
+			DBRecord record = contextTable.getRecord(protoHt.get(prototype));
 			if (record != null) {
 				String s = record.getString(0);
 				BigInteger value = s != null ? new BigInteger(s) : BigInteger.ZERO;
@@ -373,7 +377,7 @@ class PrototypeManager {
 		return null;
 	}
 
-	private InstructionPrototype createPrototype(long protoID, Record record) {
+	private InstructionPrototype createPrototype(long protoID, DBRecord record) {
 		Address address = addrMap.decodeAddress(record.getLongValue(ADDR_COL));
 		byte[] bytes = record.getBinaryData(BYTES_COL);
 		MemBuffer memBuffer = new ByteMemBufferImpl(address, bytes, language.isBigEndian());
@@ -396,7 +400,7 @@ class PrototypeManager {
 
 	}
 
-	private void findAdapters(DBHandle handle, int openMode) throws VersionException {
+	private void findAdapters(DBHandle handle, OpenMode openMode) throws VersionException {
 		try {
 			protoAdapter = new ProtoDBAdapterV1(handle);
 			return;
@@ -407,18 +411,18 @@ class PrototypeManager {
 
 		protoAdapter = getOldAdapter(handle);
 
-		if (openMode == DBConstants.UPDATE) {
+		if (openMode == OpenMode.UPDATE) {
 			throw new VersionException(true);
 		}
 	}
 
-	private void loadContextTable(DBHandle dbHandle, int openMode) throws VersionException,
-			IOException {
+	private void loadContextTable(DBHandle dbHandle, OpenMode openMode)
+			throws VersionException, IOException {
 		contextTable = dbHandle.getTable(CONTEXT_TABLE_NAME);
 		if (contextTable == null) {
 			contextTable = dbHandle.createTable(CONTEXT_TABLE_NAME, REGISTER_SCHEMA);
 		}
-		if ((openMode == DBConstants.UPDATE) &&
+		if ((openMode == OpenMode.UPDATE) &&
 			(contextTable.getSchema().getVersion() != CURRENT_CONTEXT_VERSION)) {
 			throw new VersionException(true);
 		}
@@ -466,7 +470,7 @@ class PrototypeManager {
 				return null;
 			}
 			try {
-				Record record = contextTable.getRecord(protoID);
+				DBRecord record = contextTable.getRecord(protoID);
 				if (record != null) {
 					String s = record.getString(0);
 					BigInteger value = s != null ? new BigInteger(s) : BigInteger.ZERO;
@@ -485,7 +489,7 @@ class PrototypeManager {
 				return null;
 			}
 			try {
-				Record record = contextTable.getRecord(protoID);
+				DBRecord record = contextTable.getRecord(protoID);
 				if (record != null) {
 					String s = record.getString(0);
 					BigInteger value = new BigInteger(s);

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,14 +19,16 @@ import java.io.IOException;
 import java.io.Writer;
 import java.util.*;
 
+import org.apache.commons.lang3.StringUtils;
+
 import ghidra.util.Msg;
 import ghidra.util.exception.CancelledException;
+import ghidra.util.graph.DeterministicDependencyGraph;
 import ghidra.util.task.TaskMonitor;
-import ghidra.util.task.TaskMonitorAdapter;
 
 /**
  * A class used to convert data types into ANSI-C.
- * 
+ *
  * The ANSI-C code should compile on most platforms.
  */
 public class DataTypeWriter {
@@ -42,9 +44,11 @@ public class DataTypeWriter {
 
 	private Set<DataType> resolved = new HashSet<>();
 	private Map<String, DataType> resolvedTypeMap = new HashMap<>();
-	private Set<Composite> deferredCompositeDeclarations = new HashSet<>();
-	private ArrayDeque<DataType> deferredTypeFIFO = new ArrayDeque<>();
-	private Set<DataType> deferredTypes = new HashSet<>();
+
+	private DeterministicDependencyGraph<CompositeNode> compositeDependencyGraph =
+		new DeterministicDependencyGraph<>();
+	private LinkedHashSet<DataType> deferredCompositeInternalTypes = new LinkedHashSet<>();
+
 	private int writerDepth = 0;
 	private Writer writer;
 	private DataTypeManager dtm;
@@ -53,25 +57,23 @@ public class DataTypeWriter {
 	private boolean cppStyleComments = false;
 
 	/**
-	 * Constructs a new instance of this class using the
-	 * given writer. The default annotation handler is used.
-	 * @param dtm data-type manager corresponding to target program or null
-	 * for default
+	 * Constructs a new instance of this class using the given writer. The default annotation
+	 * handler is used.
+	 * @param dtm data-type manager corresponding to target program or null for default
 	 * @param writer the writer to use when writing data types
-	 * @throws IOException 
+	 * @throws IOException if there is an exception writing the output
 	 */
 	public DataTypeWriter(DataTypeManager dtm, Writer writer) throws IOException {
 		this(dtm, writer, new DefaultAnnotationHandler());
 	}
 
 	/**
-	 * Constructs a new instance of this class using the
-	 * given writer. The default annotation handler is used.
-	 * @param dtm data-type manager corresponding to target program or null
-	 * for default
+	 * Constructs a new instance of this class using the given writer. The default annotation
+	 * handler is used.
+	 * @param dtm data-type manager corresponding to target program or null for default
 	 * @param writer the writer to use when writing data types
 	 * @param cppStyleComments whether to use C++ style comments
-	 * @throws IOException 
+	 * @throws IOException if there is an exception writing the output
 	 */
 	public DataTypeWriter(DataTypeManager dtm, Writer writer, boolean cppStyleComments)
 			throws IOException {
@@ -79,13 +81,11 @@ public class DataTypeWriter {
 	}
 
 	/**
-	 * Constructs a new instance of this class using the
-	 * given writer and annotation handler
-	 * @param dtm data-type manager corresponding to target program or null
-	 * for default
+	 * Constructs a new instance of this class using the given writer and annotation handler
+	 * @param dtm data-type manager corresponding to target program or null for default
 	 * @param writer the writer to use when writing data types
 	 * @param annotator the annotation handler to use to annotate the data types
-	 * @throws IOException 
+	 * @throws IOException if there is an exception writing the output
 	 */
 	public DataTypeWriter(DataTypeManager dtm, Writer writer, AnnotationHandler annotator)
 			throws IOException {
@@ -93,14 +93,12 @@ public class DataTypeWriter {
 	}
 
 	/**
-	 * Constructs a new instance of this class using the
-	 * given writer and annotation handler
-	 * @param dtm data-type manager corresponding to target program or null
-	 * for default
+	 * Constructs a new instance of this class using the given writer and annotation handler
+	 * @param dtm data-type manager corresponding to target program or null for default
 	 * @param writer the writer to use when writing data types
 	 * @param annotator the annotation handler to use to annotate the data types
 	 * @param cppStyleComments whether to use C++ style comments
-	 * @throws IOException 
+	 * @throws IOException if there is an exception writing the output
 	 */
 	public DataTypeWriter(DataTypeManager dtm, Writer writer, AnnotationHandler annotator,
 			boolean cppStyleComments) throws IOException {
@@ -130,23 +128,22 @@ public class DataTypeWriter {
 	}
 
 	/**
-	 * Converts all data types in the data type manager into ANSI-C code. 
-	 * @param dataTypeManager the manager containing the data types to write
+	 * Converts all data types in the data type manager into ANSI-C code.
 	 * @param monitor the task monitor
-	 * @throws IOException if an I/O error occurs when writing the data types to the specified writer
-	 * @throws CancelledException 
+	 * @throws IOException if there is an exception writing the output
+	 * @throws CancelledException if the action is cancelled by the user
 	 */
-	public void write(DataTypeManager dataTypeManager, TaskMonitor monitor)
+	public void write(TaskMonitor monitor)
 			throws IOException, CancelledException {
-		write(dataTypeManager.getRootCategory(), monitor);
+		write(dtm.getRootCategory(), monitor);
 	}
 
 	/**
-	 * Converts all data types in the category into ANSI-C code. 
+	 * Converts all data types in the category into ANSI-C code.
 	 * @param category the category containing the datatypes to write
 	 * @param monitor the task monitor
-	 * @throws IOException if an I/O error occurs when writing the data types to the specified writer
-	 * @throws CancelledException 
+	 * @throws IOException if there is an exception writing the output
+	 * @throws CancelledException if the action is cancelled by the user
 	 */
 	public void write(Category category, TaskMonitor monitor)
 			throws IOException, CancelledException {
@@ -163,29 +160,29 @@ public class DataTypeWriter {
 	}
 
 	/**
-	 * Converts all data types in the array into ANSI-C code. 
+	 * Converts all data types in the array into ANSI-C code.
 	 * @param dataTypes the data types to write
 	 * @param monitor the task monitor
-	 * @throws IOException if an I/O error occurs when writing the data types to the specified writer
-	 * @throws CancelledException 
+	 * @throws IOException if there is an exception writing the output
+	 * @throws CancelledException if the action is cancelled by the user
 	 */
 	public void write(DataType[] dataTypes, TaskMonitor monitor)
 			throws IOException, CancelledException {
 		monitor.initialize(dataTypes.length);
 		int cnt = 0;
 		for (DataType dataType : dataTypes) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			write(dataType, monitor);
 			monitor.setProgress(++cnt);
 		}
 	}
 
 	/**
-	 * Converts all data types in the list into ANSI-C code. 
+	 * Converts all data types in the list into ANSI-C code.
 	 * @param dataTypes the data types to write
 	 * @param monitor the task monitor
-	 * @throws IOException if an I/O error occurs when writing the data types to the specified writer
-	 * @throws CancelledException 
+	 * @throws IOException if there is an exception writing the output
+	 * @throws CancelledException if the action is cancelled by the user
 	 */
 	public void write(List<DataType> dataTypes, TaskMonitor monitor)
 			throws IOException, CancelledException {
@@ -197,16 +194,15 @@ public class DataTypeWriter {
 		monitor.initialize(dataTypes.size());
 		int cnt = 0;
 		for (DataType dataType : dataTypes) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			write(dataType, monitor, throwExceptionOnInvalidType);
 			monitor.setProgress(++cnt);
 		}
 	}
 
 	private void deferWrite(DataType dt) {
-		if (!resolved.contains(dt) && !deferredTypes.contains(dt)) {
-			deferredTypes.add(dt);
-			deferredTypeFIFO.addLast(dt);
+		if (!resolved.contains(dt)) {
+			deferredCompositeInternalTypes.add(dt);
 		}
 	}
 
@@ -222,11 +218,14 @@ public class DataTypeWriter {
 	/**
 	 * Writes the data type as ANSI-C using the underlying writer.
 	 * @param dt the data type to write as ANSI-C
-	 * @param monitor
-	 * @throws IOException
+	 * @param monitor the task monitor
+	 * @throws IOException if there is an exception writing the output
 	 */
 	private void doWrite(DataType dt, TaskMonitor monitor, boolean throwExceptionOnInvalidType)
 			throws IOException, CancelledException {
+
+		monitor.checkCancelled();
+
 		if (dt == null) {
 			return;
 		}
@@ -285,27 +284,25 @@ public class DataTypeWriter {
 			writer.write(EOL);
 			writer.write(EOL);
 		}
-		else if (dt instanceof Dynamic) {
-			writeDynamicBuiltIn((Dynamic) dt, monitor);
+		else if (dt instanceof Dynamic dynamic) {
+			writeDynamicBuiltIn(dynamic, monitor);
 		}
-		else if (dt instanceof Structure) {
-			Structure struct = (Structure) dt;
+		else if (dt instanceof Structure struct) {
 			writeCompositePreDeclaration(struct, monitor);
-			deferredCompositeDeclarations.add(struct);
+			addCompositeToDependencyGraph(struct, monitor);
 		}
-		else if (dt instanceof Union) {
-			Union union = (Union) dt;
+		else if (dt instanceof Union union) {
 			writeCompositePreDeclaration(union, monitor);
-			deferredCompositeDeclarations.add(union);
+			addCompositeToDependencyGraph(union, monitor);
 		}
-		else if (dt instanceof Enum) {
-			writeEnum((Enum) dt, monitor);
+		else if (dt instanceof Enum enumm) {
+			writeEnum(enumm, monitor);
 		}
-		else if (dt instanceof TypeDef) {
-			writeTypeDef((TypeDef) dt, monitor);
+		else if (dt instanceof TypeDef typeDef) {
+			writeTypeDef(typeDef, monitor);
 		}
-		else if (dt instanceof BuiltInDataType) {
-			writeBuiltIn((BuiltInDataType) dt, monitor);
+		else if (dt instanceof BuiltInDataType bidt) {
+			writeBuiltIn(bidt, monitor);
 		}
 		else if (dt instanceof BitFieldDataType) {
 			// skip
@@ -324,15 +321,34 @@ public class DataTypeWriter {
 		--writerDepth;
 	}
 
+	private void addCompositeToDependencyGraph(Composite composite, TaskMonitor monitor)
+			throws CancelledException {
+
+		// Each composite will be a node in the graph. Composite dependencies are added below.
+		compositeDependencyGraph.addValue(new CompositeNode(composite));
+
+		for (DataTypeComponent component : composite.getDefinedComponents()) {
+
+			monitor.checkCancelled();
+
+			DataType dt = component.getDataType();
+			if (dt instanceof Composite childComposite) {
+				CompositeNode start = new CompositeNode(composite);
+				CompositeNode end = new CompositeNode(childComposite);
+				compositeDependencyGraph.addDependency(start, end);
+			}
+		}
+	}
+
 	private void writeDeferredDeclarations(TaskMonitor monitor)
 			throws IOException, CancelledException {
-		while (!deferredTypes.isEmpty()) {
-			DataType dt = deferredTypeFIFO.removeFirst();
-			deferredTypes.remove(dt);
+
+		while (!deferredCompositeInternalTypes.isEmpty()) {
+			DataType dt = deferredCompositeInternalTypes.removeFirst();
 			write(dt, monitor);
 		}
+
 		writeDeferredCompositeDeclarations(monitor);
-		deferredCompositeDeclarations.clear();
 	}
 
 	private DataType getBaseArrayTypedefType(DataType dt) {
@@ -350,81 +366,38 @@ public class DataTypeWriter {
 		return dt;
 	}
 
-	private boolean containsComposite(Composite container, Composite contained) {
-		for (DataTypeComponent component : container.getDefinedComponents()) {
-			DataType dt = getBaseArrayTypedefType(component.getDataType());
-			if (dt instanceof Composite && dt.getName().equals(contained.getName()) &&
-				dt.isEquivalent(contained)) {
-				return true;
-			}
-		}
-		return false;
-	}
-
 	private void writeDeferredCompositeDeclarations(TaskMonitor monitor)
 			throws IOException, CancelledException {
-		int cnt = deferredCompositeDeclarations.size();
-		if (cnt == 0) {
-			return;
-		}
 
-		LinkedList<Composite> list = new LinkedList<>(deferredCompositeDeclarations);
-		if (list.size() > 1) {
-			// Establish dependency ordering
-			int sortChange = 1;
-			while (sortChange != 0) {
-				sortChange = 0;
-				for (int i = cnt - 1; i > 0; i--) {
-					if (resortComposites(list, i)) {
-						++sortChange;
-					}
-				}
-			}
+		CompositeNode node = compositeDependencyGraph.pop();
+		while (node != null) {
+			writeCompositeBody(node.composite, monitor);
+			node = compositeDependencyGraph.pop();
 		}
-
-		for (Composite composite : list) {
-			writeCompositeBody(composite, monitor);
-		}
-	}
-
-	private boolean resortComposites(List<Composite> list, int index) {
-		int listSize = list.size();
-		if (listSize <= 0) {
-			return false;
-		}
-		Composite composite = list.get(index);
-		for (int i = 0; i < index; i++) {
-			Composite other = list.get(i);
-			if (containsComposite(other, composite)) {
-				list.remove(index);
-				list.add(i, composite);
-				composite = null;
-				return true;
-			}
-		}
-		return false;
 	}
 
 	private String getDynamicComponentString(Dynamic dynamicType, String fieldName, int length) {
-		if (dynamicType.canSpecifyLength()) {
-			DataType replacementBaseType = dynamicType.getReplacementBaseType();
-			if (replacementBaseType != null) {
-				replacementBaseType = replacementBaseType.clone(dtm);
-				int elementLen = replacementBaseType.getLength();
-				if (elementLen <= 0) {
-					Msg.error(this,
-						dynamicType.getClass().getSimpleName() +
-							" returned bad replacementBaseType: " +
-							replacementBaseType.getClass().getSimpleName());
-				}
-				else {
-					int elementCnt = (length + elementLen - 1) / elementLen;
-					return replacementBaseType.getDisplayName() + " " + fieldName + "[" +
-						elementCnt + "]";
-				}
-			}
+		if (!dynamicType.canSpecifyLength()) {
+			return null;
 		}
-		return null;
+
+		DataType replacementBaseType = dynamicType.getReplacementBaseType();
+		if (replacementBaseType == null) {
+			return null;
+		}
+
+		replacementBaseType = replacementBaseType.clone(dtm);
+		int elementLen = replacementBaseType.getLength();
+		if (elementLen <= 0) {
+			String dynamicName = dynamicType.getClass().getSimpleName();
+			String replacementName = replacementBaseType.getClass().getSimpleName();
+			Msg.error(this, dynamicName + " returned bad replacementBaseType: " + replacementName);
+			return null;
+		}
+
+		int elementCnt = (length + elementLen - 1) / elementLen;
+		return replacementBaseType.getDisplayName() + " " + fieldName + "[" +
+			elementCnt + "]";
 	}
 
 	private void writeCompositePreDeclaration(Composite composite, TaskMonitor monitor)
@@ -438,24 +411,12 @@ public class DataTypeWriter {
 		writer.write(EOL);
 		writer.write(EOL);
 
-		for (DataTypeComponent component : composite.getComponents()) {
-			if (monitor.isCancelled()) {
-				break;
-			}
+		for (DataTypeComponent component : composite.getDefinedComponents()) {
+			monitor.checkCancelled();
+
 			// force resolution of field datatype
 			DataType componentType = component.getDataType();
 			deferWrite(componentType);
-
-			// TODO the return value of this is not used--delete?
-			getTypeDeclaration(null, componentType, component.getLength(), false, true, monitor);
-		}
-
-		if (composite instanceof Structure) {
-			Structure s = (Structure) composite;
-			if (s.hasFlexibleArrayComponent()) {
-				DataType componentType = s.getFlexibleArrayComponent().getDataType();
-				deferWrite(componentType);
-			}
 		}
 	}
 
@@ -464,7 +425,7 @@ public class DataTypeWriter {
 
 		String compositeType = composite instanceof Structure ? "struct" : "union";
 
-		StringBuffer sb = new StringBuffer();
+		StringBuilder sb = new StringBuilder();
 		sb.append(compositeType + " " + composite.getDisplayName() + " {");
 
 		String descrip = composite.getDescription();
@@ -474,15 +435,8 @@ public class DataTypeWriter {
 		sb.append(EOL);
 
 		for (DataTypeComponent component : composite.getComponents()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			writeComponent(component, composite, sb, monitor);
-		}
-
-		if (composite instanceof Structure) {
-			Structure s = (Structure) composite;
-			if (s.hasFlexibleArrayComponent()) {
-				writeComponent(s.getFlexibleArrayComponent(), composite, sb, monitor);
-			}
 		}
 
 		sb.append(annotator.getSuffix(composite, null));
@@ -493,7 +447,7 @@ public class DataTypeWriter {
 		writer.write(EOL);
 	}
 
-	private void writeComponent(DataTypeComponent component, Composite composite, StringBuffer sb,
+	private void writeComponent(DataTypeComponent component, Composite composite, StringBuilder sb,
 			TaskMonitor monitor) throws IOException, CancelledException {
 		sb.append("    ");
 		sb.append(annotator.getPrefix(composite, component));
@@ -505,8 +459,8 @@ public class DataTypeWriter {
 
 		DataType componentDataType = component.getDataType();
 
-		sb.append(getTypeDeclaration(fieldName, componentDataType, component.getLength(),
-			component.isFlexibleArrayComponent(), false, monitor));
+		sb.append(getTypeDeclaration(fieldName, componentDataType, component.getLength(), false,
+			monitor));
 
 		sb.append(";");
 		sb.append(annotator.getSuffix(composite, component));
@@ -519,14 +473,13 @@ public class DataTypeWriter {
 	}
 
 	private String getTypeDeclaration(String name, DataType dataType, int instanceLength,
-			boolean isFlexArray, boolean writeEnabled, TaskMonitor monitor)
-			throws IOException, CancelledException {
+			boolean writeEnabled, TaskMonitor monitor) throws IOException, CancelledException {
 
 		if (name == null) {
 			name = "";
 		}
 
-		StringBuffer sb = new StringBuffer();
+		StringBuilder sb = new StringBuilder();
 		String componentString = null;
 		if (dataType instanceof Dynamic) {
 			componentString = getDynamicComponentString((Dynamic) dataType, name, instanceLength);
@@ -541,16 +494,31 @@ public class DataTypeWriter {
 		}
 
 		if (componentString == null) {
-
 			if (dataType instanceof BitFieldDataType) {
 				BitFieldDataType bfDt = (BitFieldDataType) dataType;
 				name += ":" + bfDt.getDeclaredBitSize();
 				dataType = bfDt.getBaseDataType();
 			}
-			else if (dataType instanceof Array) {
-				Array array = (Array) dataType;
-				name += getArrayDimensions(array);
-				dataType = getArrayBaseType(array);
+
+			while (true) {
+				if (dataType instanceof Array array) {
+					name += "[" + array.getNumElements() + "]";
+					dataType = array.getDataType();
+				}
+				else if (dataType instanceof Pointer pointer) {
+					DataType elem = pointer.getDataType();
+					if (elem == null) {
+						break;
+					}
+					name = "*" + name;
+					dataType = elem;
+					if (dataType instanceof Array) {
+						name = "(" + name + ")";
+					}
+				}
+				else {
+					break;
+				}
 			}
 
 			DataType baseDataType = getBaseDataType(dataType);
@@ -560,9 +528,6 @@ public class DataTypeWriter {
 			}
 			else {
 				componentString = getDataTypePrefix(dataType) + dataType.getDisplayName();
-				if (isFlexArray) {
-					componentString += "[0]";
-				}
 				if (name.length() != 0) {
 					componentString += " " + name;
 				}
@@ -589,8 +554,7 @@ public class DataTypeWriter {
 	private void writeEnum(Enum enumm, TaskMonitor monitor) throws IOException {
 
 		String enumName = enumm.getDisplayName();
-		if (enumName.startsWith("define_") && enumName.length() > 7 && enumm.getCount() == 1 &&
-			enumm.getLength() == 8) {
+		if (enumName.startsWith("define_") && enumName.length() > 7 && enumm.getCount() == 1) {
 			long val = enumm.getValues()[0];
 			writer.append("#define " + enumName.substring(7) + " " + Long.toString(val));
 			writer.write(EOL);
@@ -599,11 +563,12 @@ public class DataTypeWriter {
 		}
 
 		writer.write("typedef enum " + enumName + " " + "{");
-		String descrip = enumm.getDescription();
-		if (descrip != null && descrip.length() != 0) {
-			writer.write(" " + comment(descrip));
+		String description = enumm.getDescription();
+		if (description != null && description.length() != 0) {
+			writer.write(" " + comment(description));
 		}
 		writer.write(EOL);
+
 		String[] names = enumm.getNames();
 		for (int j = 0; j < names.length; j++) {
 			writer.write("    ");
@@ -611,7 +576,14 @@ public class DataTypeWriter {
 			writer.write(names[j]);
 			writer.write("=");
 			writer.write(Long.toString(enumm.getValue(names[j])));
+
+			String comment = enumm.getComment(names[j]);
+			if (!StringUtils.isBlank(comment)) {
+				writer.write(" " + comment(comment));
+			}
+
 			writer.write(annotator.getSuffix(enumm, names[j]));
+
 			if (j < names.length - 1) {
 				writer.write(",");
 			}
@@ -624,7 +596,7 @@ public class DataTypeWriter {
 
 	/**
 	 * Typedef Format: typedef <TYPE_DEF_NAME> <BASE_TYPE_NAME>
-	 * @throws CancelledException 
+	 * @throws CancelledException if the action is cancelled by the user
 	 */
 	private void writeTypeDef(TypeDef typeDef, TaskMonitor monitor)
 			throws IOException, CancelledException {
@@ -644,7 +616,8 @@ public class DataTypeWriter {
 					return;
 				}
 			}
-			// TODO: A comment explaining the special 'P' case would be helpful!!  Smells like fish.
+
+			// auto-pointer-typedef generated with composite
 			else if (baseType instanceof Pointer && typedefName.startsWith("P")) {
 				DataType dt = ((Pointer) baseType).getDataType();
 				if (dt instanceof TypeDef) {
@@ -665,7 +638,7 @@ public class DataTypeWriter {
 			writeDeferredDeclarations(monitor);
 		}
 
-		String typedefString = getTypeDeclaration(typedefName, dataType, -1, false, true, monitor);
+		String typedefString = getTypeDeclaration(typedefName, dataType, -1, true, monitor);
 
 		writer.write("typedef " + typedefString + ";");
 		writer.write(EOL);
@@ -722,16 +695,14 @@ public class DataTypeWriter {
 	}
 
 	/**
-	 * Write all built-in data types declarations into ANSI-C code.
-	 * Those types whose name matches the corresponding primitive C-type.
-	 * are not included.
-	 * @throws IOException if an I/O error occurs when writing the data types to the specified writer
-	 * @throws CancelledException 
+	 * Write all built-in data types declarations into ANSI-C code. Those types whose name matches
+	 * the corresponding primitive C-type. are not included.
+	 * @throws IOException if there is an exception writing the output
 	 */
 	private void writeBuiltInDeclarations(DataTypeManager manager) throws IOException {
 
 		try {
-			write(DataType.DEFAULT, TaskMonitorAdapter.DUMMY_MONITOR);
+			write(DataType.DEFAULT, TaskMonitor.DUMMY);
 
 			SourceArchive builtInArchive =
 				manager.getSourceArchive(DataTypeManager.BUILT_IN_ARCHIVE_UNIVERSAL_ID);
@@ -744,7 +715,7 @@ public class DataTypeWriter {
 					(dt instanceof Dynamic)) {
 					continue;
 				}
-				write(dt, TaskMonitorAdapter.DUMMY_MONITOR);
+				write(dt, TaskMonitor.DUMMY);
 			}
 		}
 		catch (CancelledException e) {
@@ -877,8 +848,8 @@ public class DataTypeWriter {
 			if (writeEnabled) {
 				write(dataType, monitor);
 			}
-			String argument = getTypeDeclaration(paramName, dataType, param.getLength(), false,
-				writeEnabled, monitor);
+			String argument =
+				getTypeDeclaration(paramName, dataType, param.getLength(), writeEnabled, monitor);
 
 			buf.append(argument);
 
@@ -890,9 +861,52 @@ public class DataTypeWriter {
 			buf.append(ghidra.program.model.listing.FunctionSignature.VAR_ARGS_DISPLAY_STRING);
 		}
 		if ((n == 0) && (!hasVarArgs)) { // If no parameters
-			buf.append(DataType.VOID.getName()); // Print "void" keyword
+			buf.append(VoidDataType.dataType.getName()); // Print "void" keyword
 		}
 		buf.append(")");
 		return buf.toString();
+	}
+
+	// A simple Composite class to use in the dependency graph to speed up the equals() call
+	private class CompositeNode implements Comparable<CompositeNode> {
+
+		private Composite composite;
+
+		CompositeNode(Composite composite) {
+			this.composite = composite;
+		}
+
+		@Override
+		public int compareTo(CompositeNode o) {
+			String pn1 = composite.getPathName();
+			String pn2 = o.composite.getPathName();
+			return pn1.compareTo(pn2);
+		}
+
+		@Override
+		public int hashCode() {
+			return composite.hashCode();
+		}
+
+		@Override
+		public boolean equals(Object obj) {
+			if (this == obj) {
+				return true;
+			}
+			if (obj == null) {
+				return false;
+			}
+			if (getClass() != obj.getClass()) {
+				return false;
+			}
+
+			CompositeNode other = (CompositeNode) obj;
+			return composite.getUniversalID().equals(other.composite.getUniversalID());
+		}
+
+		@Override
+		public String toString() {
+			return composite.toString();
+		}
 	}
 }

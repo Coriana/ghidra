@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,14 +16,16 @@
 //Imports all programs from a selected directory.
 //@category Import
 
+import java.io.File;
+import java.io.IOException;
+
 import ghidra.app.script.GhidraScript;
-import ghidra.app.util.importer.AutoImporter;
 import ghidra.app.util.importer.MessageLog;
+import ghidra.app.util.importer.ProgramLoader;
+import ghidra.app.util.opinion.LoadResults;
 import ghidra.framework.model.DomainFolder;
 import ghidra.program.model.lang.LanguageCompilerSpecPair;
 import ghidra.program.model.listing.Program;
-
-import java.io.File;
 
 public class ImportAllProgramsFromADirectoryScript extends GhidraScript {
 
@@ -52,36 +53,22 @@ public class ImportAllProgramsFromADirectoryScript extends GhidraScript {
 				continue;
 			}
 
-			Program program = null;
-
-			try {
-				program = importFile(file);
+			try (LoadResults<Program> loadResults = ProgramLoader.builder()
+					.source(file)
+					.project(state.getProject())
+					.projectFolderPath(folder.getPathname())
+					.language(language.getLanguage())
+					.compiler(language.getCompilerSpec())
+					.log(log)
+					.monitor(monitor)
+					.load()) {
+				loadResults.getPrimary().save(monitor);
 			}
-			catch (Exception e) {
-				e.printStackTrace();
-			}
-
-			if (program == null) {
-				try {
-					program =
-						AutoImporter.importByLookingForLcs(file, folder, language.getLanguage(),
-							language.getCompilerSpec(), this, log, monitor);
-				}
-				catch (Exception e) {
-					e.printStackTrace();
-				}
-			}
-
-			if (program == null) {
+			catch (IOException e) {
 				println("Unable to import program from file " + file.getName());
-			}
-			else {
-				//openProgram( program );
-				program.release(this);
 			}
 
 			println(log.toString());
-
 			log.clear();
 		}
 	}

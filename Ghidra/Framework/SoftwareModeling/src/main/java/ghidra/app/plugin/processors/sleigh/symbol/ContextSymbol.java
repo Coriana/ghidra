@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,14 +19,14 @@
  */
 package ghidra.app.plugin.processors.sleigh.symbol;
 
-import ghidra.app.plugin.processors.sleigh.*;
+import static ghidra.pcode.utils.SlaFormat.*;
+
+import ghidra.app.plugin.processors.sleigh.SleighLanguage;
 import ghidra.app.plugin.processors.sleigh.expression.*;
-import ghidra.util.xml.*;
-import ghidra.xml.*;
+import ghidra.program.model.pcode.Decoder;
+import ghidra.program.model.pcode.DecoderException;
 
 /**
- * 
- *
  * A ValueSymbol that gets its semantic value from contiguous bits
  * in a VarnodeSymbol. This serves as an embedding of a ContextOp
  * into an actual Varnode and is probably only relevant at compile time
@@ -35,27 +34,80 @@ import ghidra.xml.*;
 public class ContextSymbol extends ValueSymbol {
 
 	private VarnodeSymbol vn;
-	private int low,high;			// Bit range of context value
+	private int low, high;			// Bit range of context value
 	private boolean flow = true;	// indicates that context should follow flow
-	
-	public VarnodeSymbol getVarnode() { return vn; }
-	
-	public int getLow() { return low; }
-	public int getHigh() { return high; }
-	public boolean followsFlow() { return flow; }
-	
+
+	public VarnodeSymbol getVarnode() {
+		return vn;
+	}
+
+	/**
+	 * Get starting bit of context value within its context register.
+	 * @return the starting bit
+	 */
+	public int getLow() {
+		return low;
+	}
+
+	/**
+	 * Get ending bit of context value within its context register.
+	 * @return the ending bit
+	 */
+	public int getHigh() {
+		return high;
+	}
+
+	/**
+	 * Get the starting bit of the context value within the "global" buffer, after
+	 * the values have been packed.
+	 * @return the starting bit
+	 */
+	public int getInternalLow() {
+		return ((ContextField) patval).getStartBit();
+	}
+
+	/**
+	 * Get the ending bit of the context value within the "global" buffer, after
+	 * the values have been packed.
+	 * @return the ending bit
+	 */
+
+	public int getInternalHigh() {
+		return ((ContextField) patval).getEndBit();
+	}
+
+	public boolean followsFlow() {
+		return flow;
+	}
+
 	@Override
-    public void restoreXml(XmlPullParser parser,SleighLanguage sleigh) {
-        XmlElement el = parser.start("context_sym");
-		int id = SpecXmlUtils.decodeInt(el.getAttribute("varnode"));
+	public void decode(Decoder decoder, SleighLanguage sleigh) throws DecoderException {
+//		int el = decoder.openElement(ELEM_CONTEXT_SYM);
+		flow = false;
+		int id = (int) decoder.readUnsignedInteger(ATTRIB_VARNODE);
 		SymbolTable symtab = sleigh.getSymbolTable();
-		vn = (VarnodeSymbol)symtab.findSymbol(id);
-		low = SpecXmlUtils.decodeInt(el.getAttribute("low"));
-		if (el.hasAttribute("flow")) {
-			flow = SpecXmlUtils.decodeBoolean(el.getAttribute("flow"));
+		vn = (VarnodeSymbol) symtab.findSymbol(id);
+		int attrib = decoder.getNextAttributeId();
+		boolean lowMissing = true;
+		boolean highMissing = true;
+		while (attrib != 0) {
+			if (attrib == ATTRIB_LOW.id()) {
+				low = (int) decoder.readSignedInteger();
+				lowMissing = false;
+			}
+			else if (attrib == ATTRIB_HIGH.id()) {
+				high = (int) decoder.readSignedInteger();
+				highMissing = false;
+			}
+			else if (attrib == ATTRIB_FLOW.id()) {
+				flow = decoder.readBool();
+			}
+			attrib = decoder.getNextAttributeId();
 		}
-		high = SpecXmlUtils.decodeInt(el.getAttribute("high"));
-        patval = (PatternValue)PatternExpression.restoreExpression(parser,sleigh);
-        parser.end(el);
+		if (lowMissing || highMissing) {
+			throw new DecoderException("Missing high/low attributes");
+		}
+		patval = (PatternValue) PatternExpression.decodeExpression(decoder, sleigh);
+		decoder.closeElement(ELEM_CONTEXT_SYM.id());
 	}
 }

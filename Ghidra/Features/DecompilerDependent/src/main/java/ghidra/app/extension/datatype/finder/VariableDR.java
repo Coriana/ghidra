@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,8 +17,10 @@ package ghidra.app.extension.datatype.finder;
 
 import java.util.List;
 
+import docking.widgets.search.SearchLocationContext;
 import ghidra.app.decompiler.*;
 import ghidra.app.services.DataTypeReference;
+import ghidra.app.services.FieldMatcher;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.listing.Function;
@@ -51,7 +53,8 @@ public abstract class VariableDR extends DecompilerReference {
 	}
 
 	@Override
-	public void accumulateMatches(DataType dt, String fieldName, List<DataTypeReference> results) {
+	public void accumulateMatches(DataType dt, FieldMatcher fieldMatcher,
+			List<DataTypeReference> results) {
 
 		if (variable == null) {
 			// This implies our API was misused in that a variable was never set after creation
@@ -60,21 +63,18 @@ public abstract class VariableDR extends DecompilerReference {
 
 		DataType dataType = getDataType();
 		if (!isEqual(dataType, dt)) {
-			// wrong type, nothing to do
-			return;
-		}
-
-		String context = getContext();
-		Function function = getFunction();
-		Address address = getAddress();
-		if (fieldName == null) {
-			// no field to check, a match on the the type is good enough
-			results.add(new DataTypeReference(dataType, null, getFunction(), address, context));
-			return;
+			return; // wrong type, nothing to do
 		}
 
 		String name = variable.getName();
-		if (name.equals(fieldName)) {
+		int offset = variable.getOffset();
+		if (fieldMatcher.matches(name, offset)) {
+
+			// this will be null if the field matcher is empty
+			String fieldName = fieldMatcher.getFieldName();
+			Function function = getFunction();
+			Address address = getAddress();
+			SearchLocationContext context = getContext();
 			results.add(new DataTypeReference(dataType, fieldName, function, address, context));
 		}
 	}

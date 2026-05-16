@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -69,8 +69,7 @@ public class WindowsResourceReferenceAnalyzer extends AbstractAnalyzer {
 	@Override
 	public boolean added(Program program, AddressSetView set, TaskMonitor monitor, MessageLog log)
 			throws CancelledException {
-		runScript(program, set, "WindowsResourceReference.java", monitor);
-		return true;
+		return runScript(program, set, "WindowsResourceReference.java", monitor);
 	}
 
 	public boolean runScript(Program program, AddressSetView set, String scriptName,
@@ -94,9 +93,10 @@ public class WindowsResourceReferenceAnalyzer extends AbstractAnalyzer {
 			}
 
 			PrintWriter writer = getOutputMsgStream(tool);
+			PrintWriter errWriter = getErrorMsgStream(tool);
 
-			GhidraScript script = provider.getScriptInstance(sourceFile, writer);
-			script.set(state, monitor, writer);
+			GhidraScript script = provider.getScriptInstance(sourceFile, errWriter);
+			script.set(state, new ScriptControls(writer, errWriter, monitor));
 
 			// This code was added so the analyzer won't print script messages to console
 			// This also adds the ability to pass the option to add or not add bookmarks to the script
@@ -115,7 +115,7 @@ public class WindowsResourceReferenceAnalyzer extends AbstractAnalyzer {
 			Msg.warn(this, "Unable to locate script class: " + e.getMessage(), e);
 		}
 		catch (CancelledException e) {
-			Msg.warn(this, "User cancelled script.", e);
+			// ignore
 		}
 		catch (Exception e) {
 			Msg.warn("Error running script: " + scriptName + "\n" + e.getMessage(), e);
@@ -140,6 +140,16 @@ public class WindowsResourceReferenceAnalyzer extends AbstractAnalyzer {
 			}
 		}
 		return new PrintWriter(System.out);
+	}
+
+	private PrintWriter getErrorMsgStream(PluginTool tool) {
+		if (tool != null) {
+			ConsoleService console = tool.getService(ConsoleService.class);
+			if (console != null) {
+				return console.getStdErr();
+			}
+		}
+		return new PrintWriter(System.err);
 	}
 
 	@Override

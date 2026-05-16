@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -230,11 +230,20 @@ class SymbolMerge {
 		}
 		else if (type == SymbolType.LIBRARY) {
 			ExternalManager fromExtMgr = fromProgram.getExternalManager();
-			String path = fromExtMgr.getExternalLibraryPath(name);
+			Library fromLib = fromExtMgr.getExternalLibrary(name);
+
+			String path = fromLib != null ? fromLib.getAssociatedProgramPath() : null;
+			int ordinal = fromLib != null ? fromExtMgr.getLibraryOrdinal(name) : -1;
 
 			ExternalManagerDB extMgr = (ExternalManagerDB) toProgram.getExternalManager();
-			extMgr.setExternalPath(name, path, source == SourceType.USER_DEFINED);
-			symbol = toSymbolTable.getLibrarySymbol(name);
+			Library newLib = extMgr.addExternalLibraryName(name, source);
+			symbol = newLib.getSymbol();
+			if (ordinal >= 0) {
+				extMgr.setLibraryOrdinal(name, ordinal);
+			}
+			if (path != null) {
+				extMgr.setExternalPath(name, path, source == SourceType.USER_DEFINED);
+			}
 		}
 		else if (type == SymbolType.FUNCTION) {
 			FunctionManager fromFunctionMgr = fromProgram.getFunctionManager();
@@ -259,7 +268,7 @@ class SymbolMerge {
 	 * parent namespace path. The primary symbol will be get set to the symbol that was primary in
 	 * the source program.
 	 *
-	 * @param address the program address where the symbols are being replaced.
+	 * @param fromAddress the program address where the symbols are being replaced.
 	 * This address should be derived from the "to" program.
 	 * @param conflictSymbolIDMap maps the symbol IDs in the "from" program to the symbol IDs
 	 * in the "to" program for any symbols (and their associated objects) that were created
@@ -267,33 +276,32 @@ class SymbolMerge {
 	 * (key = "from" program's symbol ID; value = "to" program's symbol ID)
 	 * @param monitor the task monitor for updating user progress and allowing cancelling.
 	 *
-	 * @return a map of symbols that were created as conflicts during the replace. These map symbols
-	 * in the source program to a symbol with another name due to a duplicate symbol problem.
-	 * (key = "from" program's symbol; value = "to" program's symbol)
-	 *
 	 * @throws CancelledException if the task monitor is cancelled.
 	 * @throws DuplicateNameException if the name space can't be resolved due
 	 * to a name conflict that can't be dealt with.
 	 * @throws InvalidInputException
 	 * the indicated address.
 	 */
-	void replaceSymbols(Address address, LongLongHashtable conflictSymbolIDMap, TaskMonitor monitor)
+	void replaceSymbols(Address fromAddress, LongLongHashtable conflictSymbolIDMap,
+			TaskMonitor monitor)
 			throws CancelledException, DuplicateNameException, InvalidInputException {
 
-		removeUniqueToSymbols(address, monitor);
-		replaceFunctionSymbol(address, address, conflictSymbolIDMap, monitor);
-		addFromSymbols(address, true, conflictSymbolIDMap, monitor);
+		Address toAddress = originToResultTranslator.getAddress(fromAddress);
 
-		replacePrimary(address, conflictSymbolIDMap);
+		removeUniqueToSymbols(toAddress, monitor);
+		replaceFunctionSymbol(fromAddress, toAddress, conflictSymbolIDMap, monitor);
+		addFromSymbols(fromAddress, true, conflictSymbolIDMap, monitor);
+
+		replacePrimary(fromAddress, conflictSymbolIDMap);
 
 		// Remove this address as an entry point if its not one in program2.
-		if (toSymbolTable.isExternalEntryPoint(address) &&
-			!fromSymbolTable.isExternalEntryPoint(address)) {
-			toSymbolTable.removeExternalEntryPoint(address);
+		if (toSymbolTable.isExternalEntryPoint(toAddress) &&
+			!fromSymbolTable.isExternalEntryPoint(fromAddress)) {
+			toSymbolTable.removeExternalEntryPoint(toAddress);
 		}
-		else if (fromSymbolTable.isExternalEntryPoint(address) &&
-			!toSymbolTable.isExternalEntryPoint(address)) {
-			toSymbolTable.addExternalEntryPoint(address);
+		else if (fromSymbolTable.isExternalEntryPoint(toAddress) &&
+			!toSymbolTable.isExternalEntryPoint(toAddress)) {
+			toSymbolTable.addExternalEntryPoint(toAddress);
 		}
 	}
 
@@ -304,15 +312,14 @@ class SymbolMerge {
 	 * not be removed at the address even if it is different. Otherwise, the
 	 * function would inadvertently get removed.
 	 *
-	 * @param address the program address where the symbols are being replaced.
+	 * @param toAddress the program address where the symbols are being replaced.
 	 * This address should be derived from the "to" program.
 	 * @param monitor the task monitor for updating user progress and allowing cancelling.
 	 *
 	 * @throws CancelledException if the task monitor is cancelled.
 	 */
-	private void removeUniqueToSymbols(Address fromAddress, TaskMonitor monitor)
+	private void removeUniqueToSymbols(Address toAddress, TaskMonitor monitor)
 			throws CancelledException {
-		Address toAddress = originToResultTranslator.getAddress(fromAddress);
 		Symbol[] toSymbols = toSymbolTable.getUserSymbols(toAddress);
 		for (Symbol toSymbol : toSymbols) {
 			Symbol fromSymbol = SimpleDiffUtility.getSymbol(toSymbol, fromProgram);
@@ -331,7 +338,7 @@ class SymbolMerge {
 			if (toNamespace != expectedToNamespace) {
 				toSymbolTable.removeSymbolSpecial(toSymbol);
 			}
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 		}
 	}
 
@@ -349,10 +356,6 @@ class SymbolMerge {
 	 * (key = "from" program's symbol ID; value = "to" program's symbol ID)
 	 * @param monitor the task monitor for updating user progress and allowing cancelling.
 	 *
-	 * @return an array of <code>SymbolTranslators</code> for symbols that ended up with different
-	 * pathnames in the destination program than they had in the source program. These map symbols
-	 * in the source program to a symbol with another name due to a duplicate symbol problem.
-	 *
 	 * @throws CancelledException if the task monitor is canceled.
 	 * @throws DuplicateNameException if a symbol couldn't be added due
 	 * to a name conflict that can't be dealt with.
@@ -365,7 +368,7 @@ class SymbolMerge {
 		Address toAddress = originToResultTranslator.getAddress(fromAddress);
 		Symbol[] fromSymbols = fromSymbolTable.getUserSymbols(fromAddress);
 		for (Symbol fromSymbol : fromSymbols) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			if (fromSymbol.getSymbolType().equals(SymbolType.FUNCTION)) {
 				continue; // handle function symbols separately
 			}
@@ -391,8 +394,8 @@ class SymbolMerge {
 			if (replace && toSymbol.isPinned() != pinned) {
 				toSymbol.setPinned(pinned);
 			}
-//			String fromComment = fromSymbol.getSymbolData3();
-//			String toComment = toSymbol.getSymbolData3();
+//			String fromComment = fromSymbol.getSymbolStringData();
+//			String toComment = toSymbol.getSymbolStringData();
 //			if (!SystemUtilities.isEqual(fromComment, toComment)) {
 //				String newComment;
 //				if (replace) {
@@ -401,7 +404,7 @@ class SymbolMerge {
 //				else {
 //					newComment = StringUtilities.mergeStrings(fromComment, toComment);
 //				}
-//				toSymbol.setSymbolData3(newComment);
+//				toSymbol.setSymbolStringData(newComment);
 //			}
 		}
 	}
@@ -459,8 +462,10 @@ class SymbolMerge {
 
 		Symbol fromSymbol = fromFunc.getSymbol();
 		SourceType fromSource = fromSymbol.getSource();
+		boolean isFromDefaultThunk = FunctionMerge.isDefaultThunk(fromFunc);
 		String fromName = fromSymbol.getName();
-		Namespace fromNamespace = fromSymbol.getParentNamespace();
+		Namespace fromNamespace = // default thunks will lie about their namespace
+			isFromDefaultThunk ? fromProgram.getGlobalNamespace() : fromSymbol.getParentNamespace();
 
 		Symbol toSymbol;
 		if (toFunc == null) {
@@ -478,6 +483,7 @@ class SymbolMerge {
 		}
 		else {
 			toSymbol = toFunc.getSymbol();
+
 			// Replacing the function name.
 			if (toSymbol.equals(fromSymbol)) {
 				if (fromSource != SourceType.DEFAULT && toSymbol.getSource() != fromSource) {
@@ -494,18 +500,18 @@ class SymbolMerge {
 				}
 				return; // Symbols aren't different.
 			}
-			String toName = toSymbol.getName();
+
 			Namespace newToNamespace = resolveNamespace(fromNamespace, conflictSymbolIDMap);
-
-			if (!toName.equals(fromName)) {
-				toFunc.setName(fromName, fromSource);
-			}
-
 			try {
 				toFunc.setParentNamespace(newToNamespace);
 			}
 			catch (CircularDependencyException | InvalidInputException e) {
 				Msg.error(this, "Unexpected Exception: " + e.getMessage(), e);
+			}
+
+			String toName = toSymbol.getName();
+			if (toSymbol.getSource() != fromSource || !toName.equals(fromName)) {
+				toFunc.setName(fromName, fromSource);
 			}
 		}
 
@@ -545,43 +551,48 @@ class SymbolMerge {
 		if (fromFunc != null) {
 			Symbol fromSymbol = fromFunc.getSymbol();
 			String fromName = fromSymbol.getName();
-			boolean fromDefault =
-				fromName.equals(SymbolUtilities.getDefaultFunctionName(fromEntryPoint));
-			Namespace fromNamespace = fromSymbol.getParentNamespace();
+			boolean fromDefault = fromSymbol.getSource() == SourceType.DEFAULT;
+			boolean isFromDefaultThunk = FunctionMerge.isDefaultThunk(fromFunc);
+			Namespace fromNamespace = // default thunks will lie about their namespace
+				isFromDefaultThunk ? fromProgram.getGlobalNamespace()
+						: fromSymbol.getParentNamespace();
+
 			Namespace resolveNamespace = resolveNamespace(fromNamespace, conflictSymbolIDMap);
 			if ((toFunc != null) && replacePrimary && !fromDefault) {
 				// Save "to" function name and namespace.
 				String toName = toFunc.getName();
+				SourceType toSource = toFunc.getSymbol().getSource();
+				boolean toDefault = toSource == SourceType.DEFAULT;
 				Namespace toNamespace = toFunc.getParentNamespace();
-				SourceType source = toFunc.getSymbol().getSource();
+
 				// Merging function name into function as primary.
 				replaceFunctionSymbol(fromEntryPoint, toEntryPoint, conflictSymbolIDMap, monitor);
-				if (!toName.equals(fromName) &&
-					!toName.equals(SymbolUtilities.getDefaultFunctionName(toEntryPoint))) {
+				if (!toDefault && !toName.equals(fromName)) {
 					// Merge "to" function name and namespace as label.
-					addFunctionAsLabel(toEntryPoint, conflictSymbolIDMap, toSymTab, source, toName,
-						toNamespace, -1L);
+					addFunctionAsLabel(toEntryPoint, conflictSymbolIDMap, toSymTab, toSource,
+						toName, toNamespace, -1L);
 				}
 			}
-			else {
-				if (toFunc != null) {
-					if (toFunc.getName()
-						.equals(SymbolUtilities.getDefaultFunctionName(toEntryPoint))) {
-						// Default "to" function so replace
-						replaceFunctionSymbol(fromEntryPoint, toEntryPoint, conflictSymbolIDMap,
-							monitor);
-					}
-					else if (!fromDefault) {
-						// No "to" function or not merging primary.
-						addFunctionAsLabel(toEntryPoint, conflictSymbolIDMap, toSymTab,
-							fromSymbol.getSource(), fromName, resolveNamespace, fromSymbol.getID());
-					}
+			else if (toFunc != null) {
+				if (isFromDefaultThunk && FunctionMerge.isDefaultThunk(toFunc)) {
+					return;
 				}
-				else {
+
+				if (toFunc.getSymbol().getSource() == SourceType.DEFAULT) {
+					// Default "to" function so replace
+					replaceFunctionSymbol(fromEntryPoint, toEntryPoint, conflictSymbolIDMap,
+						monitor);
+				}
+				else if (!fromDefault) {
 					// No "to" function or not merging primary.
 					addFunctionAsLabel(toEntryPoint, conflictSymbolIDMap, toSymTab,
 						fromSymbol.getSource(), fromName, resolveNamespace, fromSymbol.getID());
 				}
+			}
+			else if (!isFromDefaultThunk) {
+				// No "to" function or not merging primary.
+				addFunctionAsLabel(toEntryPoint, conflictSymbolIDMap, toSymTab,
+					fromSymbol.getSource(), fromName, resolveNamespace, fromSymbol.getID());
 			}
 		}
 	}
@@ -619,6 +630,7 @@ class SymbolMerge {
 	 * @param setting indicates whether to replace or merge the symbols.
 	 * @param replacePrimary true indicates that the primary symbol in the "to" program should be
 	 * set to the same symbol as was primary in the "from" program.
+	 * @param replaceFunction replace function if true
 	 * @param conflictSymbolIDMap maps the symbol IDs in the "from" program to the symbol IDs
 	 * in the "to" program for any symbols (and their associated objects) that were created
 	 * with conflict names.
@@ -706,7 +718,6 @@ class SymbolMerge {
 	 * with conflict names.
 	 * (key = "from" program's symbol ID; value = "to" program's symbol ID)
 	 * @param monitor the task monitor for notifying the user of this merge's progress.
-	 * @return the symbol now at the address in the toSymbolTable.
 	 *
 	 * @throws CancelledException if user cancels via the monitor.
 	 * @throws InvalidInputException if a symbol name from the second program isn't valid
@@ -735,16 +746,16 @@ class SymbolMerge {
 
 	/**
 	 *
-	 * @param address
+	 * @param fromAddress
 	 * This address should be derived from the "to" program.
 	 * @param conflictSymbolIDMap maps the symbol IDs in the "from" program to the symbol IDs
 	 * in the "to" program for any symbols (and their associated objects) that were created
 	 * with conflict names.
 	 * (key = "from" program's symbol ID; value = "to" program's symbol ID)
 	 */
-	private void replacePrimary(Address address, LongLongHashtable conflictSymbolIDMap) {
+	private void replacePrimary(Address fromAddress, LongLongHashtable conflictSymbolIDMap) {
 		// Set the primary symbol.
-		Symbol fromPrimary = fromSymbolTable.getPrimarySymbol(address);
+		Symbol fromPrimary = fromSymbolTable.getPrimarySymbol(fromAddress);
 		if (fromPrimary != null) {
 			Symbol newToPrimary = null;
 			try {

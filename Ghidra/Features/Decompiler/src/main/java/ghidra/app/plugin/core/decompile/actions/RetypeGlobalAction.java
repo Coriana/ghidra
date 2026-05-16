@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,13 +15,14 @@
  */
 package ghidra.app.plugin.core.decompile.actions;
 
-import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 
+import docking.DockingUtils;
 import docking.action.KeyBindingData;
 import docking.action.MenuData;
 import ghidra.app.decompiler.*;
 import ghidra.app.plugin.core.decompile.DecompilerActionContext;
+import ghidra.app.util.HelpTopics;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.DataTypeManager;
@@ -30,8 +31,7 @@ import ghidra.program.model.listing.Program;
 import ghidra.program.model.pcode.HighFunctionDBUtil;
 import ghidra.program.model.pcode.HighSymbol;
 import ghidra.program.model.symbol.SourceType;
-import ghidra.util.Msg;
-import ghidra.util.UndefinedFunction;
+import ghidra.util.*;
 import ghidra.util.exception.*;
 
 /**
@@ -46,8 +46,10 @@ public class RetypeGlobalAction extends AbstractDecompilerAction {
 
 	public RetypeGlobalAction() {
 		super("Retype Global");
+		setHelpLocation(new HelpLocation(HelpTopics.DECOMPILER, "ActionRetypeGlobal"));
 		setPopupMenuData(new MenuData(new String[] { "Retype Global" }, "Decompile"));
-		setKeyBindingData(new KeyBindingData(KeyEvent.VK_L, InputEvent.CTRL_DOWN_MASK));
+		setKeyBindingData(
+			new KeyBindingData(KeyEvent.VK_L, DockingUtils.CONTROL_KEY_MODIFIER_MASK));
 	}
 
 	@Override
@@ -70,7 +72,7 @@ public class RetypeGlobalAction extends AbstractDecompilerAction {
 		if (!tokenAtCursor.isVariableRef()) {
 			return false;
 		}
-		HighSymbol highSymbol = findHighSymbolFromToken(tokenAtCursor, context.getHighFunction());
+		HighSymbol highSymbol = tokenAtCursor.getHighSymbol(context.getHighFunction());
 		if (highSymbol == null) {
 			return false;
 		}
@@ -84,7 +86,7 @@ public class RetypeGlobalAction extends AbstractDecompilerAction {
 		ClangToken tokenAtCursor = context.getTokenAtCursor();
 
 		DataType dataType = null;
-		HighSymbol highSymbol = findHighSymbolFromToken(tokenAtCursor, context.getHighFunction());
+		HighSymbol highSymbol = tokenAtCursor.getHighSymbol(context.getHighFunction());
 		if (highSymbol == null) {
 			return;
 		}

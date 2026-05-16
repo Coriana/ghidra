@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,16 +17,16 @@ package ghidra.app.plugin.core.data;
 
 import javax.swing.KeyStroke;
 
-import docking.ActionContext;
-import docking.action.*;
+import docking.action.KeyBindingData;
+import docking.action.KeyBindingType;
 import ghidra.app.cmd.data.*;
 import ghidra.app.context.ListingActionContext;
+import ghidra.app.context.ListingContextAction;
 import ghidra.framework.cmd.BackgroundCommand;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.CycleGroup;
 import ghidra.program.model.data.DataType;
-import ghidra.program.model.listing.Data;
-import ghidra.program.model.listing.Listing;
+import ghidra.program.model.listing.*;
 import ghidra.program.util.*;
 import ghidra.util.Msg;
 
@@ -34,7 +34,7 @@ import ghidra.util.Msg;
  * <code>CycleGroupAction</code> cycles data through a series of data types
  * defined by a <code>CycleGroup</code>.
  */
-public class CycleGroupAction extends DockingAction {
+public class CycleGroupAction extends ListingContextAction {
 
 	private DataPlugin plugin;
 	private CycleGroup cycleGroup;
@@ -63,26 +63,13 @@ public class CycleGroupAction extends DockingAction {
 	}
 
 	@Override
-	public boolean isEnabledForContext(ActionContext context) {
-		Object contextObject = context.getContextObject();
-		if (contextObject instanceof ListingActionContext) {
-			return plugin.isCreateDataAllowed((ListingActionContext) contextObject);
-		}
-		return false;
+	protected boolean isEnabledForContext(ListingActionContext context) {
+		return plugin.isCreateDataAllowed(context);
 	}
 
 	@Override
-	public void actionPerformed(ActionContext context) {
-
-		if (context != null) {
-			Object contextObject = context.getContextObject();
-
-			if (contextObject instanceof ListingActionContext) {
-				ListingActionContext programContextObject = (ListingActionContext) contextObject;
-				cycleData(programContextObject);
-				return;
-			}
-		}
+	protected void actionPerformed(ListingActionContext context) {
+		cycleData(context);
 	}
 
 	/**
@@ -95,7 +82,7 @@ public class CycleGroupAction extends DockingAction {
 
 		// Handle selection case
 		if (selection != null && !selection.isEmpty()) {
-			BackgroundCommand cmd = null;
+			BackgroundCommand<Program> cmd = null;
 			DataType dt = null;
 			Address addr = selection.getMinAddress();
 			Data data = listing.getDataContaining(addr);

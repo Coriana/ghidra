@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,6 +15,8 @@
  */
 #include "funcdata.hh"
 #include "flow.hh"
+
+namespace ghidra {
 
 // Funcdata members pertaining directly to ops
 
@@ -219,6 +221,31 @@ void Funcdata::opDestroy(PcodeOp *op)
   }
 }
 
+/// The given PcodeOp is always removed.  PcodeOps are recursively removed, if the only data-flow
+/// path of their output is to the given op, and they are not a CALL or are otherwise special.
+/// \param op is the given PcodeOp to remove
+/// \param scratch is scratch space for holding PcodeOps being examined
+void Funcdata::opDestroyRecursive(PcodeOp *op,vector<PcodeOp *> &scratch)
+
+{
+  scratch.clear();
+  scratch.push_back(op);
+  int4 pos = 0;
+  while(pos < scratch.size()) {
+    op = scratch[pos];
+    pos += 1;
+    for(int4 i=0;i<op->numInput();++i) {
+      Varnode *vn = op->getIn(i);
+      if (!vn->isWritten() || vn->isAutoLive()) continue;
+      if (vn->loneDescend() == (PcodeOp *)0) continue;
+      PcodeOp *defOp = vn->getDef();
+      if (defOp->isCall() || defOp->isIndirectSource()) continue;
+      scratch.push_back(defOp);
+    }
+    opDestroy(op);
+  }
+}
+
 /// This is a specialized routine for deleting an op during flow generation that has
 /// been replaced by something else.  The op is expected to be \e dead with none of its inputs
 /// or outputs linked to anything else.  Both the PcodeOp and all the input/output Varnodes are destroyed.
@@ -349,8 +376,11 @@ void Funcdata::opInsertAfter(PcodeOp *op,PcodeOp *prev)
   if (prev->isMarker()) {
     if (prev->code() == CPUI_INDIRECT) {
       Varnode *invn = prev->getIn(1);
-      if (invn->getSpace()->getType()==IPTR_IOP)
-	prev = PcodeOp::getOpFromConst(invn->getAddr()); // Store or call
+      if (invn->getSpace()->getType()==IPTR_IOP) {
+	PcodeOp *targOp = PcodeOp::getOpFromConst(invn->getAddr()); // Store or call
+	if (!targOp->isDead())
+	  prev = targOp;
+      }
     }
   }
   list<PcodeOp *>::iterator iter = prev->getBasicIter();
@@ -521,6 +551,26 @@ Varnode *Funcdata::opStackLoad(AddrSpace *spc,uintb off,uint4 sz,PcodeOp *op,Var
     return res;
 }
 
+/// \brief Construct the boolean negation of a given boolean Varnode into a temporary register
+///
+/// \param vn is the given Varnode
+/// \param op is the point at which to insert the BOOL_NEGATE op
+/// \param insertafter is \b true if the BOOL_NEGATE is inserted after, otherwise its inserted before
+/// \return the result Varnode
+Varnode *Funcdata::opBoolNegate(Varnode *vn,PcodeOp *op,bool insertafter)
+
+{
+  PcodeOp *negateop = newOp(1,op->getAddr());
+  opSetOpcode(negateop,CPUI_BOOL_NEGATE);
+  Varnode *resvn = newUniqueOut(1,negateop);
+  opSetInput(negateop,vn,0);
+  if (insertafter)
+    opInsertAfter(negateop,op);
+  else
+    opInsertBefore(negateop,op);
+  return resvn;
+}
+
 /// Convert the given CPUI_PTRADD into the equivalent CPUI_INT_ADD.  This may involve inserting a
 /// CPUI_INT_MULT PcodeOp. If finalization is requested and a new PcodeOp is needed, the output
 /// Varnode is marked as \e implicit and has its data-type set
@@ -541,7 +591,7 @@ void Funcdata::opUndoPtradd(PcodeOp *op,bool finalize)
     newVal &= calc_mask(offVn->getSize());
     Varnode *newOffVn = newConstant(offVn->getSize(), newVal);
     if (finalize)
-      newOffVn->updateType(offVn->getType(), false, false);
+      newOffVn->updateType(offVn->getTypeReadFacing(op));
     opSetInput(op,newOffVn,1);
     return;
   }
@@ -549,7 +599,7 @@ void Funcdata::opUndoPtradd(PcodeOp *op,bool finalize)
   opSetOpcode(multOp,CPUI_INT_MULT);
   Varnode *addVn = newUniqueOut(offVn->getSize(),multOp);
   if (finalize) {
-    addVn->updateType(multVn->getType(), false, false);
+    addVn->updateType(multVn->getType());
     addVn->setImplied();
   }
   opSetInput(multOp,offVn,0);
@@ -568,8 +618,8 @@ PcodeOp *Funcdata::cloneOp(const PcodeOp *op,const SeqNum &seq)
 {
   PcodeOp *newop = newOp(op->numInput(),seq);
   opSetOpcode(newop,op->code());
-  uint4 flags = op->flags & (PcodeOp::startmark | PcodeOp::startbasic);
-  newop->setFlag(flags);
+  uint4 fl = op->flags & (PcodeOp::startmark | PcodeOp::startbasic);
+  newop->setFlag(fl);
   if (op->getOut() != (Varnode *)0)
     opSetOutput(newop,cloneVarnode(op->getOut()));
   for(int4 i=0;i<op->numInput();++i)
@@ -607,15 +657,15 @@ PcodeOp *Funcdata::newOpBefore(PcodeOp *follow,OpCode opc,Varnode *in1,Varnode *
 
 {
   PcodeOp *newop;
-  int4 size;
+  int4 sz;
 
-  size = (in3 == (Varnode *)0) ? 2 : 3;
-  newop = newOp(size,follow->getAddr());
+  sz = (in3 == (Varnode *)0) ? 2 : 3;
+  newop = newOp(sz,follow->getAddr());
   opSetOpcode(newop,opc);
   newUniqueOut(in1->getSize(),newop);
   opSetInput(newop,in1,0);
   opSetInput(newop,in2,1);
-  if (size==3)
+  if (sz==3)
     opSetInput(newop,in3,2);
   opInsertBefore(newop,follow);
   return newop;
@@ -627,19 +677,19 @@ PcodeOp *Funcdata::newOpBefore(PcodeOp *follow,OpCode opc,Varnode *in1,Varnode *
 /// through a CALL or STORE. An output Varnode is automatically created.
 /// \param indeffect is the PcodeOp with the indirect effect
 /// \param addr is the starting address of the storage range to protect
-/// \param size is the number of bytes in the storage range
+/// \param sz is the number of bytes in the storage range
 /// \param extraFlags are extra boolean properties to put on the INDIRECT
 /// \return the new CPUI_INDIRECT op
-PcodeOp *Funcdata::newIndirectOp(PcodeOp *indeffect,const Address &addr,int4 size,uint4 extraFlags)
+PcodeOp *Funcdata::newIndirectOp(PcodeOp *indeffect,const Address &addr,int4 sz,uint4 extraFlags)
 
 {
   Varnode *newin;
   PcodeOp *newop;
 
-  newin = newVarnode(size,addr);
+  newin = newVarnode(sz,addr);
   newop = newOp(2,indeffect->getAddr());
   newop->flags |= extraFlags;
-  newVarnodeOut(size,addr,newop);
+  newVarnodeOut(sz,addr,newop);
   opSetOpcode(newop,CPUI_INDIRECT);
   opSetInput(newop,newin,0);
   opSetInput(newop,newVarnodeIop(indeffect),1);
@@ -654,19 +704,19 @@ PcodeOp *Funcdata::newIndirectOp(PcodeOp *indeffect,const Address &addr,int4 siz
 /// The new Varnode is allocated with a given storage range.
 /// \param indeffect is the p-code causing the indirect effect
 /// \param addr is the starting address of the given storage range
-/// \param size is the number of bytes in the storage range
+/// \param sz is the number of bytes in the storage range
 /// \param possibleout is \b true if the output should be treated as a \e directwrite.
 /// \return the new CPUI_INDIRECT op
-PcodeOp *Funcdata::newIndirectCreation(PcodeOp *indeffect,const Address &addr,int4 size,bool possibleout)
+PcodeOp *Funcdata::newIndirectCreation(PcodeOp *indeffect,const Address &addr,int4 sz,bool possibleout)
 
 {
   Varnode *newout,*newin;
   PcodeOp *newop;
 
-  newin = newConstant(size,0);
+  newin = newConstant(sz,0);
   newop = newOp(2,indeffect->getAddr());
   newop->flags |= PcodeOp::indirect_creation;
-  newout = newVarnodeOut(size,addr,newop);
+  newout = newVarnodeOut(sz,addr,newop);
   if (!possibleout)
     newin->flags |= Varnode::indirect_creation;
   newout->flags |= Varnode::indirect_creation;
@@ -799,8 +849,8 @@ void Funcdata::truncatedFlow(const Funcdata *fd,const FlowInfo *flow)
 /// \param inlinefd is the function to in-line
 /// \param flow is the flow object being injected
 /// \param callop is the site of the injection
-/// \return \b true if the injection was successful
-bool Funcdata::inlineFlow(Funcdata *inlinefd,FlowInfo &flow,PcodeOp *callop)
+/// \return 0 for a successful inlining with the easy model, 1 for the hard model, -1 if inlining was not successful
+int4 Funcdata::inlineFlow(Funcdata *inlinefd,FlowInfo &flow,PcodeOp *callop)
 
 {
   inlinefd->getArch()->clearAnalysis(inlinefd);
@@ -816,7 +866,9 @@ bool Funcdata::inlineFlow(Funcdata *inlinefd,FlowInfo &flow,PcodeOp *callop)
   inlineflow.forwardRecursion(flow);
   inlineflow.generateOps();
 
+  int4 res;
   if (inlineflow.checkEZModel()) {
+    res = 0;
     // With an EZ clone there are no jumptables to clone
     list<PcodeOp *>::const_iterator oiter = obank.endDead();
     --oiter;			// There is at least one op
@@ -828,8 +880,10 @@ bool Funcdata::inlineFlow(Funcdata *inlinefd,FlowInfo &flow,PcodeOp *callop)
       --oiter;
       PcodeOp *lastop = *oiter;
       obank.moveSequenceDead(firstop,lastop,callop); // Move cloned sequence to right after callop
-      if (callop->isBlockStart())
+      if (callop->isBlockStart()) {
 	firstop->setFlag(PcodeOp::startbasic); // First op of inline inherits callop's startbasic flag
+	flow.updateTarget(callop, firstop);
+      }
       else
 	firstop->clearFlag(PcodeOp::startbasic);
     }
@@ -838,7 +892,8 @@ bool Funcdata::inlineFlow(Funcdata *inlinefd,FlowInfo &flow,PcodeOp *callop)
   else {
     Address retaddr;
     if (!flow.testHardInlineRestrictions(inlinefd,callop,retaddr))
-      return false;
+      return -1;
+    res = 1;
     vector<JumpTable *>::const_iterator jiter; // Clone any jumptables from inline piece
     for(jiter=inlinefd->jumpvec.begin();jiter!=inlinefd->jumpvec.end();++jiter) {
       JumpTable *jtclone = new JumpTable(*jiter);
@@ -857,7 +912,7 @@ bool Funcdata::inlineFlow(Funcdata *inlinefd,FlowInfo &flow,PcodeOp *callop)
 
   obank.setUniqId( inlinefd->obank.getUniqId() );
   
-  return true;
+  return res;
 }
 
 /// \brief Find the primary branch operation for an instruction
@@ -923,7 +978,7 @@ void Funcdata::overrideFlow(const Address &addr,uint4 type)
   else if (type == Override::CALL)
     op = findPrimaryBranch(iter,enditer,true,false,true);
   else if (type == Override::CALL_RETURN)
-    op = findPrimaryBranch(iter,enditer,true,false,true);
+    op = findPrimaryBranch(iter,enditer,true,true,true);
   else if (type == Override::RETURN)
     op = findPrimaryBranch(iter,enditer,true,true,false);
 
@@ -976,7 +1031,8 @@ bool Funcdata::replaceLessequal(PcodeOp *op)
 {
   Varnode *vn;
   int4 i;
-  intb val,diff;
+  uintb val;
+  intb diff;
   
   if ((vn=op->getIn(0))->isConstant()) {
     diff = -1;
@@ -989,16 +1045,16 @@ bool Funcdata::replaceLessequal(PcodeOp *op)
   else
     return false;
 
-  val = vn->getOffset();	// Treat this as signed value
-  sign_extend(val,8*vn->getSize()-1);
+  val = vn->getOffset();
   if (op->code() == CPUI_INT_SLESSEQUAL) {
-    if ((val<0)&&(val+diff>0)) return false; // Check for sign overflow
-    if ((val>0)&&(val+diff<0)) return false;
+    // Check for signed overflow
+    if ((diff == -1) && (val == calc_int_min(vn->getSize()))) return false;
+    if ((diff ==  1) && (val == calc_int_max(vn->getSize()))) return false;
     opSetOpcode(op,CPUI_INT_SLESS);
   }
   else {			// Check for unsigned overflow
-    if ((diff==-1)&&(val==0)) return false;
-    if ((diff==1)&&(val==-1)) return false;
+    if ((diff == -1) && (val == 0)) return false;
+    if ((diff ==  1) && (val == calc_uint_max(vn->getSize()))) return false;
     opSetOpcode(op,CPUI_INT_LESS);
   }
   uintb res = (val+diff) & calc_mask(vn->getSize());
@@ -1024,34 +1080,34 @@ bool Funcdata::distributeIntMultAdd(PcodeOp *op)
   if ((vn0->isFree())&&(!vn0->isConstant())) return false;
   if ((vn1->isFree())&&(!vn1->isConstant())) return false;
   uintb coeff = op->getIn(1)->getOffset();
-  int4 size = op->getOut()->getSize();
+  int4 sz = op->getOut()->getSize();
 				// Do distribution
   if (vn0->isConstant()) {
     uintb val = coeff * vn0->getOffset();
-    val &= calc_mask(size);
-    newvn0 = newConstant(size,val);
+    val &= calc_mask(sz);
+    newvn0 = newConstant(sz,val);
   }
   else {
     PcodeOp *newop0 = newOp(2,op->getAddr());
     opSetOpcode(newop0,CPUI_INT_MULT);
-    newvn0 = newUniqueOut(size,newop0);
+    newvn0 = newUniqueOut(sz,newop0);
     opSetInput(newop0, vn0, 0); // To first input of original add
-    Varnode *newcvn = newConstant(size,coeff);
+    Varnode *newcvn = newConstant(sz,coeff);
     opSetInput(newop0, newcvn, 1);
     opInsertBefore(newop0, op);
   }
 
   if (vn1->isConstant()) {
     uintb val = coeff * vn1->getOffset();
-    val &= calc_mask(size);
-    newvn1 = newConstant(size,val);
+    val &= calc_mask(sz);
+    newvn1 = newConstant(sz,val);
   }
   else {
     PcodeOp *newop1 = newOp(2,op->getAddr());
     opSetOpcode(newop1,CPUI_INT_MULT);
-    newvn1 = newUniqueOut(size,newop1);
+    newvn1 = newUniqueOut(sz,newop1);
     opSetInput(newop1, vn1, 0); // To second input of original add
-    Varnode *newcvn = newConstant(size,coeff);
+    Varnode *newcvn = newConstant(sz,coeff);
     opSetInput(newop1, newcvn, 1);
     opInsertBefore(newop1, op);
   }
@@ -1088,12 +1144,72 @@ bool Funcdata::collapseIntMultMult(Varnode *vn)
   if (!constVnSecond->isConstant()) return false;
   Varnode *invn = otherMultOp->getIn(0);
   if (invn->isFree()) return false;
-  int4 size = invn->getSize();
-  uintb val = (constVnFirst->getOffset() * constVnSecond->getOffset()) & calc_mask(size);
-  Varnode *newvn = newConstant(size,val);
+  int4 sz = invn->getSize();
+  uintb val = (constVnFirst->getOffset() * constVnSecond->getOffset()) & calc_mask(sz);
+  Varnode *newvn = newConstant(sz,val);
   opSetInput(op,newvn,1);
   opSetInput(op,invn,0);
   return true;
+}
+
+/// Return a Varnode in the \e unique space that is defined by a COPY op taking the given Varnode as input.
+/// If a COPY op to a \e unique already exists, it may be returned. If the preexisting COPY is not usable
+/// at the specified \b point, it is redefined at an earlier point in the control-flow so that it can be used.
+/// \param vn is the given Varnode to COPY
+/// \param point is the PcodeOp where the copy needs to be available
+/// \return the \e unique Varnode COPY
+Varnode *Funcdata::buildCopyTemp(Varnode *vn,PcodeOp *point)
+
+{
+  PcodeOp *otherOp = (PcodeOp *)0;
+  PcodeOp *usedCopy = (PcodeOp *)0;
+  list<PcodeOp *>::const_iterator iter;
+  for(iter=vn->beginDescend();iter!=vn->endDescend();++iter) {
+    PcodeOp *op = *iter;
+    if (op->code() != CPUI_COPY) continue;
+    Varnode *outvn = op->getOut();
+    if (outvn->getSpace()->getType() == IPTR_INTERNAL) {
+      if (outvn->isTypeLock())
+	continue;
+      otherOp = op;
+      break;
+    }
+  }
+  if (otherOp != (PcodeOp *)0) {
+    if (point->getParent() == otherOp->getParent()) {
+      if (point->getSeqNum().getOrder() < otherOp->getSeqNum().getOrder())
+	usedCopy = (PcodeOp *)0;
+      else
+	usedCopy = otherOp;
+    }
+    else {
+      BlockBasic *common;
+      common = (BlockBasic *)FlowBlock::findCommonBlock(point->getParent(),otherOp->getParent());
+      if (common == point->getParent())
+	usedCopy = (PcodeOp *)0;
+      else if (common == otherOp->getParent())
+	usedCopy = otherOp;
+      else {			// Neither op is ancestor of the other
+	usedCopy = newOp(1,common->getStop());
+	opSetOpcode(usedCopy,CPUI_COPY);
+	newUniqueOut(vn->getSize(),usedCopy);
+	opSetInput(usedCopy,vn,0);
+	opInsertEnd(usedCopy,common);
+      }
+    }
+  }
+  if (usedCopy == (PcodeOp *)0) {
+    usedCopy = newOp(1,point->getAddr());
+    opSetOpcode(usedCopy, CPUI_COPY);
+    newUniqueOut(vn->getSize(), usedCopy);
+    opSetInput(usedCopy, vn, 0);
+    opInsertBefore(usedCopy, point);
+  }
+  if (otherOp != (PcodeOp *)0 && otherOp != usedCopy) {
+    totalReplace(otherOp->getOut(),usedCopy->getOut());
+    opDestroy(otherOp);
+  }
+  return usedCopy->getOut();
 }
 
 /// \brief Trace a boolean value to a set of PcodeOps that can be changed to flip the boolean value
@@ -1104,7 +1220,7 @@ bool Funcdata::collapseIntMultMult(Varnode *vn)
 /// \param op is the given PcodeOp
 /// \param fliplist is the array that will hold the ops to flip
 /// \return 0 if the change normalizes, 1 if the change is ambivalent, 2 if the change does not normalize
-int4 opFlipInPlaceTest(PcodeOp *op,vector<PcodeOp *> &fliplist)
+int4 Funcdata::opFlipInPlaceTest(PcodeOp *op,vector<PcodeOp *> &fliplist)
 
 {
   Varnode *vn;
@@ -1162,9 +1278,8 @@ int4 opFlipInPlaceTest(PcodeOp *op,vector<PcodeOp *> &fliplist)
 ///
 /// The precomputed list of PcodeOps have their op-codes modified to
 /// facilitate the flip.
-/// \param data is the function being modified
 /// \param fliplist is the list of PcodeOps to modify
-void opFlipInPlaceExecute(Funcdata &data,vector<PcodeOp *> &fliplist)
+void Funcdata::opFlipInPlaceExecute(vector<PcodeOp *> &fliplist)
 
 {
   Varnode *vn;
@@ -1176,51 +1291,27 @@ void opFlipInPlaceExecute(Funcdata &data,vector<PcodeOp *> &fliplist)
       vn = op->getIn(0);
       PcodeOp *otherop = op->getOut()->loneDescend(); // Must be a lone descendant
       int4 slot = otherop->getSlot(op->getOut());
-      data.opSetInput(otherop,vn,slot);	// Propagate -vn- into otherop
-      data.opDestroy(op);
+      opSetInput(otherop,vn,slot);	// Propagate -vn- into otherop
+      opDestroy(op);
     }
     else if (opc == CPUI_MAX) {
       if (op->code() == CPUI_BOOL_AND)
-	data.opSetOpcode(op,CPUI_BOOL_OR);
+	opSetOpcode(op,CPUI_BOOL_OR);
       else if (op->code() == CPUI_BOOL_OR)
-	data.opSetOpcode(op,CPUI_BOOL_AND);
+	opSetOpcode(op,CPUI_BOOL_AND);
       else
 	throw LowlevelError("Bad flipInPlace op");
     }
     else {
-      data.opSetOpcode(op,opc);
+      opSetOpcode(op,opc);
       if (flipyes) {
-	data.opSwapInput(op,0,1);
+	opSwapInput(op,0,1);
 
 	if ((opc == CPUI_INT_LESSEQUAL)||(opc == CPUI_INT_SLESSEQUAL))
-	  data.replaceLessequal(op);
+	  replaceLessequal(op);
       }
     }
   }
-}
-
-/// \brief Get the earliest use/read of a Varnode in a specified basic block
-///
-/// \param vn is the Varnode to search for
-/// \param bl is the specified basic block in which to search
-/// \return the earliest PcodeOp reading the Varnode or NULL
-PcodeOp *earliestUseInBlock(Varnode *vn,BlockBasic *bl)
-
-{
-  list<PcodeOp *>::const_iterator iter;
-  PcodeOp *res = (PcodeOp *)0;
-
-  for(iter=vn->beginDescend();iter!=vn->endDescend();++iter) {
-    PcodeOp *op = *iter;
-    if (op->getParent() != bl) continue;
-    if (res == (PcodeOp *)0)
-      res = op;
-    else {
-      if (op->getSeqNum().getOrder() < res->getSeqNum().getOrder())
-	res = op;
-    }
-  }
-  return res;
 }
 
 /// \brief Find a duplicate calculation of a given PcodeOp reading a specific Varnode
@@ -1232,7 +1323,7 @@ PcodeOp *earliestUseInBlock(Varnode *vn,BlockBasic *bl)
 /// \param bl is the indicated basic block
 /// \param earliest is the specified op to be earlier than
 /// \return the discovered duplicate PcodeOp or NULL
-PcodeOp *cseFindInBlock(PcodeOp *op,Varnode *vn,BlockBasic *bl,PcodeOp *earliest)
+PcodeOp *Funcdata::cseFindInBlock(PcodeOp *op,Varnode *vn,BlockBasic *bl,PcodeOp *earliest)
 
 {
   list<PcodeOp *>::const_iterator iter;
@@ -1261,11 +1352,10 @@ PcodeOp *cseFindInBlock(PcodeOp *op,Varnode *vn,BlockBasic *bl,PcodeOp *earliest
 /// (depth 1 functional equivalence) eliminate the redundancy.  Return the remaining (dominating)
 /// PcodeOp. If neither op dominates the other, both are eliminated, and a new PcodeOp
 /// is built at a commonly accessible point.
-/// \param data is the function being modified
 /// \param op1 is the first of the given PcodeOps
 /// \param op2 is the second given PcodeOp
 /// \return the dominating PcodeOp
-PcodeOp *cseElimination(Funcdata &data,PcodeOp *op1,PcodeOp *op2)
+PcodeOp *Funcdata::cseElimination(PcodeOp *op1,PcodeOp *op2)
 
 {
   PcodeOp *replace;
@@ -1284,25 +1374,25 @@ PcodeOp *cseElimination(Funcdata &data,PcodeOp *op1,PcodeOp *op2)
     else if (common == op2->getParent())
       replace = op2;
     else {			// Neither op is ancestor of the other
-      replace = data.newOp(op1->numInput(),common->getStop());
-      data.opSetOpcode(replace,op1->code());
-      data.newVarnodeOut(op1->getOut()->getSize(),op1->getOut()->getAddr(),replace);
+      replace = newOp(op1->numInput(),common->getStop());
+      opSetOpcode(replace,op1->code());
+      newVarnodeOut(op1->getOut()->getSize(),op1->getOut()->getAddr(),replace);
       for(int4 i=0;i<op1->numInput();++i) {
 	if (op1->getIn(i)->isConstant())
-	  data.opSetInput(replace,data.newConstant(op1->getIn(i)->getSize(),op1->getIn(i)->getOffset()),i);
+	  opSetInput(replace,newConstant(op1->getIn(i)->getSize(),op1->getIn(i)->getOffset()),i);
 	else
-	  data.opSetInput(replace,op1->getIn(i),i);
+	  opSetInput(replace,op1->getIn(i),i);
       }
-      data.opInsertEnd(replace,common);
+      opInsertEnd(replace,common);
     }
   }
   if (replace != op1) {
-    data.totalReplace(op1->getOut(),replace->getOut());
-    data.opDestroy(op1);
+    totalReplace(op1->getOut(),replace->getOut());
+    opDestroy(op1);
   }
   if (replace != op2) {
-    data.totalReplace(op2->getOut(),replace->getOut());
-    data.opDestroy(op2);
+    totalReplace(op2->getOut(),replace->getOut());
+    opDestroy(op2);
   }
   return replace;
 }
@@ -1325,10 +1415,9 @@ static bool compareCseHash(const pair<uintm,PcodeOp *> &a,const pair<uintm,Pcode
 /// The hash serves as a primary test for duplicate calculations; if it doesn't match
 /// the PcodeOps aren't common subexpressions.  This method searches for hash matches
 /// then does secondary testing and eliminates any redundancy it finds.
-/// \param data is the function being modified
 /// \param list is the list of (hash, PcodeOp) pairs
 /// \param outlist will hold Varnodes produced by duplicate calculations
-void cseEliminateList(Funcdata &data,vector< pair<uintm,PcodeOp *> > &list,vector<Varnode *> &outlist)
+void Funcdata::cseEliminateList(vector< pair<uintm,PcodeOp *> > &list,vector<Varnode *> &outlist)
 
 {
   PcodeOp *op1,*op2,*resop;
@@ -1346,9 +1435,9 @@ void cseEliminateList(Funcdata &data,vector< pair<uintm,PcodeOp *> > &list,vecto
       if ((!op1->isDead())&&(!op2->isDead())&&op1->isCseMatch(op2)) {
 	Varnode *outvn1 = op1->getOut();
 	Varnode *outvn2 = op2->getOut();
-	if ((outvn1 == (Varnode *)0)||data.isHeritaged(outvn1)) {
-	  if ((outvn2 == (Varnode *)0)||data.isHeritaged(outvn2)) {
-	    resop = cseElimination(data,op1,op2);
+	if ((outvn1 == (Varnode *)0)||isHeritaged(outvn1)) {
+	  if ((outvn2 == (Varnode *)0)||isHeritaged(outvn2)) {
+	    resop = cseElimination(op1,op2);
 	    outlist.push_back(resop->getOut());
 	  }
 	}
@@ -1358,3 +1447,56 @@ void cseEliminateList(Funcdata &data,vector< pair<uintm,PcodeOp *> > &list,vecto
     liter2++;
   }
 }
+
+/// This routine should be called only after Varnode merging and explicit/implicit attributes have
+/// been calculated.  Determine if the given op can be moved (only within its basic block) to
+/// after \e lastOp.  The output of any PcodeOp moved across must not be involved, directly or
+/// indirectly, with any variable in the expression rooted at the given op.
+/// If the move is possible, perform the move.
+/// \param op is the given PcodeOp
+/// \param lastOp is the PcodeOp to move past
+/// \return \b true if the move is possible
+bool Funcdata::moveRespectingCover(PcodeOp *op,PcodeOp *lastOp)
+
+{
+  if (op == lastOp) return true;	// Nothing to move past
+  if (op->isCall()) return false;
+  PcodeOp *prevOp = (PcodeOp *)0;
+  if (op->code() == CPUI_CAST) {
+    Varnode *vn = op->getIn(0);
+    if (!vn->isExplicit()) {		// If CAST is part of expression, we need to move the previous op as well
+      if (!vn->isWritten()) return false;
+      prevOp = vn->getDef();
+      if (prevOp->isCall()) return false;
+      if (op->previousOp() != prevOp) return false;	// Previous op must exist and feed into the CAST
+    }
+  }
+  Varnode *rootvn = op->getOut();
+  vector<HighVariable *> highList;
+  int4 typeVal = HighVariable::markExpression(rootvn, highList);
+  PcodeOp *curOp = op;
+  do {
+    PcodeOp *nextOp = curOp->nextOp();
+    OpCode opc = nextOp->code();
+    if (opc != CPUI_COPY && opc != CPUI_CAST) break;	// Limit ourselves to only crossing COPY and CAST ops
+    if (rootvn == nextOp->getIn(0)) break;	// Data-flow order dependence
+    Varnode *copyVn = nextOp->getOut();
+    if (copyVn->getHigh()->isMark()) break;	// Direct interference: COPY writes what original op reads
+    if (typeVal != 0 && copyVn->isAddrTied()) break;	// Possible indirect interference
+    curOp = nextOp;
+  } while(curOp != lastOp);
+  for(int4 i=0;i<highList.size();++i)		// Clear marks on expression
+    highList[i]->clearMark();
+  if (curOp == lastOp) {			// If we are able to cross everything
+    opUninsert(op);				// Move -op-
+    opInsertAfter(op, lastOp);
+    if (prevOp != (PcodeOp *)0) {		// If there was a CAST, move both ops
+      opUninsert(prevOp);
+      opInsertAfter(prevOp, lastOp);
+    }
+    return true;
+  }
+  return false;
+}
+
+} // End namespace ghidra

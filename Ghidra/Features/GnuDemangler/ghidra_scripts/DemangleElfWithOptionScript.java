@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,11 +18,11 @@
 // See binutils' c++filt for more information on supported options.
 
 //
-//@category Examples.Demangler
+//@category Demangler
 import ghidra.app.script.GhidraScript;
 import ghidra.app.util.demangler.DemangledObject;
-import ghidra.app.util.demangler.gnu.GnuDemangler;
-import ghidra.app.util.demangler.gnu.GnuDemanglerOptions;
+import ghidra.app.util.demangler.MangledContext;
+import ghidra.app.util.demangler.gnu.*;
 import ghidra.program.model.symbol.Symbol;
 
 public class DemangleElfWithOptionScript extends GhidraScript {
@@ -33,8 +33,8 @@ public class DemangleElfWithOptionScript extends GhidraScript {
 		GnuDemangler demangler = new GnuDemangler();
 		if (!demangler.canDemangle(currentProgram)) {
 			String executableFormat = currentProgram.getExecutableFormat();
-			println("Cannot use the elf demangling options for executable format: " +
-				executableFormat);
+			println(
+				"Cannot use the elf demangling options for executable format: " + executableFormat);
 			return;
 		}
 
@@ -49,17 +49,17 @@ public class DemangleElfWithOptionScript extends GhidraScript {
 
 		String mangled = symbol.getName();
 
-		GnuDemanglerOptions options = new GnuDemanglerOptions();
+		GnuDemanglerOptions options = new GnuDemanglerOptions(GnuDemanglerFormat.AUTO, false);
 		options.setDoDisassembly(false);
-		options.setDemanglerApplicationArguments("-s auto");
 
 		/*
 			// for older formats use the deprecated demangler
-			options.setDemanglerName(GnuDemanglerOptions.GNU_DEMANGLER_V2_24);
-			options.setDemanglerApplicationArguments("-s arm");
+			options = options.withDemanglerFormat(GnuDemanglerFormat.ARM, true);
 		*/
 
-		DemangledObject demangledObject = demangler.demangle(mangled, options);
+		MangledContext mangledContext =
+			demangler.createMangledContext(mangled, options, currentProgram, currentAddress);
+		DemangledObject demangledObject = demangler.demangle(mangledContext);
 		if (demangledObject == null) {
 			println("Could not demangle: " + mangled);
 			return;

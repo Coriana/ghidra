@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,15 +15,15 @@
  */
 package ghidra.app.plugin.core.datamgr.util;
 
+import java.awt.datatransfer.DataFlavor;
+import java.awt.dnd.DropTargetDragEvent;
+
 import ghidra.app.context.ListingActionContext;
 import ghidra.app.plugin.core.datamgr.DataTypeManagerPlugin;
 import ghidra.app.services.DataService;
 import ghidra.app.util.ProgramDropProvider;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.DataTypeTransferable;
-
-import java.awt.datatransfer.DataFlavor;
-import java.awt.dnd.DropTargetDragEvent;
 
 /**
  *  Handles datatype drops in the codebrowser.  Installed by the dataTypeManagerPlugin
@@ -43,10 +42,12 @@ public class DataDropOnBrowserHandler implements ProgramDropProvider {
 		this.plugin = plugin;
 	}
 	
+	@Override
 	public int getPriority() {
 		return 20;
 	}
 	
+	@Override
 	public DataFlavor[] getDataFlavors() {
 		return ACCEPTABLE_FLAVORS;
 	}
@@ -54,6 +55,7 @@ public class DataDropOnBrowserHandler implements ProgramDropProvider {
 	/**
 	 * @see ghidra.app.util.ProgramDropProvider#isDropOk(java.lang.Object, java.awt.dnd.DropTargetDragEvent)
 	 */
+	@Override
 	public boolean isDropOk(Object contextObj, DropTargetDragEvent evt) {
 		curService = null;
 
@@ -75,10 +77,11 @@ public class DataDropOnBrowserHandler implements ProgramDropProvider {
 		return false;
 	}
 
+	@Override
 	public void add(Object contextObj, Object data, DataFlavor flavor) {
 		if (curService != null) {
 			DataType dt = (DataType)data;
-			curService.createData(dt, (ListingActionContext)contextObj, true);
+			curService.createData(dt, (ListingActionContext) contextObj, true, true);
 		}
 	}
 	

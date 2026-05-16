@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,10 +15,10 @@
  */
 package ghidra.program.database;
 
-import java.awt.Color;
 import java.util.Date;
 
 import generic.test.AbstractGenericTest;
+import generic.theme.GThemeDefaults.Colors.Palette;
 import ghidra.program.model.data.*;
 import ghidra.program.model.lang.Register;
 import ghidra.program.model.listing.*;
@@ -91,27 +91,27 @@ class MergeProgramGenerator_DiffTestPrograms implements MergeProgramGenerator {
 		//@formatter:on
 
 		// comments
-		builder.createComment("1002304", "EOL comment", CodeUnit.EOL_COMMENT);
-		builder.createComment("1002306", "\"Pre Comment\"", CodeUnit.PRE_COMMENT);
-		builder.createComment("100230c", "Post comment", CodeUnit.POST_COMMENT);
-		builder.createComment("100230d", "simple comment", CodeUnit.PRE_COMMENT);
-		builder.createComment("100230d", "simple comment", CodeUnit.EOL_COMMENT);
-		builder.createComment("100230d", "simple comment", CodeUnit.POST_COMMENT);
-		builder.createComment("100230d", "simple comment", CodeUnit.REPEATABLE_COMMENT);
-		builder.createComment("100230d", "simple comment", CodeUnit.PLATE_COMMENT);
+		builder.createComment("1002304", "EOL comment", CommentType.EOL);
+		builder.createComment("1002306", "\"Pre Comment\"", CommentType.PRE);
+		builder.createComment("100230c", "Post comment", CommentType.POST);
+		builder.createComment("100230d", "simple comment", CommentType.PRE);
+		builder.createComment("100230d", "simple comment", CommentType.EOL);
+		builder.createComment("100230d", "simple comment", CommentType.POST);
+		builder.createComment("100230d", "simple comment", CommentType.REPEATABLE);
+		builder.createComment("100230d", "simple comment", CommentType.PLATE);
 
 		builder.createComment("1002312", "\"My comment that the other comment is in.\"",
-			CodeUnit.PRE_COMMENT);
+			CommentType.PRE);
 		builder.createComment("1002312", "My comment that the other comment is in.",
-			CodeUnit.EOL_COMMENT);
+			CommentType.EOL);
 		builder.createComment("1002312", "My comment that the other comment is in.",
-			CodeUnit.POST_COMMENT);
+			CommentType.POST);
 
-		builder.createComment("1002040", "Pre in P1.", CodeUnit.PRE_COMMENT);
-		builder.createComment("1002040", "EOL in P1.", CodeUnit.EOL_COMMENT);
-		builder.createComment("1002040", "Post in P1.", CodeUnit.POST_COMMENT);
-		builder.createComment("1002040", "Plate in P1.", CodeUnit.PLATE_COMMENT);
-		builder.createComment("1002040", "Repeatable in P1.", CodeUnit.REPEATABLE_COMMENT);
+		builder.createComment("1002040", "Pre in P1.", CommentType.PRE);
+		builder.createComment("1002040", "EOL in P1.", CommentType.EOL);
+		builder.createComment("1002040", "Post in P1.", CommentType.POST);
+		builder.createComment("1002040", "Plate in P1.", CommentType.PLATE);
+		builder.createComment("1002040", "Repeatable in P1.", CommentType.REPEATABLE);
 
 		// data types
 		builder.addCategory(new CategoryPath("/cat1"));
@@ -133,10 +133,10 @@ class MergeProgramGenerator_DiffTestPrograms implements MergeProgramGenerator {
 		builder.setIntProperty("10018ff", "Space", 1);
 		builder.setIntProperty("100248c", "Space", 1);
 
-		builder.setObjectProperty("100248c", "testColor", new SaveableColor(Color.CYAN));
-		builder.setObjectProperty("10039dd", "testColor", new SaveableColor(Color.BLACK));
-		builder.setObjectProperty("10039f8", "testColor", new SaveableColor(Color.BLACK));
-		builder.setObjectProperty("10039fe", "testColor", new SaveableColor(Color.RED));
+		builder.setObjectProperty("100248c", "testColor", new SaveableColor(Palette.CYAN));
+		builder.setObjectProperty("10039dd", "testColor", new SaveableColor(Palette.BLACK));
+		builder.setObjectProperty("10039f8", "testColor", new SaveableColor(Palette.BLACK));
+		builder.setObjectProperty("10039fe", "testColor", new SaveableColor(Palette.RED));
 
 		AbstractGenericTest.setInstanceField("recordChanges", program, Boolean.TRUE);
 
@@ -145,8 +145,8 @@ class MergeProgramGenerator_DiffTestPrograms implements MergeProgramGenerator {
 		if (lastGeneratedUniversalID != null) {
 			if (!lastGeneratedUniversalID.equals(ID)) {
 				// if this happens, update initializeStaticUniversalIDUsage()
-				throw new AssertException("Expected Test UniversalID has changed.  "
-					+ "This is probably due to an new static usage of the UniversalIDGenerator.");
+				throw new AssertException("Expected Test UniversalID has changed.  " +
+					"This is probably due to an new static usage of the UniversalIDGenerator.");
 			}
 		}
 
@@ -173,10 +173,10 @@ class MergeProgramGenerator_DiffTestPrograms implements MergeProgramGenerator {
 		builder.setIntProperty("1002428", "Space", 1);
 		builder.setIntProperty("100248c", "Space", 1);
 
-		builder.setObjectProperty("100248c", "testColor", new SaveableColor(Color.WHITE));
-		builder.setObjectProperty("10039f1", "testColor", new SaveableColor(Color.BLACK));
-		builder.setObjectProperty("10039f8", "testColor", new SaveableColor(Color.BLACK));
-		builder.setObjectProperty("10039fe", "testColor", new SaveableColor(Color.GREEN));
+		builder.setObjectProperty("100248c", "testColor", new SaveableColor(Palette.WHITE));
+		builder.setObjectProperty("10039f1", "testColor", new SaveableColor(Palette.BLACK));
+		builder.setObjectProperty("10039f8", "testColor", new SaveableColor(Palette.BLACK));
+		builder.setObjectProperty("10039fe", "testColor", new SaveableColor(Palette.GREEN));
 
 		AbstractGenericTest.setInstanceField("recordChanges", program, Boolean.TRUE);
 
@@ -185,8 +185,8 @@ class MergeProgramGenerator_DiffTestPrograms implements MergeProgramGenerator {
 		if (lastGeneratedUniversalID != null) {
 			if (!lastGeneratedUniversalID.equals(ID)) {
 				// if this happens, update initializeStaticUniversalIDUsage()
-				throw new AssertException("Expected Test UniversalID has changed.  "
-					+ "This is probably due to an new static usage of the UniversalIDGenerator.");
+				throw new AssertException("Expected Test UniversalID has changed.  " +
+					"This is probably due to an new static usage of the UniversalIDGenerator.");
 			}
 		}
 
@@ -202,6 +202,7 @@ class MergeProgramGenerator_DiffTestPrograms implements MergeProgramGenerator {
 		builder.createMemory(".data", "0x1008000", 0x600);
 		builder.createMemory(".datau", "0x1008600", 0x1344);
 		builder.createMemory(".rsrc", "0x100a000", 0x5400);
+		builder.createOverlayMemory("TextOverlay", "0x01001630", 0x200);
 
 		// for FunctionMergeManager2Test
 		//
@@ -228,7 +229,8 @@ class MergeProgramGenerator_DiffTestPrograms implements MergeProgramGenerator {
 		Parameter p_dh = new ParameterImpl(null, dt, dh, builder.getProgram());
 		Parameter p_ecx = new ParameterImpl(null, dt, ecx, builder.getProgram());
 		builder.createEmptyFunction(null, null, null, true, "10018cf", 10, null, p_al);
-		builder.createEmptyFunction(null, null, null, true, "100299e", 10, null, p_fee, p_ah, p_dr1);
+		builder.createEmptyFunction(null, null, null, true, "100299e", 10, null, p_fee, p_ah,
+			p_dr1);
 		builder.createEmptyFunction(null, null, null, true, "1002cf5", 10, null, p1, p_cs, p3, p4,
 			p5);
 		builder.createEmptyFunction(null, null, null, true, "1002c93", 10, null, p_ecx, p1, p2);
@@ -250,8 +252,8 @@ class MergeProgramGenerator_DiffTestPrograms implements MergeProgramGenerator {
 		if (lastGeneratedUniversalID != null) {
 			if (!lastGeneratedUniversalID.equals(ID)) {
 				// if this happens, update initializeStaticUniversalIDUsage()
-				throw new AssertException("Expected Test UniversalID has changed.  "
-					+ "This is probably due to an new static usage of the UniversalIDGenerator.");
+				throw new AssertException("Expected Test UniversalID has changed.  " +
+					"This is probably due to an new static usage of the UniversalIDGenerator.");
 			}
 		}
 
@@ -276,8 +278,8 @@ class MergeProgramGenerator_DiffTestPrograms implements MergeProgramGenerator {
 		if (lastGeneratedUniversalID != null) {
 			if (!lastGeneratedUniversalID.equals(ID)) {
 				// if this happens, update initializeStaticUniversalIDUsage()
-				throw new AssertException("Expected Test UniversalID has changed.  "
-					+ "This is probably due to an new static usage of the UniversalIDGenerator.");
+				throw new AssertException("Expected Test UniversalID has changed.  " +
+					"This is probably due to an new static usage of the UniversalIDGenerator.");
 			}
 		}
 

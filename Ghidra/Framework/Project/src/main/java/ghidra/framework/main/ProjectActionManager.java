@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,7 +16,6 @@
 package ghidra.framework.main;
 
 import java.io.IOException;
-import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.*;
 
@@ -28,13 +27,15 @@ import docking.tool.ToolConstants;
 import docking.widgets.OptionDialog;
 import docking.widgets.PasswordChangeDialog;
 import docking.widgets.filechooser.GhidraFileChooser;
+import generic.hash.HashUtilities;
 import ghidra.framework.client.ClientUtil;
 import ghidra.framework.client.RepositoryAdapter;
 import ghidra.framework.model.*;
 import ghidra.framework.preferences.Preferences;
 import ghidra.framework.protocol.ghidra.GhidraURL;
 import ghidra.framework.remote.User;
-import ghidra.util.*;
+import ghidra.util.HelpLocation;
+import ghidra.util.Msg;
 
 class ProjectActionManager {
 	private final static String CLOSE_ALL_OPEN_VIEWS = "Close All Read-Only Views";
@@ -46,7 +47,6 @@ class ProjectActionManager {
 	private List<ViewInfo> openViewsList;
 	private List<ViewInfo> reopenViewsList;
 	private Project activeProject;
-	private GhidraFileChooser fileChooser;
 	private RepositoryChooser repositoryChooser;
 
 	private DockingAction openProjectViewAction;
@@ -71,6 +71,15 @@ class ProjectActionManager {
 
 		createActions();
 		createSwitchWorkspaceAction();
+	}
+
+	void dispose() {
+		if (infoDialog != null) {
+			infoDialog.dispose();
+		}
+		if (repositoryChooser != null) {
+			repositoryChooser.dispose();
+		}
 	}
 
 	private void openRecentView(String urlPath) {
@@ -508,14 +517,14 @@ class ProjectActionManager {
 	 * menu listener for Project | Add View...
 	 */
 	private void openProjectView() {
-		if (fileChooser == null) {
-			fileChooser = plugin.createFileChooser(LAST_VIEWED_PROJECT_DIRECTORY);
-		}
+
+		GhidraFileChooser fileChooser = plugin.createFileChooser(LAST_VIEWED_PROJECT_DIRECTORY);
 		ProjectLocator projectView =
 			plugin.chooseProject(fileChooser, "Select", LAST_VIEWED_PROJECT_DIRECTORY);
 		if (projectView != null) {
 			openView(projectView.getURL());
 		}
+		fileChooser.dispose();
 	}
 
 	private void openRepositoryView() {
@@ -527,11 +536,11 @@ class ProjectActionManager {
 
 		String urlStr = Preferences.getProperty(LAST_VIEWED_REPOSITORY_URL);
 		URL lastURL = null;
-		if (urlStr != null) {
+		if (GhidraURL.isGhidraURL(urlStr)) {
 			try {
-				lastURL = new URL(urlStr);
+				lastURL = GhidraURL.toURL(urlStr);
 			}
-			catch (MalformedURLException e) {
+			catch (IllegalArgumentException e) {
 				// ignore
 			}
 		}
@@ -554,10 +563,15 @@ class ProjectActionManager {
 			return;
 		}
 
-		ProjectDataPanel pdp = plugin.getProjectDataPanel();
-		pdp.openView(view);
-		// also update the recent views menu
-		plugin.rebuildRecentMenus();
+		try {
+			activeProject.addProjectView(view, true); // listener will trigger data panel display
+		}
+		catch (IOException e) {
+			ProjectManager projectManager = tool.getProjectManager();
+			projectManager.forgetViewedProject(view);
+			Msg.showError(getClass(), tool.getToolFrame(), "Error Adding View",
+				"Failed to view project/repository: " + e.getMessage());
+		}
 	}
 
 	private void editProjectAccess() {
@@ -614,8 +628,9 @@ class ProjectActionManager {
 			tool.showDialog(dlg);
 			pwd = dlg.getPassword();
 			if (pwd != null) {
-				repository.getServer().setPassword(
-					HashUtilities.getSaltedHash(HashUtilities.SHA256_ALGORITHM, pwd));
+				repository.getServer()
+						.setPassword(
+							HashUtilities.getSaltedHash(HashUtilities.SHA256_ALGORITHM, pwd));
 				Msg.showInfo(getClass(), tool.getToolFrame(), "Password Changed",
 					"Password was changed successfully");
 			}

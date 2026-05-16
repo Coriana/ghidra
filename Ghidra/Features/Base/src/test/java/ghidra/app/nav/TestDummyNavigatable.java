@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,14 +17,14 @@ package ghidra.app.nav;
 
 import javax.swing.Icon;
 
-import ghidra.app.util.HighlightProvider;
+import ghidra.app.util.ListingHighlightProvider;
 import ghidra.program.model.listing.Program;
 import ghidra.program.util.ProgramLocation;
 import ghidra.program.util.ProgramSelection;
 
 /**
- * A stub of the {@link Navigatable} interface.  This can be used to supply a test navigatable 
- * or to spy on system internals by overriding methods as needed.
+ * A stub of the {@link Navigatable} interface. This can be used to supply a test navigatable or to
+ * spy on system internals by overriding methods as needed.
  */
 public class TestDummyNavigatable implements Navigatable {
 
@@ -115,6 +115,12 @@ public class TestDummyNavigatable implements Navigatable {
 	}
 
 	@Override
+	public String getTextSelection() {
+		// stub
+		return null;
+	}
+
+	@Override
 	public void addNavigatableListener(NavigatableRemovalListener listener) {
 		// stub
 	}
@@ -137,12 +143,13 @@ public class TestDummyNavigatable implements Navigatable {
 	}
 
 	@Override
-	public void setHighlightProvider(HighlightProvider highlightProvider, Program program) {
+	public void setHighlightProvider(ListingHighlightProvider highlightProvider, Program program) {
 		// stub
 	}
 
 	@Override
-	public void removeHighlightProvider(HighlightProvider highlightProvider, Program program) {
+	public void removeHighlightProvider(ListingHighlightProvider highlightProvider,
+			Program program) {
 		// stub
 	}
 }

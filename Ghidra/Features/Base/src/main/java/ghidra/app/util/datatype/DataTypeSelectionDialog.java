@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,14 +17,16 @@ package ghidra.app.util.datatype;
 
 import java.awt.BorderLayout;
 
-import javax.swing.*;
+import javax.swing.JComponent;
+import javax.swing.JPanel;
 import javax.swing.event.*;
 
 import docking.DialogComponentProvider;
-import ghidra.framework.plugintool.PluginTool;
+import ghidra.framework.plugintool.ServiceProvider;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.DataTypeManager;
 import ghidra.util.HelpLocation;
+import ghidra.util.Swing;
 import ghidra.util.data.DataTypeParser;
 import ghidra.util.data.DataTypeParser.AllowedDataTypes;
 
@@ -34,17 +36,17 @@ import ghidra.util.data.DataTypeParser.AllowedDataTypes;
 public class DataTypeSelectionDialog extends DialogComponentProvider {
 
 	private DataTypeSelectionEditor editor;
-	private PluginTool pluginTool;
+	private ServiceProvider serviceProvider;
 	private DataType userChoice;
 	private int maxSize = -1;
 	private DataTypeManager dtm;
 	private final AllowedDataTypes allowedTypes;
 
-	public DataTypeSelectionDialog(PluginTool pluginTool, DataTypeManager dtm, int maxSize,
-			DataTypeParser.AllowedDataTypes allowedTypes) {
+	public DataTypeSelectionDialog(ServiceProvider serviceProvider, DataTypeManager dtm,
+			int maxSize, DataTypeParser.AllowedDataTypes allowedTypes) {
 		super("Data Type Chooser Dialog", true, true, true, false);
 
-		this.pluginTool = pluginTool;
+		this.serviceProvider = serviceProvider;
 		this.dtm = dtm;
 		this.maxSize = maxSize;
 		this.allowedTypes = allowedTypes;
@@ -63,8 +65,7 @@ public class DataTypeSelectionDialog extends DialogComponentProvider {
 	private void buildEditor() {
 		removeWorkPanel();
 
-		editor = new DataTypeSelectionEditor(pluginTool, maxSize, allowedTypes);
-		editor.setPreferredDataTypeManager(dtm);
+		editor = createEditor(serviceProvider, allowedTypes);
 		editor.setConsumeEnterKeyPress(false); // we want to handle Enter key presses
 		editor.addCellEditorListener(new CellEditorListener() {
 			@Override
@@ -101,9 +102,15 @@ public class DataTypeSelectionDialog extends DialogComponentProvider {
 		});
 
 		JComponent mainPanel = createEditorPanel(editor);
+		mainPanel.getAccessibleContext().setAccessibleName("Data Type Selection");
 		addWorkPanel(mainPanel);
 
 		rootPanel.validate();
+	}
+
+	protected DataTypeSelectionEditor createEditor(ServiceProvider sp,
+			AllowedDataTypes allowedDataTypes) {
+		return new DataTypeSelectionEditor(dtm, sp, allowedDataTypes);
 	}
 
 	protected JComponent createEditorPanel(DataTypeSelectionEditor dtEditor) {
@@ -114,7 +121,7 @@ public class DataTypeSelectionDialog extends DialogComponentProvider {
 
 	@Override
 	protected void dialogShown() {
-		SwingUtilities.invokeLater(() -> editor.requestFocus());
+		Swing.runLater(() -> editor.requestFocus());
 	}
 
 	// overridden to set the user choice to null
@@ -166,11 +173,12 @@ public class DataTypeSelectionDialog extends DialogComponentProvider {
 
 	/**
 	 * If true then a Tab key press will work the same as pressing the Enter key.  If false, then
-	 * a Tab key press will trigger navigation, as is normally done in Java.  
+	 * a Tab key press will trigger navigation, as is normally done in Java.
 	 * <p>
 	 * This method is useful for widgets that have embedded editors that launch this dialog.  For
 	 * these editors, like tables, it is nice to be able to tab through various editors.  This
 	 * method allows these editors to keep this functionality, even though a new dialog was shown.
+	 * @param doesCommit true commits edits on Tab press
 	 */
 	public void setTabCommitsEdit(boolean doesCommit) {
 		editor.setTabCommitsEdit(doesCommit);

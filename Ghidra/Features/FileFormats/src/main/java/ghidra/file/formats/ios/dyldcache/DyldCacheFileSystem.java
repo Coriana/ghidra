@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,174 +15,265 @@
  */
 package ghidra.file.formats.ios.dyldcache;
 
+import static ghidra.formats.gfilesystem.fileinfo.FileAttributeType.*;
+
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.*;
 
-import ghidra.app.util.bin.BinaryReader;
+import com.google.common.collect.*;
+
 import ghidra.app.util.bin.ByteProvider;
 import ghidra.app.util.bin.format.macho.MachException;
-import ghidra.app.util.bin.format.macho.dyld.DyldCacheHeader;
-import ghidra.app.util.bin.format.macho.dyld.DyldCacheImageInfo;
+import ghidra.app.util.bin.format.macho.MachHeader;
+import ghidra.app.util.bin.format.macho.commands.SegmentCommand;
+import ghidra.app.util.bin.format.macho.dyld.*;
 import ghidra.app.util.importer.MessageLog;
-import ghidra.app.util.opinion.DyldCacheUtils;
+import ghidra.app.util.opinion.DyldCacheUtils.DyldCacheImageRecord;
+import ghidra.app.util.opinion.DyldCacheUtils.SplitDyldCache;
 import ghidra.formats.gfilesystem.*;
 import ghidra.formats.gfilesystem.annotations.FileSystemInfo;
-import ghidra.formats.gfilesystem.factory.GFileSystemBaseFactory;
+import ghidra.formats.gfilesystem.fileinfo.FileAttributes;
 import ghidra.util.exception.CancelledException;
-import ghidra.util.exception.CryptoException;
 import ghidra.util.task.TaskMonitor;
+import util.CollectionUtils;
 
-@FileSystemInfo(type = "dyldcachev1", description = "iOS DYLD Cache Version 1", factory = GFileSystemBaseFactory.class)
-public class DyldCacheFileSystem extends GFileSystemBase {
+/**
+ * A {@link GFileSystem} implementation for the components of a DYLD Cache
+ */
+@FileSystemInfo(
+	type = DyldCacheFileSystem.DYLD_CACHE_FSTYPE,
+	description = "iOS DYLD Cache Version 1",
+	factory = DyldCacheFileSystemFactory.class
+)
+public class DyldCacheFileSystem extends AbstractFileSystem<DyldCacheEntry> {
 
-	private DyldCacheHeader header;
-	private Map<GFile, DyldCacheImageInfo> map = new HashMap<>();
+	public static final String DYLD_CACHE_FSTYPE = "dyldcachev1";
 
-	public DyldCacheFileSystem(String fileSystemName, ByteProvider provider) {
-		super(fileSystemName, provider);
+	private ByteProvider provider;
+	private SplitDyldCache splitDyldCache;
+	private boolean parsedLocalSymbols = false;
+	private Map<DyldCacheMappingInfo, Map<Long, DyldFixup>> slideFixupMap;
+	private RangeMap<Long, DyldCacheEntry> rangeMap = TreeRangeMap.create();
+
+	/**
+	 * Creates a new {@link DyldCacheFileSystem}
+	 * 
+	 * @param fsFSRL {@link FSRLRoot} of this file system
+	 * @param provider The {@link ByteProvider} that contains the file system
+	 */
+	public DyldCacheFileSystem(FSRLRoot fsFSRL, ByteProvider provider) {
+		super(fsFSRL, FileSystemService.getInstance());
+		this.provider = provider;
+	}
+
+	/**
+	 * Mounts this file system
+	 * 
+	 * @param monitor {@link TaskMonitor}
+	 * @throws IOException If there was an issue mounting the file system
+	 * @throws MachException if there was an error parsing a DYLIB header
+	 * @throws CancelledException If the user cancelled the operation
+	 */
+	public void mount(TaskMonitor monitor) throws IOException, MachException, CancelledException {
+		splitDyldCache = new SplitDyldCache(provider, false, new MessageLog(), monitor);
+		RangeSet<Long> allDylibRanges = TreeRangeSet.create();
+
+		// Find the DYLIB's and add them as files
+		List<DyldCacheImageRecord> imageRecords = splitDyldCache.getImageRecords();
+		monitor.initialize(imageRecords.size(), "Find DYLD DYLIBs...");
+		for (DyldCacheImageRecord imageRecord : imageRecords) {
+			monitor.increment();
+			DyldCacheImage image = imageRecord.image();
+			MachHeader machHeader = splitDyldCache.getMacho(imageRecord);
+			RangeSet<Long> rangeSet = TreeRangeSet.create();
+			for (SegmentCommand segment : machHeader.parseSegments()) {
+				Range<Long> range = Range.openClosed(segment.getVMaddress(),
+					segment.getVMaddress() + segment.getVMsize());
+				rangeSet.add(range);
+			}
+			DyldCacheEntry entry = new DyldCacheEntry(image.getPath(),
+				imageRecord.splitCacheIndex(), rangeSet, null, null, -1);
+			rangeSet.asRanges().forEach(r -> rangeMap.put(r, entry));
+			allDylibRanges.addAll(rangeSet);
+			fsIndex.storeFile(image.getPath(), fsIndex.getFileCount(), false, -1, entry);
+		}
+
+		// Find and store all the mappings for all of the subcaches. We need to remove the DYLIB's
+		// that we just found so we don't account for any bytes more than once.  This will result
+		// in the mappings being broken up into a lot of small chunks, each being its own file.
+		monitor.initialize(splitDyldCache.size(), "Find DYLD mapping ranges...");
+		for (int i = 0; i < splitDyldCache.size(); i++) {
+			monitor.increment();
+			DyldCacheHeader header = splitDyldCache.getDyldCacheHeader(i);
+			String name = splitDyldCache.getName(i);
+			List<DyldCacheMappingInfo> mappingInfos = header.getMappingInfos();
+			List<DyldCacheMappingAndSlideInfo> mappingAndSlideInfos =
+				header.getCacheMappingAndSlideInfos();
+			for (int j = 0; j < mappingInfos.size(); j++) {
+				DyldCacheMappingInfo mappingInfo = mappingInfos.get(j);
+				DyldCacheMappingAndSlideInfo mappingAndSlideInfo =
+					!mappingAndSlideInfos.isEmpty() ? mappingAndSlideInfos.get(j) : null;
+				Range<Long> mappingRange = Range.openClosed(mappingInfo.getAddress(),
+					mappingInfo.getAddress() + mappingInfo.getSize());
+				RangeSet<Long> reducedRangeSet = TreeRangeSet.create();
+				reducedRangeSet.add(mappingRange);
+				reducedRangeSet.removeAll(allDylibRanges);
+				for (Range<Long> range : reducedRangeSet.asRanges()) {
+					String path =
+						getComponentPath(name, mappingInfo, mappingAndSlideInfo, j, range);
+					DyldCacheEntry entry = new DyldCacheEntry(path, i,
+						TreeRangeSet.create(CollectionUtils.asIterable(range)), mappingInfo,
+						mappingAndSlideInfo, j);
+					rangeMap.put(range, entry);
+					fsIndex.storeFile(path, fsIndex.getFileCount(), false, -1, entry);
+				}
+			}
+		}
+	}
+
+	@Override
+	public ByteProvider getByteProvider(GFile file, TaskMonitor monitor)
+			throws CancelledException, IOException {
+		DyldCacheEntry entry = fsIndex.getMetadata(file);
+		if (entry == null) {
+			return null;
+		}
+
+		if (slideFixupMap == null) {
+			slideFixupMap = DyldCacheExtractor.getSlideFixups(splitDyldCache, monitor);
+		}
+
+		if (!parsedLocalSymbols) {
+			for (int i = 0; i < splitDyldCache.size(); i++) {
+				splitDyldCache.getDyldCacheHeader(i)
+						.parseLocalSymbolsInfo(true, new MessageLog(), monitor);
+			}
+			parsedLocalSymbols = true;
+		}
+
+		try {
+			if (entry.mappingInfo() != null) {
+				return DyldCacheExtractor.extractMapping(entry,
+					getComponentName(entry.mappingAndSlideInfo()), splitDyldCache, slideFixupMap,
+					file.getFSRL(), monitor);
+			}
+			return DyldCacheExtractor.extractDylib(entry, splitDyldCache, slideFixupMap,
+				file.getFSRL(), monitor);
+		}
+		catch (MachException e) {
+			throw new IOException("Invalid Mach-O header detected at: " + entry);
+		}
+	}
+
+	/**
+	 * Attempts to find the given address in the DYLD Cache
+	 * 
+	 * @param addr The address to find
+	 * @return The path of the file within the {@link DyldCacheFileSystem} that contains the given
+	 *   address, or null if the address was not found
+	 * @throws IOException if an IO-related error occurred
+	 */
+	public String findAddress(long addr) throws IOException {
+		DyldCacheEntry entry = rangeMap.get(addr);
+		return entry != null ? entry.path() : null;
+	}
+
+	/**
+	 * Gets a {@link List} of {@link GFile files} that have the given mapping flags
+	 * 
+	 * @param flags The desired flags
+	 * @return A {@link List} of {@link GFile files} that have the given mapping flags
+	 */
+	public List<GFile> getFiles(long flags) {
+		List<GFile> files = new ArrayList<>();
+		for (DyldCacheEntry entry : rangeMap.asMapOfRanges().values()) {
+			DyldCacheMappingAndSlideInfo mappingAndSlideInfo = entry.mappingAndSlideInfo();
+			if (mappingAndSlideInfo != null && (flags & mappingAndSlideInfo.getFlags()) != 0) {
+				Optional.ofNullable(lookup(entry.path())).ifPresent(files::add);
+			}
+		}
+		return files;
+	}
+
+	@Override
+	public FileAttributes getFileAttributes(GFile file, TaskMonitor monitor) {
+		FileAttributes result = new FileAttributes();
+		DyldCacheEntry entry = fsIndex.getMetadata(file);
+		if (entry != null) {
+			result.add(NAME_ATTR, entry.path());
+			result.add(PATH_ATTR, entry.path());
+			result.add("Cache Index", entry.splitCacheIndex());
+			result.add("Address Range", entry.rangeSet().toString()); // TODO: display as hex
+		}
+		return result;
+	}
+
+	@Override
+	public boolean isClosed() {
+		return provider == null;
 	}
 
 	@Override
 	public void close() throws IOException {
-		map.clear();
-		super.close();
+		refManager.onClose();
+		fsIndex.clear();
+
+		if (splitDyldCache != null) {
+			splitDyldCache.close();
+			splitDyldCache = null;
+		}
+		if (provider != null) {
+			provider.close();
+			provider = null;
+		}
+
+		slideFixupMap = null;
+		parsedLocalSymbols = false;
+		rangeMap.clear();
 	}
 
-	@Override
-	protected InputStream getData(GFile file, TaskMonitor monitor) throws IOException {
-		DyldCacheImageInfo data = map.get(file);
-		if (data == null) {
-			return null;
+	private String getComponentName(DyldCacheMappingAndSlideInfo mappingAndSlideInfo) {
+		String name = "DYLD";
+		if (mappingAndSlideInfo == null) {
+			return name;
 		}
-		long machHeaderStartIndexInProvider = data.getAddress() - header.getBaseAddress();
-		try {
-			/*
-			 * //check to make sure mach-o header is valid MachHeader header =
-			 * MachHeader.createMachHeader( RethrowContinuesFactory.INSTANCE,
-			 * provider, machHeaderStartIndexInProvider, false );
-			 * header.parse();
-			 *
-			 * return new ByteProviderInputStream( provider,
-			 * machHeaderStartIndexInProvider, provider.length() -
-			 * machHeaderStartIndexInProvider );
-			 */
-
-			FixupMacho32bitArmOffsets fixer = new FixupMacho32bitArmOffsets();
-			return fixer.fix(file, machHeaderStartIndexInProvider, provider, monitor);
+		if (mappingAndSlideInfo.isDirtyData()) {
+			name = "DATA_DIRTY";
 		}
-		catch (MachException e) {
-			throw new IOException("Invalid Mach-O header detected at 0x" +
-				Long.toHexString(machHeaderStartIndexInProvider));
+		else if (mappingAndSlideInfo.isConstData()) {
+			name = mappingAndSlideInfo.isAuthData() ? "AUTH_CONST" : "DATA_CONST";
 		}
+		else if (mappingAndSlideInfo.isTextStubs()) {
+			name = "TEXT_STUBS";
+		}
+		else if (mappingAndSlideInfo.isConfigData()) {
+			name = "DATA_CONFIG";
+		}
+		else if (mappingAndSlideInfo.isAuthData()) {
+			name = "AUTH";
+		}
+		else if (mappingAndSlideInfo.isReadOnlyData()) {
+			name = "DATA_RO";
+		}
+		else if (mappingAndSlideInfo.isConstTproData()) {
+			name = "DATA_CONST_TPRO";
+		}
+		return name;
 	}
 
-/*
-// TODO: support GFileSystemProgramProvider interface?
-// Below is commented out implementation of getProgram(), that was present as a comment
-// in the previous code, but formatted here so it can be read.
-// This needs to be researched and the junit test needs to adjusted to test this.
-	@Override
-	public Program getProgram(GFile file, LanguageService languageService, TaskMonitor monitor,
-			Object consumer) throws Exception {
-		DyldArchitecture architecture = header.getArchitecture();
-		LanguageCompilerSpecPair lcs = architecture.getLanguageCompilerSpecPair(languageService);
-		DyldCacheData dyldCacheData = map.get(file);
-		long machHeaderStartIndexInProvider =
-			dyldCacheData.getLibraryOffset() - header.getBaseAddress();
-		ByteProvider wrapper =
-			new ByteProviderWrapper(provider, machHeaderStartIndexInProvider, file.getLength());
-		MachHeader machHeader =
-			MachHeader.createMachHeader(RethrowContinuesFactory.INSTANCE, wrapper);
-		Program program =
-			new ProgramDB(file.getName(), lcs.getLanguage(), lcs.getCompilerSpec(), consumer);
-		int id = program.startTransaction(getName());
-		boolean success = false;
-		try {
-			MachoLoader loader = new MachoLoader();
-			loader.load(machHeader, program, new MessageLog(), monitor);
-			program.setExecutableFormat(MachoLoader.MACH_O_NAME);
-			program.setExecutablePath(file.getAbsolutePath());
-			success = true;
-		}
-		finally {
-			program.endTransaction(id, success);
-			if (!success) {
-				program.release(consumer);
-			}
-		}
-		return program;
-	}
-*/
-
-	@Override
-	public List<GFile> getListing(GFile directory) throws IOException {
-		if (directory == null || directory.equals(root)) {
-			List<GFile> roots = new ArrayList<>();
-			for (GFile file : map.keySet()) {
-				if (file.getParentFile() == root || file.getParentFile().equals(root)) {
-					roots.add(file);
-				}
-			}
-			return roots;
-		}
-		List<GFile> tmp = new ArrayList<>();
-		for (GFile file : map.keySet()) {
-			if (file.getParentFile() == null) {
-				continue;
-			}
-			if (file.getParentFile().equals(directory)) {
-				tmp.add(file);
-			}
-		}
-		return tmp;
-	}
-
-	@Override
-	public boolean isValid(TaskMonitor monitor) throws IOException {
-		return DyldCacheUtils.isDyldCache(provider);
-	}
-
-	@Override
-	public void open(TaskMonitor monitor) throws IOException, CryptoException, CancelledException {
-		monitor.setMessage("Opening DYLD cache...");
-
-		BinaryReader reader = new BinaryReader(provider, true);
-
-		header = new DyldCacheHeader(reader);
-		header.parseFromFile(false, new MessageLog(), monitor);
-
-		List<DyldCacheImageInfo> dataList = header.getImageInfos();
-
-		monitor.initialize(dataList.size());
-
-		for (DyldCacheImageInfo data : dataList) {
-
-			if (monitor.isCancelled()) {
-				break;
-			}
-
-			monitor.incrementProgress(1);
-
-			GFileImpl file = GFileImpl.fromPathString(this, root, data.getPath(), null, false,
-				0/*TODO compute length?*/ );
-			storeFile(file, data);
-
-			file.setLength(provider.length() - (data.getAddress() - header.getBaseAddress()));
-		}
-	}
-
-	private void storeFile(GFile file, DyldCacheImageInfo data) {
-		if (file == null) {
-			return;
-		}
-		if (file.equals(root)) {
-			return;
-		}
-		if (!map.containsKey(file) || map.get(file) == null) {
-			map.put(file, data);
-		}
-		GFile parentFile = file.getParentFile();
-		storeFile(parentFile, null);
+	/**
+	 * Gets the DYLD component path of the given DYLD component
+	 * 
+	 * @param dyldCacheName The name of the DYLD Cache
+	 * @param mappingInfo the mapping info
+	 * @param mappingAndSlideInfo the mapping and slide info (could be null)
+	 * @param mappingIndex The mapping index
+	 * @return The DYLD component path of the given DYLD component
+	 */
+	private String getComponentPath(String dyldCacheName, DyldCacheMappingInfo mappingInfo,
+			DyldCacheMappingAndSlideInfo mappingAndSlideInfo, int mappingIndex, Range<Long> range) {
+		return "/DYLD/%s/%s.%d.0x%x-0x%x".formatted(dyldCacheName,
+			getComponentName(mappingAndSlideInfo), mappingIndex, range.lowerEndpoint(),
+			range.upperEndpoint());
 	}
 }

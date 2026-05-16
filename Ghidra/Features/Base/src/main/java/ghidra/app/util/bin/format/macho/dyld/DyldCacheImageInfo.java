@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -26,10 +26,10 @@ import ghidra.util.exception.DuplicateNameException;
 /**
  * Represents a dyld_cache_image_info structure.
  * 
- * @see <a href="https://opensource.apple.com/source/dyld/dyld-625.13/launch-cache/dyld_cache_format.h.auto.html">launch-cache/dyld_cache_format.h</a> 
+ * @see <a href="https://github.com/apple-oss-distributions/dyld/blob/main/include/mach-o/dyld_cache_format.h">dyld_cache_format.h</a> 
  */
 @SuppressWarnings("unused")
-public class DyldCacheImageInfo implements StructConverter {
+public class DyldCacheImageInfo implements DyldCacheImage, StructConverter {
 
 	private long address;
 	private long modTime;
@@ -55,20 +55,12 @@ public class DyldCacheImageInfo implements StructConverter {
 		path = reader.readAsciiString(pathFileOffset);
 	}
 
-	/**
-	 * Gets the address the start of the image.
-	 * 
-	 * @return The address of the start of the image
-	 */
+	@Override
 	public long getAddress() {
 		return address;
 	}
 
-	/**
-	 * Gets the path of the image.
-	 * 
-	 * @return The path of the image
-	 */
+	@Override
 	public String getPath() {
 		return path;
 	}

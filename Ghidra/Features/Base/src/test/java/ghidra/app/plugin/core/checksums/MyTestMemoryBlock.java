@@ -16,9 +16,10 @@
 package ghidra.app.plugin.core.checksums;
 
 import java.io.InputStream;
+import java.math.BigInteger;
 import java.util.List;
 
-import ghidra.program.model.address.Address;
+import ghidra.program.model.address.*;
 import ghidra.program.model.mem.*;
 
 class MyTestMemoryBlock implements MemoryBlock {
@@ -31,7 +32,7 @@ class MyTestMemoryBlock implements MemoryBlock {
 	}
 
 	@Override
-	public int getPermissions() {
+	public int getFlags() {
 		throw new UnsupportedOperationException();
 	}
 
@@ -46,6 +47,11 @@ class MyTestMemoryBlock implements MemoryBlock {
 	}
 
 	@Override
+	public AddressRange getAddressRange() {
+		return new AddressRangeImpl(start, end);
+	}
+
+	@Override
 	public Address getStart() {
 		return start;
 	}
@@ -57,6 +63,11 @@ class MyTestMemoryBlock implements MemoryBlock {
 
 	@Override
 	public long getSize() {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public BigInteger getSizeAsBigInteger() {
 		throw new UnsupportedOperationException();
 	}
 
@@ -122,6 +133,16 @@ class MyTestMemoryBlock implements MemoryBlock {
 
 	@Override
 	public void setVolatile(boolean v) {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public boolean isArtificial() {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public void setArtificial(boolean a) {
 		throw new UnsupportedOperationException();
 	}
 

@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -29,28 +28,29 @@ import edu.uci.ics.jung.algorithms.layout.GraphElementAccessor;
 import edu.uci.ics.jung.algorithms.layout.Layout;
 import edu.uci.ics.jung.graph.Graph;
 import edu.uci.ics.jung.visualization.*;
-import edu.uci.ics.jung.visualization.control.PickingGraphMousePlugin;
+import edu.uci.ics.jung.visualization.layout.ObservableCachingLayout;
 import edu.uci.ics.jung.visualization.picking.PickedState;
 import ghidra.graph.viewer.*;
+import ghidra.graph.viewer.layout.LayoutListener.ChangeType;
+import ghidra.graph.viewer.layout.VisualGraphLayout;
 
 public class VisualGraphPickingGraphMousePlugin<V extends VisualVertex, E extends VisualEdge<V>>
-		extends PickingGraphMousePlugin<V, E> implements VisualGraphMousePlugin<V, E> {
+		extends JungPickingGraphMousePlugin<V, E> implements VisualGraphMousePlugin<V, E> {
 
 // ALERT: -this class was created because mouseDragged() has a bug that generates a NPE
 //        -also, mousePressed() has a bug in that it does not check the modifiers when the method is entered
 
-	// TODO for deprecated usage note, see the VisualGraphMousePlugin interface
 	public VisualGraphPickingGraphMousePlugin() {
-		super(InputEvent.BUTTON1_MASK,
-			InputEvent.BUTTON1_MASK | DockingUtils.CONTROL_KEY_MODIFIER_MASK_DEPRECATED);
+		super(InputEvent.BUTTON1_DOWN_MASK,
+			InputEvent.BUTTON1_DOWN_MASK | DockingUtils.CONTROL_KEY_MODIFIER_MASK);
 	}
 
 	@Override
 	public boolean checkModifiers(MouseEvent e) {
-		if (e.getModifiers() == addToSelectionModifiers) {
+		if (e.getModifiersEx() == addToSelectionModifiers) {
 			return true;
 		}
-		return super.checkModifiers(e);
+		return e.getModifiersEx() == modifiers;
 	}
 
 	@Override
@@ -80,7 +80,7 @@ public class VisualGraphPickingGraphMousePlugin<V extends VisualVertex, E extend
 
 	private void increaseDragRectangle(MouseEvent e) {
 		Point2D out = e.getPoint();
-		int theModifiers = e.getModifiers();
+		int theModifiers = e.getModifiersEx();
 		if (theModifiers == addToSelectionModifiers || theModifiers == modifiers) {
 			if (down != null) {
 				rect.setFrameFromDiagonal(down, out);
@@ -103,12 +103,28 @@ public class VisualGraphPickingGraphMousePlugin<V extends VisualVertex, E extend
 		for (V v : ps.getPicked()) {
 			Point2D vertexPoint = layout.apply(v);
 			vertexPoint.setLocation(vertexPoint.getX() + dx, vertexPoint.getY() + dy);
-			layout.setLocation(v, vertexPoint);
+			VisualGraphLayout<V, E> vgLayout = getVisualGraphLayout(layout);
+			if (vgLayout != null) {
+				vgLayout.setLocation(v, vertexPoint, ChangeType.USER);
+			}
+			else {
+				layout.setLocation(v, vertexPoint);
+			}
 			updatedArticulatedEdges(viewer, v);
 		}
 
 		down = p;
 		e.consume();
+	}
+
+	private VisualGraphLayout<V, E> getVisualGraphLayout(Layout<V, E> layout) {
+		if (layout instanceof VisualGraphLayout<V, E> vgLayout) {
+			return vgLayout;
+		}
+		if (layout instanceof ObservableCachingLayout<V, E> observable) {
+			return getVisualGraphLayout(observable.getDelegate());
+		}
+		return null;
 	}
 
 	private void updatedArticulatedEdges(GraphViewer<V, E> viewer, V v) {
@@ -154,9 +170,6 @@ public class VisualGraphPickingGraphMousePlugin<V extends VisualVertex, E extend
 
 	@Override
 	public void mouseReleased(MouseEvent e) {
-		if (!checkModifiers(e)) {
-			return;
-		}
 
 		// We overrode this method here to clear the picked state of edges and vertices if we 
 		// ever get a released event when the user is clicking somewhere that is not an edge or

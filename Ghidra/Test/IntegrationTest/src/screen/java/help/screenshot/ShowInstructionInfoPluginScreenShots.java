@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -27,6 +27,7 @@ import docking.*;
 import docking.widgets.fieldpanel.FieldPanel;
 import docking.widgets.fieldpanel.Layout;
 import docking.widgets.fieldpanel.field.Field;
+import generic.theme.GThemeDefaults.Colors.Palette;
 import ghidra.app.plugin.core.codebrowser.CodeBrowserPlugin;
 import ghidra.app.plugin.core.codebrowser.CodeViewerProvider;
 import ghidra.app.plugin.core.datamgr.DataTypesProvider;
@@ -93,11 +94,11 @@ public class ShowInstructionInfoPluginScreenShots extends GhidraScreenShotGenera
 		Rectangle shapeBounds = new Rectangle(location, labelSize);
 
 		int thickness = 5;
-		drawRectangle(Color.RED, shapeBounds, thickness);
+		drawRectangle(Palette.RED, shapeBounds, thickness);
 
 		Point start = getEndOfRow(cb, listingPanel, window);
 		Point end = new Point(location.x, location.y);
-		drawLine(Color.RED, thickness, start, end);
+		drawLine(Palette.RED, thickness, start, end);
 
 		cropListingWithStatusArea();
 
@@ -111,7 +112,9 @@ public class ShowInstructionInfoPluginScreenShots extends GhidraScreenShotGenera
 
 		performAction("Show Instruction Info", plugin.getName(), true);
 
-		captureProviderWindow("Instruction Info", 1200, 500);
+		ComponentProvider provider =
+			tool.getWindowManager().getComponentProvider("Instruction Info");
+		captureIsolatedProvider(provider, 1200, 510);
 
 //		finished("ShowInstructionInfoPlugin", "ShowInstructionInfo.png");
 	}

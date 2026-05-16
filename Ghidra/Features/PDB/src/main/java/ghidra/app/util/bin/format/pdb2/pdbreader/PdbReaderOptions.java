@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,7 +18,9 @@ package ghidra.app.util.bin.format.pdb2.pdbreader;
 import java.nio.charset.Charset;
 import java.util.List;
 
-import ghidra.program.model.data.CharsetInfo;
+import ghidra.framework.options.Options;
+import ghidra.util.HelpLocation;
+import ghidra.util.charset.CharsetInfoManager;
 
 /**
  * Options used while reading a PDB ({@link AbstractPdb}) that control various aspects.  These
@@ -27,30 +29,76 @@ import ghidra.program.model.data.CharsetInfo;
  */
 public class PdbReaderOptions extends Exception {
 
-	private static final String DEFAULT_ONE_BYTE_CHARSET_NAME = CharsetInfo.UTF8;
-	private static final String DEFAULT_TWO_BYTE_CHARSET_NAME = CharsetInfo.UTF16;
+	// Developer turn on/off options that are in still in development.
+	private static final boolean developerMode = false;
 
-	private static List<String> oneByteCharsetNames =
-		CharsetInfo.getInstance().getCharsetNamesWithCharSize(1);
-	private static List<String> twoByteCharsetNames =
-		CharsetInfo.getInstance().getCharsetNamesWithCharSize(2);
-
+	// Sets the one-byte Charset to be used for PDB processing.
+	//  NOTE: This "Option" is not intended as a permanent part of this analyzer.  Should be
+	//  replaced by target-specific Charset.
+	private static final String OPTION_NAME_ONE_BYTE_CHARSET_NAME = "PDB One-Byte Charset Name";
+	private static final String OPTION_DESCRIPTION_ONE_BYTE_CHARSET_NAME =
+		"Charset used for processing of one-byte (or multi) encoded Strings: " +
+			PdbReaderOptions.getOneByteCharsetNames();
+	private static final String DEFAULT_ONE_BYTE_CHARSET_NAME = CharsetInfoManager.UTF8;
 	private String oneByteCharsetName;
-	private String twoByteCharsetName;
+
+	// Sets the wchar_t Charset to be used for PDB processing.
+	//  NOTE: This "Option" is not intended as a permanent part of this analyzer.  Should be
+	//  replaced by target-program-specific Charset.
+	private static final String OPTION_NAME_WCHAR_CHARSET_NAME = "PDB Wchar_t Charset Name";
+	private static final String OPTION_DESCRIPTION_WCHAR_CHARSET_NAME =
+		"Charset used for processing of wchar_t encoded Strings: " +
+			PdbReaderOptions.getTwoByteCharsetNames();
+	private static final String DEFAULT_TWO_BYTE_CHARSET_NAME = CharsetInfoManager.UTF16;
+	private String wideCharCharsetName;
+
+	//==============================================================================================
+	private static List<String> oneByteCharsetNames =
+		CharsetInfoManager.getInstance().getCharsetNamesWithCharSize(1);
+	private static List<String> twoByteCharsetNames =
+		CharsetInfoManager.getInstance().getCharsetNamesWithCharSize(2);
 
 	private Charset oneByteCharset;
-	private Charset twoByteCharset;
-
-	private boolean debug;
+	private Charset wideCharset;
 
 	/**
 	 * Constructor.
 	 */
 	public PdbReaderOptions() {
+		setDefaults();
+	}
+
+	public void registerOptions(Options options) {
+		HelpLocation help = null;
+
+		if (developerMode) {
+			options.registerOption(OPTION_NAME_ONE_BYTE_CHARSET_NAME, oneByteCharsetName, help,
+				OPTION_DESCRIPTION_ONE_BYTE_CHARSET_NAME);
+			options.registerOption(OPTION_NAME_WCHAR_CHARSET_NAME, wideCharCharsetName, help,
+				OPTION_DESCRIPTION_WCHAR_CHARSET_NAME);
+		}
+	}
+
+	public void loadOptions(Options options) {
+
+		if (developerMode) {
+			oneByteCharsetName =
+				options.getString(OPTION_NAME_ONE_BYTE_CHARSET_NAME, oneByteCharsetName);
+			setOneByteCharsetForName(oneByteCharsetName);
+			wideCharCharsetName =
+				options.getString(OPTION_NAME_WCHAR_CHARSET_NAME, wideCharCharsetName);
+			setWideCharCharsetForName(wideCharCharsetName);
+		}
+	}
+
+	/**
+	 * Set the options to their default values
+	 */
+	public void setDefaults() {
 		oneByteCharsetName = DEFAULT_ONE_BYTE_CHARSET_NAME;
-		twoByteCharsetName = DEFAULT_TWO_BYTE_CHARSET_NAME;
+		wideCharCharsetName = DEFAULT_TWO_BYTE_CHARSET_NAME;
 		setOneByteCharsetForName(oneByteCharsetName);
-		setWideCharCharsetForName(twoByteCharsetName);
+		setWideCharCharsetForName(wideCharCharsetName);
 	}
 
 	/**
@@ -92,8 +140,8 @@ public class PdbReaderOptions extends Exception {
 		if (!twoByteCharsetNames.contains(name)) {
 			throw new IllegalArgumentException("Unknown TwoByteCharset: " + name);
 		}
-		twoByteCharset = Charset.forName(name);
-		twoByteCharsetName = name;
+		wideCharset = Charset.forName(name);
+		wideCharCharsetName = name;
 		return this;
 	}
 
@@ -110,7 +158,15 @@ public class PdbReaderOptions extends Exception {
 	 * @return the name of the Charset.
 	 */
 	public String getTwoByteCharsetName() {
-		return twoByteCharsetName;
+		return wideCharCharsetName;
+	}
+
+	/**
+	 * Returns the name of the Wchar Charset in use for PDB processing.
+	 * @return the name of the Wchar Charset.
+	 */
+	public String getWideCharCharsetName() {
+		return wideCharCharsetName;
 	}
 
 	/**
@@ -126,25 +182,14 @@ public class PdbReaderOptions extends Exception {
 	 * @return the Charset.
 	 */
 	public Charset getTwoByteCharset() {
-		return twoByteCharset;
+		return wideCharset;
 	}
 
 	/**
-	 * Enable/disable developmental debug.
-	 * @param debug {@code true} to turn debug on; default is {@code false}.
-	 * @return this, so options can be daisy-chained.
+	 * Returns the Wchar Charset in use for PDB processing.
+	 * @return the Wchar Charset.
 	 */
-	public PdbReaderOptions setDebug(boolean debug) {
-		this.debug = debug;
-		return this;
+	public Charset getWideCharCharset() {
+		return wideCharset;
 	}
-
-	/**
-	 * Returns true if debug is "on."
-	 * @return {@code true} if debug is "on."
-	 */
-	public boolean isDebug() {
-		return debug;
-	}
-
 }

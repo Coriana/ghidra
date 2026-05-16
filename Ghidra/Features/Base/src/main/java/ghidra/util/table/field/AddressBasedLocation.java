@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,13 +15,14 @@
  */
 package ghidra.util.table.field;
 
-import ghidra.program.model.address.Address;
-import ghidra.program.model.address.AddressSpace;
+import ghidra.program.model.address.*;
+import ghidra.program.model.lang.Register;
 import ghidra.program.model.listing.CodeUnitFormatOptions.ShowBlockName;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.mem.Memory;
 import ghidra.program.model.mem.MemoryBlock;
 import ghidra.program.model.symbol.*;
+import ghidra.util.NumericUtilities;
 import ghidra.util.SystemUtilities;
 
 /**
@@ -117,7 +118,7 @@ public class AddressBasedLocation implements Comparable<AddressBasedLocation> {
 		if (address.isConstantAddress()) {
 			return getConstantAddressRepresentation(address);
 		}
-		if (address.isRegisterAddress()) {
+		if (isRegisterAddress(program, address)) {
 			return getRegisterAddressRepresentation(program, address);
 		}
 
@@ -164,6 +165,16 @@ public class AddressBasedLocation implements Comparable<AddressBasedLocation> {
 		return addrStr;
 	}
 
+	private static boolean isRegisterAddress(Program program, Address address) {
+
+		if (!address.isRegisterAddress()) {
+			return false;
+		}
+
+		Register register = program.getRegister(address);
+		return register != null;
+	}
+
 	private static String getExternalAddressRepresentation(Program program, Address address) {
 		Symbol symbol = program.getSymbolTable().getPrimarySymbol(address);
 		if (symbol == null) {
@@ -178,7 +189,8 @@ public class AddressBasedLocation implements Comparable<AddressBasedLocation> {
 	}
 
 	private static String getRegisterAddressRepresentation(Program program, Address address) {
-		String regName = program.getRegister(address).getName();
+		Register register = program.getRegister(address);
+		String regName = register.getName();
 		return "Register[" + regName + "]";
 	}
 

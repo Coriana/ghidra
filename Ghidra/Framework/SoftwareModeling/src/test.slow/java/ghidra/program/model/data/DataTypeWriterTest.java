@@ -15,7 +15,7 @@
  */
 package ghidra.program.model.data;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.*;
 
 import java.io.IOException;
 import java.io.StringWriter;
@@ -24,7 +24,7 @@ import org.junit.*;
 
 import generic.test.AbstractGTest;
 import ghidra.util.exception.CancelledException;
-import ghidra.util.task.TaskMonitorAdapter;
+import ghidra.util.task.TaskMonitor;
 
 public class DataTypeWriterTest extends AbstractGTest {
 
@@ -32,10 +32,6 @@ public class DataTypeWriterTest extends AbstractGTest {
 
 	private StringWriter writer;
 	private DataTypeWriter dtWriter;
-
-	public DataTypeWriterTest() {
-		super();
-	}
 
 	@Before
 	public void setUp() throws Exception {
@@ -53,7 +49,7 @@ public class DataTypeWriterTest extends AbstractGTest {
 	@Test
 	public void testTypeDef() throws IOException, CancelledException {
 		TypeDef typedef = new TypedefDataType("BOB", new CharDataType());
-		dtWriter.write(typedef, TaskMonitorAdapter.DUMMY_MONITOR);
+		dtWriter.write(typedef, TaskMonitor.DUMMY);
 		String actual = writer.getBuffer().toString();
 		String expected = "typedef char BOB;" + EOL + EOL;
 		assertEquals(expected, actual);
@@ -62,7 +58,7 @@ public class DataTypeWriterTest extends AbstractGTest {
 	@Test
 	public void testTypeDef2() throws IOException, CancelledException {
 		TypeDef typedef = new TypedefDataType("unsigned int", new DWordDataType());
-		dtWriter.write(typedef, TaskMonitorAdapter.DUMMY_MONITOR);
+		dtWriter.write(typedef, TaskMonitor.DUMMY);
 		String actual = writer.getBuffer().toString();
 		String expected = "";
 		assertEquals(expected, actual);
@@ -71,7 +67,7 @@ public class DataTypeWriterTest extends AbstractGTest {
 	@Test
 	public void testTypeDef3() throws IOException, CancelledException {
 		TypeDef typedef = new TypedefDataType("const float", new DWordDataType());
-		dtWriter.write(typedef, TaskMonitorAdapter.DUMMY_MONITOR);
+		dtWriter.write(typedef, TaskMonitor.DUMMY);
 		String actual = writer.getBuffer().toString();
 		String expected = "";
 		assertEquals(expected, actual);
@@ -89,7 +85,7 @@ public class DataTypeWriterTest extends AbstractGTest {
 
 		TypeDef typedef =
 			new TypedefDataType("static const " + pointer2.getDisplayName(), pointer2);
-		dtWriter.write(typedef, TaskMonitorAdapter.DUMMY_MONITOR);
+		dtWriter.write(typedef, TaskMonitor.DUMMY);
 		String actual = writer.getBuffer().toString();
 		String expected = "";
 		assertEquals(expected, actual);
@@ -103,10 +99,18 @@ public class DataTypeWriterTest extends AbstractGTest {
 		enumm.add("C", 2);
 		enumm.add("D", 3);
 		enumm.add("E", 4);
-		dtWriter.write(enumm, TaskMonitorAdapter.DUMMY_MONITOR);
+		dtWriter.write(enumm, TaskMonitor.DUMMY);
 		String actual = writer.getBuffer().toString();
-		String expected = "typedef enum myEnum {" + EOL + "    A=0," + EOL + "    B=1," + EOL +
-			"    C=2," + EOL + "    D=3," + EOL + "    E=4" + EOL + "} myEnum;" + EOL + EOL;
+
+		//@formatter:off
+		String expected = "typedef enum myEnum {" + EOL +
+				"    A=0," + EOL +
+				"    B=1," + EOL +
+				"    C=2," + EOL +
+				"    D=3," + EOL +
+				"    E=4" + EOL +
+		"} myEnum;" + EOL + EOL;
+		//@formatter:on
 		assertEquals(expected, actual);
 	}
 
@@ -118,10 +122,86 @@ public class DataTypeWriterTest extends AbstractGTest {
 		enumm.add("C", 16);
 		enumm.add("D", 32);
 		enumm.add("E", 254);
-		dtWriter.write(enumm, TaskMonitorAdapter.DUMMY_MONITOR);
+		dtWriter.write(enumm, TaskMonitor.DUMMY);
 		String actual = writer.getBuffer().toString();
-		String expected = "typedef enum myEnum {" + EOL + "    A=4," + EOL + "    B=8," + EOL +
-			"    C=16," + EOL + "    D=32," + EOL + "    E=254" + EOL + "} myEnum;" + EOL + EOL;
+
+		//@formatter:off
+		String expected = "typedef enum myEnum {" + EOL +
+				"    A=4," + EOL +
+				"    B=8," + EOL +
+				"    C=16," + EOL +
+				"    D=32," + EOL +
+				"    E=254" + EOL +
+		"} myEnum;" + EOL + EOL;
+		//@formatter:on
+		assertEquals(expected, actual);
+	}
+
+	@Test
+	public void testEnum_WithComments() throws IOException, CancelledException {
+		Enum enumm = new EnumDataType("myEnum", 1);
+		enumm.add("A", 0);
+		enumm.add("B", 1, "B Comment");
+		enumm.add("C", 2);
+		enumm.add("D", 3, "D Comment");
+		enumm.add("E", 4);
+		dtWriter.write(enumm, TaskMonitor.DUMMY);
+		String actual = writer.getBuffer().toString();
+
+		//@formatter:off
+		String expected = "typedef enum myEnum {" + EOL +
+				"    A=0," + EOL +
+				"    B=1 /* B Comment */," + EOL +
+				"    C=2," + EOL +
+				"    D=3 /* D Comment */," + EOL +
+				"    E=4" + EOL +
+		"} myEnum;" + EOL + EOL;
+		//@formatter:on
+		assertEquals(expected, actual);
+	}
+
+	@Test
+	public void testEnum_MultipleNamesPerValue() throws IOException, CancelledException {
+		Enum enumm = new EnumDataType("myEnum", 1);
+		enumm.add("A", 4);
+		enumm.add("Two", 8);
+		enumm.add("One", 8);
+		enumm.add("End", 32);
+		dtWriter.write(enumm, TaskMonitor.DUMMY);
+		String actual = writer.getBuffer().toString();
+
+		//@formatter:off
+		String expected = "typedef enum myEnum {" + EOL +
+				"    A=4," + EOL +
+				"    One=8," + EOL +
+				"    Two=8," + EOL +
+				"    End=32" + EOL +
+		"} myEnum;" + EOL + EOL;
+		//@formatter:on
+		assertEquals(expected, actual);
+	}
+
+	@Test
+	public void testEnum_NamesOrderDifferenentThanValueOrder()
+			throws IOException, CancelledException {
+		Enum enumm = new EnumDataType("myEnum", 1);
+		enumm.add("E", 4);
+		enumm.add("C", 8);
+		enumm.add("D", 16);
+		enumm.add("B", 32);
+		enumm.add("A", 254);
+		dtWriter.write(enumm, TaskMonitor.DUMMY);
+		String actual = writer.getBuffer().toString();
+
+		//@formatter:off
+		String expected = "typedef enum myEnum {" + EOL +
+				"    E=4," + EOL +
+				"    C=8," + EOL +
+				"    D=16," + EOL +
+				"    B=32," + EOL +
+				"    A=254" + EOL +
+		"} myEnum;" + EOL + EOL;
+		//@formatter:on
 		assertEquals(expected, actual);
 	}
 
@@ -130,6 +210,8 @@ public class DataTypeWriterTest extends AbstractGTest {
 		Structure struct = new StructureDataType("MyStruct", 0);
 		struct.setDescription("this is my structure");
 		struct.add(new CharDataType(), "myChar", "this is a character");
+		struct.add(new ArrayDataType(CharDataType.dataType, 5, -1), "myCharArray",
+			"this is a character array");
 		struct.add(new ByteDataType(), "myByte", "this is a byte");
 		struct.add(new WordDataType(), "myWord", "this is a word");
 		struct.add(new DWordDataType(), "myDWord", "this is a dword");
@@ -138,22 +220,24 @@ public class DataTypeWriterTest extends AbstractGTest {
 		struct.add(new DoubleDataType(), "myDouble", "this is a double");
 		struct.add(PointerDataType.getPointer(new FloatDataType(), 4), "myFloatPointer",
 			"this is a float pointer");
-		struct.setFlexibleArrayComponent(new CharDataType(), "myFlexArray", "this is a flex array");
-		dtWriter.write(struct, TaskMonitorAdapter.DUMMY_MONITOR);
+		struct.add(new ArrayDataType(CharDataType.dataType, 0, -1), 0, "myFlexArray",
+			"this is a flex array");
+		dtWriter.write(struct, TaskMonitor.DUMMY);
 		String actual = writer.getBuffer().toString();
 		String expected = "typedef struct MyStruct MyStruct, *PMyStruct;" + EOL + EOL +
 			"typedef unsigned char    byte;" + EOL + "typedef unsigned short    word;" + EOL +
 			"typedef unsigned int    dword;" + EOL + "typedef unsigned long long    qword;" + EOL +
 			"struct MyStruct { /* this is my structure */" + EOL +
 			"    char myChar; /* this is a character */" + EOL +
+			"    char myCharArray[5]; /* this is a character array */" + EOL +
 			"    byte myByte; /* this is a byte */" + EOL +
 			"    word myWord; /* this is a word */" + EOL +
 			"    dword myDWord; /* this is a dword */" + EOL +
 			"    qword myQWord; /* this is a qword */" + EOL +
 			"    float myFloat; /* this is a float */" + EOL +
 			"    double myDouble; /* this is a double */" + EOL +
-			"    float * myFloatPointer; /* this is a float pointer */" + EOL +
-			"    char[0] myFlexArray; /* this is a flex array */" + EOL + "};" + EOL + EOL;
+			"    float *myFloatPointer; /* this is a float pointer */" + EOL +
+			"    char myFlexArray[0]; /* this is a flex array */" + EOL + "};" + EOL + EOL;
 		assertEquals(expected, actual);
 	}
 
@@ -168,15 +252,15 @@ public class DataTypeWriterTest extends AbstractGTest {
 		struct.add(new FloatDataType());
 		struct.add(new DoubleDataType());
 		struct.add(PointerDataType.getPointer(new FloatDataType(), 4));
-		dtWriter.write(struct, TaskMonitorAdapter.DUMMY_MONITOR);
+		dtWriter.write(struct, TaskMonitor.DUMMY);
 		String actual = writer.getBuffer().toString();
 		String expected = "typedef struct MyBasicStruct MyBasicStruct, *PMyBasicStruct;" + EOL +
 			EOL + "typedef unsigned char    byte;" + EOL + "typedef unsigned short    word;" + EOL +
 			"typedef unsigned int    dword;" + EOL + "typedef unsigned long long    qword;" + EOL +
-			"struct MyBasicStruct {" + EOL + "    char field_0x0;" + EOL + "    byte field_0x1;" +
-			EOL + "    word field_0x2;" + EOL + "    dword field_0x4;" + EOL +
-			"    qword field_0x8;" + EOL + "    float field_0x10;" + EOL +
-			"    double field_0x14;" + EOL + "    float * field_0x1c;" + EOL + "};" + EOL + EOL;
+			"struct MyBasicStruct {" + EOL + "    char field0_0x0;" + EOL + "    byte field1_0x1;" +
+			EOL + "    word field2_0x2;" + EOL + "    dword field3_0x4;" + EOL +
+			"    qword field4_0x8;" + EOL + "    float field5_0x10;" + EOL +
+			"    double field6_0x14;" + EOL + "    float *field7_0x1c;" + EOL + "};" + EOL + EOL;
 		assertEquals(expected, actual);
 	}
 
@@ -196,7 +280,7 @@ public class DataTypeWriterTest extends AbstractGTest {
 			"this is a outer inner structure");
 		outerStructure.add(new CharDataType(), "myOuterChar", "this is a outer character");
 
-		dtWriter.write(outerStructure, TaskMonitorAdapter.DUMMY_MONITOR);
+		dtWriter.write(outerStructure, TaskMonitor.DUMMY);
 
 		String actual = writer.getBuffer().toString();
 
@@ -230,7 +314,7 @@ public class DataTypeWriterTest extends AbstractGTest {
 		outerUnion.add(innerStructure, "myOuterInnerStructure", "this is a outer inner structure");
 		outerUnion.add(new CharDataType(), "myOuterChar", "this is a outer character");
 
-		dtWriter.write(outerUnion, TaskMonitorAdapter.DUMMY_MONITOR);
+		dtWriter.write(outerUnion, TaskMonitor.DUMMY);
 
 		String actual = writer.getBuffer().toString();
 
@@ -256,12 +340,12 @@ public class DataTypeWriterTest extends AbstractGTest {
 		struct.add(PointerDataType.getPointer(struct, 4));
 		struct.add(new DoubleDataType());
 
-		dtWriter.write(struct, TaskMonitorAdapter.DUMMY_MONITOR);
+		dtWriter.write(struct, TaskMonitor.DUMMY);
 		String actual = writer.getBuffer().toString();
 		String expected = "typedef struct MySelfRefStruct MySelfRefStruct, *PMySelfRefStruct;" +
 			EOL + EOL + "typedef unsigned short    word;" + EOL + "struct MySelfRefStruct {" + EOL +
-			"    word field_0x0;" + EOL + "    struct MySelfRefStruct * field_0x2;" + EOL +
-			"    double field_0x6;" + EOL + "};" + EOL + EOL;
+			"    word field0_0x0;" + EOL + "    struct MySelfRefStruct *field1_0x2;" + EOL +
+			"    double field2_0x6;" + EOL + "};" + EOL + EOL;
 
 		assertEquals(expected, actual);
 	}
@@ -279,7 +363,7 @@ public class DataTypeWriterTest extends AbstractGTest {
 		union.add(new DoubleDataType(), "myDouble", "this is a double");
 		union.add(PointerDataType.getPointer(new FloatDataType(), 4), "myFloatPointer",
 			"this is a float pointer");
-		dtWriter.write(union, TaskMonitorAdapter.DUMMY_MONITOR);
+		dtWriter.write(union, TaskMonitor.DUMMY);
 		String actual = writer.getBuffer().toString();
 		String expected = "typedef union MyUnion MyUnion, *PMyUnion;" + EOL + EOL +
 			"typedef unsigned char    byte;" + EOL + "typedef unsigned short    word;" + EOL +
@@ -292,7 +376,7 @@ public class DataTypeWriterTest extends AbstractGTest {
 			"    qword myQWord; /* this is a qword */" + EOL +
 			"    float myFloat; /* this is a float */" + EOL +
 			"    double myDouble; /* this is a double */" + EOL +
-			"    float * myFloatPointer; /* this is a float pointer */" + EOL + "};" + EOL + EOL;
+			"    float *myFloatPointer; /* this is a float pointer */" + EOL + "};" + EOL + EOL;
 
 		assertEquals(expected, actual);
 	}
@@ -312,7 +396,7 @@ public class DataTypeWriterTest extends AbstractGTest {
 		outerUnion.add(innerUnion, "myOuterInnerUnion", "this is a outer inner union");
 		outerUnion.add(new CharDataType(), "myOuterChar", "this is a outer character");
 
-		dtWriter.write(outerUnion, TaskMonitorAdapter.DUMMY_MONITOR);
+		dtWriter.write(outerUnion, TaskMonitor.DUMMY);
 
 		String actual = writer.getBuffer().toString();
 
@@ -346,7 +430,7 @@ public class DataTypeWriterTest extends AbstractGTest {
 		outerStructure.add(innerUnion, "myOuterInnerUnion", "this is a outer inner union");
 		outerStructure.add(new CharDataType(), "myOuterChar", "this is a outer character");
 
-		dtWriter.write(outerStructure, TaskMonitorAdapter.DUMMY_MONITOR);
+		dtWriter.write(outerStructure, TaskMonitor.DUMMY);
 
 		String actual = writer.getBuffer().toString();
 
@@ -380,7 +464,7 @@ public class DataTypeWriterTest extends AbstractGTest {
 		struct.add(PointerDataType.getPointer(new FloatDataType(), 4), "myFloatPointer",
 			"this is my float pointer");
 
-		dtWriter.write(struct, TaskMonitorAdapter.DUMMY_MONITOR);
+		dtWriter.write(struct, TaskMonitor.DUMMY);
 
 		String actual = writer.getBuffer().toString();
 
@@ -390,7 +474,7 @@ public class DataTypeWriterTest extends AbstractGTest {
 			"    qword myQWord; /* this is my qword */" + EOL +
 			"    char myStr[10]; /* this is my string */" + EOL +
 			"    double myDouble; /* this is my double */" + EOL +
-			"    float * myFloatPointer; /* this is my float pointer */" + EOL + "};" + EOL + EOL;
+			"    float *myFloatPointer; /* this is my float pointer */" + EOL + "};" + EOL + EOL;
 
 		assertEquals(expected, actual);
 	}
@@ -408,7 +492,7 @@ public class DataTypeWriterTest extends AbstractGTest {
 		struct.add(PointerDataType.getPointer(new FloatDataType(), 4), "myFloatPointer",
 			"this is my float pointer");
 
-		dtWriter.write(struct, TaskMonitorAdapter.DUMMY_MONITOR);
+		dtWriter.write(struct, TaskMonitor.DUMMY);
 
 		String actual = writer.getBuffer().toString();
 
@@ -418,7 +502,7 @@ public class DataTypeWriterTest extends AbstractGTest {
 			"    qword myQWord; /* this is my qword */" + EOL +
 			"    float myArray[300]; /* this is my array */" + EOL +
 			"    double myDouble; /* this is my double */" + EOL +
-			"    float * myFloatPointer; /* this is my float pointer */" + EOL + "};" + EOL + EOL;
+			"    float *myFloatPointer; /* this is my float pointer */" + EOL + "};" + EOL + EOL;
 
 		assertEquals(expected, actual);
 	}
@@ -436,7 +520,7 @@ public class DataTypeWriterTest extends AbstractGTest {
 		union.add(PointerDataType.getPointer(new FloatDataType(), 4), "myFloatPointer",
 			"this is my float pointer");
 
-		dtWriter.write(union, TaskMonitorAdapter.DUMMY_MONITOR);
+		dtWriter.write(union, TaskMonitor.DUMMY);
 
 		String actual = writer.getBuffer().toString();
 
@@ -446,7 +530,7 @@ public class DataTypeWriterTest extends AbstractGTest {
 			"    qword myQWord; /* this is my qword */" + EOL +
 			"    float myArray[300]; /* this is my array */" + EOL +
 			"    double myDouble; /* this is my double */" + EOL +
-			"    float * myFloatPointer; /* this is my float pointer */" + EOL + "};" + EOL + EOL;
+			"    float *myFloatPointer; /* this is my float pointer */" + EOL + "};" + EOL + EOL;
 
 		assertEquals(expected, actual);
 	}
@@ -458,11 +542,11 @@ public class DataTypeWriterTest extends AbstractGTest {
 		union.add(PointerDataType.getPointer(union, 4));
 		union.add(new DoubleDataType());
 
-		dtWriter.write(union, TaskMonitorAdapter.DUMMY_MONITOR);
+		dtWriter.write(union, TaskMonitor.DUMMY);
 		String actual = writer.getBuffer().toString();
 		String expected = "typedef union MySelfRefUnion MySelfRefUnion, *PMySelfRefUnion;" + EOL +
 			EOL + "typedef unsigned short    word;" + EOL + "union MySelfRefUnion {" + EOL +
-			"    word field0;" + EOL + "    union MySelfRefUnion * field1;" + EOL +
+			"    word field0;" + EOL + "    union MySelfRefUnion *field1;" + EOL +
 			"    double field2;" + EOL + "};" + EOL + EOL;
 
 		assertEquals(expected, actual);
@@ -474,22 +558,60 @@ public class DataTypeWriterTest extends AbstractGTest {
 		// Only base type is written-out - not pointer
 
 		Pointer ptr = PointerDataType.getPointer(null, null);
-		dtWriter.write(ptr, TaskMonitorAdapter.DUMMY_MONITOR);
+		dtWriter.write(ptr, TaskMonitor.DUMMY);
 		String actual = writer.getBuffer().toString();
 		String expected = "";
 		assertEquals(expected, actual);
 
 		ptr = PointerDataType.getPointer(DataType.DEFAULT, null);
-		dtWriter.write(ptr, TaskMonitorAdapter.DUMMY_MONITOR);
+		dtWriter.write(ptr, TaskMonitor.DUMMY);
 		actual = writer.getBuffer().toString();
 		expected += "typedef unsigned char   undefined;" + EOL + EOL;
 		assertEquals(expected, actual);
 
 		TypeDef typedef = new TypedefDataType("BOB", new CharDataType());
 		ptr = PointerDataType.getPointer(typedef, null);
-		dtWriter.write(ptr, TaskMonitorAdapter.DUMMY_MONITOR);
+		dtWriter.write(ptr, TaskMonitor.DUMMY);
 		actual = writer.getBuffer().toString();
 		expected += "typedef char BOB;" + EOL + EOL;
+		assertEquals(expected, actual);
+	}
+
+	@Test
+	public void testArrayPointerInStructure() throws IOException, CancelledException {
+		DataType dt = new IntegerDataType();
+		Array array300 = new ArrayDataType(dt, 300, dt.getLength());
+		Pointer ptrArray300 = PointerDataType.getPointer(array300, null);
+
+		Array array3 = new ArrayDataType(dt, 3, dt.getLength());
+		Array array2 = new ArrayDataType(array3, 2, array3.getLength());
+		Pointer ptr0 = PointerDataType.getPointer(array2, null);
+		Array array12 = new ArrayDataType(ptr0, 12, dt.getLength());
+		Pointer ptr1 = PointerDataType.getPointer(array12, null);
+		Pointer ptr2 = PointerDataType.getPointer(ptr1, null);
+		Pointer ptr3 = PointerDataType.getPointer(ptr2, null);
+		Pointer ptr4 = PointerDataType.getPointer(ptr3, null);
+		Pointer ptr5 = PointerDataType.getPointer(ptr4, null);
+
+		Structure struct = new StructureDataType("MyStruct", 0);
+		struct.setDescription("this is my structure");
+		struct.add(ptrArray300, "something", "this is my array pointer");
+		struct.add(ptr5, "something", "this is my complex one");
+
+		dtWriter.write(struct, TaskMonitor.DUMMY);
+
+		String actual = writer.getBuffer().toString();
+
+		String expected = """
+				typedef struct MyStruct MyStruct, *PMyStruct;
+
+				struct MyStruct { /* this is my structure */
+				    int (*something)[300]; /* this is my array pointer */
+				    int (*(*****something)[12])[2][3]; /* this is my complex one */
+				};
+
+				""";
+
 		assertEquals(expected, actual);
 	}
 

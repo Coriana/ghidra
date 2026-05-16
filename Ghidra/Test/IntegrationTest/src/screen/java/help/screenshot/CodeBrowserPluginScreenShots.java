@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -28,6 +28,8 @@ import org.junit.Test;
 
 import docking.DockableComponent;
 import docking.widgets.fieldpanel.FieldPanel;
+import generic.theme.GThemeDefaults.Colors;
+import generic.theme.GThemeDefaults.Colors.Palette;
 import ghidra.GhidraOptions;
 import ghidra.app.cmd.comments.SetCommentCmd;
 import ghidra.app.cmd.data.CreateDataCmd;
@@ -37,9 +39,9 @@ import ghidra.app.plugin.core.datamgr.DataTypesProvider;
 import ghidra.app.plugin.core.programtree.ViewManagerComponentProvider;
 import ghidra.app.util.viewer.field.*;
 import ghidra.app.util.viewer.listingpanel.ListingPanel;
-import ghidra.app.util.viewer.listingpanel.OverviewProvider;
+import ghidra.app.util.viewer.listingpanel.ListingOverviewProvider;
 import ghidra.program.model.data.*;
-import ghidra.program.model.listing.CodeUnit;
+import ghidra.program.model.listing.CommentType;
 
 public class CodeBrowserPluginScreenShots extends GhidraScreenShotGenerator {
 
@@ -71,7 +73,7 @@ public class CodeBrowserPluginScreenShots extends GhidraScreenShotGenerator {
 
 		Rectangle cursor = getCursorBounds();
 		captureListingRange(0x0040be40, 0x0040be56, 600);
-		drawBorder(Color.BLACK);
+		drawBorder(Colors.BORDER);
 
 		drawTextWithArrowNearOpenStructureIcon("Closed", cursor);
 
@@ -92,7 +94,7 @@ public class CodeBrowserPluginScreenShots extends GhidraScreenShotGenerator {
 		Rectangle cursor = getCursorBounds();
 		captureListingRange(0x0040be40, 0x0040be56, 600);
 
-		drawBorder(Color.BLACK);
+		drawBorder(Colors.BORDER);
 
 		drawTextWithArrowNearOpenStructureIcon("Open", cursor);
 	}
@@ -102,7 +104,7 @@ public class CodeBrowserPluginScreenShots extends GhidraScreenShotGenerator {
 		// Make some room to draw our annotations (text and an arrow)
 		//
 		Dimension whitespace = new Dimension(150, 10);
-		padImage(Color.WHITE, whitespace.height, whitespace.width, 10, 10);
+		padImage(Colors.BACKGROUND, whitespace.height, whitespace.width, 10, 10);
 
 		//
 		// Draw text inside of the newly padded space
@@ -112,14 +114,14 @@ public class CodeBrowserPluginScreenShots extends GhidraScreenShotGenerator {
 		int textStartY = arrowStartY - 4;// up just a bit
 		Point textPoint = new Point(textStartX, textStartY);
 		int size = 24;
-		Color textColor = Color.MAGENTA.darker();
+		Color textColor = Palette.PURPLE;
 		drawText(text, textColor, textPoint, size);
 
 		//
 		// Draw an arrow from the text above to the 'open structure' icon
 		//
 		int arrowStartX = 60;
-		Color arrowColor = Color.GREEN.darker();
+		Color arrowColor = Palette.GREEN;
 		Point arrowStart = new Point(arrowStartX, arrowStartY);
 		int addressFieldStartX = 40;
 		int listingOffsetX = whitespace.width;
@@ -144,15 +146,16 @@ public class CodeBrowserPluginScreenShots extends GhidraScreenShotGenerator {
 	@Test
 	public void testCaptureSelectionTable() {
 		setToolSize(1100, 700);
-		positionListingTop(0x0406bd7);
-		makeSelection(0x0406be1, 0x0406bf1);
+		positionListingTop(0x0406bd5);
+		makeSelection(0x0406be1, 0x0406bf6);
 
-		performAction("Create Table From Selection", "CodeBrowserPlugin", true);
+		performAction("Create Table From Selection", "CodeBrowserSelectionPlugin", true);
 		Window window = waitForWindowByTitleContaining("Selection Table");
 		Point loc = plugin.getListingPanel().getLocationOnScreen();
 		Dimension size = window.getSize();
 		window.setBounds(loc.x + 300, loc.y + 150, size.width, 300);
-		captureProvider(CodeViewerProvider.class);
+		CodeViewerProvider provider = getProvider(CodeViewerProvider.class);
+		captureProviderWithScreenShot(provider);
 	}
 
 	@Test
@@ -204,14 +207,14 @@ public class CodeBrowserPluginScreenShots extends GhidraScreenShotGenerator {
 		captureListingRange(topAddr, bottomAddr, 600);
 
 		int padX = 100;
-		padImage(Color.LIGHT_GRAY, 0, padX, 0, 0);
+		padImage(Palette.LIGHT_GRAY, 0, padX, 0, 0);
 		int y = conditional.y + 10;
-		drawText("Conditional", Color.BLACK, new Point(10, y), 12);
-		drawText("    Jump", Color.BLACK, new Point(10, y + 15), 12);
+		drawText("Conditional", Colors.FOREGROUND, new Point(10, y), 12);
+		drawText("    Jump", Colors.FOREGROUND, new Point(10, y + 15), 12);
 
 		y = unconditional.y + 10;
-		drawText("Unconditional", Color.BLACK, new Point(10, y), 12);
-		drawText("    Jump", Color.BLACK, new Point(10, y + 15), 12);
+		drawText("Unconditional", Colors.FOREGROUND, new Point(10, y), 12);
+		drawText("    Jump", Colors.FOREGROUND, new Point(10, y + 15), 12);
 
 	}
 
@@ -250,7 +253,7 @@ public class CodeBrowserPluginScreenShots extends GhidraScreenShotGenerator {
 		setToolSize(1000, 800);
 
 		positionListingTop(0x040364c);
-		createComment(0x403653, CodeUnit.PRE_COMMENT, "PUSH some stuff");
+		createComment(0x403653, CommentType.PRE, "PUSH some stuff");
 
 		positionCursor(0x0403653, MnemonicFieldFactory.FIELD_NAME);
 		middleClickCursor();
@@ -262,10 +265,10 @@ public class CodeBrowserPluginScreenShots extends GhidraScreenShotGenerator {
 	public void testCaptureMarkerPopup() {
 		setToolSize(1400, 1200);
 		ListingPanel listingPanel = plugin.getListingPanel();
-		List<OverviewProvider> overviewProviders = listingPanel.getOverviewProviders();
+		List<ListingOverviewProvider> overviewProviders = listingPanel.getOverviewProviders();
 		assertEquals(1, overviewProviders.size());
 
-		OverviewProvider provider = overviewProviders.get(0);
+		ListingOverviewProvider provider = overviewProviders.get(0);
 		rightClick(provider.getComponent(), 1, 1);
 
 		captureMenu();
@@ -287,7 +290,7 @@ public class CodeBrowserPluginScreenShots extends GhidraScreenShotGenerator {
 
 		int width = image.getWidth(null);
 		crop(new Rectangle(0, 0, width, 30));
-		drawOval(new Color(107, 47, 109),
+		drawOval(Palette.PURPLE,
 			new Rectangle(p.x - 13, p.y - 1, bounds.width + 26, bounds.height + 2), 4);
 
 	}
@@ -317,7 +320,7 @@ public class CodeBrowserPluginScreenShots extends GhidraScreenShotGenerator {
 		int y = p.y - 2;
 		int height = bounds.height + 12;
 		int width = bounds.width + 34;
-		Color color = new Color(120, 0, 64);
+		Color color = Palette.PURPLE;
 		drawOval(color, new Rectangle(x, y, width, height), 5);
 
 		int arrowHeadX = x + (width / 4);
@@ -363,7 +366,7 @@ public class CodeBrowserPluginScreenShots extends GhidraScreenShotGenerator {
 		waitForBusyTool(tool);
 	}
 
-	private void createComment(long address, int commentType, String comment) {
+	private void createComment(long address, CommentType commentType, String comment) {
 		goToListing(address);
 		SetCommentCmd cmd = new SetCommentCmd(addr(address), commentType, comment);
 		tool.execute(cmd, program);

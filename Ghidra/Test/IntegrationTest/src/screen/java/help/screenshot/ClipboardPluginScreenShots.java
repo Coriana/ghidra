@@ -16,26 +16,29 @@
 package help.screenshot;
 
 import java.awt.*;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import javax.swing.*;
 
 import org.junit.Test;
 
 import docking.DialogComponentProvider;
+import docking.action.DockingAction;
+import docking.action.DockingActionIf;
 import docking.widgets.fieldpanel.FieldPanel;
-import ghidra.app.plugin.core.clipboard.CopyPasteSpecialDialog;
+import generic.theme.GThemeDefaults.Colors;
+import ghidra.app.plugin.core.clipboard.*;
 import ghidra.app.plugin.core.codebrowser.CodeBrowserPlugin;
 import ghidra.app.plugin.core.codebrowser.CodeViewerProvider;
+import ghidra.app.services.ClipboardContentProviderService;
 import ghidra.app.util.viewer.field.MnemonicFieldFactory;
 import ghidra.program.util.ProgramSelection;
 import ghidra.util.Msg;
 import ghidra.util.exception.AssertException;
 
 public class ClipboardPluginScreenShots extends GhidraScreenShotGenerator {
-
-	public ClipboardPluginScreenShots() {
-		super();
-	}
 
 	@Test
 	public void testCaptureCopySpecial() {
@@ -47,9 +50,12 @@ public class ClipboardPluginScreenShots extends GhidraScreenShotGenerator {
 		makeSelection(0x401000, 0x401000);
 
 		sel = cb.getCurrentSelection();
-		Msg.debug(this, "selection: " + sel);
 
-		showCopySpecialDialog();
+		CopyPasteSpecialDialog dialog = showCopySpecialDialog();
+		Window window = SwingUtilities.windowForComponent(dialog.getComponent());
+
+		Dimension size = window.getSize();
+		setWindowSize(window, size.width, 330);
 		captureDialog();
 	}
 
@@ -69,7 +75,7 @@ public class ClipboardPluginScreenShots extends GhidraScreenShotGenerator {
 		captureListingCallMnemonic(start, end);
 
 		placeImagesSideBySide(image, menuImage);
-		drawBorder(Color.BLACK);
+		drawBorder(Colors.BORDER);
 	}
 
 	private void cropCopyMenu() {
@@ -104,10 +110,11 @@ public class ClipboardPluginScreenShots extends GhidraScreenShotGenerator {
 		JMenuItem item = (JMenuItem) elements[index];
 		Rectangle itemBounds = item.getBounds();
 
-		copySectionBounds.x = itemBounds.x;
-		copySectionBounds.y = itemBounds.y;
-		copySectionBounds.width = itemBounds.width;
-		height += itemBounds.height;
+		int padding = 5; // add some padding to get the menu item borders in the cropped image
+		copySectionBounds.x = itemBounds.x - padding;
+		copySectionBounds.y = itemBounds.y - padding;
+		copySectionBounds.width = itemBounds.width + (padding * 2);
+		height += itemBounds.height + (padding * 2);
 
 		item = (JMenuItem) elements[index + 1];
 		itemBounds = item.getBounds();
@@ -144,21 +151,18 @@ public class ClipboardPluginScreenShots extends GhidraScreenShotGenerator {
 
 		Object listPanel = getInstanceField("listPanel", copySpecialDialog);
 		final JList<?> list = (JList<?>) getInstanceField("list", listPanel);
-		runSwing(new Runnable() {
-			@Override
-			public void run() {
-				ListModel<?> model = list.getModel();
-				int size = model.getSize();
-				for (int i = 0; i < size; i++) {
-					Object value = model.getElementAt(i);
-					if ("Labels and Comments".equals(value.toString())) {
-						list.setSelectedIndex(i);
-						return;
-					}
+		runSwing(() -> {
+			ListModel<?> model = list.getModel();
+			int size = model.getSize();
+			for (int i = 0; i < size; i++) {
+				Object value = model.getElementAt(i);
+				if ("Labels and Comments".equals(value.toString())) {
+					list.setSelectedIndex(i);
+					return;
 				}
-
-				throw new RuntimeException("Could not find 'Labels and Comments' copy action");
 			}
+
+			throw new RuntimeException("Could not find 'Labels and Comments' copy action");
 		});
 		waitForSwing();
 	}
@@ -184,7 +188,38 @@ public class ClipboardPluginScreenShots extends GhidraScreenShotGenerator {
 		crop(imageBounds);
 	}
 
-	private void showCopySpecialDialog() {
-		performAction("Copy Special", "ClipboardPlugin", false);
+	private CopyPasteSpecialDialog showCopySpecialDialog() {
+		ClipboardPlugin plugin = getPlugin(tool, ClipboardPlugin.class);
+		ClipboardContentProviderService service = getClipboardService(plugin);
+		DockingActionIf pasteAction = getLocalAction(service, "Copy Special", plugin);
+		performAction(pasteAction, false);
+		return waitForDialogComponent(CopyPasteSpecialDialog.class);
+	}
+
+	private ClipboardContentProviderService getClipboardService(ClipboardPlugin clipboardPlugin) {
+		Map<?, ?> serviceMap = (Map<?, ?>) getInstanceField("serviceActionMap", clipboardPlugin);
+		Set<?> keySet = serviceMap.keySet();
+		for (Object name : keySet) {
+			ClipboardContentProviderService service = (ClipboardContentProviderService) name;
+			if (service.getClass().equals(CodeBrowserClipboardProvider.class)) {
+				return service;
+			}
+		}
+		return null;
+	}
+
+	@SuppressWarnings("unchecked")
+	private DockingAction getLocalAction(ClipboardContentProviderService service, String actionName,
+			ClipboardPlugin clipboardPlugin) {
+		Map<?, ?> actionsByService =
+			(Map<?, ?>) getInstanceField("serviceActionMap", clipboardPlugin);
+		List<DockingAction> actionList = (List<DockingAction>) actionsByService.get(service);
+		for (DockingAction pluginAction : actionList) {
+			if (pluginAction.getName().equals(actionName)) {
+				return pluginAction;
+			}
+		}
+
+		return null;
 	}
 }

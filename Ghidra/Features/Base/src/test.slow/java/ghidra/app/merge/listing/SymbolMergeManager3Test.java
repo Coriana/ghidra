@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,7 +22,7 @@ import org.junit.Test;
 
 import ghidra.app.cmd.disassemble.DisassembleCommand;
 import ghidra.app.cmd.function.CreateFunctionCmd;
-import ghidra.app.cmd.function.FunctionStackAnalysisCmd;
+import ghidra.app.cmd.function.NewFunctionStackAnalysisCmd;
 import ghidra.program.database.ProgramDB;
 import ghidra.program.database.ProgramModifierListener;
 import ghidra.program.model.address.Address;
@@ -48,45 +48,27 @@ public class SymbolMergeManager3Test extends AbstractListingMergeManagerTest {
 	public void testVariousNameNoConflictsInOverlay() throws Exception {
 		mtf.initialize("overlayCalc", new ProgramModifierListener() {
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					createGlobalSymbol(program, "TextOverlay::01001630", "FOO");
 					createGlobalSymbol(program, "TextOverlay::01001639", "ONE");
 					createGlobalSymbol(program, "TextOverlay::01001646", "UNO");
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					createGlobalSymbol(program, "TextOverlay::01001630", "FOO");
 					createGlobalSymbol(program, "TextOverlay::01001639", "TWO");
 					createGlobalSymbol(program, "TextOverlay::01001646", "DOS");
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -118,44 +100,25 @@ public class SymbolMergeManager3Test extends AbstractListingMergeManagerTest {
 	public void testLabelvsFunctionChange() throws Exception {
 		mtf.initialize("notepad3", new ProgramModifierListener() {
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
 				try {
 					createGlobalSymbol(program, "01002efc", "FOO");
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
 				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-
-				int txId = program.startTransaction("Modify My Program");
-				boolean commit = false;
 				try {
 					Address addr = addr(program, "01002f01");
 					disassemble(program, new AddressSet(addr, addr), true);
 					createAnalyzedFunction(program, "01002f01", null);
-					commit = true;
 				}
 				catch (Exception e) {
 					Assert.fail(e.getMessage());
-				}
-				finally {
-					program.endTransaction(txId, commit);
 				}
 			}
 		});
@@ -191,7 +154,7 @@ public class SymbolMergeManager3Test extends AbstractListingMergeManagerTest {
 				functionCmd.applyTo(program));
 			Function newFunction = program.getFunctionManager().getFunctionAt(addr);
 			assertNotNull(newFunction);
-			FunctionStackAnalysisCmd analyzeCmd = new FunctionStackAnalysisCmd(addr, true);
+			NewFunctionStackAnalysisCmd analyzeCmd = new NewFunctionStackAnalysisCmd(addr, true);
 			assertTrue("Failed to analyze stack for " + name + " @ " + addr,
 				analyzeCmd.applyTo(program));
 		}

@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -49,6 +48,7 @@ public class MixedLayoutBackgroundColorManager implements LayoutBackgroundColorM
 		this.rightBorderColor = rightBorderColor;
 	}
 
+	@Override
 	public FieldBackgroundColorManager getFieldBackgroundColorManager(int fieldNum) {
 		FieldLocation start = new FieldLocation(index, fieldNum, 0, 0);
 		FieldLocation end = new FieldLocation(index, fieldNum+1, 0, 0);
@@ -68,10 +68,12 @@ public class MixedLayoutBackgroundColorManager implements LayoutBackgroundColorM
 		return new MixedFieldBackgroundColorManager(index, fieldNum, this, selectionColor, fieldBackgroundColor);
 	}
 
+	@Override
 	public Color getBackgroundColor() {
 		return backgroundColor;
 	}
 
+	@Override
 	public Color getPaddingColor(int padIndex) {
 		Color paddingColor = null;
 		if (padIndex == 0) {
@@ -93,7 +95,7 @@ public class MixedLayoutBackgroundColorManager implements LayoutBackgroundColorM
 
 	private Color getPaddingColorBetweenFields(int padIndex) {
 		FieldLocation start = new FieldLocation(index, padIndex-1,Integer.MAX_VALUE,Integer.MAX_VALUE);
-		FieldLocation end = new FieldLocation(index, padIndex, 0, 1);
+		FieldLocation end = new FieldLocation(index, padIndex, 0, 0);
 		FieldRange range = new FieldRange(start, end);
 		boolean gapSelected = selection.containsEntirely(range);
 		boolean gapHighlighted = highlight.containsEntirely(range);
@@ -113,6 +115,7 @@ public class MixedLayoutBackgroundColorManager implements LayoutBackgroundColorM
 		return selection;
 	}
 
+	@Override
 	public Color getBackgroundColor(FieldLocation location) {
 		boolean isSelected = selection.contains(location);
 		boolean isHighlighted = highlight.contains(location);

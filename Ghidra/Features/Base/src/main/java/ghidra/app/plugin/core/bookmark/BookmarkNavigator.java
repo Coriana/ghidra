@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,17 +17,19 @@ package ghidra.app.plugin.core.bookmark;
 
 import java.awt.Color;
 
-import javax.swing.ImageIcon;
-import javax.swing.SwingUtilities;
+import javax.swing.Icon;
 
+import org.apache.commons.lang3.StringUtils;
+
+import generic.theme.GColor;
+import generic.theme.GIcon;
 import ghidra.app.services.*;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.listing.*;
 import ghidra.program.util.MarkerLocation;
-import ghidra.program.util.ProgramLocation;
 import ghidra.util.HTMLUtilities;
-import resources.ResourceManager;
+import ghidra.util.Swing;
 
 /**
  * Handles navigation/display of bookmarks in the browser marker margins.
@@ -36,13 +38,11 @@ public class BookmarkNavigator {
 
 	private static final int BIG_CHANGE = 1000;
 
-	final static ImageIcon NOTE_ICON = ResourceManager.loadImage("images/notes.gif");
-	final static ImageIcon INFO_ICON = ResourceManager.loadImage("images/information.png");
-	final static ImageIcon WARNING_ICON = ResourceManager.loadImage("images/warning.png");
-	final static ImageIcon ERROR_ICON = ResourceManager.loadImage("images/edit-delete.png");
-	final static ImageIcon ANALYSIS_ICON =
-		ResourceManager.loadImage("images/applications-system.png");
-	final static ImageIcon DEFAULT_ICON = ResourceManager.loadImage("images/unknown.gif");
+	final static Icon NOTE_ICON = new GIcon("icon.plugin.bookmark.type.note");
+	final static Icon INFO_ICON = new GIcon("icon.plugin.bookmark.type.info");
+	final static Icon WARNING_ICON = new GIcon("icon.plugin.bookmark.type.warning");
+	final static Icon ERROR_ICON = new GIcon("icon.plugin.bookmark.type.error");
+	final static Icon ANALYSIS_ICON = new GIcon("icon.plugin.bookmark.type.analysis");
 
 	final static int NOTE_PRIORITY = MarkerService.BOOKMARK_PRIORITY;
 	final static int ERROR_PRIORITY = MarkerService.BOOKMARK_PRIORITY + BIG_CHANGE;
@@ -51,12 +51,12 @@ public class BookmarkNavigator {
 	final static int ANALYSIS_PRIORITY = MarkerService.BOOKMARK_PRIORITY + 6;
 	final static int DEFAULT_PRIORITY = MarkerService.BOOKMARK_PRIORITY + 8;
 
-	final static Color NOTE_COLOR = new Color(128, 0, 255);     // Purple
-	final static Color INFO_COLOR = new Color(0, 255, 255);     // Cyan
-	final static Color WARNING_COLOR = new Color(255, 196, 51); // Dark Yellow
-	final static Color ERROR_COLOR = new Color(204, 0, 51);     // Dark Red
-	final static Color ANALYSIS_COLOR = new Color(255, 128, 0); // Orange
-	final static Color DEFAULT_COLOR = new Color(255, 0, 255);  // Magenta
+	final static Color NOTE_COLOR = new GColor("color.bg.plugin.bookmark.note");
+	final static Color INFO_COLOR = new GColor("color.bg.plugin.bookmark.info");
+	final static Color WARNING_COLOR = new GColor("color.bg.plugin.bookmark.warning");
+	final static Color ERROR_COLOR = new GColor("color.bg.plugin.bookmark.error");
+	final static Color ANALYSIS_COLOR = new GColor("color.bg.plugin.bookmark.analysis");
+	final static Color DEFAULT_COLOR = new GColor("color.bg.plugin.bookmark.default");
 
 	private String type;
 	private MarkerService markerService;
@@ -72,36 +72,38 @@ public class BookmarkNavigator {
 		bookmarkMgr = bookmarkManager;
 		this.type = bmt.getTypeString();
 
-		updateRunnable = new Runnable() {
-			@Override
-			public void run() {
-				updateMarkerSetAddresses();
-			}
-		};
+		updateRunnable = () -> updateMarkerSetAddresses();
 
 		int priority = bmt.getMarkerPriority();
 		if (priority < 0) {
 			priority = DEFAULT_PRIORITY;
 		}
 
-		ImageIcon icon = bmt.getIcon();
-		if (icon == null) {
-			icon = DEFAULT_ICON;
-		}
-
+		Icon icon = bmt.getIcon();
 		Color color = bmt.getMarkerColor();
 		if (color == null) {
 			color = DEFAULT_COLOR;
 		}
 
-		markerSet = markerService.createPointMarker(type + " Bookmarks", type + " Bookmarks",
-			bookmarkMgr.getProgram(), priority, true, true, false, color, icon);
+		//
+		// Be default, bookmarks appear with an icon on the left side of the Listing.  If there is
+		// no icon, then skip the icon and instead add a color marker on the right side of the 
+		// Listing so the user can see the bookmark.   As long as clients call BookmarkManager's 
+		// defineType() method with a valid icon, then we will show the icon, which is the expected
+		// behavior.
+		//
+		String markerName = type + " Bookmarks";
+		if (icon != null) {
+			markerSet = markerService.createPointMarker(markerName, markerName,
+				bookmarkMgr.getProgram(), priority, true, true, false, color, icon);
+		}
+		else {
+			markerSet =
+				markerService.createAreaMarker(markerName, markerName, bookmarkMgr.getProgram(),
+					priority, false, true, false, color);
+		}
 
-		markerSet.setNavigationListener(new MarkerListener() {
-			@Override
-			public ProgramLocation getProgramLocation(MarkerLocation loc) {
-				return null;
-			}
+		markerSet.setMarkerDescriptor(new MarkerDescriptor() {
 
 			@Override
 			public String getTooltip(MarkerLocation loc) {
@@ -109,27 +111,23 @@ public class BookmarkNavigator {
 				if (bookmarks == null) {
 					return BookmarkNavigator.this.type;
 				}
-				StringBuffer buf = new StringBuffer();
+				StringBuilder buffy = new StringBuilder();
 				for (int i = 0; i < bookmarks.length; i++) {
 					if (i != 0) {
-						buf.append("<br>");
+						buffy.append("<br>");
 					}
-					buf.append(BookmarkNavigator.this.type);
-					String cat = bookmarks[i].getCategory();
-					if (cat != null && cat.length() != 0) {
-						buf.append(" [");
-						buf.append(HTMLUtilities.escapeHTML(cat));
-						buf.append("]");
-					}
-					buf.append(": ");
-					buf.append(HTMLUtilities.escapeHTML(bookmarks[i].getComment()));
-				}
-				return buf.toString();
-			}
 
-			@Override
-			public ImageIcon getIcon(MarkerLocation loc) {
-				return null;
+					buffy.append(BookmarkNavigator.this.type);
+					String cat = bookmarks[i].getCategory();
+					if (!StringUtils.isBlank(cat)) {
+						buffy.append(" [");
+						buffy.append(HTMLUtilities.escapeHTML(cat));
+						buffy.append("]");
+					}
+					buffy.append(": ");
+					buffy.append(HTMLUtilities.escapeHTML(bookmarks[i].getComment()));
+				}
+				return buffy.toString();
 			}
 		});
 
@@ -155,13 +153,15 @@ public class BookmarkNavigator {
 
 	/**
 	 * Return the type String for the bookmarks 
+	 * @return the type
 	 */
 	String getType() {
 		return type;
 	}
 
 	/**
-	 * Refresh bookmark markers.
+	 * Refresh bookmark markers
+	 * @param set the addresses
 	 */
 	public synchronized void updateBookmarkers(AddressSet set) {
 		if (addressSet != null) {
@@ -169,12 +169,12 @@ public class BookmarkNavigator {
 			return;
 		}
 		addressSet = set;
-		SwingUtilities.invokeLater(updateRunnable);
+		Swing.runLater(updateRunnable);
 	}
 
 	/**
 	 * Add bookmark marker at specified address.
-	 * @param addr
+	 * @param addr the address
 	 */
 	public void add(Address addr) {
 		markerSet.add(addr);
@@ -182,7 +182,7 @@ public class BookmarkNavigator {
 
 	/**
 	 * Clear bookmark marker at specified address.
-	 * @param addr
+	 * @param addr the address
 	 */
 	public void clear(Address addr) {
 		markerSet.clear(addr);
@@ -192,27 +192,23 @@ public class BookmarkNavigator {
 	 * Return whether the marker set intersections with the given range. 
 	 * @param start start of the range
 	 * @param end end of the range
+	 * @return true if intersects
 	 */
 	public boolean intersects(Address start, Address end) {
 		return markerSet.intersects(start, end);
 	}
 
 	/**
-	 * Define the bookmark types, as this information is not maintained
-	 * in the program.
+	 * Define the bookmark types, as this information is not maintained in the program
+	 * @param program the program
 	 */
 	public static void defineBookmarkTypes(Program program) {
 		BookmarkManager mgr = program.getBookmarkManager();
-		mgr.defineType(BookmarkType.NOTE, BookmarkNavigator.NOTE_ICON, BookmarkNavigator.NOTE_COLOR,
-			BookmarkNavigator.NOTE_PRIORITY);
-		mgr.defineType(BookmarkType.INFO, BookmarkNavigator.INFO_ICON, BookmarkNavigator.INFO_COLOR,
-			BookmarkNavigator.INFO_PRIORITY);
-		mgr.defineType(BookmarkType.WARNING, BookmarkNavigator.WARNING_ICON,
-			BookmarkNavigator.WARNING_COLOR, BookmarkNavigator.WARNING_PRIORITY);
-		mgr.defineType(BookmarkType.ERROR, BookmarkNavigator.ERROR_ICON,
-			BookmarkNavigator.ERROR_COLOR, BookmarkNavigator.ERROR_PRIORITY);
-		mgr.defineType(BookmarkType.ANALYSIS, BookmarkNavigator.ANALYSIS_ICON,
-			BookmarkNavigator.ANALYSIS_COLOR, BookmarkNavigator.ANALYSIS_PRIORITY);
+		mgr.defineType(BookmarkType.NOTE, NOTE_ICON, NOTE_COLOR, NOTE_PRIORITY);
+		mgr.defineType(BookmarkType.INFO, INFO_ICON, INFO_COLOR, INFO_PRIORITY);
+		mgr.defineType(BookmarkType.WARNING, WARNING_ICON, WARNING_COLOR, WARNING_PRIORITY);
+		mgr.defineType(BookmarkType.ERROR, ERROR_ICON, ERROR_COLOR, ERROR_PRIORITY);
+		mgr.defineType(BookmarkType.ANALYSIS, ANALYSIS_ICON, ANALYSIS_COLOR, ANALYSIS_PRIORITY);
 	}
 
 }

@@ -7,7 +7,7 @@
 
     <TITLE>Auto Analysis</TITLE>
     <META http-equiv="Content-Type" content="text/html; charset=windows-1252">
-    <LINK rel="stylesheet" type="text/css" href="../../shared/Frontpage.css">
+    <LINK rel="stylesheet" type="text/css" href="help/shared/DefaultStyle.css">
   </HEAD>
 
   <BODY lang="EN-US">
@@ -53,7 +53,7 @@
 
     <BLOCKQUOTE>
       <P>A program imported through Front End will have no initial analysis applied to it. To force
-      analysis, use the <B>Analysis<IMG alt="" src="images/arrow.gif"> Auto Analysis</B> menu
+      analysis, use the <B>Analysis<IMG alt="" src="help/shared/arrow.gif"> Auto Analysis</B> menu
       item. The Auto Analysis Options dialog is displayed to allow changes to the analysis options
       before beginning analysis.</P>
     </BLOCKQUOTE>
@@ -63,11 +63,18 @@
     <BLOCKQUOTE>
       <BLOCKQUOTE>
         <BLOCKQUOTE>
-          <P><IMG alt="" src="images/note.png">The display of this dialog may be controlled
+          <P><IMG alt="" src="help/shared/note.png">The display of this dialog may be controlled
           from the Auto Analysis Tool Options. Select the <I>Auto Analysis</I> node in the
-          <B>Edit</B><IMG alt="" src="images/arrow.gif"> <B>Tool Options</B> menu and check
+          <B>Edit</B><IMG alt="" src="help/shared/arrow.gif"> <B>Tool Options</B> menu and check
           or uncheck <I>Show Analysis Options</I>. When unchecked, the next time Auto Analysis is
           chosen, the options dialog is skipped, and analysis begins immediately.</P>
+          
+          
+          
+		<P><IMG alt="" src="help/shared/tip.png"> Any analyzer that is not in its default enablement
+		state will show a yellowish color in the table of analyzer names.</P>
+          
+          
         </BLOCKQUOTE>
       </BLOCKQUOTE>
 
@@ -105,10 +112,10 @@
         architecture differing from the current program will <B>not</B> be analyzed using this
         action.</FONT></P>
 
-        <P><IMG alt="" src="images/note.png">
+        <P><IMG alt="" src="help/shared/note.png">
          If the option to show the analysis dialog is disabled, then using this action <B>will</B>
         analyze all open programs <B>using their current analysis settings</B>. To disable the
-        analysis dialog go to <B>Edit <IMG alt="" src="images/arrow.gif"> Tool Options...</B>
+        analysis dialog go to <B>Edit <IMG alt="" src="help/shared/arrow.gif"> Tool Options...</B>
         to show the options dialog upon which, select the <B>Auto Analysis</B> options and
         de-select <B>Show Analysis Options</B>.</P>
       </BLOCKQUOTE>
@@ -121,6 +128,20 @@
       Analyzers in the Analysis menu. Only those analyzers which support one-shot use and are
       applicable to the current program will be available within the One Shot sub-menu.</P>
     </BLOCKQUOTE>
+    
+    <H3><A name="Ask_To_Analyze"></A>Ask To Analyze</H3>
+    <BLOCKQUOTE>
+    	<P> When opening a program for the first time, you will be asked if you want to analyze the
+      	program. If you respond "Yes", The <A href= "#Auto_Analysis_Option">Auto Analysis Options</A> 
+      	dialog will appear, allowing you to begin analyzing the program. If you decide not to
+      	analyze the program, you have the choice of having Ghidra asking you  again the next time
+      	you open the program. If you pick the "No" options, Ghidra will continue to ask you to
+      	every time you open the program. If you pick "No (Don't ask again)" Ghidra will never ask you to
+      	analyze the program again, but you can still manually initiate analysis at any time.
+      	If you choose not to have Ghidra ask again, it will set a property in the program called
+      	"Should Ask To Analyze" to false. Since this changes a property in the program, the program
+      	now has changes that need to be saved. </P>
+  	</BLOCKQUOTE>
 
     <H2><A name="Auto_Analysis_Option"></A> <A name=
     "ghidra_app_plugin_analysis_AutoAnalysisPlugin_AnalysisOptionsDialog"></A> <A name=
@@ -128,17 +149,17 @@
 
     <BLOCKQUOTE>
       <P>Each Analyzer can be turned off using the <I>Analysis</I> panel in the <B>Edit<IMG alt=""
-      src="images/arrow.gif"> ProgramOptions</B> dialog.</P>
+      src="help/shared/arrow.gif"> ProgramOptions</B> dialog.</P>
     </BLOCKQUOTE>
 
     <BLOCKQUOTE>
       <P>The <I>Analysis</I> panel configures Analyzer specific options and which Analyzers are
       enabled to run. To view these options, choose <B>Edit<IMG alt="" src=
-      "images/arrow.gif"> Program Options...</B>; then open the Analysis node in the Options
+      "help/shared/arrow.gif"> Program Options...</B>; then open the Analysis node in the Options
       tree. Each analyzer is represented as a leaf under the Analysis folder node.</P>
 
       <BLOCKQUOTE>
-        <P><IMG alt="" src="images/note.png"> An analyzer may be marked as (Prototype). These
+        <P><IMG alt="" src="help/shared/note.png"> An analyzer may be marked as (Prototype). These
         analyzers can be very useful on certain programs, but have not been exercised on a large
         number of programs. Use them with caution.</P>
       </BLOCKQUOTE>
@@ -148,17 +169,51 @@
 
     <BLOCKQUOTE>
       <BLOCKQUOTE>
-        <P><IMG alt="" src="images/note.png"> A separate dialog showing the <I>Analysis</I>
+        <P><IMG alt="" src="help/shared/note.png"> A separate dialog showing the <I>Analysis</I>
         options is also displayed after a new program has been imported, or the <B>Analysis<IMG
-        alt="" src="images/arrow.gif"> Auto Analysis</B> menu item is chosen.</P>
-
+        alt="" src="help/shared/arrow.gif"> Auto Analysis</B> menu item is chosen.</P>
+        
         <P><IMG alt="" src="images/warning.help.png"> <FONT color="red">Some analyzers only work
         on certain processors. For example, the MIPS Instruction Analyzer only works on MIPS
         processors. Their options will only show up if the currently open program can be analyzed
         with the analyzer.</FONT></P>
       </BLOCKQUOTE>
+      
+      <P style="background-color: #FFF0E0; color: black;">
+		<IMG SRC="help/shared/warning.png" />Note that multi-user merge does not currently support
+		merging of Program Options (including Analysis Options).  Options stored in shared Program database
+		following a conflicting checkin may not reflect option settings specified prior to checkin.
+	</P>
+       
+ 	<H3>Saved Options Configurations</H3>
+    <BLOCKQUOTE>
+		<P>The Options Configurations combo box at bottom of the analyzer enablement panel can be used to quickly
+		switch between sets of analyzer option values. The combo box will always contain two standard sets of options as well as any 
+		previously saved configurations. The two standard configurations are:
+		<UL>
+			<LI>Standard Defaults - This setting will put all the analyzer enablements and options to the original default values.</LI>
+			<LI>Current Program Options - This setting will put all the analyzer enablements and options to values as stored in 
+			the current program.</LI>
+		</UL>
+		
+		<P style="background-color: #FFF0E0; color: black;">
+		<IMG SRC="help/shared/warning.png" />Access to stored configurations is not currently
+		supported across different versions of Ghidra.
+		</P>
+		
     </BLOCKQUOTE>
-
+        
+   	<H3>Analysis Panel Buttons</H3>
+    <BLOCKQUOTE>
+		<UL>
+			<LI>Select All - Turns all analyzers on.</LI>
+			<LI>Deselect All - Turns all analyzers off.</LI>
+			<LI>Reset - Resets all the options to the currently selected configuration.</LI>
+			<LI>Save... - Saves the current analysis options to a named configuration.</LI>
+			<LI>Delete - Deletes the currently selected named configuration.</LI>
+		</UL>
+    </BLOCKQUOTE>
+     </BLOCKQUOTE>
     <H2><A name="Auto_Analyzers"></A>Auto Analyzers</H2>
 
     <BLOCKQUOTE>
@@ -355,15 +410,36 @@
 				</TD>
 				<TD>
 				Apply any recovered function signature type information
-				 in addition to the function name
+				 in addition to the function name.
 				</TD>				
 			</TR>
 			<TR>
-				<TD>Only Demangle Known Mangled Symbols
+				<TD>Apply Function Calling Convention
+				</TD>
+				<TD>
+				Apply any recovered function calling convention information.  This option is 
+				ignored if the <B>Apply Function Signatures</B> option is <CODE>false</CODE>.
+				</TD>				
+			</TR>
+			<TR>
+				<TD>Demangle Only Known Mangled Symbols
 				</TD>
 				<TD>
 				Only demangle symbols that follow known compiler mangling patterns. 
 				Leaving this option off may cause non-mangled symbols to get demangled.
+				</TD>				
+			</TR><TR>
+				<TD>Use Standard Text Replacements
+				</TD>
+				<TD>
+				Use text simplifications in demangled output, for example to use standard c++ 
+				typedefs. Using this option will produce shorter demangled output in some cases.
+				<P>
+				The simplifications are defined in 
+				<CODE>Ghidra/Features/GnuDemangler/data/default.gnu.demangler.replacements.txt</CODE>
+				This file can be edited.  Also new files can be added with more simplifications.
+				Each new file must end with <CODE>.gnu.demangler.replacements.txt</CODE> and must 
+				reside inside of a module's <CODE>data</CODE> directory.
 				</TD>				
 			</TR>		
 		</TABLE>
@@ -376,48 +452,40 @@
 		
 		<BLOCKQUOTE>
 		<P>
+			<U><B>Timeout (seconds)</B></U> -
+				The maximum amount of seconds to allow the native GNU Demangler process to 
+				attempt to demangle a mangled string before failing. Some inputs to the
+				native GNU Demangler program have been shown to not terminate and consume excessive
+				resources. This timeout protects against these inputs.
+		</P>
+		<P>
 			<U><B>Use Deprecated Demangler</B></U> -
 				By default, GCC symbols will be demangled using the most up-to-date demangler
-				that Ghidra contains (<B>version 2.33.1</B> as of this writing).   Turning this 
-				option on will also invoke the now deprecated previous version of the demangler
-				(<B>version 2.24</B>) if the preferred demangler cannot demangle a given symbol.
+				that Ghidra contains (<B>version 2.41</B> as of this writing).   Turning this 
+				option on will invoke the now deprecated version of the demangler (<B>version 2.24</B>).
 		</P>
 		<P>	
 				Support for older demangling styles was removed in <CODE>c++filt (v2.32)</CODE>.
 				Specifically, the following formats are no longer supported: 
-				<CODE>Lucid, ARM, HP, and EDG</CODE>.   To use these formats, you must enable
-				usage of the deprecated demangler, which is <B>version 2.24</B>.  Further, you 
-				may have to pass the required external demangler options using the Ghidra 
-				option below.
+				<CODE>Lucid, ARM, HP, GNU, and EDG</CODE>.   For these formats, the deprecated
+				demangler, which is <B>version 2.24</B>, will automatically be used.
 		</P>
-		<P>
-		
-			<U><B>Use External Demangler Options</B></U> - 
-			
-				This allows users to pass settings to the demangler. As an example, you can enter 
-				in this Ghidra option text field the following text to use the <CODE>rust</CODE>
-				format: <CODE>-s rust</CODE>.  This is not needed for
-				normal operation.   To see a full list of supported options, query each demangler
-				directly using the <CODE>--help</CODE> switch.
-			</P>
-			<P>
-				The GNU demanglers can be found at: 
-				<CODE CLASS="path">
-				&lt;GHIDRA_INSTALL_DIR&gt;/GPL/DemanglerGnu/build/os/&lt;OS&gt;/
-				</CODE><BR>				
-		</P>
-		
 				
 			<BLOCKQUOTE>
 				<P>
 				The available programs are:
 					<UL>
-						<LI><CODE>demangler_gnu_v2_33_1</CODE></LI>
-						<LI><CODE>demangler_gnu_v2_24</CODE></LI>
+						<LI><CODE CLASS="path">
+					&lt;GHIDRA_INSTALL_DIR&gt;/GPL/DemanglerGnu/os/&lt;OS&gt;/
+					</CODE><CODE>demangler_gnu_v2_41</CODE></LI>
+						<LI><CODE CLASS="path">
+					&lt;GHIDRA_INSTALL_DIR&gt;/GPL/DemanglerGnu/os/&lt;OS&gt;/
+					</CODE><CODE>demangler_gnu_v2_24</CODE></LI>
 					</UL>	
 				</P>
-				<P style="background-color: #FFF0E0;">
-					<IMG SRC="../../shared/warning.png" />When using an external GNU demangler, 
+
+				<P style="background-color: #FFF0E0; color: black;">
+					<IMG SRC="help/shared/warning.png" />When using an external GNU demangler, 
 					please understand the risks associated with using that version of the 
 					software.   The <CODE>demangler_gnu_v2_24</CODE> version of the
 					demangler is a modified version of GNU's <CODE>c++filt (v2.24)</CODE>.  The
@@ -428,7 +496,7 @@
 			</BLOCKQUOTE>
 		
 		<P>
-		<IMG SRC="../../shared/tip.png" />The Demangler Analyzer is designed to be extensible.
+		<IMG SRC="help/shared/tip.png" />The Demangler Analyzer is designed to be extensible.
 		You can extend <CODE>ghidra.app.plugin.core.analysis.AbstractDemanglerAnalyzer</CODE> 
 		to add your demangler analyzer callback.  This allows you to precisely control
 		which demanglers get called, as well as which options are used.
@@ -437,6 +505,65 @@
 		</BLOCKQUOTE>
 
         <P STYLE="margin-top: 30px;"><U>Started By:</U> New defined functions</P>
+        
+		<BR>
+		<BR>
+      	<P><A name="Microsoft_Demangler_Options">
+		<B>The Microsoft Demangler</B></H4> adds the following analysis options:
+		
+		<BLOCKQUOTE>
+			<P>
+			<U><B>C-Style Symbol Interpretation</B></U> -
+				This option is used to help direct processing of certain C-style symbols that
+				could have C-style interpretations.  The Microsoft C-Style mangling scheme
+				permits a simple encoding of some functions, to include calling convention
+				and number of bytes in the arguments list.  This is mainly for 32-bit programs,
+				but the convention is also used for at least one calling convention for 64-bit
+				programs.  When a symbol can be interpreted as both a C-style function and as
+				some other C++-style object, this option controls which is chosen.
+				<P> The choices are:
+				<UL>
+					<LI><B>FUNCTION</B>: the C-style function type is produced</LI>
+					<LI><B>NON_FUNCTION</B>: the C++-style object is produced</LI>
+					<LI><B>FUNCTION_IF_EXISTS</B>: the C-style function type is produced if
+					a function already exists at the program address</LI>
+				</UL>
+				</P>
+			<P><IMG alt="" src="help/shared/warning.png"> The user should generally not change this
+			option except for trying to debug the results of this new scheme.  This option may
+			be removed in a future release.
+			</P>
+		</P>
+		</BLOCKQUOTE>
+
+		<BLOCKQUOTE>
+			<P>
+			<U><B>Use Encoded Anonymous Namespace</B></U> -
+				This output option is used to create a more unique namespace node from the
+				standard anonymous namespaces node output, thus helping to prevent collisions
+				between multiple types of the same name, but each in their own unique anonymous
+				namespace. When turned on, variations of the standard namespace
+				<B>`anonymous namespace'</B> will be replaced with a more specific namespace of
+				the form <B>_anon_ABCD1234</B> where the hexadecimal number comes from a number
+				encoded in the mangled string. The trade-off is that when this option is turned on,
+				the resultant namespace will not match non-mangled names that have the standard,
+				non-specific anonymous namespace.  
+			</P>
+		</BLOCKQUOTE>
+
+		<BLOCKQUOTE>
+			<P>
+			<U><B>Apply UDT Argument Type Tags</B></U> -
+				This output option controls whether user-defined type tags (e.g., class, enum,
+				struct, union) are placed in front of the named type when the type is used as a
+				template or function argument.  When turned on, the demangled string matches the
+				common demangler standard. When turned off, the standard demangled strings of
+				<B>struct AAA&lt;class BBB&gt;</B> and <B>struct AAA&lt;struct BBB&gt;</B> would
+				both be reduced to <B>struct AAA&lt;BBB&gt;</B>.  
+			</P>
+		</BLOCKQUOTE>
+
+        
       </BLOCKQUOTE>
 
       <H3><A name="Auto_Analysis_Option_Byte"></A>Entry Point Analyzer</H3>
@@ -449,6 +576,18 @@
         <B>Byte</B>.</P>
 
         <P><U>Started By:</U> Importing or adding to a program, Auto Analyze command</P>
+      </BLOCKQUOTE>
+      <H3><A name="Format_String_Analyzer"></A>Format String Analyzer</H3>
+
+      <BLOCKQUOTE>
+        <P>This analyzer detects variadic function calls in the bodies of each function that intersect 
+        the current selection. It then parses their format string arguments to infer the correct function 
+        call signatures. Currently, this analyzer only supports printf, scanf, and their variants (e.g., snprintf, fscanf). 
+        If the current selection is empty, it searches through every function within the binary. Once 
+        the signatures are inferred, they are overridden.</P>
+
+        <P><U>Started By:</U> Importing or adding to a program, Auto Analyze command</P>
+
       </BLOCKQUOTE>
 
       <H3><A name="Image"></A>Image Analyzer</H3>
@@ -613,3 +752,4 @@
      <BR>
   </BODY>
 </HTML>
+

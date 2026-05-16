@@ -15,7 +15,7 @@
  */
 package ghidra.graph.viewer.vertex;
 
-import static ghidra.graph.viewer.GraphViewerUtils.PAINT_ZOOM_THRESHOLD;
+import static ghidra.graph.viewer.GraphViewerUtils.*;
 
 import java.awt.*;
 
@@ -26,6 +26,7 @@ import edu.uci.ics.jung.graph.Graph;
 import edu.uci.ics.jung.graph.util.Context;
 import edu.uci.ics.jung.visualization.RenderContext;
 import edu.uci.ics.jung.visualization.transform.shape.GraphicsDecorator;
+import generic.theme.GThemeDefaults.Colors;
 import ghidra.graph.VisualGraph;
 import ghidra.graph.viewer.VisualEdge;
 import ghidra.graph.viewer.VisualVertex;
@@ -61,8 +62,9 @@ public class VisualVertexRenderer<V extends VisualVertex, E extends VisualEdge<V
 	public void paintVertex(RenderContext<V, E> rc, Layout<V, E> layout, V vertex) {
 
 		Graph<V, E> graph = layout.getGraph();
-		if (!rc.getVertexIncludePredicate().apply(
-			Context.<Graph<V, E>, V> getInstance(graph, vertex))) {
+		if (!rc.getVertexIncludePredicate()
+				.apply(
+					Context.<Graph<V, E>, V> getInstance(graph, vertex))) {
 			return;
 		}
 
@@ -107,10 +109,10 @@ public class VisualVertexRenderer<V extends VisualVertex, E extends VisualEdge<V
 
 // DEBUG		
 //		Paint oldPaint = g.getPaint();
-//		g.setPaint(Color.RED);
+//		g.setPaint(Palette.RED);
 //		g.draw(compactShape);
 //
-//		g.setPaint(Color.CYAN);
+//		g.setPaint(Palette.CYAN);
 //		g.draw(fullShape);
 //		g.setPaint(oldPaint);
 	}
@@ -135,7 +137,12 @@ public class VisualVertexRenderer<V extends VisualVertex, E extends VisualEdge<V
 
 	protected void paintScaledVertex(RenderContext<V, E> rc, V vertex, GraphicsDecorator g,
 			Shape shape) {
-		Function<? super V, Paint> fillXform = rc.getVertexFillPaintTransformer();
+
+		Function<? super V, Paint> fillXform = getVertexFillPaintTransformer();
+		if (fillXform == null) {
+			fillXform = rc.getVertexFillPaintTransformer();
+		}
+
 		Paint fillPaint = fillXform.apply(vertex);
 		if (fillPaint == null) {
 			return;
@@ -146,9 +153,10 @@ public class VisualVertexRenderer<V extends VisualVertex, E extends VisualEdge<V
 		g.fill(shape);
 
 		// an outline
-		g.setColor(Color.BLACK);
+		g.setColor(Colors.BORDER);
 		g.draw(shape);
 
 		g.setPaint(oldPaint);
 	}
+
 }

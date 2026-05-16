@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -26,9 +26,12 @@ import javax.swing.*;
 
 import docking.widgets.OptionDialog;
 import docking.widgets.table.*;
+import generic.theme.GColor;
+import generic.theme.GThemeDefaults.Colors.Palette;
 import ghidra.app.cmd.register.SetRegisterCmd;
 import ghidra.app.events.ProgramSelectionPluginEvent;
-import ghidra.app.services.*;
+import ghidra.app.services.MarkerService;
+import ghidra.app.services.MarkerSet;
 import ghidra.framework.cmd.Command;
 import ghidra.framework.cmd.CompoundCmd;
 import ghidra.framework.plugintool.PluginTool;
@@ -45,7 +48,8 @@ class RegisterValuesPanel extends JPanel {
 	private static final String VALUE_COLUMN_NAME = "Value";
 	private static final String START_ADDRESS_COLUMN_NAME = "Start Address";
 	private static final String END_ADDRESS_COLUMN_NAME = "End Address";
-	private static final Color REGISTER_MARKER_COLOR = new Color(0, 153, 153);
+	private static final Color REGISTER_MARKER_COLOR =
+		new GColor("color.bg.plugin.register.marker");
 
 	private Program currentProgram;
 	private GhidraTable table;
@@ -79,13 +83,17 @@ class RegisterValuesPanel extends JPanel {
 
 	}
 
+	boolean hasSelectedRows() {
+		return table.getSelectedRowCount() > 0;
+	}
+
 	private void editRow(int row) {
 		RegisterValueRange range = model.values.get(row);
 		Address start = range.getStartAddress();
 		Address end = range.getEndAddress();
 		BigInteger value = range.getValue();
 		EditRegisterValueDialog dialog = new EditRegisterValueDialog(selectedRegister, start, end,
-			value, currentProgram.getAddressFactory());
+			value, currentProgram);
 		tool.showDialog(dialog, this);
 
 		if (!dialog.wasCancelled()) {
@@ -98,9 +106,9 @@ class RegisterValuesPanel extends JPanel {
 
 	private void updateValue(Address start, Address end, Address newStart, Address newEnd,
 			BigInteger newValue) {
-		CompoundCmd cmd = new CompoundCmd("Update Register Range");
-		Command cmd1 = new SetRegisterCmd(selectedRegister, start, end, null);
-		Command cmd2 = new SetRegisterCmd(selectedRegister, newStart, newEnd, newValue);
+		CompoundCmd<Program> cmd = new CompoundCmd<>("Update Register Range");
+		Command<Program> cmd1 = new SetRegisterCmd(selectedRegister, start, end, null);
+		Command<Program> cmd2 = new SetRegisterCmd(selectedRegister, newStart, newEnd, newValue);
 		cmd.add(cmd1);
 		cmd.add(cmd2);
 		tool.execute(cmd, currentProgram);
@@ -115,8 +123,7 @@ class RegisterValuesPanel extends JPanel {
 		table.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
 		table.setRowSelectionAllowed(true);
 		table.setColumnSelectionAllowed(false);
-		GoToService goToService = tool.getService(GoToService.class);
-		table.installNavigation(goToService, goToService.getDefaultNavigatable());
+		table.installNavigation(tool);
 		table.setNavigateOnSelectionEnabled(true);
 		return table;
 	}
@@ -247,7 +254,7 @@ class RegisterValuesPanel extends JPanel {
 	}
 
 	void deleteSelectedRanges() {
-		CompoundCmd cmd = new CompoundCmd("Delete Register Value Ranges");
+		CompoundCmd<Program> cmd = new CompoundCmd<>("Delete Register Value Ranges");
 		int[] rows = table.getSelectedRows();
 		boolean containsDefaultValues = false;
 		for (int row : rows) {
@@ -272,7 +279,7 @@ class RegisterValuesPanel extends JPanel {
 		}
 	}
 
-	void selectedRanges() {
+	void selectRanges() {
 		int[] rows = table.getSelectedRows();
 		AddressSet set = new AddressSet();
 		for (int element : rows) {
@@ -490,11 +497,15 @@ class RegisterValueRange {
 
 class RegisterValueRenderer extends GTableCellRenderer {
 
-	private Color defaultColor = Color.LIGHT_GRAY;
+	private Color defaultColor = Palette.LIGHT_GRAY;
 
 	RegisterValueRenderer(JTable table) {
 		setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 0));
-		setFont(new Font("monospaced", Font.PLAIN, 12));
+	}
+
+	@Override
+	protected Font getDefaultFont() {
+		return fixedWidthFont;
 	}
 
 	@Override

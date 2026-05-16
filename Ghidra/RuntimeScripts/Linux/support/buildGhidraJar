@@ -16,8 +16,7 @@ LAUNCH_MODE=fg
 # contains the link you are calling (which is the best we can do on macOS), and the "echo" is the 
 # fallback, which doesn't attempt to do anything with links.
 SCRIPT_FILE="$(readlink -f "$0" 2>/dev/null || readlink "$0" 2>/dev/null || echo "$0")"
-SCRIPT_DIR="${SCRIPT_FILE%/*}"
-
+SCRIPT_DIR="$(dirname -- "$SCRIPT_FILE")"
 GHIDRA_ROOT_DIR="${SCRIPT_DIR}"/../Ghidra
 if [ ! -d "${GHIDRA_ROOT_DIR}" ]; then
 	echo "This script does not support development mode use"
@@ -25,7 +24,7 @@ if [ ! -d "${GHIDRA_ROOT_DIR}" ]; then
 fi
 
 # Set required VMARGS for jar builder application
-APP_VMARGS="-DGhidraJarBuilder.Name=$(basename "${SCRIPT_FILE}") -DGhidra.Install.Root.Dir=\"${GHIDRA_ROOT_DIR}\" "
+APP_VMARGS="-DGhidraJarBuilder.Name=$(basename "${SCRIPT_FILE}")"
 
 # Launch jar builder
-"${SCRIPT_DIR}"/launch.sh "${LAUNCH_MODE}" Ghidra "${MAXMEM}" "${APP_VMARGS}" ghidra.util.GhidraJarBuilder -main ghidra.JarRun "$@"
+"${SCRIPT_DIR}"/launch.sh "${LAUNCH_MODE}" jdk Ghidra "${MAXMEM}" "${APP_VMARGS}" ghidra.util.GhidraJarBuilder -main ghidra.JarRun "$@"

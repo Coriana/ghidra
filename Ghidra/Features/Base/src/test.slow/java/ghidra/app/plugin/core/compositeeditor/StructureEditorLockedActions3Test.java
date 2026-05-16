@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -27,7 +27,7 @@ import docking.widgets.dialogs.InputDialog;
 import docking.widgets.dialogs.NumberInputDialog;
 import ghidra.program.model.data.*;
 
-public class StructureEditorLockedActions3Test extends AbstractStructureEditorLockedActionsTest {
+public class StructureEditorLockedActions3Test extends AbstractStructureEditorTest {
 
 	/**
 	 * Edit an existing structure and create a structure from a selection. Use the conflicting 
@@ -47,7 +47,7 @@ public class StructureEditorLockedActions3Test extends AbstractStructureEditorLo
 		DataType originalDt4 = getDataType(4);
 
 		// Make selected components into internal structure.
-		invoke(createInternalStructureAction);
+		invoke(createInternalStructureAction, false);
 
 		// Specify name for structure.
 		InputDialog inputDialog = waitForDialogComponent(InputDialog.class);
@@ -173,7 +173,7 @@ public class StructureEditorLockedActions3Test extends AbstractStructureEditorLo
 		assertEquals(29, getModel().getLength());
 		assertEquals(8, getModel().getNumComponents());
 		setSelection(new int[] { 4 });
-		invoke(fav);
+		invoke(fav, false);
 		dialog = waitForDialogComponent(NumberInputDialog.class);
 		assertNotNull(dialog);
 		okInput(dialog, 8);
@@ -196,7 +196,7 @@ public class StructureEditorLockedActions3Test extends AbstractStructureEditorLo
 		assertEquals(9, getModel().getNumComponents());
 		assertEquals("byte", getDataType(1).getName());
 		assertEquals(getDataType(1), dt1);
-		assertEquals("pointer doesn't fit.", getModel().getStatus());
+		assertTrue(getModel().getStatus().contains("requires 1 additional"));
 		assertEquals(1, getDataType(1).getLength());
 		assertEquals(1, getModel().getComponent(1).getLength());
 		assertEquals(DataType.DEFAULT, getDataType(2));
@@ -213,7 +213,7 @@ public class StructureEditorLockedActions3Test extends AbstractStructureEditorLo
 	//		setSelection(new int[] {1});
 	//		DataType dt1 = getDataType(1);
 	//		assertTrue(getDataType(1).isEquivalent(new WordDataType()));
-	//		invoke(pointerAction);
+	//		invoke(pointerAction, false);
 	//		dialog = (NumberInputDialog)env.waitForDialogComponent(NumberInputDialog.class, 1000);
 	//		assertNotNull(dialog);
 	//		cancelInput(dialog, 2);
@@ -259,7 +259,7 @@ public class StructureEditorLockedActions3Test extends AbstractStructureEditorLo
 	//		DataType dt1 = getDataType(1);
 	//		assertTrue(getDataType(1).isEquivalent(new StringDataType()));
 	//		assertEquals(5, getModel().getComponent(1).getLength());
-	//		invoke(pointerAction);
+	//		invoke(pointerAction, false);
 	//		dialog = (NumberInputDialog)env.waitForDialogComponent(NumberInputDialog.class, 1000);
 	//		assertNotNull(dialog);
 	//		okInput(dialog, 8);
@@ -299,7 +299,7 @@ public class StructureEditorLockedActions3Test extends AbstractStructureEditorLo
 	//		
 	//		setSelection(new int[] {10});
 	//		DataType dt10 = getDataType(10);
-	//		invoke(pointerAction);
+	//		invoke(pointerAction, false);
 	//		dialog = (NumberInputDialog)env.waitForDialogComponent(NumberInputDialog.class, 1000);
 	//		assertNotNull(dialog);
 	//		okInput(dialog, 2);
@@ -321,7 +321,7 @@ public class StructureEditorLockedActions3Test extends AbstractStructureEditorLo
 	//		
 	//		setSelection(new int[] {15});
 	//		DataType dt15 = getDataType(15);
-	//		invoke(pointerAction);
+	//		invoke(pointerAction, false);
 	//		dialog = (NumberInputDialog)env.waitForDialogComponent(NumberInputDialog.class, 1000);
 	//		assertNotNull(dialog);
 	//		okInput(dialog, 4);
@@ -353,7 +353,7 @@ public class StructureEditorLockedActions3Test extends AbstractStructureEditorLo
 	@Test
 	public void testShowNumbersInHex() {
 		init(complexStructure, pgmTestCat);
-		CompEditorPanel panel = (CompEditorPanel) provider.getComponent();
+		StructureEditorPanel panel = (StructureEditorPanel) provider.getComponent();
 
 		assertEquals("", model.getStatus());
 

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,67 +22,22 @@ import docking.widgets.OptionDialog;
 import ghidra.app.decompiler.*;
 import ghidra.app.plugin.core.decompile.DecompilerActionContext;
 import ghidra.app.plugin.core.function.EditFunctionSignatureDialog;
+import ghidra.app.util.HelpTopics;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.*;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.pcode.*;
-import ghidra.program.model.symbol.Reference;
-import ghidra.util.Msg;
-import ghidra.util.UndefinedFunction;
+import ghidra.program.model.symbol.*;
+import ghidra.util.*;
 import ghidra.util.exception.CancelledException;
+import ghidra.util.exception.InvalidInputException;
 
 public class OverridePrototypeAction extends AbstractDecompilerAction {
 
-	public class ProtoOverrideDialog extends EditFunctionSignatureDialog {
-		private FunctionDefinition functionDefinition;
-
-		public FunctionDefinition getFunctionDefinition() {
-			return functionDefinition;
-		}
-
-		public ProtoOverrideDialog(PluginTool tool, Function func, String signature, String conv) {
-			super(tool, "Override Signature", func);
-			setSignature(signature);
-			setCallingConvention(conv);
-		}
-
-		/**
-		 * This method gets called when the user clicks on the OK Button.  The base
-		 * class calls this method.
-		 */
-		@Override
-		protected void okCallback() {
-			// only close the dialog if the user made valid changes
-			if (parseFunctionDefinition()) {
-				close();
-			}
-		}
-
-		private boolean parseFunctionDefinition() {
-
-			functionDefinition = null;
-
-			try {
-				functionDefinition = parseSignature();
-			}
-			catch (CancelledException e) {
-				// ignore
-			}
-
-			if (functionDefinition == null) {
-				return false;
-			}
-
-			GenericCallingConvention convention =
-				GenericCallingConvention.guessFromName(getCallingConvention());
-			functionDefinition.setGenericCallingConvention(convention);
-			return true;
-		}
-	}
-
 	public OverridePrototypeAction() {
 		super("Override Signature");
+		setHelpLocation(new HelpLocation(HelpTopics.DECOMPILER, "ActionOverrideSignature"));
 		setPopupMenuData(new MenuData(new String[] { "Override Signature" }, "Decompile"));
 	}
 
@@ -92,7 +47,7 @@ public class OverridePrototypeAction extends AbstractDecompilerAction {
 	 * @param tokenAtCursor is the point in the window the user has selected
 	 * @return the PcodeOp or null
 	 */
-	private static PcodeOp getCallOp(Program program, ClangToken tokenAtCursor) {
+	static PcodeOp getCallOp(Program program, ClangToken tokenAtCursor) {
 		if (tokenAtCursor == null) {
 			return null;
 		}
@@ -118,6 +73,38 @@ public class OverridePrototypeAction extends AbstractDecompilerAction {
 		}
 
 		return null;
+	}
+
+	static Symbol getSymbol(Function func, ClangToken tokenAtCursor) {
+		if (tokenAtCursor == null || (func instanceof UndefinedFunction)) {
+			return null;
+		}
+
+		Namespace overspace = HighFunction.findOverrideSpace(func);
+		if (overspace == null) {
+			return null;
+		}
+		PcodeOp op = getCallOp(func.getProgram(), tokenAtCursor);
+		if (op == null) {
+			return null;
+		}
+		SymbolTable symtab = func.getProgram().getSymbolTable();
+		SymbolIterator iter = symtab.getSymbolsAsIterator(op.getSeqnum().getTarget());
+		while (iter.hasNext()) {
+			Symbol sym = iter.next();
+			if (sym.getSymbolType() != SymbolType.LABEL) {
+				continue;
+			}
+			if (!sym.getParentNamespace().equals(overspace)) {
+				continue;
+			}
+			if (!sym.getName().startsWith("prt")) {
+				continue;
+			}
+			return sym;
+		}
+		return null;
+
 	}
 
 	private static PcodeOp getOpForAddress(Program program, Address addr, ClangToken token) {
@@ -158,7 +145,7 @@ public class OverridePrototypeAction extends AbstractDecompilerAction {
 		return opCode == PcodeOp.CALL || opCode == PcodeOp.CALLIND;
 	}
 
-	private Function getCalledFunction(Program program, PcodeOp op) {
+	static Function getCalledFunction(Program program, PcodeOp op) {
 		if (op.getOpcode() != PcodeOp.CALL) {
 			return null;
 		}
@@ -181,11 +168,28 @@ public class OverridePrototypeAction extends AbstractDecompilerAction {
 		return null;
 	}
 
-	private String generateSignature(PcodeOp op, String name) {
+	private String generateSignature(PcodeOp op, String name, Function calledfunc) {
+
+		// TODO: If an override has already be placed-down it should probably be used 
+		// for the initial signature.  HighFunction does not make it easy to grab 
+		// existing override prototype
+
+		if (calledfunc != null &&
+			calledfunc.getSignatureSource().isLowerOrEqualPriorityThan(SourceType.ANALYSIS)) {
+			calledfunc = null; // ignore
+		}
+
 		StringBuffer buf = new StringBuffer();
+
 		Varnode vn = op.getOutput();
 		DataType dt = null;
-		if (vn != null) {
+		if (calledfunc != null) {
+			dt = calledfunc.getReturnType();
+			if (Undefined.isUndefined(dt)) {
+				dt = null;
+			}
+		}
+		if (dt == null && vn != null) {
 			dt = vn.getHigh().getDataType();
 		}
 		if (dt != null) {
@@ -196,24 +200,46 @@ public class OverridePrototypeAction extends AbstractDecompilerAction {
 		}
 
 		buf.append(' ').append(name).append('(');
-		for (int i = 1; i < op.getNumInputs(); ++i) {
-			vn = op.getInput(i);
-			dt = null;
-			if (vn != null) {
-				dt = vn.getHigh().getDataType();
-			}
-			if (dt != null) {
-				buf.append(dt.getDisplayName());
-			}
-			else {
-				buf.append("BAD");
-			}
-			if (i != op.getNumInputs() - 1) {
-				buf.append(',');
+
+		int index = 1;
+		if (calledfunc != null) {
+			for (Parameter p : calledfunc.getParameters()) {
+				String dtName = getInputDataTypeName(op, index, p.getDataType());
+				if (index++ != 1) {
+					buf.append(", ");
+				}
+				buf.append(dtName);
+				if (p.getSource() != SourceType.DEFAULT) {
+					buf.append(' ');
+					buf.append(p.getName());
+				}
 			}
 		}
+
+		for (int i = index; i < op.getNumInputs(); ++i) {
+			if (i != 1) {
+				buf.append(", ");
+			}
+			buf.append(getInputDataTypeName(op, i, null));
+		}
+
 		buf.append(')');
 		return buf.toString();
+	}
+
+	private String getInputDataTypeName(PcodeOp op, int inIndex, DataType preferredDt) {
+		if (preferredDt != null && !Undefined.isUndefined(preferredDt)) {
+			return preferredDt.getDisplayName();
+		}
+		Varnode vn = op.getInput(inIndex);
+		DataType dt = null;
+		if (vn != null) {
+			dt = vn.getHigh().getDataType();
+		}
+		if (dt != null) {
+			return dt.getDisplayName();
+		}
+		return "BAD";
 	}
 
 	@Override
@@ -224,7 +250,12 @@ public class OverridePrototypeAction extends AbstractDecompilerAction {
 		}
 
 		PcodeOp callOp = getCallOp(context.getProgram(), context.getTokenAtCursor());
-		return callOp != null;
+		if (callOp == null) {
+			return false;
+		}
+
+		// don't enable if override already in place
+		return getSymbol(context.getFunction(), context.getTokenAtCursor()) == null;
 	}
 
 	@Override
@@ -232,10 +263,10 @@ public class OverridePrototypeAction extends AbstractDecompilerAction {
 		Function func = context.getFunction();
 		Program program = func.getProgram();
 		PcodeOp op = getCallOp(program, context.getTokenAtCursor());
-		Function calledfunc = getCalledFunction(program, op);
+		Function calledFunc = getCalledFunction(program, op);
 		boolean varargs = false;
-		if (calledfunc != null) {
-			varargs = calledfunc.hasVarArgs();
+		if (calledFunc != null) {
+			varargs = calledFunc.hasVarArgs();
 		}
 		if ((op.getOpcode() == PcodeOp.CALL) && !varargs) {
 			if (OptionDialog.showOptionDialog(context.getDecompilerPanel(),
@@ -247,26 +278,21 @@ public class OverridePrototypeAction extends AbstractDecompilerAction {
 				return;
 			}
 		}
-		Address addr = op.getSeqnum().getTarget();
-		String name = "func"; // Default if we don't have a real name
-		String conv = program.getCompilerSpec().getDefaultCallingConvention().getName();
-		if (calledfunc != null) {
-			name = calledfunc.getName();
-			conv = calledfunc.getCallingConventionName();
-		}
 
-		String signature = generateSignature(op, name);
-		PluginTool tool = context.getTool();
-		ProtoOverrideDialog dialog = new ProtoOverrideDialog(tool, func, signature, conv);
-		//     dialog.setHelpLocation( new HelpLocation( getOwner(), "Edit_Function_Signature" ) );
-		tool.showDialog(dialog);
-		FunctionDefinition fdef = dialog.getFunctionDefinition();
+		String name = "func"; // Default if we don't have a real name
+		if (calledFunc != null) {
+			name = calledFunc.getName();
+		}
+		String signature = generateSignature(op, name, calledFunc);
+
+		FunctionDefinition fdef = editSignature(context, calledFunc, signature);
 		if (fdef == null) {
 			return;
 		}
 		int transaction = program.startTransaction("Override Signature");
 		boolean commit = false;
 		try {
+			Address addr = op.getSeqnum().getTarget();
 			HighFunctionDBUtil.writeOverride(func, addr, fdef);
 			commit = true;
 		}
@@ -276,6 +302,96 @@ public class OverridePrototypeAction extends AbstractDecompilerAction {
 		}
 		finally {
 			program.endTransaction(transaction, commit);
+		}
+	}
+
+	static FunctionDefinition editSignature(DecompilerActionContext context, Function calledFunc,
+			String signature) {
+		Function func = context.getFunction();
+		Program program = func.getProgram();
+		PluginTool tool = context.getTool();
+
+		String conv = program.getCompilerSpec().getDefaultCallingConvention().getName();
+		if (calledFunc != null) {
+			conv = calledFunc.getCallingConventionName();
+		}
+
+		ProtoOverrideDialog dialog =
+			new ProtoOverrideDialog(tool, calledFunc != null ? calledFunc : func, signature, conv);
+		tool.showDialog(dialog);
+		return dialog.getFunctionDefinition();
+	}
+
+	/**
+	 * <code>ProtoOverrideDialog</code> provides the ability to edit the
+	 * function signature associated with a specific function definition override
+	 * at a sub-function callsite.  
+	 * Use of this editor requires the presence of the tool-based datatype manager service.
+	 */
+	private static class ProtoOverrideDialog extends EditFunctionSignatureDialog {
+		private FunctionDefinition functionDefinition;
+		private final String initialSignature;
+		private final String initialConvention;
+
+		/**
+		 * Construct signature override for called function
+		 * @param tool active tool
+		 * @param func function from which program access is achieved and supply of preferred 
+		 * datatypes when parsing signature
+		 * @param signature initial prototype signature to be used
+		 * @param conv initial calling convention
+		 */
+		public ProtoOverrideDialog(PluginTool tool, Function func, String signature, String conv) {
+			super(tool, "Override Signature", func, false, true, false);
+			setHelpLocation(new HelpLocation(HelpTopics.DECOMPILER, "ActionOverrideSignature"));
+			this.initialSignature = signature;
+			this.initialConvention = conv;
+		}
+
+		@Override
+		protected String getPrototypeString() {
+			return initialSignature;
+		}
+
+		@Override
+		protected String getCallingConventionName() {
+			return initialConvention;
+		}
+
+		@Override
+		protected boolean applyChanges() throws CancelledException {
+			return parseFunctionDefinition();
+		}
+
+		private boolean parseFunctionDefinition() {
+
+			functionDefinition = null;
+
+			try {
+				functionDefinition = parseSignature();
+			}
+			catch (CancelledException e) {
+				// ignore
+			}
+
+			if (functionDefinition == null) {
+				return false;
+			}
+
+			functionDefinition.setNoReturn(hasNoReturnSelected());
+
+			try {
+				functionDefinition.setCallingConvention(getCallingConvention());
+			}
+			catch (InvalidInputException e) {
+				// should not occur since dialog restricts calling convention choice
+			}
+
+			return true;
+		}
+
+		public FunctionDefinition getFunctionDefinition() {
+			return functionDefinition;
 		}
 	}
 }

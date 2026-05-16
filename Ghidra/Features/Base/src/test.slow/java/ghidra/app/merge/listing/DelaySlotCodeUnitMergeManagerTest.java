@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -43,45 +43,26 @@ public class DelaySlotCodeUnitMergeManagerTest extends AbstractListingMergeManag
     public void testAddLatestDelaySlot() throws Exception {
 
 		mtf.initialize("r4000", new ProgramModifierListener() {
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
+
+			@Override
 			public void modifyLatest(ProgramDB program) throws Exception {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
-				try {
-					Listing listing = program.getListing();
-					listing.clearCodeUnits(addr(program, "80b4"), addr(program, "80bb"), false);
-					program.getMemory().setBytes(addr(program, "80b4"), delaySlotPair1);
-					Disassembler disassembler =
-						Disassembler.getDisassembler(program, monitor, null);
-					disassembler.disassemble(addr(program, "80b4"), null);
-					commit = true;
-				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
+				Listing listing = program.getListing();
+				listing.clearCodeUnits(addr(program, "80b4"), addr(program, "80bb"), false);
+				program.getMemory().setBytes(addr(program, "80b4"), delaySlotPair1);
+				Disassembler disassembler =
+					Disassembler.getDisassembler(program, monitor, null);
+				disassembler.disassemble(addr(program, "80b4"), null);
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
+			@Override
 			public void modifyPrivate(ProgramDB program) throws Exception {
-				int txId = program.startTransaction("Modify Checked-out Program");
-				boolean commit = false;
-				try {
-					Listing listing = program.getListing();
-					listing.clearCodeUnits(addr(program, "80b0"), addr(program, "80bf"), false);
-					program.getMemory().setBytes(addr(program, "80b0"), delaySlotPair2);
-					program.getMemory().setBytes(addr(program, "80b8"), delaySlotPair2);
-					Disassembler disassembler =
-						Disassembler.getDisassembler(program, monitor, null);
-					disassembler.disassemble(addr(program, "80b0"), null);
-					commit = true;
-				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
+				Listing listing = program.getListing();
+				listing.clearCodeUnits(addr(program, "80b0"), addr(program, "80bf"), false);
+				program.getMemory().setBytes(addr(program, "80b0"), delaySlotPair2);
+				program.getMemory().setBytes(addr(program, "80b8"), delaySlotPair2);
+				Disassembler disassembler =
+					Disassembler.getDisassembler(program, monitor, null);
+				disassembler.disassemble(addr(program, "80b0"), null);
 			}
 		});
 
@@ -97,45 +78,25 @@ public class DelaySlotCodeUnitMergeManagerTest extends AbstractListingMergeManag
     public void testAddLatestDelaySlot2() throws Exception {
 
 		mtf.initialize("r4000", new ProgramModifierListener() {
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
+			@Override
 			public void modifyLatest(ProgramDB program) throws Exception {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
-				try {
-					Listing listing = program.getListing();
-					listing.clearCodeUnits(addr(program, "80b4"), addr(program, "80bb"), false);
-					program.getMemory().setBytes(addr(program, "80b4"), delaySlotPair1);
-					Disassembler disassembler =
-						Disassembler.getDisassembler(program, monitor, null);
-					disassembler.disassemble(addr(program, "80b4"), null);
-					commit = true;
-				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
+				Listing listing = program.getListing();
+				listing.clearCodeUnits(addr(program, "80b4"), addr(program, "80bb"), false);
+				program.getMemory().setBytes(addr(program, "80b4"), delaySlotPair1);
+				Disassembler disassembler =
+					Disassembler.getDisassembler(program, monitor, null);
+				disassembler.disassemble(addr(program, "80b4"), null);
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
+			@Override
 			public void modifyPrivate(ProgramDB program) throws Exception {
-				int txId = program.startTransaction("Modify Checked-out Program");
-				boolean commit = false;
-				try {
-					Listing listing = program.getListing();
-					listing.clearCodeUnits(addr(program, "80b0"), addr(program, "80bf"), false);
-					program.getMemory().setBytes(addr(program, "80b0"), delaySlotPair2);
-					program.getMemory().setBytes(addr(program, "80b8"), delaySlotPair2);
-					Disassembler disassembler =
-						Disassembler.getDisassembler(program, monitor, null);
-					disassembler.disassemble(addr(program, "80b0"), null);
-					commit = true;
-				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
+				Listing listing = program.getListing();
+				listing.clearCodeUnits(addr(program, "80b0"), addr(program, "80bf"), false);
+				program.getMemory().setBytes(addr(program, "80b0"), delaySlotPair2);
+				program.getMemory().setBytes(addr(program, "80b8"), delaySlotPair2);
+				Disassembler disassembler =
+					Disassembler.getDisassembler(program, monitor, null);
+				disassembler.disassemble(addr(program, "80b0"), null);
 			}
 		});
 
@@ -151,45 +112,26 @@ public class DelaySlotCodeUnitMergeManagerTest extends AbstractListingMergeManag
     public void testAddLatestDelaySlot3() throws Exception {
 
 		mtf.initialize("r4000", new ProgramModifierListener() {
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
+
+			@Override
 			public void modifyLatest(ProgramDB program) throws Exception {
-				int txId = program.startTransaction("Modify Latest Program");
-				boolean commit = false;
-				try {
-					Listing listing = program.getListing();
-					listing.clearCodeUnits(addr(program, "80b4"), addr(program, "80bb"), false);
-					program.getMemory().setBytes(addr(program, "80b4"), delaySlotPair1);
-					Disassembler disassembler =
-						Disassembler.getDisassembler(program, monitor, null);
-					disassembler.disassemble(addr(program, "80b4"), null);
-					commit = true;
-				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
+				Listing listing = program.getListing();
+				listing.clearCodeUnits(addr(program, "80b4"), addr(program, "80bb"), false);
+				program.getMemory().setBytes(addr(program, "80b4"), delaySlotPair1);
+				Disassembler disassembler =
+					Disassembler.getDisassembler(program, monitor, null);
+				disassembler.disassemble(addr(program, "80b4"), null);
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
+			@Override
 			public void modifyPrivate(ProgramDB program) throws Exception {
-				int txId = program.startTransaction("Modify Checked-out Program");
-				boolean commit = false;
-				try {
-					Listing listing = program.getListing();
-					listing.clearCodeUnits(addr(program, "80b0"), addr(program, "80bf"), false);
-					program.getMemory().setBytes(addr(program, "80b0"), delaySlotPair2);
-					program.getMemory().setBytes(addr(program, "80b8"), delaySlotPair2);
-					Disassembler disassembler =
-						Disassembler.getDisassembler(program, monitor, null);
-					disassembler.disassemble(addr(program, "80b0"), null);
-					commit = true;
-				}
-				finally {
-					program.endTransaction(txId, commit);
-				}
+				Listing listing = program.getListing();
+				listing.clearCodeUnits(addr(program, "80b0"), addr(program, "80bf"), false);
+				program.getMemory().setBytes(addr(program, "80b0"), delaySlotPair2);
+				program.getMemory().setBytes(addr(program, "80b8"), delaySlotPair2);
+				Disassembler disassembler =
+					Disassembler.getDisassembler(program, monitor, null);
+				disassembler.disassemble(addr(program, "80b0"), null);
 			}
 		});
 

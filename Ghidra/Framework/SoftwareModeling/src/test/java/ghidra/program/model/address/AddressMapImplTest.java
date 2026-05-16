@@ -15,17 +15,19 @@
  */
 package ghidra.program.model.address;
 
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
 import org.junit.*;
 
 import generic.test.AbstractGenericTest;
+import ghidra.program.model.lang.SpaceNames;
 
 public class AddressMapImplTest extends AbstractGenericTest {
 	AddressSpace sp8;
 	AddressSpace sp16;
 	AddressSpace sp32;
 	AddressSpace sp64;
+	AddressSpace ov64;
 	AddressSpace regSpace;
 	AddressSpace stackSpace;
 	SegmentedAddressSpace segSpace1;
@@ -42,15 +44,18 @@ public class AddressMapImplTest extends AbstractGenericTest {
 		sp32 = new GenericAddressSpace("THREE", 32, AddressSpace.TYPE_RAM, 2);
 		sp64 = new GenericAddressSpace("FOUR", 64, AddressSpace.TYPE_RAM, 2);
 
+		ov64 = new SingleRangeOverlayAddressSpace("four", sp64, 100, 0x1000, 0x1FFF, "four");
+
 		segSpace1 = new SegmentedAddressSpace("SegSpaceOne", 3);
 		segSpace2 = new SegmentedAddressSpace("SegSpaceTwo", 4);
 
 		regSpace = new GenericAddressSpace("Register", 32, AddressSpace.TYPE_REGISTER, 0);
-		stackSpace = new GenericAddressSpace("stack", 32, AddressSpace.TYPE_STACK, 0);
+		stackSpace =
+			new GenericAddressSpace(SpaceNames.STACK_SPACE_NAME, 32, AddressSpace.TYPE_STACK, 0);
 
 		map = new AddressMapImpl();
 
-		addrs = new Address[29];
+		addrs = new Address[31];
 		addrs[0] = sp8.getAddress(0);
 		addrs[1] = sp8.getAddress(0x0ff);
 		addrs[2] = sp16.getAddress(0);
@@ -83,6 +88,9 @@ public class AddressMapImplTest extends AbstractGenericTest {
 		addrs[26] = stackSpace.getAddress(0x7fffffff);
 		addrs[27] = stackSpace.getAddress(0);
 		addrs[28] = stackSpace.getAddress(0x80000000);
+
+		addrs[29] = ov64.getAddress(0x1100);
+		addrs[30] = ov64.getAddress(0x2000);
 
 	}
 

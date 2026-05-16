@@ -4,17 +4,19 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 //Uses overriding references and the symbolic propogator to resolve system calls
 //@category Analysis
+
 import java.io.*;
 import java.util.*;
 import java.util.Map.Entry;
@@ -31,8 +33,8 @@ import ghidra.app.util.opinion.ElfLoader;
 import ghidra.framework.Application;
 import ghidra.program.model.address.*;
 import ghidra.program.model.data.DataTypeManager;
-import ghidra.program.model.lang.BasicCompilerSpec;
 import ghidra.program.model.lang.Register;
+import ghidra.program.model.lang.SpaceNames;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.mem.MemoryAccessException;
 import ghidra.program.model.pcode.PcodeOp;
@@ -65,6 +67,9 @@ public class ResolveX86orX64LinuxSyscallsScript extends GhidraScript {
 	//native "syscall" instruction
 	private static final String SYSCALL_X64_CALLOTHER = "syscall";
 
+	//a set of names of all syscalls that do not return
+	private static final Set<String> noreturnSyscalls = Set.of("exit", "exit_group");
+
 	//tests whether an instruction is making a system call
 	private Predicate<Instruction> tester;
 
@@ -88,7 +93,7 @@ public class ResolveX86orX64LinuxSyscallsScript extends GhidraScript {
 	@Override
 	protected void run() throws Exception {
 
-		if (!(currentProgram.getExecutableFormat().equals(ElfLoader.ELF_NAME) &&
+		if (!(ElfLoader.isElf(currentProgram) &&
 			currentProgram.getLanguage().getProcessor().toString().equals(X86))) {
 			popup("This script is intended for x86 or x64 Linux files");
 			return;
@@ -124,8 +129,9 @@ public class ResolveX86orX64LinuxSyscallsScript extends GhidraScript {
 					" to run this script");
 				return;
 			}
-			Address startAddr = currentProgram.getAddressFactory().getAddressSpace(
-				BasicCompilerSpec.OTHER_SPACE_NAME).getAddress(0x0L);
+			Address startAddr = currentProgram.getAddressFactory()
+					.getAddressSpace(SpaceNames.OTHER_SPACE_NAME)
+					.getAddress(0x0L);
 			AddUninitializedMemoryBlockCmd cmd = new AddUninitializedMemoryBlockCmd(
 				SYSCALL_SPACE_NAME, null, this.getClass().getName(), startAddr,
 				SYSCALL_SPACE_LENGTH, true, true, true, false, true);
@@ -178,10 +184,20 @@ public class ResolveX86orX64LinuxSyscallsScript extends GhidraScript {
 					funcName = syscallNumbersToNames.get(offset);
 				}
 				callee = createFunction(callTarget, funcName);
+				if (callee == null) {
+					Msg.warn(this, "Unable to create function at "+callTarget);
+					continue;
+				}
 				callee.setCallingConvention(callingConvention);
+
+				//check if the function name is one of the non-returning syscalls
+				if (noreturnSyscalls.contains(funcName)) {
+					callee.setNoReturn(true);
+				}
 			}
-			Reference ref = currentProgram.getReferenceManager().addMemoryReference(callSite,
-				callTarget, overrideType, SourceType.USER_DEFINED, Reference.MNEMONIC);
+			Reference ref = currentProgram.getReferenceManager()
+					.addMemoryReference(callSite, callTarget, overrideType, SourceType.USER_DEFINED,
+						Reference.MNEMONIC);
 			//overriding references must be primary to be active
 			currentProgram.getReferenceManager().setPrimary(ref, true);
 		}
@@ -238,7 +254,7 @@ public class ResolveX86orX64LinuxSyscallsScript extends GhidraScript {
 			TaskMonitor tMonitor) throws CancelledException {
 		Map<Function, Set<Address>> funcsToCalls = new HashMap<>();
 		for (Function func : program.getFunctionManager().getFunctionsNoStubs(true)) {
-			tMonitor.checkCanceled();
+			tMonitor.checkCancelled();
 			for (Instruction inst : program.getListing().getInstructions(func.getBody(), true)) {
 				if (tester.test(inst)) {
 					Set<Address> callSites = funcsToCalls.get(func);
@@ -269,8 +285,8 @@ public class ResolveX86orX64LinuxSyscallsScript extends GhidraScript {
 		Register syscallReg = program.getLanguage().getRegister(syscallRegister);
 		for (Function func : funcsToCalls.keySet()) {
 			Address start = func.getEntryPoint();
-			ContextEvaluator eval = new ConstantPropagationContextEvaluator(true);
-			SymbolicPropogator symEval = new SymbolicPropogator(program);
+			ContextEvaluator eval = new ConstantPropagationContextEvaluator(monitor, true);
+			SymbolicPropogator symEval = new SymbolicPropogator(program, true);
 			symEval.flowConstants(start, func.getBody(), eval, true, tMonitor);
 			for (Address callSite : funcsToCalls.get(func)) {
 				Value val = symEval.getRegisterValue(callSite, syscallReg);
@@ -312,8 +328,10 @@ public class ResolveX86orX64LinuxSyscallsScript extends GhidraScript {
 		for (PcodeOp op : inst.getPcode()) {
 			if (op.getOpcode() == PcodeOp.CALLOTHER) {
 				int index = (int) op.getInput(0).getOffset();
-				if (inst.getProgram().getLanguage().getUserDefinedOpName(index).equals(
-					SYSCALL_X64_CALLOTHER)) {
+				if (inst.getProgram()
+						.getLanguage()
+						.getUserDefinedOpName(index)
+						.equals(SYSCALL_X64_CALLOTHER)) {
 					retVal = true;
 				}
 			}

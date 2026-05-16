@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,11 +15,10 @@
  */
 package ghidra.app.util.bin.format.ne;
 
-import ghidra.app.util.bin.format.*;
-import ghidra.util.Conv;
-
 import java.io.IOException;
 import java.util.ArrayList;
+
+import ghidra.app.util.bin.BinaryReader;
 
 /**
  * A class to represent a new-executable segment.
@@ -50,7 +49,7 @@ public class Segment {
     /**segment is 32 bit */
     private final static short FLAG_32BIT      = (short) 0x2000;
 
-    private FactoryBundledWithBinaryReader reader;
+	private BinaryReader reader;
     private int segmentID;
     private short offset;       //byte offset to content, relative to BOF (zero means no file data)
     private short length;       //length of segment in file (zero means 64k)
@@ -60,7 +59,7 @@ public class Segment {
     private short nRelocations; //number of relocations
     private SegmentRelocation [] relocations; //relocation records
 
-    Segment(FactoryBundledWithBinaryReader reader, short segmentAlignment, int segmentID) throws IOException {
+	Segment(BinaryReader reader, short segmentAlignment, int segmentID) throws IOException {
         this.reader = reader;
         this.segmentID = segmentID;
         
@@ -69,11 +68,11 @@ public class Segment {
         flagword     = reader.readNextShort();
         minAllocSize = reader.readNextShort();
 
-        offsetAlign  = Conv.shortToInt(offset) * Conv.shortToInt(segmentAlignment);
+        offsetAlign  = Short.toUnsignedInt(offset) * Short.toUnsignedInt(segmentAlignment);
 
         ArrayList<SegmentRelocation> list = new ArrayList<SegmentRelocation>();
         if (hasRelocation()) {
-            int relocPos = offsetAlign + Conv.shortToInt(length);
+            int relocPos = offsetAlign + Short.toUnsignedInt(length);
 
             long oldIndex = reader.getPointerIndex();
             reader.setPointerIndex(relocPos);
@@ -223,26 +222,5 @@ public class Segment {
      */
     public SegmentRelocation [] getRelocations() {
         return relocations;
-    }
-    /**
-     * Returns the bytes the comprise this segment.
-     * The size of the byte array is MAX(length,minalloc).
-     * @return the bytes the comprise this segment
-     */
-    public byte [] getBytes() throws IOException {
-        int   offset_int = getOffsetShiftAligned();
-        int   length_int = Conv.shortToInt(getLength());
-        int minalloc_int = Conv.shortToInt(getMinAllocSize());
-
-        if (minalloc_int == 0) minalloc_int = 0x10000;
-
-        byte [] bytes = reader.readByteArray(offset_int, length_int);
-
-        if (length_int >= minalloc_int) {
-            return bytes;
-        }
-        byte [] newbytes = new byte[minalloc_int];
-        System.arraycopy(bytes, 0, newbytes, 0, length_int);
-        return newbytes;
     }
 }

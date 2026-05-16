@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,13 +15,13 @@
  */
 package ghidra.program.database.symbol;
 
-import ghidra.util.exception.NotFoundException;
-import ghidra.util.exception.VersionException;
-import ghidra.util.task.TaskMonitor;
-
 import java.io.IOException;
 
 import db.*;
+import ghidra.framework.data.OpenMode;
+import ghidra.util.exception.NotFoundException;
+import ghidra.util.exception.VersionException;
+import ghidra.util.task.TaskMonitor;
 
 /**
  *
@@ -34,16 +33,17 @@ abstract class EquateDBAdapter {
 
 	final static String EQUATES_TABLE_NAME = "Equates";
 
-	static final Schema EQUATES_SCHEMA = new Schema(0, "Key", new Class[] { StringField.class,
-		LongField.class }, new String[] { "Equate Name", "Equate Value" });
+	static final Schema EQUATES_SCHEMA =
+		new Schema(0, "Key", new Field[] { StringField.INSTANCE, LongField.INSTANCE },
+			new String[] { "Equate Name", "Equate Value" });
 
 	final static int NAME_COL = 0;
 	final static int VALUE_COL = 1;
 
-	static EquateDBAdapter getAdapter(DBHandle dbHandle, int openMode, TaskMonitor monitor)
+	static EquateDBAdapter getAdapter(DBHandle dbHandle, OpenMode openMode, TaskMonitor monitor)
 			throws VersionException, IOException {
 
-		if (openMode == DBConstants.CREATE) {
+		if (openMode == OpenMode.CREATE) {
 			return new EquateDBAdapterV0(dbHandle, true);
 		}
 
@@ -64,7 +64,7 @@ abstract class EquateDBAdapter {
 	 * @param key the key to look up the record.
 	 * @throws IOException if there is no equate with the given
 	 */
-	abstract Record getRecord(long key) throws IOException;
+	abstract DBRecord getRecord(long key) throws IOException;
 
 	/**
 	 * Remove the record with the given key.
@@ -78,7 +78,7 @@ abstract class EquateDBAdapter {
 	 * @param record the record to update.
 	 * @throws IOException if there was a problem accessing the database
 	 */
-	abstract void updateRecord(Record record) throws IOException;
+	abstract void updateRecord(DBRecord record) throws IOException;
 
 	/**
 	 * Create a new record for the equate.
@@ -87,7 +87,7 @@ abstract class EquateDBAdapter {
 	 * @return new record
 	 * @throws IOException if there was a problem accessing the database
 	 */
-	abstract Record createEquate(String name, long value) throws IOException;
+	abstract DBRecord createEquate(String name, long value) throws IOException;
 
 	/**
 	 * Get an iterator over all the equate records.

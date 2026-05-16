@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,11 +15,10 @@
  */
 package ghidra.program.database.data;
 
-import ghidra.util.exception.VersionException;
-
 import java.io.IOException;
 
 import db.*;
+import ghidra.util.exception.VersionException;
 
 /**
  * Version 0 implementation for accessing the Function Definition Parameters database table. 
@@ -28,6 +26,7 @@ import db.*;
 class FunctionParameterAdapterV0 extends FunctionParameterAdapter implements RecordTranslator {
 
 	static final int VERSION = 0;
+
 	// Parameter Table Columns
 	static final int V0_PARAMETER_PARENT_ID_COL = 0;
 	static final int V0_PARAMETER_DT_ID_COL = 1;
@@ -35,8 +34,9 @@ class FunctionParameterAdapterV0 extends FunctionParameterAdapter implements Rec
 	static final int V0_PARAMETER_COMMENT_COL = 3;
 	static final int V0_PARAMETER_ORDINAL_COL = 4;
 
-	static final Schema V0_PARAMETER_SCHEMA = new Schema(VERSION, "Parameter ID", new Class[] {
-		LongField.class, LongField.class, StringField.class, StringField.class, IntField.class },
+	static final Schema V0_PARAMETER_SCHEMA = new Schema(VERSION, "Parameter ID",
+		new Field[] { LongField.INSTANCE, LongField.INSTANCE, StringField.INSTANCE,
+			StringField.INSTANCE, IntField.INSTANCE },
 		new String[] { "Parent ID", "Data Type ID", "Name", "Comment", "Ordinal" });
 
 	private Table parameterTable;
@@ -44,7 +44,7 @@ class FunctionParameterAdapterV0 extends FunctionParameterAdapter implements Rec
 	/**
 	 * Gets a version 0 adapter for the Function Definition Parameter database table.
 	 * @param handle handle to the database containing the table.
-	 * @throws VersionException if the the table's version does not match the expected version
+	 * @throws VersionException if the table's version does not match the expected version
 	 * for this adapter.
 	 */
 	public FunctionParameterAdapterV0(DBHandle handle) throws VersionException {
@@ -53,39 +53,19 @@ class FunctionParameterAdapterV0 extends FunctionParameterAdapter implements Rec
 		if (parameterTable == null) {
 			throw new VersionException(true);
 		}
-		int version = parameterTable.getSchema().getVersion();
-		if (version != VERSION) {
-			String msg =
-				"Expected version " + VERSION + " for table " + PARAMETER_TABLE_NAME + " but got " +
-					parameterTable.getSchema().getVersion();
-			if (version < VERSION) {
-				throw new VersionException(msg, VersionException.OLDER_VERSION, true);
-			}
-			throw new VersionException(msg, VersionException.NEWER_VERSION, false);
+		if (parameterTable.getSchema().getVersion() != VERSION) {
+			throw new VersionException(false);
 		}
 	}
 
 	@Override
-	public Record createRecord(long dataTypeID, long parentID, int ordinal, String name,
+	public DBRecord createRecord(long dataTypeID, long parentID, int ordinal, String name,
 			String comment, int dtLength) throws IOException {
-
-		long tableKey = parameterTable.getKey();
-//		if (tableKey <= DataManager.VOID_DATATYPE_ID) {
-//			tableKey = DataManager.VOID_DATATYPE_ID +1;
-//		}
-		long key = DataTypeManagerDB.createKey(DataTypeManagerDB.PARAMETER, tableKey);
-		Record record = V0_PARAMETER_SCHEMA.createRecord(key);
-		record.setLongValue(V0_PARAMETER_PARENT_ID_COL, parentID);
-		record.setLongValue(V0_PARAMETER_DT_ID_COL, dataTypeID);
-		record.setString(V0_PARAMETER_NAME_COL, name);
-		record.setString(V0_PARAMETER_COMMENT_COL, comment);
-		record.setIntValue(V0_PARAMETER_ORDINAL_COL, ordinal);
-		parameterTable.putRecord(record);
-		return record;
+		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public Record getRecord(long parameterID) throws IOException {
+	public DBRecord getRecord(long parameterID) throws IOException {
 		return translateRecord(parameterTable.getRecord(parameterID));
 	}
 
@@ -95,7 +75,7 @@ class FunctionParameterAdapterV0 extends FunctionParameterAdapter implements Rec
 	}
 
 	@Override
-	public void updateRecord(Record record) throws IOException {
+	public void updateRecord(DBRecord record) throws IOException {
 		throw new UnsupportedOperationException();
 	}
 
@@ -110,18 +90,19 @@ class FunctionParameterAdapterV0 extends FunctionParameterAdapter implements Rec
 	}
 
 	@Override
-	public long[] getParameterIdsInFunctionDef(long functionDefID) throws IOException {
+	public Field[] getParameterIdsInFunctionDef(long functionDefID) throws IOException {
 		return parameterTable.findRecords(new LongField(functionDefID), V0_PARAMETER_PARENT_ID_COL);
 	}
 
 	/* (non-Javadoc)
 	 * @see db.RecordTranslator#translateRecord(db.Record)
 	 */
-	public Record translateRecord(Record oldRec) {
+	@Override
+	public DBRecord translateRecord(DBRecord oldRec) {
 		if (oldRec == null) {
 			return null;
 		}
-		Record rec = FunctionParameterAdapter.PARAMETER_SCHEMA.createRecord(oldRec.getKey());
+		DBRecord rec = FunctionParameterAdapter.PARAMETER_SCHEMA.createRecord(oldRec.getKey());
 		rec.setLongValue(FunctionParameterAdapter.PARAMETER_PARENT_ID_COL,
 			oldRec.getLongValue(V0_PARAMETER_PARENT_ID_COL));
 		rec.setLongValue(FunctionParameterAdapter.PARAMETER_DT_ID_COL,

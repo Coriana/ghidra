@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -28,28 +28,34 @@ import java.util.Map.Entry;
 import javax.help.*;
 import javax.help.Map.ID;
 import javax.swing.JButton;
-import javax.swing.UIManager;
 
 import docking.ComponentProvider;
 import docking.action.DockingActionIf;
+import generic.concurrent.GThreadPool;
 import generic.util.WindowUtilities;
 import ghidra.util.*;
 import ghidra.util.exception.AssertException;
 import ghidra.util.exception.CancelledException;
-import ghidra.util.task.TaskLauncher;
 import ghidra.util.task.TaskMonitor;
+import help.*;
 import resources.ResourceManager;
 import utilities.util.reflection.ReflectionUtilities;
 
 /**
  * Class that uses JavaHelp browser to show context sensitive help.
- * 
+ *
  * <p>Note: this manager will validate all registered help when in development mode.  In order
- * to catch items that have not registered help at all, we rely on those items to register a 
+ * to catch items that have not registered help at all, we rely on those items to register a
  * default {@link HelpLocation} that will get flagged as invalid.  Examples of this usage are
  * the {@link DockingActionIf} and the {@link ComponentProvider} base classes.
  */
 public class HelpManager implements HelpService {
+
+	/**
+	 * The hardcoded value to use for all HelpSet 'home id' values.  Subclasses may change this 
+	 * value by overriding {@link #getHomeId()}.
+	 */
+	private static final String HOME_ID = "Misc_Help_Contents";
 
 	public static final String SHOW_AID_KEY = "SHOW.HELP.NAVIGATION.AID";
 	private static final String TABLE_OF_CONTENTS_FILENAME_KEY = "data";
@@ -66,6 +72,7 @@ public class HelpManager implements HelpService {
 
 	private HashMap<URL, HelpSet> urlToHelpSets = new HashMap<>();
 	private Map<Object, HelpLocation> helpLocations = new WeakHashMap<>();
+	private Map<Object, DynamicHelpLocation> dynamicHelp = new WeakHashMap<>();
 
 	private List<HelpSet> helpSetsPendingMerge = new ArrayList<>();
 	private boolean hasMergedHelpSets;
@@ -78,16 +85,15 @@ public class HelpManager implements HelpService {
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param url url for the main HelpSet file for the application.
 	 * @throws HelpSetException if HelpSet could not be created
 	 */
 	protected HelpManager(URL url) throws HelpSetException {
-		mainHS = new GHelpSet(new GHelpClassLoader(null), url);
+		mainHS = new DockingHelpSet(new GHelpClassLoader(null), url);
+		mainHS.setHomeID(getHomeId());
 		mainHB = mainHS.createHelpBroker();
 		mainHS.setTitle(GHIDRA_HELP_TITLE);
-
-		setColorResources();
 
 		isValidHelp = isValidHelp();
 	}
@@ -104,7 +110,7 @@ public class HelpManager implements HelpService {
 
 	/**
 	 * Add the help set for the given URL.
-	 * 
+	 *
 	 * @param url url for the HelpSet (.hs) file
 	 * @param classLoader the help classloader that knows how to find help modules in the classpath
 	 * @throws HelpSetException if the help set could not be created from the given URL.
@@ -121,6 +127,23 @@ public class HelpManager implements HelpService {
 		else {
 			helpSetsPendingMerge.add(hs);
 		}
+	}
+
+	/**
+	 * Returns the 'home id' to be used by all help sets in the system (as opposed to allowing each
+	 * help set to define its own home id.
+	 * @return the home id
+	 */
+	protected String getHomeId() {
+		return HOME_ID;
+	}
+
+	/**
+	 * Returns the master help set (the one into which all other help sets are merged).
+	 * @return the help set
+	 */
+	public GHelpSet getMasterHelpSet() {
+		return mainHS;
 	}
 
 	@Override
@@ -140,7 +163,18 @@ public class HelpManager implements HelpService {
 	}
 
 	@Override
+	public void registerDynamicHelp(Object helpObject, DynamicHelpLocation helpLocation) {
+		dynamicHelp.put(helpObject, helpLocation);
+	}
+
+	@Override
 	public void registerHelp(Object helpObject, HelpLocation location) {
+
+		if (helpObject == null) {
+			Throwable t = ReflectionUtilities.createJavaFilteredThrowable();
+			Msg.debug(this, "Incorrect use of registerHelp() - 'helpObject' cannot be null\n", t);
+			return;
+		}
 
 		if (location == null) {
 			Throwable t = ReflectionUtilities.createJavaFilteredThrowable();
@@ -160,8 +194,8 @@ public class HelpManager implements HelpService {
 		}
 
 		// Implementation Note: the same object can have different help registered.  For example,
-		//                      DockingActions do this as part of their construction process. 
-		//                      These actions will register a default help location and then 
+		//                      DockingActions do this as part of their construction process.
+		//                      These actions will register a default help location and then
 		//                      subclasses may change that location.  We always use the most
 		//                      recently registered action.
 		helpLocations.put(helpObject, location);
@@ -175,33 +209,45 @@ public class HelpManager implements HelpService {
 		return false;
 	}
 
-	/**
-	 * Returns the Help location associated with the specified object
-	 * or null if no help has been registered for the object.
-	 * @param helpObj help object
-	 * @return help location
-	 */
 	@Override
 	public HelpLocation getHelpLocation(Object helpObj) {
+		return doGetHelpLocation(helpObj);
+	}
+
+	private HelpLocation doGetHelpLocation(Object helpObj) {
+
+		DynamicHelpLocation dynamicLocation = dynamicHelp.get(helpObj);
+		if (dynamicLocation != null) {
+			HelpLocation hl = dynamicLocation.getActiveHelpLocation();
+			if (hl != null) {
+				return hl;
+			}
+		}
+
 		return helpLocations.get(helpObj);
 	}
 
-	/**
-	 * Returns the master help set (the one into which all other help sets are merged).
-	 */
-	public GHelpSet getMasterHelpSet() {
-		return mainHS;
+	private HelpLocation findHelpLocation(Object helpObj) {
+		if (helpObj instanceof HelpDescriptor) {
+			HelpDescriptor helpDescriptor = (HelpDescriptor) helpObj;
+			Object descriptorHelpObj = helpDescriptor.getHelpObject();
+			return doGetHelpLocation(descriptorHelpObj);
+		}
+		return doGetHelpLocation(helpObj);
 	}
 
-	/**
-	 * Display the help page for the given URL.  This is a specialty method for displaying
-	 * help when a specific file is desired, like an introduction page.  Showing help for 
-	 * objects within the system is accomplished by calling 
-	 * {@link #showHelp(Object, boolean, Component)}.
-	 * 
-	 * @param url the URL to display
-	 * @see #showHelp(Object, boolean, Component)
-	 */
+	@Override
+	public void reload() {
+
+		if (!(mainHB instanceof GHelpBroker)) {
+			// not our broker installed; can't force a reload
+			return;
+		}
+
+		GHelpBroker gHelpBroker = (GHelpBroker) mainHB;
+		gHelpBroker.reload();
+	}
+
 	@Override
 	public void showHelp(URL url) {
 		if (!isValidHelp) {
@@ -210,10 +256,20 @@ public class HelpManager implements HelpService {
 			return;
 		}
 
-		KeyboardFocusManager keyboardFocusManager =
-			KeyboardFocusManager.getCurrentKeyboardFocusManager();
-		Window window = keyboardFocusManager.getActiveWindow();
+		Window window = getBestParent(null);
 		displayHelp(url, window);
+	}
+
+	@Override
+	public void showHelp(HelpLocation loc) {
+		if (!isValidHelp) {
+			Msg.warn(this, "Help is not in a valid state.  " +
+				"This can happen when help has not been built.");
+			return;
+		}
+
+		Window window = getBestParent(null);
+		showHelpLocation(loc, window);
 	}
 
 	@Override
@@ -225,44 +281,67 @@ public class HelpManager implements HelpService {
 			return;
 		}
 
-		while (owner != null && !(owner instanceof Window)) {
-			owner = owner.getParent();
-		}
-
-		Window window = (Window) owner;
-		Dialog modalDialog = WindowUtilities.findModalestDialog();
-		if (modalDialog != null) {
-			window = modalDialog;
-		}
-
+		Window window = getBestParent(owner);
 		HelpLocation loc = findHelpLocation(helpObj);
 
 		if (infoOnly) {
 			displayHelpInfo(helpObj, loc, window);
+		}
+		else {
+			showHelpLocation(loc, window);
+		}
+	}
+
+	private void showHelpLocation(HelpLocation loc, Window window) {
+		if (loc == null) {
+			showDefaultHelpPage(window);
 			return;
 		}
 
-		if (loc != null) {
-
-			URL url = loc.getHelpURL();
-			if (url != null) {
-				displayHelp(url, window);
-				return;
-			}
-
-			String helpIDString = loc.getHelpId();
-			if (helpIDString != null) {
-				try {
-					displayHelp(createHelpID(helpIDString), window);
-					return;
-				}
-				catch (BadIDException e) {
-					Msg.info(this, "Could not find help for ID: \"" + helpIDString +
-						"\" from HelpLocation: " + loc);
-				}
-			}
+		URL url = loc.getHelpURL();
+		if (url != null) {
+			displayHelp(url, window);
+			return;
 		}
-		displayHelp(mainHS.getHomeID(), window);
+
+		String helpId = loc.getHelpId();
+		if (helpId == null) {
+			showDefaultHelpPage(window);
+			return;
+		}
+
+		try {
+			displayHelp(createHelpID(helpId), window);
+		}
+		catch (BadIDException e) {
+			Msg.info(this,
+				"Could not find help for ID: \"" + helpId + "\" from HelpLocation: " + loc);
+			displayHelp(HELP_NOT_FOUND_PAGE_URL, window);
+		}
+	}
+
+	private void showDefaultHelpPage(Window w) {
+		displayHelp(mainHS.getHomeID(), w);
+	}
+
+	private Window getBestParent(Component c) {
+
+		if (c == null) {
+			KeyboardFocusManager keyboardFocusManager =
+				KeyboardFocusManager.getCurrentKeyboardFocusManager();
+			c = keyboardFocusManager.getActiveWindow();
+		}
+
+		while (c != null && !(c instanceof Window)) {
+			c = c.getParent();
+		}
+
+		Window window = (Window) c;
+		Dialog modalDialog = WindowUtilities.findModalestDialog();
+		if (modalDialog != null) {
+			window = modalDialog;
+		}
+		return window;
 	}
 
 	private ID createHelpID(String helpIDString) {
@@ -294,15 +373,6 @@ public class HelpManager implements HelpService {
 		}
 
 		throw helpException;
-	}
-
-	private HelpLocation findHelpLocation(Object helpObj) {
-		if (helpObj instanceof HelpDescriptor) {
-			HelpDescriptor helpDescriptor = (HelpDescriptor) helpObj;
-			Object helpObject = helpDescriptor.getHelpObject();
-			return helpLocations.get(helpObject);
-		}
-		return helpLocations.get(helpObj);
 	}
 
 	private String getFilenameForHelpLocation(HelpLocation helpLocation) {
@@ -400,7 +470,7 @@ public class HelpManager implements HelpService {
 			((DefaultHelpBroker) mainHB).setActivationWindow(owner);
 		}
 
-		// make sure we are visible before we set data (prevents bugs in JavaHelp)		
+		// make sure we are visible before we set data (prevents bugs in JavaHelp)
 		mainHB.setDisplayed(true);
 
 		if (!wasDisplayed) {
@@ -411,7 +481,7 @@ public class HelpManager implements HelpService {
 			//		                an invokeLater() will work as long as the model loading is
 			//                      relatively quick.
 			//
-			SystemUtilities.runSwingLater(() -> displayHelp(help, owner));
+			Swing.runLater(() -> displayHelp(help, owner));
 			return;
 		}
 
@@ -443,21 +513,20 @@ public class HelpManager implements HelpService {
 			return;
 		}
 
-		TaskLauncher.launchNonModal("Validating Help", monitor -> {
-			try {
-				printBadHelp(monitor);
-			}
-			catch (CancelledException e) {
-				// user cancelled; just exit
-			}
-		});
+		GThreadPool.runAsync(Swing.GSWING_THREAD_POOL_NAME, this::doPrintBadHelp);
 	}
 
-	private void printBadHelp(TaskMonitor monitor) throws CancelledException {
+	private void doPrintBadHelp() {
 
-		Map<Object, HelpLocation> badHelp = getInvalidHelpLocations(monitor);
-		if (badHelp.isEmpty()) {
-			return;
+		Map<Object, HelpLocation> badHelp;
+		try {
+			badHelp = getInvalidHelpLocations(TaskMonitor.DUMMY);
+			if (badHelp.isEmpty()) {
+				return;
+			}
+		}
+		catch (CancelledException e) {
+			return; // user cancelled
 		}
 
 		StringBuilder buffy = new StringBuilder();
@@ -473,27 +542,34 @@ public class HelpManager implements HelpService {
 	public Map<Object, HelpLocation> getInvalidHelpLocations(TaskMonitor monitor)
 			throws CancelledException {
 
+		Set<String> alreadySeen = new HashSet<>();
 		Map<Object, HelpLocation> map = new WeakHashMap<>();
-
 		Map<Object, HelpLocation> helpLocationsCopy = copyHelpLocations();
 		monitor.initialize(helpLocationsCopy.size());
 		Set<Entry<Object, HelpLocation>> entries = helpLocationsCopy.entrySet();
 		for (Entry<Object, HelpLocation> entry : entries) {
-			monitor.checkCanceled();
+			monitor.increment();
 
 			Object helpee = entry.getKey();
 			HelpLocation location = entry.getValue();
 			monitor.setMessage("Checking " + helpee);
-			if (!hasValidHelp(helpee, location)) {
-				map.put(helpee, location);
+			if (hasValidHelp(helpee, location)) {
+				continue;
 			}
-			monitor.incrementProgress(1);
+
+			String inception = location.getInceptionInformation();
+			if (alreadySeen.contains(inception)) {
+				continue; // don't show repeated errors for same line of code
+			}
+
+			alreadySeen.add(inception);
+			map.put(helpee, location);
 		}
 		return map;
 	}
 
 	private Map<Object, HelpLocation> copyHelpLocations() {
-		// we must copy the help locations, since we are in a background thread and the 
+		// we must copy the help locations, since we are in a background thread and the
 		// locations map is frequently updated by the Swing thread
 		return Swing.runNow(() -> new HashMap<>(helpLocations));
 	}
@@ -501,9 +577,9 @@ public class HelpManager implements HelpService {
 	//
 	// 				Warning!
 	// This code has timing implications.  DockingActions register themselves with the help
-	// system as part of their construction.  At that point, they are not usually fully 
+	// system as part of their construction.  At that point, they are not usually fully
 	// constructed, as most clients will use the newly constructed action to set the various
-	// toolbar/menu/popup data elements.  For us to know if the action is really only for 
+	// toolbar/menu/popup data elements.  For us to know if the action is really only for
 	// keybinding purposes, we have to do this check after the action is fully constructed.
 	//
 	private boolean isKeybindingOnly(Object helpee) {
@@ -536,18 +612,21 @@ public class HelpManager implements HelpService {
 			return;
 		}
 
-		mainHB.setCurrentURL(validateUrl(helpUrl));
+		mainHB.setCurrentURL(helpUrl);
 	}
 
 	/** This forces page to be redisplayed when location has not changed */
 	private void reloadPage(URL helpURL) {
 
-		if (!(mainHB instanceof GHelpBroker)) {
+		if (!(mainHB instanceof DockingHelpBroker)) {
 			// not our broker installed; can't force a reload
 			return;
 		}
 
-		((GHelpBroker) mainHB).reloadHelpPage(validateUrl(helpURL));
+		// Let the URL dictate where the page scrolls to.  If we do not do this, then there is an
+		// odd effect of having the page load and then jump to a previous location.
+		boolean preserveLocation = false;
+		((DockingHelpBroker) mainHB).reloadHelpPage(validateUrl(helpURL), preserveLocation);
 	}
 
 	private URL getURLForID(ID ID) {
@@ -630,7 +709,7 @@ public class HelpManager implements HelpService {
 		}
 
 		// Note: not sure if we ever need to merge again after the initial load.  If so, then
-		//       this flag doesn't make sense.  However, as of this writing, we do not discover 
+		//       this flag doesn't make sense.  However, as of this writing, we do not discover
 		//       new help sets on the fly.
 		hasMergedHelpSets = true;
 		helpSetsPendingMerge.clear();
@@ -657,24 +736,16 @@ public class HelpManager implements HelpService {
 	/**
 	 * Create a new help set for the given url, if one does
 	 * not already exist.
-	 * @param classLoader 
+	 * @param classLoader the class loader
 	 */
 	private HelpSet createHelpSet(URL url, GHelpClassLoader classLoader) throws HelpSetException {
 		if (!urlToHelpSets.containsKey(url)) {
 			GHelpSet hs = new GHelpSet(classLoader, url);
+			hs.setHomeID(getHomeId());
 			urlToHelpSets.put(url, hs);
 			return hs;
 		}
 		return null;
-	}
-
-	/** 
-	 * Set the color resources on the JEditorPane for selection so that
-	 * you can see the highlights when you do a search in the JavaHelp.
-	 */
-	private void setColorResources() {
-		UIManager.put("EditorPane.selectionBackground", new Color(204, 204, 255));
-		UIManager.put("EditorPane.selectionForeground", UIManager.get("EditorPane.foreground"));
 	}
 
 	private void displayHelpInfo(Object helpObj, HelpLocation loc, Window parent) {
@@ -744,7 +815,12 @@ public class HelpManager implements HelpService {
 			}
 		}
 		else {
-			buffy.append("<NO HELP AVAILABLE>");
+			if (isExcludedFromHelp(helpObj)) {
+				buffy.append("<EXCLUDED FROM HELP>");
+			}
+			else {
+				buffy.append("<NO HELP AVAILABLE>");
+			}
 		}
 
 		return buffy.toString();

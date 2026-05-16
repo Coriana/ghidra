@@ -23,6 +23,7 @@ import javax.swing.*;
 import docking.DialogComponentProvider;
 import docking.widgets.checkbox.GCheckBox;
 import docking.widgets.label.*;
+import generic.theme.GIcon;
 import ghidra.app.util.GenericHelpTopics;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.util.HelpLocation;
@@ -33,6 +34,9 @@ import ghidra.util.HelpLocation;
  * 
  */
 public class VersionControlDialog extends DialogComponentProvider {
+
+	private static final Icon ADD_ICON = new GIcon("icon.version.control.dialog.add");
+	private static final Icon CHECK_IN_ICON = new GIcon("icon.version.control.dialog.check.in");
 
 	static final int OK = 0;
 	public static final int APPLY_TO_ALL = 1;
@@ -56,6 +60,7 @@ public class VersionControlDialog extends DialogComponentProvider {
 		addWorkPanel(buildMainPanel());
 
 		allButton = new JButton("Apply to All");
+		allButton.getAccessibleContext().setAccessibleName("All");
 		allButton.setMnemonic('A');
 		allButton.addActionListener(e -> {
 			actionID = APPLY_TO_ALL;
@@ -85,6 +90,7 @@ public class VersionControlDialog extends DialogComponentProvider {
 
 	/**
 	 * Show the dialog; return an ID for the action that the user chose.
+	 * @param tool the tool
 	 * @param parent parent to this dialog
 	 * @return OK, APPLY_TO_ALL, or CANCEL
 	 */
@@ -97,10 +103,6 @@ public class VersionControlDialog extends DialogComponentProvider {
 		allButton.setEnabled(multi);
 	}
 
-	/**
-	 * Return 
-	 * @return
-	 */
 	boolean keepCheckedOut() {
 		return keepCB.isSelected();
 	}
@@ -116,12 +118,6 @@ public class VersionControlDialog extends DialogComponentProvider {
 		return keepFileCB.isSelected();
 	}
 
-	void setCreateKeepFile(boolean selected) {
-		if (!addToVersionControl) {
-			keepFileCB.setSelected(selected);
-		}
-	}
-
 	/**
 	 * Return the comments for the add to version control.
 	 * @return may be the empty string
@@ -130,38 +126,44 @@ public class VersionControlDialog extends DialogComponentProvider {
 		return commentsTextArea.getText();
 	}
 
-	/**
-	 * Disable the check box for "keep checked out" because some files
-	 * are still in use. 
+	/*
+	 * Disable the check box for "keep checked out" because some files are still in use. 
+	 * @param enabled true if checkbox control should be enabled, false if disabled
+	 * @param selected true if default state should be selected, else not-selected
+	 * @param disabledMsg tooltip message if enabled is false, otherwise ignored.
 	 */
-	public void setKeepCheckboxEnabled(boolean enabled) {
+	public void setKeepCheckboxEnabled(boolean enabled, boolean selected, String disabledMsg) {
 		keepCB.setEnabled(enabled);
-		keepCB.setToolTipText(enabled ? "" : "Must keep Checked Out because the file is in use");
+		keepCB.setSelected(selected);
+		keepCB.setToolTipText(enabled ? "" : disabledMsg);
 	}
 
 	private JPanel buildMainPanel() {
 
 		JPanel innerPanel = new JPanel();
 		innerPanel.setLayout(new BoxLayout(innerPanel, BoxLayout.Y_AXIS));
-		ImageIcon icon = resources.ResourceManager.loadImage(
-			addToVersionControl ? "images/vcAdd.png" : "images/vcCheckIn.png");
+		innerPanel.getAccessibleContext().setAccessibleName("Version Control");
+		Icon icon = addToVersionControl ? ADD_ICON : CHECK_IN_ICON;
 
 		descriptionLabel = new GDLabel(addToVersionControl ? "Add comments to describe the file."
 				: "Add comments to describe changes",
 			SwingConstants.LEFT);
+		descriptionLabel.getAccessibleContext().setAccessibleName("Description");
 		JPanel dPanel = new JPanel(new BorderLayout(10, 0));
 		dPanel.add(new GIconLabel(icon), BorderLayout.WEST);
 		dPanel.add(descriptionLabel, BorderLayout.CENTER);
+		dPanel.getAccessibleContext().setAccessibleName("Description");
 
 		JPanel cPanel = new JPanel(new BorderLayout());
 		cPanel.add(new GLabel("Comments:", SwingConstants.LEFT));
-
+		cPanel.getAccessibleContext().setAccessibleName("Comments");
 		commentsTextArea = new JTextArea(4, 20);
 		JScrollPane sp = new JScrollPane(commentsTextArea);
-
+		sp.getAccessibleContext().setAccessibleName("Comment");
 		keepCB = new GCheckBox("Keep File Checked Out", true);
 		JPanel kPanel = new JPanel(new BorderLayout());
 		kPanel.add(keepCB, BorderLayout.WEST);
+		kPanel.getAccessibleContext().setAccessibleName("Keep File");
 
 		innerPanel.add(Box.createVerticalStrut(10));
 		innerPanel.add(dPanel);
@@ -175,12 +177,14 @@ public class VersionControlDialog extends DialogComponentProvider {
 			keepFileCB = new GCheckBox("Create \".keep\" file", false);
 			JPanel kpPanel = new JPanel(new BorderLayout());
 			kpPanel.add(keepFileCB, BorderLayout.WEST);
+			kpPanel.getAccessibleContext().setAccessibleName("Keep File");
 			innerPanel.add(kpPanel);
 		}
 
 		JPanel mainPanel = new JPanel(new BorderLayout());
 		mainPanel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 5));
 		mainPanel.add(innerPanel);
+		mainPanel.getAccessibleContext().setAccessibleName("Version Control");
 		return mainPanel;
 	}
 

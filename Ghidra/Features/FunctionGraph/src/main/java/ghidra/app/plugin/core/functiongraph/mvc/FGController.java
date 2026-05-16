@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,29 +18,32 @@ package ghidra.app.plugin.core.functiongraph.mvc;
 import java.awt.*;
 import java.awt.event.MouseEvent;
 import java.awt.geom.Point2D;
-import java.util.ArrayList;
+import java.util.*;
 import java.util.List;
-import java.util.Set;
+import java.util.function.BiConsumer;
+import java.util.function.Supplier;
 
 import javax.swing.JComponent;
-import javax.swing.SwingUtilities;
 
 import com.google.common.cache.*;
 
+import docking.options.OptionsService;
 import docking.widgets.EventTrigger;
 import docking.widgets.fieldpanel.support.FieldLocation;
 import docking.widgets.fieldpanel.support.Highlight;
 import ghidra.GhidraOptions;
 import ghidra.app.nav.Navigatable;
-import ghidra.app.plugin.core.codebrowser.ListingHighlightProvider;
-import ghidra.app.plugin.core.functiongraph.*;
+import ghidra.app.plugin.core.codebrowser.ListingMiddleMouseHighlightProvider;
+import ghidra.app.plugin.core.functiongraph.FGColorProvider;
+import ghidra.app.plugin.core.functiongraph.SetFormatDialogComponentProvider;
 import ghidra.app.plugin.core.functiongraph.graph.FGEdge;
 import ghidra.app.plugin.core.functiongraph.graph.FunctionGraph;
 import ghidra.app.plugin.core.functiongraph.graph.layout.FGLayoutProvider;
 import ghidra.app.plugin.core.functiongraph.graph.vertex.*;
+import ghidra.app.plugin.core.marker.MarginProviderSupplier;
 import ghidra.app.services.ButtonPressedListener;
 import ghidra.app.services.CodeViewerService;
-import ghidra.app.util.HighlightProvider;
+import ghidra.app.util.ListingHighlightProvider;
 import ghidra.app.util.viewer.field.FieldFactory;
 import ghidra.app.util.viewer.field.ListingField;
 import ghidra.app.util.viewer.format.FieldFormatModel;
@@ -49,22 +52,21 @@ import ghidra.app.util.viewer.listingpanel.*;
 import ghidra.framework.options.SaveState;
 import ghidra.framework.options.ToolOptions;
 import ghidra.framework.plugintool.PluginTool;
-import ghidra.framework.plugintool.util.OptionsService;
 import ghidra.graph.viewer.*;
-import ghidra.graph.viewer.layout.LayoutProvider;
 import ghidra.program.model.address.*;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.symbol.*;
 import ghidra.program.util.ProgramLocation;
 import ghidra.program.util.ProgramSelection;
 import ghidra.util.SystemUtilities;
+import ghidra.util.datastruct.WeakDataStructureFactory;
+import ghidra.util.datastruct.WeakSet;
 
 public class FGController implements ProgramLocationListener, ProgramSelectionListener {
 
-	private final FunctionGraphPlugin plugin;
-	private FGProvider provider;
-	private final FGModel model;
-	private final FGView view;
+	private FgEnv env;
+	private FGModel model;
+	private FGView view;
 
 	private FGData functionGraphData = new EmptyFunctionGraphData("Uninitialized Function Graph");
 	private FunctionGraphViewSettings viewSettings = new NoFunctionGraphViewSettings();
@@ -80,21 +82,32 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 	private FormatManager defaultFormatManager; // lazy!
 
 	private FunctionGraphOptions functionGraphOptions;
+	private FGControllerListener listener;
 
-	private SharedHighlightProvider sharedHighlightProvider;
+	private FgHighlightProvider sharedHighlightProvider;
 	private StringSelectionListener sharedStringSelectionListener =
-		string -> provider.setClipboardStringContent(string);
+		string -> listener.userSelectedText(string);
 
 	private Cache<Function, FGData> cache;
+	private BiConsumer<FGData, Boolean> fgDataDisposeListener = (data, evicted) -> {
+		// dummy
+	};
 
-	public FGController(FGProvider provider, FunctionGraphPlugin plugin) {
-		this.provider = provider;
-		this.plugin = plugin;
+	private WeakSet<MarginProviderSupplier> marginProviders =
+		WeakDataStructureFactory.createSingleThreadAccessWeakSet();
+
+	public FGController(FgEnv env, FGControllerListener controllerListener) {
+		this.env = env;
+		this.listener = Objects.requireNonNull(controllerListener);
 		this.cache = buildCache(this::cacheValueRemoved);
 		this.model = new FGModel(this);
 		this.view = new FGView(this, model.getTaskMonitorComponent());
 
-		functionGraphOptions = plugin.getFunctionGraphOptions();
+		this.functionGraphOptions = env.getOptions();
+	}
+
+	public FgEnv getEnv() {
+		return env;
 	}
 
 	private boolean disposeGraphDataIfNotInUse(FGData data) {
@@ -111,11 +124,12 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 		}
 
 		data.dispose();
+		fgDataDisposeListener.accept(data, true);
 		return true;
 	}
 
 	private FormatManager createMinimalFormatManager() {
-		FormatManager userDefinedFormat = plugin.getUserDefinedFormat();
+		FormatManager userDefinedFormat = env.getUserDefinedFormat();
 		if (userDefinedFormat != null) {
 			return userDefinedFormat;
 		}
@@ -123,8 +137,20 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 	}
 
 	private FormatManager createFullFormatManager() {
-		CodeViewerService codeViewer = plugin.getTool().getService(CodeViewerService.class);
-		return codeViewer.getFormatManager();
+		CodeViewerService codeViewer =
+			env.getTool().getService(CodeViewerService.class);
+
+		if (codeViewer != null) {
+			// Prefer the manager from the service, as this is the current state of the Listing.
+			return codeViewer.getFormatManager();
+		}
+
+		// No code viewer service implies we are not in the default tool
+		PluginTool tool = env.getTool();
+		ToolOptions displayOptions = tool.getOptions(GhidraOptions.CATEGORY_BROWSER_DISPLAY);
+		ToolOptions fieldOptions = tool.getOptions(GhidraOptions.CATEGORY_BROWSER_FIELDS);
+		return new FormatManager(displayOptions, fieldOptions);
+
 	}
 
 	public FormatManager getMinimalFormatManager() {
@@ -136,8 +162,20 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 
 	private void setMinimalFormatManager(FormatManager formatManager) {
 		this.minimalFormatManager = formatManager;
-		SharedHighlightProvider highlightProvider = lazilyCreateSharedHighlightProvider();
+		FgHighlightProvider highlightProvider = lazilyCreateSharedHighlightProvider();
 		minimalFormatManager.addHighlightProvider(highlightProvider);
+	}
+
+	public void updateMinimalFormatManager(FormatManager newFormatManager) {
+
+		// ensure the format manager has been created
+		getMinimalFormatManager();
+
+		SaveState saveState = new SaveState();
+		newFormatManager.saveState(saveState);
+		minimalFormatManager.readState(saveState);
+		env.setUserDefinedFormat(minimalFormatManager);
+		view.repaint();
 	}
 
 	public FormatManager getFullFormatManager() {
@@ -147,33 +185,36 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 		return fullFormatManager;
 	}
 
-	private FormatManager getDefaultFormatManager() {
+	public FormatManager getDefaultFormatManager() {
 		if (defaultFormatManager == null) {
 			defaultFormatManager = createDefaultFormat();
 		}
 		return defaultFormatManager;
 	}
 
-	private SharedHighlightProvider lazilyCreateSharedHighlightProvider() {
+	private FgHighlightProvider lazilyCreateSharedHighlightProvider() {
 		if (sharedHighlightProvider != null) {
 			return sharedHighlightProvider;
 		}
-		sharedHighlightProvider =
-			new SharedHighlightProvider(plugin.getTool(), provider.getComponent());
+
+		// At the time of construction, the view has not yet built the graph viewer.  We will use a
+		// supplier to access the viewer on demand.  It should be valid at that point.
+		Supplier<Component> repaintSupplier = () -> view.getPrimaryGraphViewer();
+		sharedHighlightProvider = new FgHighlightProvider(env.getTool(), repaintSupplier);
 		return sharedHighlightProvider;
 	}
 
 	public void formatChanged() {
-		setMinimalFormatManager(plugin.getUserDefinedFormat());
+		setMinimalFormatManager(env.getUserDefinedFormat());
 		view.repaint();
 	}
 
 	public Navigatable getNavigatable() {
-		return provider;
+		return env.getNavigatable();
 	}
 
 	private FormatManager createDefaultFormat() {
-		OptionsService options = plugin.getTool().getService(OptionsService.class);
+		OptionsService options = env.getTool().getService(OptionsService.class);
 		ToolOptions displayOptions = options.getOptions(GhidraOptions.CATEGORY_BROWSER_DISPLAY);
 		ToolOptions fieldOptions = options.getOptions(GhidraOptions.CATEGORY_BROWSER_FIELDS);
 
@@ -289,6 +330,7 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 
 	/**
 	 * Sets the message that will appear in the lower part of the graph.
+	 *
 	 * @param message the message to display
 	 */
 	public void setStatusMessage(String message) {
@@ -311,33 +353,18 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 		FunctionGraph graph = functionGraphData.getFunctionGraph();
 		FGVertex newFocusedVertex = graph.getFocusedVertex();
 		boolean vertexChanged = lastUserNavigatedVertex != newFocusedVertex;
-		boolean updateHistory = false;
-		if (vertexChanged) {
-			if (shouldSaveVertexChanges()) {
-				// put the navigation on the history stack if we've changed nodes (this is the
-				// location we are leaving)
-				provider.saveLocationToHistory();
-				updateHistory = true;
-			}
-			lastUserNavigatedVertex = newFocusedVertex;
-		}
+		lastUserNavigatedVertex = newFocusedVertex;
 
 		viewSettings.setLocation(loc);
-		provider.graphLocationChanged(loc);
-
-		if (updateHistory) {
-			// put the new location on the history stack now that we've updated the provider
-			provider.saveLocationToHistory();
-		}
+		listener.userChangedLocation(loc, vertexChanged);
 	}
 
-	private boolean shouldSaveVertexChanges() {
-		return functionGraphOptions
-				.getNavigationHistoryChoice() == NavigationHistoryChoices.VERTEX_CHANGES;
-	}
-
+	// this is a callback from the vertex's listing panel
 	@Override
-	public void programSelectionChanged(ProgramSelection selection) {
+	public void programSelectionChanged(ProgramSelection selection, EventTrigger trigger) {
+		if (trigger != EventTrigger.GUI_ACTION) {
+			return;
+		}
 		// We need to translate the given selection (which is from a single vertex) to the current
 		// overall selection for the graph (which includes the selection from all vertices).  We
 		// do this so that a selection change in one vertex does not clear the selection in
@@ -347,12 +374,12 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 
 		// push the user changes up to the provider
 		viewSettings.setSelection(fullSelection);
-		provider.graphSelectionChanged(fullSelection);
+		listener.userChangedSelection(fullSelection);
 	}
 
 //==================================================================================================
 // Grouping Methods (to be moved in a later refactoring)
-//==================================================================================================	
+//==================================================================================================
 
 	public void groupSelectedVertices() {
 		groupSelectedVertices(null);
@@ -410,10 +437,10 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 
 //==================================================================================================
 // End Group Methods
-//==================================================================================================	
+//==================================================================================================
 
 //==================================================================================================
-//  Methods call by the providers
+//  Methods called by the providers
 //==================================================================================================
 
 	public void programClosed(Program program) {
@@ -437,19 +464,12 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 		return view.isSatelliteVisible();
 	}
 
-	public boolean isSatelliteDocked() {
-		return view.isSatelliteDocked();
+	public void setSatelliteVisible(boolean visible) {
+		view.setSatelliteVisible(visible);
 	}
 
-	public void satelliteProviderShown() {
-		// note: always show the primary provider when the satellite is shown
-		if (provider.isVisible()) {
-			return; // nothing to do
-		}
-
-		// We do this later because it is possible during initialization that the provider is
-		// not 'inTool' because of how XML gets restored.  So, just do it later--it's less code.
-		SwingUtilities.invokeLater(() -> provider.setVisible(true));
+	public boolean isSatelliteDocked() {
+		return view.isSatelliteDocked();
 	}
 
 	public void primaryProviderHidden() {
@@ -458,11 +478,14 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 
 	public void setPopupsVisible(boolean visible) {
 		view.setPopupsVisible(visible);
-		provider.setPopupsVisible(visible);
+	}
+
+	public boolean arePopupsVisible() {
+		return view.arePopupsVisible();
 	}
 
 	public boolean arePopupsEnabled() {
-		return view.arePopupsEnabled();
+		return arePopupsVisible();
 	}
 
 	public FGVertex getFocusedVertex() {
@@ -471,6 +494,13 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 		}
 
 		return view.getFocusedVertex();
+	}
+
+	public FGVertex getEntryPointVertex() {
+		if (!hasResults()) {
+			return null;
+		}
+		return view.getEntryPointVertex();
 	}
 
 	public Set<FGVertex> getSelectedVertices() {
@@ -484,15 +514,15 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 		return functionGraphData.hasResults();
 	}
 
-	public void requestFocus() {
-		view.requestFocus();
-	}
-
 	public void cleanup() {
 		clear();
 		disposeCache();
 		model.cleanup();
 		view.cleanup();
+	}
+
+	public ProgramSelection getSelection() {
+		return viewSettings.getSelection();
 	}
 
 	public void setSelection(ProgramSelection selection) {
@@ -522,6 +552,12 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 		if (functionGraphData == null || functionGraphData.hasResults()) {
 			doSetFunctionGraphData(new EmptyFunctionGraphData("No Function"));
 		}
+	}
+
+	public void clearViewSettings() {
+		GraphPerspectiveInfo<FGVertex, FGEdge> info =
+			GraphPerspectiveInfo.createInvalidGraphPerspectiveInfo();
+		setGraphPerspective(info);
 	}
 
 	public void display(Program program, ProgramLocation location) {
@@ -578,6 +614,40 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 		}
 	}
 
+	/**
+	 * Tells this provider to refresh, which means to rebuild the graph and relayout the
+	 * vertices.
+	 * @param keepPerspective true to keep the perspective (e.g., zoom level and view position)
+	 */
+	public void refresh(boolean keepPerspective) {
+
+		if (functionGraphData.hasResults()) {
+			//
+			// We use the graph's data over the 'currentXXX' data, as there is a chance that the
+			// latter values have been set to new values, while the graph has differing data.  In
+			// that case we have made the decision to prefer the graph's data.
+			//
+			Function function = functionGraphData.getFunction();
+			Address address = function.getEntryPoint();
+			ProgramLocation currentLocation = env.getGraphLocation();
+			Address currentAddress = currentLocation.getAddress();
+			if (function.getBody().contains(currentAddress)) {
+				// prefer the current address if it is within the current function (i.e., the
+				// location hasn't changed out from under the graph due to threading issues)
+				address = currentAddress;
+			}
+
+			Program program = function.getProgram();
+			ProgramLocation programLocation = new ProgramLocation(program, address);
+			rebuildDisplay(program, programLocation, keepPerspective);
+			return;
+		}
+
+		Program program = env.getProgram();
+		ProgramLocation currentLocation = env.getGraphLocation();
+		rebuildDisplay(program, currentLocation, keepPerspective);
+	}
+
 	/*
 	 * This method differs from the <tt>refresh</tt>...() methods in that it will trigger a
 	 * graph rebuild, clearing any cached graph data in the process.  If <tt>maintainPerspective</tt>
@@ -602,7 +672,7 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 	}
 
 	public void rebuildCurrentDisplay() {
-		provider.refreshAndKeepPerspective();
+		refresh(true);
 	}
 
 	public void resetGraph() {
@@ -620,9 +690,9 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 		rebuildDisplay(function.getProgram(), location, false);
 
 		// we are changing the location above--make sure the external tool knows of it
-		ProgramLocation externalLocation = plugin.getProgramLocation();
+		ProgramLocation externalLocation = env.getToolLocation();
 		if (!externalLocation.getAddress().equals(location.getAddress())) {
-			provider.graphLocationChanged(location);
+			listener.userChangedLocation(location, false);
 		}
 	}
 
@@ -635,8 +705,14 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 		viewSettings.setLocation(location);
 	}
 
+	public void optionsChanged() {
+		view.optionsChanged();
+	}
+
 	public void refreshDisplayWithoutRebuilding() {
-		view.refreshDisplayWithoutRebuilding();
+		if (functionGraphData.hasResults()) {
+			view.refreshDisplayWithoutRebuilding();
+		}
 	}
 
 	public void refreshDisplayForAddress(Address address) {
@@ -644,7 +720,7 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 	}
 
 	public Program getProgram() {
-		return provider.getProgram();
+		return env.getProgram();
 	}
 
 	public FGData getFunctionGraphData() {
@@ -658,6 +734,10 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 		return null;
 	}
 
+	public boolean isBusy() {
+		return model.isBusy();
+	}
+
 	public JComponent getViewComponent() {
 		return view.getViewComponent();
 	}
@@ -667,20 +747,17 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 		view.setLayoutProvider(newLayout);
 
 		if (previousLayout == null) {
-			provider.refreshAndResetPerspective();
+			refresh(false);
 			return;
 		}
 
-		@SuppressWarnings("rawtypes")
-		Class<? extends LayoutProvider> previousLayoutClass = previousLayout.getClass();
-		@SuppressWarnings("rawtypes")
-		Class<? extends LayoutProvider> newLayoutClass = newLayout.getClass();
-
-		if (previousLayoutClass == newLayoutClass) {
+		String previousLayoutName = previousLayout.getLayoutName();
+		String newLayoutName = newLayout.getLayoutName();
+		if (previousLayoutName.equals(newLayoutName)) {
 			view.relayout();
 		}
 		else {
-			provider.refreshAndResetPerspective();
+			refresh(false);
 		}
 	}
 
@@ -694,38 +771,37 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 			vertex = view.getEntryPointVertex();
 		}
 
+		PluginTool tool = env.getTool();
 		SetFormatDialogComponentProvider setFormatDialog =
 			new SetFormatDialogComponentProvider(getDefaultFormatManager(), minimalFormatManager,
-				plugin.getTool(), provider.getProgram(), vertex.getAddresses());
-		plugin.getTool().showDialogOnActiveWindow(setFormatDialog);
+				tool, env.getProgram(), vertex.getAddresses());
+		tool.showDialog(setFormatDialog);
 		FormatManager newFormatManager = setFormatDialog.getNewFormatManager();
 		if (newFormatManager == null) {
 			return;
 		}
-		SaveState saveState = new SaveState();
-		newFormatManager.saveState(saveState);
-		minimalFormatManager.readState(saveState);
-		plugin.setUserDefinedFormat(minimalFormatManager);
-		view.repaint();
+
+		updateMinimalFormatManager(newFormatManager);
 	}
 
 	public void showXRefsDialog() {
-		PluginTool tool = plugin.getTool();
-		Program program = plugin.getCurrentProgram();
+		PluginTool tool = env.getTool();
+		Program program = env.getProgram();
 		List<Reference> references = getXReferencesToGraph();
 		XRefChooserDialog chooserDialog = new XRefChooserDialog(references, program, tool);
 
-		tool.showDialog(chooserDialog, provider);
+		JComponent centerOverComponent = view.getPrimaryGraphViewer();
+		tool.showDialog(chooserDialog, centerOverComponent);
 		Reference reference = chooserDialog.getSelectedReference();
 		if (reference == null) {
 			return; // the user cancelled
 		}
 
-		internalGoTo(new ProgramLocation(program, reference.getFromAddress()), program);
+		listener.userNavigated(new ProgramLocation(program, reference.getFromAddress()));
 	}
 
 	private List<Reference> getXReferencesToGraph() {
-		Program program = plugin.getCurrentProgram();
+		Program program = env.getProgram();
 		Function function = getGraphedFunction();
 
 		ReferenceManager referenceManager = program.getReferenceManager();
@@ -783,12 +859,13 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 	}
 
 	/**
-	 * Signals that something major has changed for the program and we don't know where, so
-	 * clear all cached functions for the given program.
+	 * Signals that something major has changed for the program and we don't know where, so clear
+	 * all cached functions for the given program.
 	 *
 	 * BLEH!: I don't like clearing the cache this way...another options is to mark all cached
-	 *       values as stale, somehow.  If we did this, then when the view reuses the cached
-	 *       data, it could signal to the user that the graph is out-of-date.
+	 * values as stale, somehow. If we did this, then when the view reuses the cached data, it could
+	 * signal to the user that the graph is out-of-date.
+	 *
 	 * @param program the program
 	 */
 	public void invalidateAllCacheForProgram(Program program) {
@@ -818,8 +895,16 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 		}
 	}
 
+	public void addMarkerProviderSupplier(MarginProviderSupplier supplier) {
+		marginProviders.add(supplier);
+	}
+
+	public void removeMarkerProviderSupplier(MarginProviderSupplier supplier) {
+		marginProviders.add(supplier);
+	}
+
 //==================================================================================================
-//  Methods call by the model
+//  Methods called by the model
 //==================================================================================================
 
 	public void setFunctionGraphData(FGData data) {
@@ -865,7 +950,7 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 		restoreGraphSettingsForNewFunction();
 
 		viewSettings = new CurrentFunctionGraphViewSettings(view, viewSettings);
-		provider.functionGraphDataChanged();
+		listener.dataChanged();
 	}
 
 	private boolean disposeIfNotInCache(FGData data) {
@@ -875,6 +960,7 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 		Function function = data.getFunction();
 		if (function != null && cache.getIfPresent(function) != data) {
 			data.dispose();
+			fgDataDisposeListener.accept(data, false);
 			return true;
 		}
 		return false;
@@ -899,11 +985,11 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 	}
 
 	private boolean isSnapshot() {
-		return !provider.isConnected();
+		return !getNavigatable().isConnected();
 	}
 
 //==================================================================================================
-//  Methods call by the vertices (actions and such)
+//  Methods called by the vertices (actions and such)
 //==================================================================================================
 
 	/** Zooms so that the graph will fit completely into the size of the primary viewer */
@@ -934,11 +1020,7 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 	}
 
 	public PluginTool getTool() {
-		return provider.getTool();
-	}
-
-	public FGProvider getProvider() {
-		return provider;
+		return env.getTool();
 	}
 
 	public Point getViewerPointFromVertexPoint(FGVertex vertex, Point point) {
@@ -966,22 +1048,22 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 	}
 
 	public Color getMostRecentColor() {
-		FGColorProvider colorProvider = plugin.getColorProvider();
+		FGColorProvider colorProvider = env.getColorProvider();
 		return colorProvider.getMostRecentColor();
 	}
 
 	public List<Color> getRecentColors() {
-		FGColorProvider colorProvider = plugin.getColorProvider();
+		FGColorProvider colorProvider = env.getColorProvider();
 		return colorProvider.getRecentColors();
 	}
 
 	public void saveVertexColors(FGVertex vertex, FunctionGraphVertexAttributes settings) {
-		FGColorProvider colorProvider = plugin.getColorProvider();
+		FGColorProvider colorProvider = env.getColorProvider();
 		colorProvider.saveVertexColors(vertex, settings);
 	}
 
 	public void restoreVertexColors(FGVertex vertex, FunctionGraphVertexAttributes settings) {
-		FGColorProvider colorProvider = plugin.getColorProvider();
+		FGColorProvider colorProvider = env.getColorProvider();
 		colorProvider.loadVertexColors(vertex, settings);
 	}
 
@@ -991,20 +1073,42 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 	}
 
 	public FGColorProvider getColorProvider() {
-		return plugin.getColorProvider();
+		return env.getColorProvider();
+	}
+
+	public <T> T getService(Class<T> serviceClass) {
+		PluginTool tool = env.getTool();
+		return tool.getService(serviceClass);
 	}
 
 	/**
-	 * Update the graph's notion of the current location based upon that of the Tool.  This
-	 * method is meant to be called from internal mutative operations.
+	 * Update the graph's notion of the current location based upon that of the Tool. This method is
+	 * meant to be called from internal mutative operations.
 	 */
 	public void synchronizeProgramLocationAfterEdit() {
 		// It is assumed that the provider's location is the correct location.
-		viewSettings.setLocation(provider.getLocation());
+		viewSettings.setLocation(env.getGraphLocation());
+	}
+
+	/**
+	 * A simple method to move the cursor to the given location in the currently graphed function.
+	 * If the location is not in the current function, nothing will happen. 
+	 * 
+	 * @param location the location
+	 */
+	public void setLocation(ProgramLocation location) {
+		if (viewContainsLocation(location)) {
+			viewSettings.setLocation(location);
+		}
+	}
+
+	public ProgramLocation getLocation() {
+		return viewSettings.getLocation();
 	}
 
 	/**
 	 * Will broadcast the given vertex location to the external system
+	 *
 	 * @param location the location coming from the vertex
 	 */
 	public void synchronizeProgramLocationToVertex(ProgramLocation location) {
@@ -1015,49 +1119,80 @@ public class FGController implements ProgramLocationListener, ProgramSelectionLi
 		handleLocationChangedFromVertex(location);
 	}
 
-	public void internalGoTo(ProgramLocation programLocation, Program program) {
-		provider.internalGoTo(programLocation, program);
-	}
-
-	private Cache<Function, FGData> buildCache(RemovalListener<Function, FGData> listener) {
+	private Cache<Function, FGData> buildCache(RemovalListener<Function, FGData> removalListener) {
 		//@formatter:off
 		return CacheBuilder
 			  .newBuilder()
 			  .maximumSize(5)
-			  .removalListener(listener)
-			  // Note: using soft values means that sometimes our data is reclaimed by the 
+			  .removalListener(removalListener)
+			  // Note: using soft values means that sometimes our data is reclaimed by the
 			  //       Garbage Collector.  We don't want that, we wish to call dispose() on the data
-			  //.softValues() 
+			  //.softValues()
 			  .build();
 		//@formatter:on
 	}
 
-	private void cacheValueRemoved(RemovalNotification<Function, FGData> notification) {
+	// for testing
+	void setCache(Cache<Function, FGData> cache) {
+		this.cache.invalidateAll();
+		this.cache = cache;
+	}
+
+	// open for testing
+	void cacheValueRemoved(RemovalNotification<Function, FGData> notification) {
 		disposeGraphDataIfNotInUse(notification.getValue());
+	}
+
+	void setFGDataDisposedListener(BiConsumer<FGData, Boolean> listener) {
+		this.fgDataDisposeListener = listener != null ? listener : (data, evicted) -> {
+			// dummy
+		};
+	}
+
+	public Set<MarginProviderSupplier> getMarginProviderSuppliers() {
+		return Collections.unmodifiableSet(marginProviders);
 	}
 
 //==================================================================================================
 // Inner Classes
 //==================================================================================================
 
-	private static class SharedHighlightProvider
-			implements HighlightProvider, ButtonPressedListener {
-		private ListingHighlightProvider highlighter;
+	private static class FgHighlightProvider
+			implements ListingHighlightProvider, ButtonPressedListener {
+		private FgMiddleMouseHighlightProvider highlighter;
 
-		SharedHighlightProvider(PluginTool tool, Component repaintComponent) {
-			highlighter = new ListingHighlightProvider(tool, repaintComponent);
+		FgHighlightProvider(PluginTool tool, Supplier<Component> repaintSupplier) {
+			highlighter = new FgMiddleMouseHighlightProvider(tool, repaintSupplier);
 		}
 
 		@Override
-		public Highlight[] getHighlights(String text, Object obj,
-				Class<? extends FieldFactory> fieldFactoryClass, int cursorTextOffset) {
-			return highlighter.getHighlights(text, obj, fieldFactoryClass, cursorTextOffset);
+		public Highlight[] createHighlights(String text, ListingField field, int cursorTextOffset) {
+			return highlighter.createHighlights(text, field, cursorTextOffset);
 		}
 
 		@Override
 		public void buttonPressed(ProgramLocation location, FieldLocation fieldLocation,
 				ListingField field, MouseEvent event) {
 			highlighter.buttonPressed(location, fieldLocation, field, event);
+		}
+
+		private class FgMiddleMouseHighlightProvider extends ListingMiddleMouseHighlightProvider {
+
+			private Supplier<Component> repaintSupplier;
+
+			public FgMiddleMouseHighlightProvider(PluginTool tool,
+					Supplier<Component> repaintSupplier) {
+				super(tool, null);
+				this.repaintSupplier = repaintSupplier;
+			}
+
+			@Override
+			protected void repaint() {
+				Component c = repaintSupplier.get();
+				if (c != null) {
+					c.repaint();
+				}
+			}
 		}
 	}
 }

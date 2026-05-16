@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -33,6 +33,7 @@ import ghidra.app.CorePluginPackage;
 import ghidra.app.plugin.PluginCategoryNames;
 import ghidra.app.plugin.ProgramPlugin;
 import ghidra.app.services.CodeViewerService;
+import ghidra.app.util.viewer.listingpanel.ListingPanel;
 import ghidra.app.util.viewer.util.AddressIndexMap;
 import ghidra.framework.plugintool.PluginInfo;
 import ghidra.framework.plugintool.PluginTool;
@@ -66,7 +67,7 @@ public class PrintingPlugin extends ProgramPlugin {
 	private PageFormat format;
 
 	public PrintingPlugin(PluginTool tool) {
-		super(tool, true, true);
+		super(tool);
 		setupActions();
 	}
 
@@ -74,6 +75,15 @@ public class PrintingPlugin extends ProgramPlugin {
 	public void init() {
 		super.init();
 		cvService = tool.getService(CodeViewerService.class);
+	}
+
+	@Override
+	protected void dispose() {
+		super.dispose();
+
+		if (pod != null) {
+			pod.dispose();
+		}
 	}
 
 	@Override
@@ -138,7 +148,10 @@ public class PrintingPlugin extends ProgramPlugin {
 						format = job.defaultPage();
 					}
 
-					LayoutModel lm = cvService.getFieldPanel().getLayoutModel();
+					ListingPanel listingPanel = cvService.getListingPanel();
+					FieldPanel fp = listingPanel.getFieldPanel();
+					LayoutModel lm = fp.getLayoutModel();
+
 					//Scale everything down if appropriate to fit on the page
 					double scaleAmount =
 						format.getImageableWidth() / lm.getPreferredViewSize().width;
@@ -307,7 +320,8 @@ public class PrintingPlugin extends ProgramPlugin {
 				private void printVisibleContent(TaskMonitor monitor, Date startDate,
 						PrinterJob job, Book book, LayoutModel lm, double scaleAmount,
 						int maxPageHeight) {
-					FieldPanel fp = cvService.getFieldPanel();
+					ListingPanel listingPanel = cvService.getListingPanel();
+					FieldPanel fp = listingPanel.getFieldPanel();
 					List<AnchoredLayout> visibleLayouts = fp.getVisibleLayouts();
 					BigInteger startIndex = visibleLayouts.get(0).getIndex();
 					BigInteger endIndex = visibleLayouts.get(visibleLayouts.size() - 1).getIndex();
@@ -336,19 +350,19 @@ public class PrintingPlugin extends ProgramPlugin {
 						while (curAddress.compareTo(curRange.getMaxAddress()) <= 0) {
 							//Add the layout for the present address
 							BigInteger curIndex = indexMap.getIndex(curAddress);
-							
+
 							// curIndex may be null when processing resource images; just 
 							// move to the next address and try again.
 							if (curIndex == null) {
 								curAddress = curAddress.next();
-								
+
 								if (curAddress == null) {
 									break;
 								}
-								
+
 								continue;
 							}
-							
+
 							if (!curIndex.equals(lastIndex)) {
 								Layout layout = lm.getLayout(curIndex);
 								if (layout != null) {

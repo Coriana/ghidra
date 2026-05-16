@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,6 +15,8 @@
  */
 #include "sleigh.hh"
 #include "loadimage.hh"
+
+namespace ghidra {
 
 PcodeCacher::PcodeCacher(void)
 
@@ -32,10 +34,13 @@ PcodeCacher::~PcodeCacher(void)
   delete [] poolstart;
 }
 
+/// Expand the VarnodeData pool so that \e size more elements fit, and return
+/// a pointer to first available element.
+/// \param size is the number of elements to expand the pool by
+/// \return the first available VarnodeData
 VarnodeData *PcodeCacher::expandPool(uint4 size)
 
-{ // Expand the pool so that -size- more elements fit
-  // Return pointer to first available element
+{
   uint4 curmax = endpool - poolstart;
   uint4 cursize = curpool - poolstart;
   if (cursize + size <= curmax)
@@ -50,16 +55,16 @@ VarnodeData *PcodeCacher::expandPool(uint4 size)
   for(uint4 i=0;i<cursize;++i)
     newpool[i] = poolstart[i];	// Copy old data
   // Update references to the old pool
-  for(uint4 i=0;i<issued.size();++i) {
-    VarnodeData *outvar = issued[i].outvar;
+  for(deque<PcodeData>::iterator diter=issued.begin();diter!=issued.end();++diter) {
+    VarnodeData *outvar = (*diter).outvar;
     if (outvar != (VarnodeData *)0) {
       outvar = newpool + (outvar - poolstart);
-      issued[i].outvar = outvar;
+      (*diter).outvar = outvar;
     }
-    VarnodeData *invar = issued[i].invar;
+    VarnodeData *invar = (*diter).invar;
     if (invar != (VarnodeData *)0) {
       invar = newpool + (invar - poolstart);
-      issued[i].invar = invar;
+      (*diter).invar = invar;
     }
   }
   list<RelativeRecord>::iterator iter;
@@ -75,18 +80,26 @@ VarnodeData *PcodeCacher::expandPool(uint4 size)
   return newpool + cursize;
 }
 
+/// Store off a reference to the Varnode and the absolute index of the next
+/// instruction.  The Varnode must be an operand of the current instruction.
+/// \param ptr is the Varnode reference
 void PcodeCacher::addLabelRef(VarnodeData *ptr)
 
-{ // Store off a reference to a label and the next instruction
-  // address
-  label_refs.push_back(RelativeRecord());
+{
+  label_refs.emplace_back();
   label_refs.back().dataptr = ptr;
   label_refs.back().calling_index = issued.size();
 }
 
+/// The label has an id that is referred to by Varnodes holding
+/// intra-instruction branch targets, prior to converting
+/// them to a \e relative \e branch offset.  The label is associated with
+/// the absolute index of the next PcodeData object to be issued,
+/// facilitating this conversion.
+/// \param id is the given id of the label
 void PcodeCacher::addLabel(uint4 id)
 
-{ // Attach a label to the address of the next instruction
+{
   while(labels.size() <= id)
     labels.push_back(0xbadbeef);
   labels[ id ] = issued.size();
@@ -101,11 +114,12 @@ void PcodeCacher::clear(void)
   labels.clear();
 }
 
+/// Assuming all the PcodeData has been generated for an
+/// instruction, go resolve any relative offsets and back
+/// patch their value(s) into the PcodeData
 void PcodeCacher::resolveRelatives(void)
 
-{ // Assuming all the PcodeData has been generated for an
-  // instruction, go resolve any relative offsets and back
-  // patch their value(s) into the PcodeData
+{
   list<RelativeRecord>::const_iterator iter;
   for(iter=label_refs.begin();iter!=label_refs.end();++iter) {
     VarnodeData *ptr = (*iter).dataptr;
@@ -119,18 +133,25 @@ void PcodeCacher::resolveRelatives(void)
   }
 }
 
+/// Each p-code operation is presented to the emitter via its dump() method.
+/// \param addr is the Address associated with the p-code operation
+/// \param emt is the emitter
 void PcodeCacher::emit(const Address &addr,PcodeEmit *emt) const
 
-{ // Emit any cached pcode
-  vector<PcodeData>::const_iterator iter;
+{
+  deque<PcodeData>::const_iterator iter;
 
   for(iter=issued.begin();iter!=issued.end();++iter)
     emt->dump(addr,(*iter).opc,(*iter).outvar,(*iter).invar,(*iter).isize);
 }
 
+/// \brief Generate a concrete VarnodeData object from the given template (VarnodeTpl)
+///
+/// \param vntpl is the template to reference
+/// \param vn is the object to fill in with concrete values
 void SleighBuilder::generateLocation(const VarnodeTpl *vntpl,VarnodeData &vn)
 
-{				// Generate a concrete varnode -vn- from the template -vntpl-
+{
   vn.space = vntpl->getSpace().fixSpace(*walker);
   vn.size = vntpl->getSize().fix(*walker);
   if (vn.space == const_space)
@@ -143,9 +164,18 @@ void SleighBuilder::generateLocation(const VarnodeTpl *vntpl,VarnodeData &vn)
     vn.offset = vn.space->wrapOffset(vntpl->getOffset().fix(*walker));
 }
 
+/// \brief Generate a pointer VarnodeData from a dynamic template (VarnodeTpl)
+///
+/// The symbol represents a value referenced through a dynamic pointer.
+/// This method generates the varnode representing the pointer itself and also
+/// returns the address space in anticipation of generating the LOAD or STORE
+/// that actually manipulates the value.
+/// \param vntpl is the dynamic template to reference
+/// \param vn is the object to fill with concrete values
+/// \return the address space being pointed to
 AddrSpace *SleighBuilder::generatePointer(const VarnodeTpl *vntpl,VarnodeData &vn)
 
-{				// Generate the pointer varnode -vn- from a dynamic template -vntpl-
+{
   const FixedHandle &hand(walker->getFixedHandle(vntpl->getOffset().getHandleIndex()));
   vn.space = hand.offset_space;
   vn.size = hand.offset_size;
@@ -156,6 +186,36 @@ AddrSpace *SleighBuilder::generatePointer(const VarnodeTpl *vntpl,VarnodeData &v
   else
     vn.offset = vn.space->wrapOffset(hand.offset_offset);
   return hand.space;
+}
+
+/// \brief Add in an additional offset to the address of a dynamic Varnode
+///
+/// The Varnode is ultimately read/written via LOAD/STORE operation AND has undergone a truncation
+/// operation, so an additional offset needs to get added to the pointer referencing the Varnode.
+/// \param op is the LOAD/STORE operation being generated
+/// \param vntpl is the dynamic Varnode
+void SleighBuilder::generatePointerAdd(PcodeData *op,const VarnodeTpl *vntpl)
+
+{
+  uintb offsetPlus = vntpl->getOffset().getReal() & 0xffff;
+  if (offsetPlus == 0) {
+    return;
+  }
+  PcodeData *nextop = cache->allocateInstruction();
+  nextop->opc = op->opc;
+  nextop->invar = op->invar;
+  nextop->isize = op->isize;
+  nextop->outvar = op->outvar;
+  op->isize = 2;
+  op->opc = CPUI_INT_ADD;
+  VarnodeData *newparams = op->invar = cache->allocateVarnodes(2);
+  newparams[0] = nextop->invar[1];
+  newparams[1].space = const_space;	// Add in V_OFFSET_PLUS
+  newparams[1].offset = offsetPlus;
+  newparams[1].size = newparams[0].size;
+  op->outvar = nextop->invar + 1;	// Output of ADD is input to original op
+  op->outvar->space = uniq_space;		// Result of INT_ADD in special runtime temp
+  op->outvar->offset = uniq_space->getTrans()->getUniqueStart(Translate::RUNTIME_BITRANGE_EA);
 }
 
 void SleighBuilder::dump(OpTpl *op)
@@ -183,6 +243,8 @@ void SleighBuilder::dump(OpTpl *op)
       loadvars[0].space = const_space;
       loadvars[0].offset = (uintb)(uintp)spc;
       loadvars[0].size = sizeof(spc);
+      if (vn->getOffset().getSelect() == ConstTpl::v_offset_plus)
+	generatePointerAdd(load_op, vn);
     }
     else
       generateLocation(vn,invars[i]);
@@ -210,6 +272,8 @@ void SleighBuilder::dump(OpTpl *op)
       storevars[0].space = const_space;
       storevars[0].offset = (uintb)(uintp)spc; // space in which to store
       storevars[0].size = sizeof(spc);
+      if (outvn->getOffset().getSelect() == ConstTpl::v_offset_plus)
+	generatePointerAdd(store_op,outvn);
     }
     else {
       thisop->outvar = cache->allocateVarnodes(1);
@@ -218,9 +282,17 @@ void SleighBuilder::dump(OpTpl *op)
   }
 }
 
+/// \brief Build a named p-code section of a constructor that contains only implied BUILD directives
+///
+/// If a named section of a constructor is empty, we still need to walk
+/// through any subtables that might contain p-code in their named sections.
+/// This method treats each subtable operand as an implied \e build directive,
+/// in the otherwise empty section.
+/// \param ct is the matching currently Constructor being built
+/// \param secnum is the particular \e named section number to build
 void SleighBuilder::buildEmpty(Constructor *ct,int4 secnum)
 
-{ // Build a named p-code section of a constructor that contains only implied BUILD directives
+{
   int4 numops = ct->getNumOperands();
   
   for(int4 i=0;i<numops;++i) {
@@ -238,12 +310,23 @@ void SleighBuilder::buildEmpty(Constructor *ct,int4 secnum)
   }
 }
 
+/// Bits used to make temporary registers unique across multiple instructions
+/// are generated based on the given address.
+/// \param addr is the given Address
 void SleighBuilder::setUniqueOffset(const Address &addr)
 
 {
-  uniqueoffset = (addr.getOffset() & uniquemask)<<4;
+  uniqueoffset = (addr.getOffset() & uniquemask)<<8;
 }
 
+/// \brief Constructor
+///
+/// \param w is the parsed instruction
+/// \param dcache is a cache of nearby instruction parses
+/// \param pc will hold the PcodeData and VarnodeData objects produced by \b this builder
+/// \param cspc is the constant address space
+/// \param uspc is the unique address space
+/// \param umask is the mask to use to find unique bits within an Address
 SleighBuilder::SleighBuilder(ParserWalker *w,DisassemblyCache *dcache,PcodeCacher *pc,AddrSpace *cspc,
 			     AddrSpace *uspc,uint4 umask)
   : PcodeBuilder(0)
@@ -254,12 +337,13 @@ SleighBuilder::SleighBuilder(ParserWalker *w,DisassemblyCache *dcache,PcodeCache
   const_space = cspc;
   uniq_space = uspc;
   uniquemask = umask;
-  uniqueoffset = (walker->getAddr().getOffset() & uniquemask)<<4;
+  uniqueoffset = (walker->getAddr().getOffset() & uniquemask)<<8;
 }
 
 void SleighBuilder::appendBuild(OpTpl *bld,int4 secnum)
 
-{				// Append pcode for a particular build statement
+{
+  // Append p-code for a particular build statement
   int4 index = bld->getIn(0)->getOffset().getReal(); // Recover operand index from build statement
 				// Check if operand is a subtable
   SubtableSymbol *sym = (SubtableSymbol *)walker->getConstructor()->getOperand(index)->getDefiningSymbol();
@@ -283,8 +367,9 @@ void SleighBuilder::appendBuild(OpTpl *bld,int4 secnum)
 
 void SleighBuilder::delaySlot(OpTpl *op)
 
-{				// Append pcode for an entire instruction (delay slot)
-				// in the middle of the current instruction
+{
+  // Append pcode for an entire instruction (delay slot)
+  // in the middle of the current instruction
   ParserWalker *tmp = walker;
   uintb olduniqueoffset = uniqueoffset;
 
@@ -319,7 +404,8 @@ void SleighBuilder::setLabel(OpTpl *op)
 
 void SleighBuilder::appendCrossBuild(OpTpl *bld,int4 secnum)
 
-{ // Weave in the p-code section from an instruction at another address
+{
+  // Weave in the p-code section from an instruction at another address
   // bld-param(0) contains the address of the instruction
   // bld-param(1) contains the section number
   if (secnum>=0)
@@ -352,6 +438,8 @@ void SleighBuilder::appendCrossBuild(OpTpl *bld,int4 secnum)
   uniqueoffset = olduniqueoffset;
 }
 
+/// \param min is the minimum number of allocations before a reuse is expected
+/// \param hashsize is the number of elements in the hash-table
 void DisassemblyCache::initialize(int4 min,int4 hashsize)
 
 {
@@ -364,8 +452,8 @@ void DisassemblyCache::initialize(int4 min,int4 hashsize)
   nextfree = 0;
   hashtable = new ParserContext *[hashsize];
   for(int4 i=0;i<minimumreuse;++i) {
-    ParserContext *pos = new ParserContext(contextcache);
-    pos->initialize(75,20,constspace);
+    ParserContext *pos = new ParserContext(contextcache,translate);
+    pos->initialize(constspace);
     list[i] = pos;
   }
   ParserContext *pos = list[0];
@@ -382,21 +470,31 @@ void DisassemblyCache::free(void)
   delete [] hashtable;
 }
 
-DisassemblyCache::DisassemblyCache(ContextCache *ccache,AddrSpace *cspace,int4 cachesize,int4 windowsize)
+/// \param trans is the Translate object instantiating this cache (for inst_next2 callbacks)
+/// \param ccache is the ContextCache front-end shared across all the parser contexts
+/// \param cspace is the constant address space used for minting constant Varnodes
+/// \param cachesize is the number of distinct ParserContext objects in this cache
+/// \param windowsize is the size of the ParserContext hash-table
+DisassemblyCache::DisassemblyCache(Translate *trans,ContextCache *ccache,AddrSpace *cspace,int4 cachesize,int4 windowsize)
 
 {
+  translate = trans;
   contextcache = ccache;
   constspace = cspace;
   initialize(cachesize,windowsize);		// Set default settings for the cache
 }
 
+/// Return a (possibly cached) ParserContext that is associated with \e addr
+/// If n different calls to this interface are made with n different Addresses, if
+///    - n <= minimumreuse   AND
+///    - all the addresses are within the windowsize (=mask+1)
+///
+/// then the cacher guarantees that you get all different ParserContext objects
+/// \param addr is the Address to disassemble at
+/// \return the ParserContext associated with the address
 ParserContext *DisassemblyCache::getParserContext(const Address &addr)
 
-{ // Return a (possibly cached) ParserContext that is associated with -addr-
-  // If n different calls to this interface are made with n different Addresses, if
-  //    n <= minimumreuse   AND
-  //    all the addresses are within the windowsize (=mask+1)
-  // then the cacher guarantees that you get all different ParserContext objects
+{
   int4 hashindex = ((int4) addr.getOffset()) & mask;
   ParserContext *res = hashtable[ hashindex ];
   if (res->getAddr() == addr)
@@ -411,6 +509,8 @@ ParserContext *DisassemblyCache::getParserContext(const Address &addr)
   return res;
 }
 
+/// \param ld is the LoadImage to draw program bytes from
+/// \param c_db is the context database
 Sleigh::Sleigh(LoadImage *ld,ContextDatabase *c_db)
   : SleighBase()
 
@@ -435,10 +535,13 @@ Sleigh::~Sleigh(void)
   clearForDelete();
 }
 
+/// Completely clear everything except the base and reconstruct
+/// with a new LoadImage and ContextDatabase
+/// \param ld is the new LoadImage
+/// \param c_db is the new ContextDatabase
 void Sleigh::reset(LoadImage *ld,ContextDatabase *c_db)
 
-{ // Completely clear everything except the base and reconstruct
-  // with a new loader and context
+{
   clearForDelete();
   pcode_cache.clear();
   loader = ld;
@@ -447,6 +550,8 @@ void Sleigh::reset(LoadImage *ld,ContextDatabase *c_db)
   discache = (DisassemblyCache *)0;
 }
 
+/// The .sla file from the document store is loaded and cache objects are prepared
+/// \param store is the document store containing the main \<sleigh> tag.
 void Sleigh::initialize(DocumentStorage &store)
 
 {
@@ -454,7 +559,13 @@ void Sleigh::initialize(DocumentStorage &store)
     const Element *el = store.getTag("sleigh");
     if (el == (const Element *)0)
       throw LowlevelError("Could not find sleigh tag");
-    restoreXml(el);
+    sla::FormatDecode decoder(this);
+    ifstream s(el->getContent(), std::ios_base::binary);
+    if (!s)
+      throw LowlevelError("Could not open .sla file: " + el->getContent());
+    decoder.ingestStream(s);
+    s.close();
+    decode(decoder);
   }
   else
     reregisterContext();
@@ -464,15 +575,23 @@ void Sleigh::initialize(DocumentStorage &store)
     parser_cachesize = 8;
     parser_windowsize = 256;
   }
-  discache = new DisassemblyCache(cache,getConstantSpace(),parser_cachesize,parser_windowsize);
+  discache = new DisassemblyCache(this,cache,getConstantSpace(),parser_cachesize,parser_windowsize);
 }
 
-ParserContext *Sleigh::obtainContext(const Address &addr,int4 state) const
+/// \brief Obtain a parse tree for the instruction at the given address
+///
+/// The tree may be cached from a previous access.  If the address
+/// has not been parsed, disassembly is performed, and a new parse tree
+/// is prepared.  Depending on the desired \e state, the parse tree
+/// can be prepared either for disassembly or for p-code generation.
+/// \param addr is the given address of the instruction
+/// \param state is the desired parse state.
+/// \return the parse tree object (ParseContext)
+ParserContext *Sleigh::obtainContext(const Address &addr,ParserContext::parse_state state) const
 
-{ // Obtain a ParserContext for the instruction at the given -addr-.  This may be cached.
-  // Make sure parsing has proceeded to at least the given -state.
+{
   ParserContext *pos = discache->getParserContext(addr);
-  int4 curstate = pos->getParserState();
+  ParserContext::parse_state curstate = pos->getParserState();
   if (curstate >= state)
     return pos;
   if (curstate == ParserContext::uninitialized) {
@@ -485,10 +604,11 @@ ParserContext *Sleigh::obtainContext(const Address &addr,int4 state) const
   return pos;
 }
 
+/// Resolve \e all the constructors involved in the instruction at the indicated address
+/// \param pos is the parse object that will hold the resulting tree
 void Sleigh::resolve(ParserContext &pos) const
 
-{				// Resolve ALL the constructors involved in the
-				// instruction at this address
+{
   loader->loadFill(pos.getBuffer(),16,pos.getAddr());
   ParserWalkerChange walker(&pos);
   pos.deallocateState(walker);	// Clear the previous resolve and initialize the walker
@@ -538,9 +658,12 @@ void Sleigh::resolve(ParserContext &pos) const
   pos.setParserState(ParserContext::disassembly);
 }
 
+/// Resolve handle templates for the given parse tree, assuming Constructors
+/// are already resolved.
+/// \param pos is the given parse tree
 void Sleigh::resolveHandles(ParserContext &pos) const
 
-{				// Resolve handles (assuming Constructors already resolved)
+{
   TripleSymbol *triple;
   Constructor *ct;
   int4 oper,numoper;
@@ -671,7 +794,7 @@ int4 Sleigh::oneInstruction(PcodeEmit &emit,const Address &baseaddr) const
 
 void Sleigh::registerContext(const string &name,int4 sbit,int4 ebit)
 
-{  // Inform translator of existence of context variable
+{
   context_db->registerVariable(name,sbit,ebit);
 }
 
@@ -686,3 +809,5 @@ void Sleigh::allowContextSet(bool val) const
 {
   cache->allowSet(val);
 }
+
+} // End namespace ghidra

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,37 +15,60 @@
  */
 package ghidra.app.plugin.core.symtable;
 
+import static ghidra.framework.model.DomainObjectEvent.*;
+import static ghidra.program.util.ProgramEvent.*;
+
+import java.awt.Component;
 import java.awt.Cursor;
 import java.awt.event.KeyEvent;
+import java.util.*;
+import java.util.stream.Collectors;
 
-import javax.swing.ImageIcon;
+import javax.swing.Icon;
 
 import docking.ActionContext;
 import docking.action.*;
+import docking.action.builder.ActionBuilder;
+import docking.tool.ToolConstants;
+import docking.widgets.OptionDialog;
+import docking.widgets.OptionDialogBuilder;
+import docking.widgets.table.DynamicTableColumn;
+import docking.widgets.table.TableColumnDescriptor;
+import generic.theme.GIcon;
 import ghidra.app.CorePluginPackage;
+import ghidra.app.cmd.refs.RemoveReferenceCmd;
+import ghidra.app.context.ProgramSymbolActionContext;
 import ghidra.app.events.ProgramActivatedPluginEvent;
 import ghidra.app.events.ProgramLocationPluginEvent;
 import ghidra.app.plugin.PluginCategoryNames;
 import ghidra.app.plugin.core.symboltree.actions.*;
+import ghidra.app.plugin.core.table.TableComponentProvider;
 import ghidra.app.services.BlockModelService;
 import ghidra.app.services.GoToService;
+import ghidra.app.util.HelpTopics;
 import ghidra.app.util.SymbolInspector;
-import ghidra.framework.model.*;
+import ghidra.app.util.viewer.field.LabelFieldSymbolLoader;
+import ghidra.app.util.viewer.field.LabelFieldSymbolLoader.Symbols;
+import ghidra.framework.model.DomainObjectListener;
+import ghidra.framework.model.DomainObjectListenerBuilder;
 import ghidra.framework.options.SaveState;
 import ghidra.framework.plugintool.*;
 import ghidra.framework.plugintool.util.PluginStatus;
 import ghidra.program.model.address.Address;
-import ghidra.program.model.listing.Data;
-import ghidra.program.model.listing.Program;
+import ghidra.program.model.listing.*;
 import ghidra.program.model.symbol.*;
-import ghidra.program.util.ChangeManager;
 import ghidra.program.util.ProgramChangeRecord;
+import ghidra.program.util.ProgramLocation;
+import ghidra.util.HelpLocation;
+import ghidra.util.Msg;
+import ghidra.util.exception.CancelledException;
 import ghidra.util.table.GhidraTable;
 import ghidra.util.table.SelectionNavigationAction;
 import ghidra.util.table.actions.MakeProgramSelectionAction;
-import ghidra.util.task.SwingUpdateManager;
+import ghidra.util.task.*;
+import ghidra.util.worker.Job;
+import ghidra.util.worker.Worker;
 import resources.Icons;
-import resources.ResourceManager;
 
 /**
  * Plugin to display the symbol table for a program.
@@ -62,23 +85,25 @@ import resources.ResourceManager;
 			"allows symbols to be renamed and deleted. This plugin also " +
 			"shows references to a symbol. Filters can be set " +
 			"to show subsets of the symbols.",
+	servicesProvided = { SymbolTableService.class },
 	servicesRequired = { GoToService.class, BlockModelService.class },
 	eventsProduced = { ProgramLocationPluginEvent.class },
-	eventsConsumed = { ProgramActivatedPluginEvent.class }
+	eventsConsumed = { ProgramActivatedPluginEvent.class, ProgramLocationPluginEvent.class }
 )
 //@formatter:on
-public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
+public class SymbolTablePlugin extends Plugin implements SymbolTableService {
+
+	private static final String NAVIGATE_ON_INCOMING_EVENT_KEY = "NAVIGATE_ON_INCOMING_EVENT";
+	private static final String NAVIGATE_ON_OUTGOING_EVENT_KEY = "NAVIGATE_ON_OUTGOING_EVENT";
 
 	final static Cursor WAIT_CURSOR = new Cursor(Cursor.WAIT_CURSOR);
 	final static Cursor NORM_CURSOR = new Cursor(Cursor.DEFAULT_CURSOR);
 
-	private DockingAction openRefsAction;
-	private DockingAction deleteAction;
-	private DockingAction makeSelectionAction;
-	private DockingAction setFilterAction;
 	private ToggleDockingAction referencesToAction;
 	private ToggleDockingAction instructionsFromAction;
 	private ToggleDockingAction dataFromAction;
+	private ToggleDockingAction followIncomingAction;
+	private SelectionNavigationAction selectionNavigationAction;
 
 	private SymbolProvider symProvider;
 	private ReferenceProvider refProvider;
@@ -87,6 +112,19 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 	private GoToService gotoService;
 	private BlockModelService blockModelService;
 	private SwingUpdateManager swingMgr;
+
+	// providers shown by the service interface
+	private Map<String, TableComponentProvider<SymbolRowObject>> transientTableProviders =
+		new HashMap<>();
+
+	private DomainObjectListener domainObjectListener = createDomainObjectListener();
+
+	/**
+	 * A worker that will process domain object change event work off of the Swing thread.  This 
+	 * solves the issue of db lock contention that can happen during analysis while this class
+	 * attempts to get symbols from the db while processing a flurry of domain events.
+	 */
+	private Worker domainObjectWorker = Worker.createGuiWorker();
 
 	public SymbolTablePlugin(PluginTool tool) {
 		super(tool);
@@ -99,6 +137,7 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 
 	@Override
 	protected void init() {
+
 		gotoService = tool.getService(GoToService.class);
 		blockModelService = tool.getService(BlockModelService.class);
 
@@ -111,19 +150,12 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 		inspector = new SymbolInspector(getTool(), symProvider.getComponent());
 	}
 
-	/**
-	 * Tells a plugin that it is no longer needed.
-	 * The plugin should remove itself from anything that
-	 * it is registered to and release any resources.
-	 */
 	@Override
 	public void dispose() {
 		super.dispose();
 		swingMgr.dispose();
 
-		deleteAction.dispose();
-		makeSelectionAction.dispose();
-
+		domainObjectWorker.dispose();
 		if (symProvider != null) {
 			symProvider.dispose();
 			symProvider = null;
@@ -133,7 +165,7 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 			refProvider = null;
 		}
 		if (currentProgram != null) {
-			currentProgram.removeListener(this);
+			currentProgram.removeListener(domainObjectListener);
 			currentProgram = null;
 		}
 		gotoService = null;
@@ -148,11 +180,21 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 	@Override
 	public void readConfigState(SaveState saveState) {
 		symProvider.readConfigState(saveState);
+
+		boolean navigateIncoming = saveState.getBoolean(NAVIGATE_ON_INCOMING_EVENT_KEY, false);
+		boolean navigateOutgoing = saveState.getBoolean(NAVIGATE_ON_OUTGOING_EVENT_KEY, false);
+		followIncomingAction.setSelected(navigateIncoming);
+		selectionNavigationAction.setSelected(navigateOutgoing);
 	}
 
 	@Override
 	public void writeConfigState(SaveState saveState) {
 		symProvider.writeConfigState(saveState);
+
+		boolean navigateIncoming = followIncomingAction.isSelected();
+		boolean navigateOutgoing = selectionNavigationAction.isSelected();
+		saveState.putBoolean(NAVIGATE_ON_INCOMING_EVENT_KEY, navigateIncoming);
+		saveState.putBoolean(NAVIGATE_ON_OUTGOING_EVENT_KEY, navigateOutgoing);
 	}
 
 	@Override
@@ -163,151 +205,116 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 			Program newProg = progEvent.getActiveProgram();
 
 			if (oldProg != null) {
-				inspector.setProgram(null);
-				oldProg.removeListener(this);
+				oldProg.removeListener(domainObjectListener);
+				domainObjectWorker.clearAllJobs();
 				symProvider.setProgram(null, inspector);
 				refProvider.setProgram(null, inspector);
 				tool.contextChanged(symProvider);
 			}
 			currentProgram = newProg;
 			if (newProg != null) {
-
-				currentProgram.addListener(this);
-
-				inspector.setProgram(currentProgram);
-
+				currentProgram.addListener(domainObjectListener);
 				symProvider.setProgram(currentProgram, inspector);
 				refProvider.setProgram(currentProgram, inspector);
 			}
 
 			tool.contextChanged(symProvider);
 		}
+		else if (event instanceof ProgramLocationPluginEvent ple) {
+			ProgramLocation location = ple.getLocation();
+			symProvider.locationChanged(location);
+		}
 	}
 
-	@Override
-	public void domainObjectChanged(DomainObjectChangedEvent ev) {
-		if (!symProvider.isVisible()) {
-			return;
+	boolean isBusy() {
+		return domainObjectWorker.isBusy() || symProvider.isBusy() || refProvider.isBusy();
+	}
+
+	private void reload() {
+		domainObjectWorker.clearAllJobs();
+		symProvider.reload();
+		refProvider.reload();
+	}
+
+	private DomainObjectListener createDomainObjectListener() {
+		// @formatter:off
+		return new DomainObjectListenerBuilder(this)
+			.ignoreWhen(() -> !symProvider.isVisible() && !refProvider.isVisible())
+			.any(RESTORED, MEMORY_BLOCK_ADDED, MEMORY_BLOCK_REMOVED)
+				.terminate(this::reload)
+			.with(ProgramChangeRecord.class)
+				.each(CODE_ADDED, CODE_REMOVED)
+					.call(this::codeAddedRemoved)
+				.each(SYMBOL_ADDED)
+					.call(this::symbolAdded)
+				.each(SYMBOL_REMOVED)
+					.call(this::symbolRemoved)
+				.each(SYMBOL_RENAMED, SYMBOL_SCOPE_CHANGED, SYMBOL_DATA_CHANGED)
+					.call(this::symbolChanged)
+				.each(SYMBOL_SOURCE_CHANGED)
+					.call(this::symbolSourceChanged)
+				.each(SYMBOL_PRIMARY_STATE_CHANGED)
+					.call(this::symbolPrimaryStateChanged)
+				.each(REFERENCE_ADDED)
+					.call(this::referenceAdded)
+				.each(REFERENCE_REMOVED)
+					.call(this::referenceRemoved)
+				.each(EXTERNAL_ENTRY_ADDED, EXTERNAL_ENTRY_REMOVED)
+					.call(this::extenalEntryAddedRemoved)
+			.build();
+		// @formatter:on
+	}
+
+	private void codeAddedRemoved(ProgramChangeRecord rec) {
+		if (rec.getNewValue() instanceof Data) {
+			domainObjectWorker.schedule(new CodeAddedRemoveJob(currentProgram, rec.getStart()));
 		}
-		if (ev.containsEvent(DomainObject.DO_OBJECT_RESTORED) ||
-			ev.containsEvent(ChangeManager.DOCR_MEMORY_BLOCK_ADDED) ||
-			ev.containsEvent(ChangeManager.DOCR_MEMORY_BLOCK_REMOVED)) {
+	}
 
-			symProvider.reload();
-			refProvider.reload();
-			return;
-		}
+	private void symbolAdded(ProgramChangeRecord rec) {
+		// NOTE: DOCR_SYMBOL_ADDED events are never generated for reference-based 
+		// dynamic label symbols.  Reference events must be used to check for existence 
+		// of a dynamic label symbol.
+		Symbol symbol = (Symbol) rec.getNewValue();
+		domainObjectWorker.schedule(new SymbolAddedJob(currentProgram, symbol));
+	}
 
-		int eventCnt = ev.numRecords();
-		for (int i = 0; i < eventCnt; ++i) {
-			DomainObjectChangeRecord doRecord = ev.getChangeRecord(i);
+	private void symbolRemoved(ProgramChangeRecord rec) {
+		Address removeAddr = rec.getStart();
+		Long symbolID = (Long) rec.getNewValue();
+		domainObjectWorker.schedule(new SymbolRemovedJob(currentProgram, removeAddr, symbolID));
+	}
 
-			int eventType = doRecord.getEventType();
-			if (!(doRecord instanceof ProgramChangeRecord)) {
-				continue;
-			}
+	private void symbolChanged(ProgramChangeRecord rec) {
+		Symbol symbol = (Symbol) rec.getObject();
+		domainObjectWorker.schedule(new SymbolChangedJob(currentProgram, symbol));
+	}
 
-			ProgramChangeRecord rec = (ProgramChangeRecord) doRecord;
-			Symbol symbol = null;
-			SymbolTable symbolTable = currentProgram.getSymbolTable();
-			switch (eventType) {
-				case ChangeManager.DOCR_CODE_ADDED:
-				case ChangeManager.DOCR_CODE_REMOVED:
-					if (rec.getNewValue() instanceof Data) {
-						symbol = symbolTable.getPrimarySymbol(rec.getStart());
-						if (symbol != null && symbol.isDynamic()) {
-							symProvider.symbolChanged(symbol);
-							refProvider.symbolChanged(symbol);
-						}
-					}
-					break;
+	private void symbolSourceChanged(ProgramChangeRecord rec) {
+		Symbol symbol = (Symbol) rec.getObject();
+		domainObjectWorker.schedule(new SymbolSourceChangedJob(currentProgram, symbol));
+	}
 
-				case ChangeManager.DOCR_SYMBOL_ADDED:
-					Address addAddr = rec.getStart();
-					Symbol primaryAtAdd = symbolTable.getPrimarySymbol(addAddr);
-					if (primaryAtAdd != null && primaryAtAdd.isDynamic()) {
-						symProvider.symbolRemoved(primaryAtAdd);
-					}
-					symbol = (Symbol) rec.getNewValue();
-					symProvider.symbolAdded(symbol);
-					refProvider.symbolAdded(symbol);
-					break;
+	private void symbolPrimaryStateChanged(ProgramChangeRecord rec) {
+		Symbol symbol = (Symbol) rec.getNewValue();
+		Symbol oldPrimarySymbol = (Symbol) rec.getOldValue();
+		domainObjectWorker
+				.schedule(new SymbolSetAsPrimaryJob(currentProgram, symbol, oldPrimarySymbol));
+	}
 
-				case ChangeManager.DOCR_SYMBOL_REMOVED:
-					Address removeAddr = rec.getStart();
-					Long symbolID = (Long) rec.getNewValue();
-					Symbol removedSymbol =
-						symbolTable.createSymbolPlaceholder(removeAddr, symbolID);
-					symProvider.symbolRemoved(removedSymbol);
-					refProvider.symbolRemoved(removedSymbol);
-					Symbol primaryAtRemove = symbolTable.getPrimarySymbol(removeAddr);
-					if (primaryAtRemove != null && primaryAtRemove.isDynamic()) {
-						symProvider.symbolAdded(primaryAtRemove);
-					}
-					break;
+	private void referenceAdded(ProgramChangeRecord rec) {
+		Reference ref = (Reference) rec.getObject();
+		domainObjectWorker.schedule(new ReferenceAddedJob(currentProgram, ref));
+	}
 
-				case ChangeManager.DOCR_SYMBOL_RENAMED:
-				case ChangeManager.DOCR_SYMBOL_SCOPE_CHANGED:
-				case ChangeManager.DOCR_SYMBOL_DATA_CHANGED:
-					symbol = (Symbol) rec.getObject();
-					if (symbol.checkIsValid()) { // symbol may have been removed (e.g., parameter)
-						symProvider.symbolChanged(symbol);
-						refProvider.symbolChanged(symbol);
-					}
-					break;
+	private void referenceRemoved(ProgramChangeRecord rec) {
+		Reference ref = (Reference) rec.getObject();
+		domainObjectWorker.schedule(new ReferenceRemovedJob(currentProgram, ref));
+	}
 
-				case ChangeManager.DOCR_SYMBOL_SOURCE_CHANGED:
-					symbol = (Symbol) rec.getObject();
-					symProvider.symbolChanged(symbol);
-					break;
-
-				case ChangeManager.DOCR_SYMBOL_SET_AS_PRIMARY:
-					symbol = (Symbol) rec.getNewValue();
-					symProvider.symbolChanged(symbol);
-					Symbol oldSymbol = (Symbol) rec.getOldValue();
-					if (oldSymbol != null) {
-						symProvider.symbolChanged(oldSymbol);
-					}
-					break;
-
-				case ChangeManager.DOCR_SYMBOL_ASSOCIATION_ADDED:
-				case ChangeManager.DOCR_SYMBOL_ASSOCIATION_REMOVED:
-					break;
-				case ChangeManager.DOCR_MEM_REFERENCE_ADDED:
-					Reference ref = (Reference) rec.getObject();
-					symbol = symbolTable.getSymbol(ref);
-					if (symbol != null) {
-						symProvider.symbolChanged(symbol);
-						refProvider.symbolChanged(symbol);
-					}
-					break;
-				case ChangeManager.DOCR_MEM_REFERENCE_REMOVED:
-					ref = (Reference) rec.getObject();
-					Address toAddr = ref.getToAddress();
-					if (toAddr.isMemoryAddress()) {
-						symbol = symbolTable.getSymbol(ref);
-						if (symbol == null) {
-
-							long id = symbolTable.getDynamicSymbolID(ref.getToAddress());
-							removedSymbol = symbolTable.createSymbolPlaceholder(toAddr, id);
-							symProvider.symbolRemoved(removedSymbol);
-						}
-						else {
-							refProvider.symbolChanged(symbol);
-						}
-					}
-					break;
-
-				case ChangeManager.DOCR_EXTERNAL_ENTRY_POINT_ADDED:
-				case ChangeManager.DOCR_EXTERNAL_ENTRY_POINT_REMOVED:
-					Symbol[] symbols = symbolTable.getSymbols(rec.getStart());
-					for (Symbol element : symbols) {
-						symProvider.symbolChanged(element);
-						refProvider.symbolChanged(element);
-					}
-					break;
-			}
-		}
+	private void extenalEntryAddedRemoved(ProgramChangeRecord rec) {
+		Address address = rec.getStart();
+		domainObjectWorker.schedule(new ExternalEntryChangedJob(currentProgram, address));
 	}
 
 	Program getProgram() {
@@ -336,7 +343,8 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 		}
 	}
 
-	void closeReferenceProvider() {
+	void symbolProviderClosed() {
+		domainObjectWorker.clearAllJobs();
 		if (refProvider != null) {
 			refProvider.closeComponent();
 		}
@@ -345,14 +353,15 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 	private void createSymActions() {
 		String popupGroup = "1";
 
-		openRefsAction = new DockingAction("Symbol References", getName(), KeyBindingType.SHARED) {
-			@Override
-			public void actionPerformed(ActionContext context) {
-				refProvider.open();
-				refProvider.setCurrentSymbol(symProvider.getCurrentSymbol());
-			}
-		};
-		ImageIcon icon = ResourceManager.loadImage("images/table_go.png");
+		DockingAction openRefsAction =
+			new DockingAction("Symbol References", getName(), KeyBindingType.SHARED) {
+				@Override
+				public void actionPerformed(ActionContext context) {
+					refProvider.open();
+					refProvider.setCurrentSymbol(symProvider.getCurrentSymbol());
+				}
+			};
+		Icon icon = new GIcon("icon.plugin.symboltable.referencetable.provider");
 		openRefsAction.setPopupMenuData(
 			new MenuData(new String[] { "Symbol References" }, icon, popupGroup));
 		openRefsAction.setToolBarData(new ToolBarData(icon));
@@ -360,7 +369,7 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 		openRefsAction.setDescription("Display Symbol References");
 		tool.addLocalAction(symProvider, openRefsAction);
 
-		deleteAction = new DockingAction("Delete Symbols", getName()) {
+		DockingAction deleteAction = new DockingAction("Delete Symbols", getName()) {
 			@Override
 			public void actionPerformed(ActionContext context) {
 				symProvider.deleteSymbols();
@@ -378,25 +387,30 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 			}
 		};
 
-		icon = ResourceManager.loadImage("images/edit-delete.png");
+		icon = Icons.DELETE_ICON;
 		String deleteGroup = "3"; // put in a group after the others
 		deleteAction.setPopupMenuData(new MenuData(new String[] { "Delete" }, icon, deleteGroup));
 		deleteAction.setToolBarData(new ToolBarData(icon));
 		deleteAction.setKeyBindingData(new KeyBindingData(KeyEvent.VK_DELETE, 0));
 
 		deleteAction.setDescription("Delete Selected Symbols");
-		deleteAction.setEnabled(false);
 		tool.addLocalAction(symProvider, deleteAction);
 
 		DockingAction editExternalLocationAction = new EditExternalLocationAction(this);
 		tool.addLocalAction(symProvider, editExternalLocationAction);
 
-		makeSelectionAction = new MakeProgramSelectionAction(this, symProvider.getTable());
-		makeSelectionAction.getPopupMenuData().setMenuGroup(popupGroup);
+		MakeProgramSelectionAction symbolMakeSelectionAction =
+			new MakeProgramSelectionAction(this, symProvider.getTable());
+		symbolMakeSelectionAction.getPopupMenuData().setMenuGroup(popupGroup);
 
-		tool.addLocalAction(symProvider, makeSelectionAction);
+		MakeProgramSelectionAction refsMakeSelectionAction =
+			new MakeProgramSelectionAction(this, refProvider.getTable());
+		refsMakeSelectionAction.getPopupMenuData().setMenuGroup(popupGroup);
 
-		setFilterAction = new DockingAction("Set Filter", getName()) {
+		tool.addLocalAction(symProvider, symbolMakeSelectionAction);
+		tool.addLocalAction(refProvider, refsMakeSelectionAction);
+
+		DockingAction setFilterAction = new DockingAction("Set Filter", getName()) {
 			@Override
 			public void actionPerformed(ActionContext context) {
 				symProvider.setFilter();
@@ -413,8 +427,22 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 		setFilterAction.setDescription("Configure Symbol Filter");
 		tool.addLocalAction(symProvider, setFilterAction);
 
+		String navGroup = "2";
+		followIncomingAction =
+			new ToggleDockingAction("Navigate on Incoming Location Changes", getName(),
+				KeyBindingType.SHARED) {
+
+				@Override
+				public void actionPerformed(ActionContext context) {
+					symProvider.setFollowIncomingLocationChanges(isSelected());
+				}
+			};
+		followIncomingAction
+				.setToolBarData(new ToolBarData(Icons.NAVIGATE_ON_INCOMING_EVENT_ICON, navGroup));
+		tool.addLocalAction(symProvider, followIncomingAction);
+
 		// override the SelectionNavigationAction to handle both tables that this plugin uses
-		DockingAction selectionNavigationAction =
+		selectionNavigationAction =
 			new SelectionNavigationAction(this, symProvider.getTable()) {
 
 				@Override
@@ -423,6 +451,9 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 					refProvider.getTable().setNavigateOnSelectionEnabled(listen);
 				}
 			};
+		selectionNavigationAction.getToolBarData().setToolBarGroup(navGroup);
+		selectionNavigationAction.setHelpLocation(new HelpLocation(getName(),
+			"Navigate_on_Row_Changes"));
 		tool.addLocalAction(symProvider, selectionNavigationAction);
 
 		String pinnedPopupGroup = "2"; // second group
@@ -431,9 +462,93 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 
 		DockingAction clearPinnedAction = new ClearPinSymbolAction(getName(), pinnedPopupGroup);
 		tool.addAction(clearPinnedAction);
+
+		CreateSymbolTableAction tableAction = new CreateSymbolTableAction(getTool());
+		tableAction.getPopupMenuData().setMenuGroup(popupGroup);
+		tool.addLocalAction(symProvider, tableAction);
+
+		SetSymbolPrimaryAction primaryAction = new SetSymbolPrimaryAction();
+		primaryAction.getPopupMenuData().setMenuGroup(popupGroup);
+		tool.addLocalAction(symProvider, primaryAction);
+
+		//@formatter:off
+		String bottomGroup = "ShowReferencesTo" + 1;
+		new ActionBuilder("Delete All References", getName())
+			.sharedKeyBinding()
+			.popupMenuIcon(Icons.DELETE_ICON)
+			.popupMenuPath("References", "Delete All")
+			.popupMenuGroup(bottomGroup)
+			.withContext(ProgramSymbolActionContext.class)
+			.enabledWhen(this::hasSymbolsSelected)
+			.onAction(this::deleteRefs)
+			.buildAndInstallLocal(symProvider);
+		//@formatter:on
+	}
+
+	private boolean hasSymbolsSelected(ProgramSymbolActionContext c) {
+		if (symProvider.isBusy()) {
+			return false;
+		}
+
+		Component source = c.getSourceComponent();
+		if (source != symProvider.getTable()) {
+			return false;
+		}
+
+		return c.getSymbolCount() != 0;
+	}
+
+	private void deleteRefs(ProgramSymbolActionContext c) {
+
+		int result = new OptionDialogBuilder("Delete References?",
+			"Delete all references to the selected symbol(s)?")
+					.addOption("Delete")
+					.addCancel()
+					.show(symProvider.getComponent());
+		if (result != OptionDialog.OPTION_ONE) {
+			return;
+		}
+
+		int n = c.getSymbolCount();
+		Iterable<Symbol> it = c.getSymbols();
+		TaskLauncher.launchModal("Deleting References", monitor -> {
+			try {
+				doDeleteRefs(it, n, monitor);
+			}
+			catch (CancelledException e) {
+				// don't care
+			}
+		});
+	}
+
+	private void doDeleteRefs(Iterable<Symbol> it, int n, TaskMonitor monitor)
+			throws CancelledException {
+
+		monitor.initialize(n, "Gathering references...");
+		List<RemoveReferenceCmd> commands = new ArrayList<>();
+		for (Symbol s : it) {
+			monitor.increment();
+			Reference[] refs = s.getReferences();
+			for (Reference ref : refs) {
+				RemoveReferenceCmd cmd = new RemoveReferenceCmd(ref);
+				commands.add(cmd);
+			}
+		}
+
+		monitor.initialize(n, "Deleting references...");
+
+		currentProgram.withTransaction("Deleting References", () -> {
+			for (RemoveReferenceCmd cmd : commands) {
+				monitor.increment();
+				if (!cmd.applyTo(currentProgram)) {
+					Msg.error(this, "Failed to delete reference: " + cmd.getStatusMsg());
+				}
+			}
+		});
 	}
 
 	private void createRefActions() {
+		String toolbarGroup = "1";
 		referencesToAction = new ToggleDockingAction("References To", getName()) {
 			@Override
 			public void actionPerformed(ActionContext context) {
@@ -453,7 +568,7 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 		referencesToAction.setDescription("References To");
 		referencesToAction.setSelected(true);
 		referencesToAction.setToolBarData(
-			new ToolBarData(ResourceManager.loadImage("images/references_to.gif"), null));
+			new ToolBarData(new GIcon("icon.plugin.symboltable.references.to"), toolbarGroup));
 
 		tool.addLocalAction(refProvider, referencesToAction);
 
@@ -476,7 +591,7 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 		instructionsFromAction.setDescription("Instructions From");
 		instructionsFromAction.setSelected(false);
 		instructionsFromAction.setToolBarData(
-			new ToolBarData(ResourceManager.loadImage("images/I.gif"), null));
+			new ToolBarData(new GIcon("icon.plugin.symboltable.instructions.from"), toolbarGroup));
 
 		tool.addLocalAction(refProvider, instructionsFromAction);
 
@@ -499,9 +614,31 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 		dataFromAction.setDescription("Data From");
 		dataFromAction.setSelected(false);
 		dataFromAction.setToolBarData(
-			new ToolBarData(ResourceManager.loadImage("images/D.gif"), null));
+			new ToolBarData(new GIcon("icon.plugin.symboltable.data.from"), toolbarGroup));
 
 		tool.addLocalAction(refProvider, dataFromAction);
+
+		//@formatter:off
+		toolbarGroup = "2";
+		new ActionBuilder("Delete References", getName())
+			.sharedKeyBinding()
+			.toolBarIcon(Icons.DELETE_ICON)
+			.toolBarGroup(toolbarGroup)
+			.withContext(ReferenceTableContext.class)
+			.enabledWhen(c -> {
+				if (refProvider.isBusy()) {
+					return false;
+				}
+
+				List<Reference> refs = c.getSelectedReferences();
+				return !refs.isEmpty(); 
+			})
+			.onAction(c -> {
+				List<Reference> refs = c.getSelectedReferences();
+				refProvider.deleteRows(refs);
+			})
+			.buildAndInstallLocal(refProvider);
+		//@formatter:on
 	}
 
 	// a HACK to make the given action the selected action
@@ -514,4 +651,404 @@ public class SymbolTablePlugin extends Plugin implements DomainObjectListener {
 		action.setSelected(false);
 		action.setSelected(true);
 	}
+
+//=================================================================================================
+// Service Methods
+//=================================================================================================	
+
+	@Override
+	public TableComponentProvider<SymbolRowObject> showSymbols(CodeUnit codeUnit) {
+
+		Objects.requireNonNull(codeUnit);
+
+		Program program = codeUnit.getProgram();
+		Address addr = codeUnit.getMinAddress();
+		String title = "Labels at " + addr;
+
+		TableComponentProvider<SymbolRowObject> provider = transientTableProviders.get(title);
+		if (provider != null) {
+
+			if (provider.isShowing()) {
+				LabelFieldSymbolModel model = (LabelFieldSymbolModel) provider.getModel();
+				reload(codeUnit, model);
+				provider.toFront();
+				return provider;
+			}
+
+			transientTableProviders.remove(title);
+		}
+
+		LabelFieldSymbolLoader loader =
+			new LabelFieldSymbolLoader(codeUnit, Integer.MAX_VALUE, true);
+		Symbols symbols = loader.getSymbols();
+
+		List<Symbol> list = symbols.getAllSymbols();
+
+		HashSet<SymbolRowObject> rowObjects = list.stream()
+				.map(s -> new SymbolRowObject(s))
+				.collect(Collectors.toCollection(HashSet::new));
+
+		LabelFieldSymbolModel model =
+			new LabelFieldSymbolModel(tool, program, rowObjects);
+		provider = CreateSymbolTableAction.showTransientTable(tool, title, program, model);
+		if (provider == null) {
+			return null;
+		}
+
+		provider.setClosedCallback(() -> {
+			transientTableProviders.remove(title);
+		});
+
+		addActions(provider, model, codeUnit);
+
+		transientTableProviders.put(title, provider);
+
+		return provider;
+	}
+
+	private void addActions(TableComponentProvider<SymbolRowObject> provider,
+			LabelFieldSymbolModel model, CodeUnit cu) {
+
+		new ActionBuilder("Refresh", ToolConstants.SHARED_OWNER)
+				.toolBarGroup("_", "1") // first
+				.toolBarIcon(Icons.REFRESH_ICON)
+				.helpLocation(new HelpLocation(HelpTopics.CODE_BROWSER, "Refresh_Labels"))
+				.onAction(c -> {
+					reload(cu, model);
+				})
+				.buildAndInstallLocal(provider);
+
+		new ActionBuilder("Delete", ToolConstants.SHARED_OWNER)
+				.toolBarGroup("_", "2") // first
+				.toolBarIcon(Icons.DELETE_ICON)
+				.helpLocation(new HelpLocation(HelpTopics.CODE_BROWSER, "Delete_Label"))
+				.enabledWhen(c -> {
+					GhidraTable table = provider.getTable();
+					return table.getSelectedRowCount() > 0;
+				})
+				.onAction(c -> {
+					deleteSymbols(provider, model);
+				})
+				.buildAndInstallLocal(provider);
+	}
+
+	private void deleteSymbols(TableComponentProvider<SymbolRowObject> provider,
+			LabelFieldSymbolModel model) {
+
+		List<Symbol> symbols = new ArrayList<>();
+
+		GhidraTable table = provider.getTable();
+		int[] rows = table.getSelectedRows();
+		for (int row : rows) {
+			SymbolRowObject ro = model.getRowObject(row);
+			Symbol symbol = ro.getSymbol();
+			if (symbol.isDeleted()) {
+				// this symbol was deleted outside of the table and the table did not update
+				model.removeObject(ro);
+				continue;
+			}
+
+			symbols.add(symbol);
+		}
+		model.delete(symbols);
+	}
+
+	private void reload(CodeUnit cu, LabelFieldSymbolModel model) {
+		LabelFieldSymbolLoader loader =
+			new LabelFieldSymbolLoader(cu, Integer.MAX_VALUE, true);
+		Symbols symbols = loader.getSymbols();
+
+		List<Symbol> list = symbols.getAllSymbols();
+
+		HashSet<SymbolRowObject> rowObjects = list.stream()
+				.map(s -> new SymbolRowObject(s))
+				.collect(Collectors.toCollection(HashSet::new));
+
+		model.setData(rowObjects);
+	}
+
+	private class LabelFieldSymbolModel extends TransientSymbolTableModel {
+
+		public LabelFieldSymbolModel(ServiceProvider sp, Program program,
+				HashSet<SymbolRowObject> rowObjects) {
+			super(sp, program, rowObjects);
+		}
+
+		public void setData(HashSet<SymbolRowObject> rowObjects) {
+			this.rowObjects = rowObjects;
+			reload();
+		}
+
+		@Override
+		protected void delete(List<Symbol> symbols) {
+			super.delete(symbols);
+		}
+
+		@Override
+		protected TableColumnDescriptor<SymbolRowObject> createTableColumnDescriptor() {
+
+			TableColumnDescriptor<SymbolRowObject> descriptor = super.createTableColumnDescriptor();
+
+			//@formatter:off
+			Set<String> visibleNames = new HashSet<>(Set.of(
+				NameTableColumn.NAME, 
+				SymbolTypeTableColumn.NAME,
+				SourceTableColumn.NAME,
+				ReferenceCountTableColumn.NAME));
+			//@formatter:on
+
+			List<DynamicTableColumn<SymbolRowObject, ?, ?>> allColumns = descriptor.getAllColumns();
+
+			for (DynamicTableColumn<SymbolRowObject, ?, ?> column : allColumns) {
+				String columnName = column.getColumnName();
+				boolean visible = visibleNames.contains(columnName);
+				descriptor.setVisible(columnName, visible);
+			}
+
+			return descriptor;
+		}
+	}
+
+//==================================================================================================
+// Table Update Jobs
+//==================================================================================================
+
+	private abstract class AbstractSymbolUpdateJob extends Job {
+
+		protected Program program;
+
+		AbstractSymbolUpdateJob(Program program) {
+			this.program = program;
+		}
+
+		@Override
+		public final void run(TaskMonitor taskMonitor) {
+			if (program != currentProgram) {
+				return;
+			}
+			doRun();
+		}
+
+		protected abstract void doRun();
+	}
+
+	private class CodeAddedRemoveJob extends AbstractSymbolUpdateJob {
+
+		private Address start;
+
+		CodeAddedRemoveJob(Program program, Address start) {
+			super(program);
+			this.start = start;
+		}
+
+		@Override
+		protected void doRun() {
+
+			if (!symProvider.isShowingDynamicSymbols()) {
+				return;
+			}
+
+			// Note: this code *should* be checking the entire address range to handle the case 
+			//       where large address range was cleared.   This implementation will handle the
+			//       case where individual code units are cleared.  This feature has been this way
+			//       for many years.   The assumption is that most users are not showing dynamic
+			//       symbols often, especially not when performing analysis or clearing large 
+			//       address ranges.    Checking each address of the changed range is very slow.
+			//       This code will need to be updated in the future if we decide updating the
+			//       dynamic symbols in the symbol table is worth the cost.  For now, if the table
+			//       becomes out-of-date, then user can simply close and re-open the table to 
+			//       trigger an update.
+			SymbolTable symbolTable = currentProgram.getSymbolTable();
+			Symbol symbol = symbolTable.getPrimarySymbol(start);
+			if (symbol != null && symbol.isDynamic()) {
+				symProvider.symbolChanged(symbol);
+				refProvider.symbolChanged(symbol);
+			}
+		}
+	}
+
+	private class SymbolAddedJob extends AbstractSymbolUpdateJob {
+
+		private Symbol symbol;
+
+		SymbolAddedJob(Program program, Symbol symbol) {
+			super(program);
+			this.symbol = symbol;
+		}
+
+		@Override
+		protected void doRun() {
+			symProvider.symbolAdded(symbol);
+			refProvider.symbolAdded(symbol);
+		}
+	}
+
+	private class SymbolRemovedJob extends AbstractSymbolUpdateJob {
+
+		private long symbolId;
+		private Address address;
+
+		SymbolRemovedJob(Program program, Address address, long symbolId) {
+			super(program);
+			this.address = address;
+			this.symbolId = symbolId;
+		}
+
+		@Override
+		protected void doRun() {
+			symProvider.symbolRemoved(symbolId);
+			refProvider.symbolRemoved(symbolId);
+
+			if (!symProvider.isShowingDynamicSymbols()) {
+				return;
+			}
+
+			SymbolTable symbolTable = currentProgram.getSymbolTable();
+			Symbol primaryAtRemove = symbolTable.getPrimarySymbol(address);
+			if (primaryAtRemove != null && primaryAtRemove.isDynamic()) {
+				// 
+				symProvider.symbolChanged(primaryAtRemove);
+				refProvider.symbolChanged(primaryAtRemove);
+			}
+		}
+	}
+
+	private class SymbolChangedJob extends AbstractSymbolUpdateJob {
+
+		private Symbol symbol;
+
+		SymbolChangedJob(Program program, Symbol symbol) {
+			super(program);
+			this.symbol = symbol;
+		}
+
+		@Override
+		protected void doRun() {
+			symProvider.symbolChanged(symbol);
+			refProvider.symbolChanged(symbol);
+		}
+	}
+
+	private class SymbolSourceChangedJob extends AbstractSymbolUpdateJob {
+
+		private Symbol symbol;
+
+		SymbolSourceChangedJob(Program program, Symbol symbol) {
+			super(program);
+			this.symbol = symbol;
+		}
+
+		@Override
+		protected void doRun() {
+			symProvider.symbolChanged(symbol);
+		}
+	}
+
+	private class SymbolSetAsPrimaryJob extends AbstractSymbolUpdateJob {
+
+		private Symbol symbol;
+		private Symbol oldPrimarySymbol;
+
+		SymbolSetAsPrimaryJob(Program program, Symbol symbol, Symbol oldPrimarySymbol) {
+			super(program);
+			this.symbol = symbol;
+			this.oldPrimarySymbol = oldPrimarySymbol;
+		}
+
+		@Override
+		protected void doRun() {
+
+			symProvider.symbolChanged(symbol);
+			if (oldPrimarySymbol != null) {
+				symProvider.symbolChanged(oldPrimarySymbol);
+			}
+		}
+	}
+
+	private class ReferenceAddedJob extends AbstractSymbolUpdateJob {
+
+		private Reference reference;
+
+		ReferenceAddedJob(Program program, Reference reference) {
+			super(program);
+			this.reference = reference;
+		}
+
+		@Override
+		protected void doRun() {
+
+			Address toAddr = reference.getToAddress();
+			boolean isValid = toAddr.isMemoryAddress() || toAddr.isExternalAddress();
+			if (!isValid) {
+				return;
+			}
+
+			SymbolTable symbolTable = program.getSymbolTable();
+			Symbol symbol = symbolTable.getSymbol(reference);
+			if (symbol == null) {
+				return;
+			}
+
+			if (!symbol.isDynamic() || symProvider.isShowingDynamicSymbols()) {
+				symProvider.symbolChanged(symbol);
+				refProvider.symbolChanged(symbol);
+			}
+		}
+	}
+
+	private class ReferenceRemovedJob extends AbstractSymbolUpdateJob {
+
+		private Reference reference;
+
+		ReferenceRemovedJob(Program program, Reference reference) {
+			super(program);
+			this.reference = reference;
+		}
+
+		@Override
+		protected void doRun() {
+
+			Address toAddr = reference.getToAddress();
+			boolean isValid = toAddr.isMemoryAddress() || toAddr.isExternalAddress();
+			if (!isValid) {
+				return;
+			}
+
+			SymbolTable symbolTable = program.getSymbolTable();
+			Symbol symbol = symbolTable.getSymbol(reference);
+			if (symbol != null) {
+				if (!symbol.isDynamic() || symProvider.isShowingDynamicSymbols()) {
+					symProvider.symbolChanged(symbol);
+					refProvider.symbolChanged(symbol);
+				}
+			}
+			else if (toAddr.isMemoryAddress() && symProvider.isShowingDynamicSymbols()) {
+				long dynamicSymbolId = symbolTable.getDynamicSymbolID(toAddr);
+				symProvider.symbolRemoved(dynamicSymbolId);
+				refProvider.symbolRemoved(dynamicSymbolId);
+			}
+		}
+	}
+
+	private class ExternalEntryChangedJob extends AbstractSymbolUpdateJob {
+
+		private Address address;
+
+		ExternalEntryChangedJob(Program program, Address address) {
+			super(program);
+			this.address = address;
+		}
+
+		@Override
+		protected void doRun() {
+
+			SymbolTable symbolTable = program.getSymbolTable();
+			Symbol[] symbols = symbolTable.getSymbols(address);
+			for (Symbol element : symbols) {
+				symProvider.symbolChanged(element);
+				refProvider.symbolChanged(element);
+			}
+		}
+	}
+
 }

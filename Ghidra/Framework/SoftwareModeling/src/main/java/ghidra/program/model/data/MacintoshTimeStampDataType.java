@@ -15,14 +15,13 @@
  */
 package ghidra.program.model.data;
 
+import java.text.SimpleDateFormat;
+import java.util.*;
+
 import ghidra.docking.settings.Settings;
 import ghidra.program.model.mem.MemBuffer;
 import ghidra.util.Msg;
-import ghidra.util.classfinder.*;
-
-import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.TimeZone;
+import ghidra.util.classfinder.ClassTranslator;
 
 /**
  * A datatype to interpret the Mac OS timestamp
@@ -35,7 +34,8 @@ public class MacintoshTimeStampDataType extends BuiltIn {
 			MacintoshTimeStampDataType.class.getName());
 	}
 
-	private final static SimpleDateFormat formatter = new SimpleDateFormat("dd-MMM-yyyy HH:mm:ss");
+	private final static SimpleDateFormat formatter =
+		new SimpleDateFormat("dd-MMM-yyyy HH:mm:ss", Locale.US);
 	private static Date macStartDate;
 
 	static {
@@ -57,26 +57,23 @@ public class MacintoshTimeStampDataType extends BuiltIn {
 		super(null, "MacTime", dtm);
 	}
 
+	@Override
 	public String getDescription() {
 		return "The stamp follows the Macintosh time-measurement scheme "
 			+ "(that is, the number of seconds measured from January 1, 1904).";
 	}
 
+	@Override
 	public int getLength() {
 		return 4;
 	}
 
-	/**
-	 * @see ghidra.program.model.data.DataType#isDynamicallySized()
-	 */
-	public boolean isDynamicallySized() {
-		return false;
-	}
-
+	@Override
 	public String getMnemonic(Settings settings) {
 		return "MacTime";
 	}
 
+	@Override
 	public String getRepresentation(MemBuffer buf, Settings settings, int length) {
 		if (macStartDate == null) {
 			return "unparsed date";
@@ -93,10 +90,12 @@ public class MacintoshTimeStampDataType extends BuiltIn {
 		return "";
 	}
 
+	@Override
 	public Object getValue(MemBuffer buf, Settings settings, int length) {
 		return getRepresentation(buf, settings, length);
 	}
 
+	@Override
 	public DataType clone(DataTypeManager dtm) {
 		if (dtm == getDataTypeManager()) {
 			return this;

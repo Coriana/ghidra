@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -49,10 +49,9 @@ public enum AnalyzerType {
 	FUNCTION_ANALYZER("Function Analyzer", "Triggered when functions are created."),
 	FUNCTION_MODIFIERS_ANALYZER("Function-modifiers Analyzer", "Triggered when a function's modifier changes"),
 	FUNCTION_SIGNATURES_ANALYZER("Function-Signatures Analyzer", "Triggered when a function's signature changes."),
-	DATA_ANALYZER("Data Analyzer", "Triggered when data is created."),
+	DATA_ANALYZER("Data Analyzer", "Triggered when data is created.");
 	// TODO: Add Symbol analyzer type
 	// SYMBOL_ANALYZER("Symbol Analyzer", "Triggered when non-default primary symbol is added or changed"),
-	ONE_SHOT_ANALYZER("One Shot Analzyer", "Not triggered by any event, only executed when analysis is run manually (One shots run before all others)");
 
 	private String name;
 	private String description;
@@ -63,7 +62,7 @@ public enum AnalyzerType {
 	}
 
 	/**
-	 * Return the name of this AnalyzerType. 
+	 * {@return the name of this AnalyzerType}
 	 */
 	public String getName() {
 		return name;

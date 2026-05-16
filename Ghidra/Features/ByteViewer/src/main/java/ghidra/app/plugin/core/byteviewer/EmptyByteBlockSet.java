@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,11 +20,18 @@ import java.math.BigInteger;
 import ghidra.app.events.ProgramLocationPluginEvent;
 import ghidra.app.events.ProgramSelectionPluginEvent;
 import ghidra.app.plugin.core.format.*;
+import ghidra.program.model.address.AddressSet;
 
 public class EmptyByteBlockSet implements ByteBlockSet {
 
 	@Override
+	public boolean isValid() {
+		return false;
+	}
+
+	@Override
 	public void dispose() {
+		// nothing
 	}
 
 	@Override
@@ -51,6 +58,11 @@ public class EmptyByteBlockSet implements ByteBlockSet {
 	@Override
 	public void notifyByteEditing(ByteBlock block, BigInteger index, byte[] oldValue,
 			byte[] newValue) {
+		// nothing
 	}
 
+	@Override
+	public AddressSet getAddressSet(ByteBlockSelection selection) {
+		return null;
+	}
 }

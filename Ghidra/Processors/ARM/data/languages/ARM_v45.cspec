@@ -59,6 +59,9 @@
         <pentry minsize="1" maxsize="4" extension="inttype">
           <register name="r0"/>
         </pentry>
+        <pentry minsize="5" maxsize="8">
+          <addr space="join" piece1="r1" piece2="r0"/>
+        </pentry>
       </output>
       <unaffected>
         <register name="r4"/>
@@ -76,6 +79,16 @@
       </killedbycall>
     </prototype>
   </default_proto>
+  
+  <callotherfixup targetop="setISAMode">
+    <pcode incidentalcopy="true">
+      <input name="newTB"/>
+      <!-- NOP -->
+      <body><![CDATA[
+        r0 = r0;
+      ]]></body>
+    </pcode>
+  </callotherfixup>
   
   <callfixup name="switch8_r3">
     <target name="switch8_r3"/>
@@ -101,8 +114,7 @@
             
             r12 = lr + r3;
             
-            ISAModeSwitch = (r12 & 1) != 1;
-            TB = ISAModeSwitch;
+            TB = (r12 & 1) != 1;
             pc = r12 & 0xfffffffe;
             goto [pc];
       ]]></body>
@@ -117,11 +129,9 @@
             tmpptr = lr & 0xfffffffe;
 
             offset = *:1 (tmpptr + r0);
-            offset = offset * 2;
-            lr = lr + zext(offset);
+            lr = lr + 2 * zext(offset);
  
-            ISAModeSwitch = (lr & 1) != 0;
-            TB = ISAModeSwitch;
+            TB = (lr & 1) != 0;
             pc = lr & 0xfffffffe;
             goto [pc];
       ]]></body>
@@ -136,11 +146,9 @@
             tmpptr = lr & 0xfffffffe;
 
             offset = *:1 (tmpptr + r0);
-            offset = offset * 2;
-            lr = lr + sext(offset);
+            lr = lr + 2 * sext(offset);
  
-            ISAModeSwitch = (lr & 1) != 0;
-            TB = ISAModeSwitch;
+            TB = (lr & 1) != 0;
             pc = lr & 0xfffffffe;
             goto [pc];
       ]]></body>
@@ -156,11 +164,9 @@
             
             index = r0 * 2;
             offset = *:2 (tmpptr + index);
-            offset = offset * 2;
-            lr = lr + sext(offset);
+            lr = lr + 2 * sext(offset);
  
-            ISAModeSwitch = (lr & 1) != 0;
-            TB = ISAModeSwitch;
+            TB = (lr & 1) != 0;
             pc = lr & 0xfffffffe;
             goto [pc];
       ]]></body>
@@ -176,11 +182,9 @@
             
             index = r0 * 2;
             offset = *:2 (tmpptr + index);
-            offset = offset * 2;
-            lr = lr + zext(offset);
+            lr = lr + 2 * zext(offset);
  
-            ISAModeSwitch = (lr & 1) != 0;
-            TB = ISAModeSwitch;
+            TB = (lr & 1) != 0;
             pc = lr & 0xfffffffe;
             goto [pc];
       ]]></body>
@@ -199,8 +203,7 @@
             offset = offset * 4;
             lr = lr + offset;
  
-            ISAModeSwitch = (lr & 1) != 0;
-            TB = ISAModeSwitch;
+            TB = (lr & 1) != 0;
             pc = lr & 0xfffffffe;
             goto [pc];
       ]]></body>

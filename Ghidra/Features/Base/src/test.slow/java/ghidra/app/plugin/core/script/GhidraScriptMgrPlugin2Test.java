@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,10 +17,13 @@ package ghidra.app.plugin.core.script;
 
 import static org.junit.Assert.*;
 
+import java.awt.Color;
 import java.io.*;
+import java.nio.file.Path;
 
-import org.apache.logging.log4j.*;
-import org.apache.logging.log4j.core.config.Configurator;
+import javax.swing.text.*;
+
+import org.apache.logging.log4j.Level;
 import org.junit.Test;
 
 import docking.test.AbstractDockingTest;
@@ -37,7 +40,6 @@ import utilities.util.FileUtilities;
 public class GhidraScriptMgrPlugin2Test extends AbstractGhidraScriptMgrPluginTest {
 
 	public GhidraScriptMgrPlugin2Test() {
-		super();
 	}
 
 	@Test
@@ -55,7 +57,7 @@ public class GhidraScriptMgrPlugin2Test extends AbstractGhidraScriptMgrPluginTes
 
 		String consoleText = getConsoleText();
 		assertTrue("ConsoleText was \"" + consoleText + "\".",
-			consoleText.indexOf("> Hello World") >= 0);
+			consoleText.indexOf("Hello World") >= 0);
 
 	}
 
@@ -149,8 +151,7 @@ public class GhidraScriptMgrPlugin2Test extends AbstractGhidraScriptMgrPluginTes
 		assertTrue("Unable to delete class files from the user scripts directory", isEmpty);
 
 		// remove all class files from the user script bin dir
-		File userScriptsBinDir =
-			GhidraSourceBundle.getBindirFromScriptFile(new ResourceFile(newScriptFile)).toFile();
+		File userScriptsBinDir = getBinDirFromScriptFile(new ResourceFile(newScriptFile)).toFile();
 		File[] userScriptBinDirFiles;
 		if (userScriptsBinDir.exists()) {
 			userScriptBinDirFiles = userScriptsBinDir.listFiles(classFileFilter);
@@ -194,8 +195,7 @@ public class GhidraScriptMgrPlugin2Test extends AbstractGhidraScriptMgrPluginTes
 		waitForScriptCompletion(scriptID, 20000);
 
 		// verify that the generated class file is placed in the default scripting home/bin
-		File userScriptsBinDir =
-			GhidraSourceBundle.getBindirFromScriptFile(systemScriptFile).toFile();
+		File userScriptsBinDir = getBinDirFromScriptFile(systemScriptFile).toFile();
 		String className = scriptName.replace(".java", ".class");
 		File expectedClassFile = new File(userScriptsBinDir, className);
 
@@ -232,7 +232,7 @@ public class GhidraScriptMgrPlugin2Test extends AbstractGhidraScriptMgrPluginTes
 			waitForScriptCompletion(scriptID, 20000);
 
 			// verify a bin dir was created and that the class file is in it
-			File binDir = GhidraSourceBundle.getBindirFromScriptFile(newScriptFile).toFile();
+			File binDir = getBinDirFromScriptFile(newScriptFile).toFile();
 			assertTrue("bin output dir not created", binDir.exists());
 
 			File scriptClassFile = new File(binDir, rawScriptName + ".class");
@@ -250,8 +250,7 @@ public class GhidraScriptMgrPlugin2Test extends AbstractGhidraScriptMgrPluginTes
 	public void testRenameWithTreeFilter() throws Exception {
 
 		// debug
-		Logger logger = LogManager.getLogger(SelectionManager.class);
-		Configurator.setLevel(logger.getName(), Level.TRACE);
+		setLogLevel(SelectionManager.class, Level.TRACE);
 
 		pressNewButton();
 
@@ -493,4 +492,118 @@ public class GhidraScriptMgrPlugin2Test extends AbstractGhidraScriptMgrPluginTes
 		assertContainsText("The field of the script still has state--the script was not recreated",
 			"*2*", output);
 	}
+
+	@Test
+	public void testScriptPrintWithColor() throws Exception {
+
+		// create a script
+		ResourceFile newScriptFile = createTempScriptFile("LineColoringScript");
+		String filename = newScriptFile.getName();
+		String className = filename.replaceAll("\\.java", "");
+
+		String text1 = "This is black, ";
+		String text2 = "this is blue, and ";
+		String text3 = "this is red.\\n";
+		String line2 = "This is the default color.";
+
+		//@formatter:off
+		String newScript = """
+			import ghidra.app.script.GhidraScript;
+			import java.awt.Color;
+
+			public class %s extends GhidraScript {
+
+				@Override
+				public void run() throws Exception {
+
+					print("%s");
+					print("%s", Color.BLUE);
+					print("%s", Color.RED);
+					print("%s");
+			    }
+			};
+		""".formatted(className, text1, text2, text3, line2);
+		//@formatter:on
+
+		writeStringToFile(newScriptFile, newScript);
+
+		runScript(newScriptFile);
+		waitForSwing();
+
+		assertConsoleTextColor(text1, Color.BLACK);
+		assertConsoleTextColor(text2, Color.BLUE);
+		assertConsoleTextColor(text3, Color.RED);
+		assertConsoleTextColor(text2, Color.BLACK);
+	}
+
+	@Test
+	public void testScriptPrintlnWithColor() throws Exception {
+
+		// create a script
+		ResourceFile newScriptFile = createTempScriptFile("LineColoringScript");
+		String filename = newScriptFile.getName();
+		String className = filename.replaceAll("\\.java", "");
+
+		String line1 = "1 This is a default line";
+		String line2 = "2 This is a blue line";
+		String line3 = "3 This is a red line";
+
+		//@formatter:off
+		String newScript = """
+			import ghidra.app.script.GhidraScript;
+			import java.awt.Color;
+
+			public class %s extends GhidraScript {
+
+				@Override
+				public void run() throws Exception {
+
+					println("%s");
+					println("%s", Color.BLUE);
+					println("%s", Color.RED);
+			    }
+			};
+		""".formatted(className, line1, line2, line3);
+		//@formatter:on
+
+		writeStringToFile(newScriptFile, newScript);
+
+		runScript(newScriptFile);
+		waitForSwing();
+
+		assertConsoleTextColor(line1, Color.BLACK);
+		assertConsoleTextColor(line2, Color.BLUE);
+		assertConsoleTextColor(line3, Color.RED);
+	}
+
+	private void assertConsoleTextColor(String text, Color expectedFgColor) {
+		String fullText = runSwing(() -> consoleTextPane.getText());
+
+		// We have 2 layers of newlines in the test.  A '\\n' that gets written to file as Java 
+		// code.  That then gets compiled and written out as a newline.  Our 'text' value passed 
+		// here is that original '\\n'.  We are trying to compare that against what ends up in the
+		// console, which has gone through 2 string interpretations to end up as a standard newline.
+		// Strip off the '\\n' from the original input text before looking for it in the console.		
+		String visibleText = text.replaceAll("\\\\n", "");
+		int start = fullText.indexOf(visibleText);
+		int end = visibleText.length();
+
+		runSwing(() -> {
+			StyledDocument styledDocument = (StyledDocument) consoleTextPane.getDocument();
+
+			for (int i = start; i < end; i++) {
+				Element element = styledDocument.getCharacterElement(i);
+				AttributeSet attrs = element.getAttributes();
+				Color actualFgColor = (Color) attrs.getAttribute(StyleConstants.Foreground);
+				assertEquals(expectedFgColor, actualFgColor);
+			}
+		});
+	}
+
+	private Path getBinDirFromScriptFile(ResourceFile sourceFile) {
+		ResourceFile tmpSourceDir = sourceFile.getParentFile();
+		String tmpSymbolicName = GhidraSourceBundle.sourceDirHash(tmpSourceDir);
+		return GhidraSourceBundle.getCompiledBundlesDir().resolve(tmpSymbolicName);
+	}
+
 }

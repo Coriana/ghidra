@@ -16,21 +16,18 @@
 package ghidra.app.cmd.function;
 
 import ghidra.framework.cmd.BackgroundCommand;
-import ghidra.framework.model.DomainObject;
-import ghidra.program.database.ProgramDB;
-import ghidra.program.database.function.FunctionManagerDB;
-import ghidra.program.model.listing.FunctionTag;
+import ghidra.program.model.listing.*;
 import ghidra.util.task.TaskMonitor;
 
 /**
- * Command for deleting a tag from the system.
+ * Command for deleting a tag from the system
  */
-public class DeleteFunctionTagCmd extends BackgroundCommand {
+public class DeleteFunctionTagCmd extends BackgroundCommand<Program> {
 
 	private String tagName;
 
 	/**
-	 * Constructor.
+	 * Constructor
 	 * 
 	 * @param tagName the name of the tag to delete
 	 */
@@ -38,21 +35,13 @@ public class DeleteFunctionTagCmd extends BackgroundCommand {
 		this.tagName = tagName;
 	}
 
-	/******************************************************************************
-	 * PUBLIC METHODS
-	 ******************************************************************************/
-
 	@Override
-	public boolean applyTo(DomainObject obj, TaskMonitor monitor) {
-
-		ProgramDB program = (ProgramDB) obj;
-		FunctionManagerDB functionManager = (FunctionManagerDB) program.getFunctionManager();
+	public boolean applyTo(Program program, TaskMonitor monitor) {
+		FunctionManager functionManager = program.getFunctionManager();
 		FunctionTag tag = functionManager.getFunctionTagManager().getFunctionTag(tagName);
-
 		if (tag != null) {
 			tag.delete();
 		}
-
 		return true;
 	}
 

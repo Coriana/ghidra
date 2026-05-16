@@ -42,10 +42,9 @@ public class EntropyOverviewColorService implements OverviewColorService {
 	private byte[] chunkBuffer;
 	private double[] logtable;
 	private int[] histogram = new int[256];
-	private Palette palette;
+	private OverviewPalette palette;
 	private EntropyOverviewOptionsManager entropyOptionsManager;
 	private OverviewColorComponent overviewComponent;
-	private OverviewColorLegendDialog legendDialog;
 
 	@Override
 	public String getName() {
@@ -77,6 +76,7 @@ public class EntropyOverviewColorService implements OverviewColorService {
 	@Override
 	public void setOverviewComponent(OverviewColorComponent component) {
 		this.overviewComponent = component;
+		this.overviewComponent.getAccessibleContext().setAccessibleName("Overview Component");
 	}
 
 	@Override
@@ -193,9 +193,6 @@ public class EntropyOverviewColorService implements OverviewColorService {
 		if (overviewComponent != null) {
 			overviewComponent.refreshAll();
 		}
-		if (legendDialog != null) {
-			legendDialog.refresh();
-		}
 	}
 
 	@Override
@@ -219,12 +216,11 @@ public class EntropyOverviewColorService implements OverviewColorService {
 	}
 
 	private DialogComponentProvider getLegendDialog() {
-		if (legendDialog == null) {
-			LegendPanel legendPanel = new LegendPanel();
-			legendPanel.setPalette(palette);
-			legendDialog =
-				new OverviewColorLegendDialog("Entropy Legend", legendPanel, getHelpLocation());
-		}
+
+		LegendPanel legendPanel = new LegendPanel();
+		legendPanel.setPalette(palette);
+		OverviewColorLegendDialog legendDialog =
+			new OverviewColorLegendDialog("Entropy Legend", legendPanel, getHelpLocation());
 		return legendDialog;
 	}
 }

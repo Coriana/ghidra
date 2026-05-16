@@ -19,6 +19,8 @@ import java.util.Iterator;
 import java.util.Map.Entry;
 import java.util.TreeMap;
 
+import ghidra.program.model.pcode.PartialUnion;
+
 /**
  * Build a structure from a "noisy" source of field information.
  * Feed it field records, either via addDataType(), when we
@@ -29,9 +31,12 @@ import java.util.TreeMap;
  * In a conflict, less specific data-types are replaced.
  * After all information is collected a final Structure can be built by iterating over
  * the final field entries.
+ * 
+ * NOTE: No attempt has been made to utilize {@link DataType#getAlignedLength()} when considering
+ * component type lengths.
  */
 public class NoisyStructureBuilder {
-	private TreeMap<Long, DataType> offsetToDataTypeMap = new TreeMap<Long, DataType>();
+	private TreeMap<Long, DataType> offsetToDataTypeMap = new TreeMap<>();
 	private Structure structDT = null;
 	private long sizeOfStruct = 0;
 
@@ -79,9 +84,23 @@ public class NoisyStructureBuilder {
 	 * @param dt is the data-type of field if known (null otherwise)
 	 */
 	public void addDataType(long offset, DataType dt) {
-		if (dt == null) {
+		if (dt == null || dt instanceof VoidDataType) {
 			computeMax(offset, 1);
 			return;
+		}
+		if (dt instanceof Pointer) {
+			DataType baseType = ((Pointer) dt).getDataType();
+			if (baseType != null && baseType.equals(structDT)) {
+				// Be careful of taking a pointer to the structure when the structure
+				// is not fully defined
+				DataTypeManager manager = dt.getDataTypeManager();
+				dt = manager.getPointer(DataType.DEFAULT, dt.getLength());
+			}
+		}
+		else if (dt instanceof PartialUnion) {
+			// The decompiler can produce the internal data-type PartialUnion, which must
+			// be replaced with a suitable formal data-type within the structure being built
+			dt = ((PartialUnion) dt).getStrippedDataType();
 		}
 		computeMax(offset, dt.getLength());
 		Entry<Long, DataType> firstEntry = checkForOverlap(offset, dt.getLength());
@@ -121,7 +140,7 @@ public class NoisyStructureBuilder {
 	public void addReference(long offset, DataType dt) {
 		if (dt != null && dt instanceof Pointer) {
 			dt = ((Pointer) dt).getDataType();
-			if (dt.equals(structDT)) {
+			if (dt != null && dt.equals(structDT)) {
 				return;		// Don't allow structure to contain itself
 			}
 			if (dt instanceof Structure) {

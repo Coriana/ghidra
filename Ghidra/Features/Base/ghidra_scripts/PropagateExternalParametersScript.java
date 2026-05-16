@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -30,6 +30,8 @@ import ghidra.program.model.symbol.*;
 
 public class PropagateExternalParametersScript extends GhidraScript {
 	private List<PushedParamInfo> results = new ArrayList<>();
+
+	private static final boolean PRINT_OPTYPE = false;
 
 	@Override
 	public void run() throws Exception {
@@ -56,7 +58,7 @@ public class PropagateExternalParametersScript extends GhidraScript {
 			}
 		}
 
-		// use the 'results' to propagate param info to the local variables, data, and params of 	
+		// use the 'results' to propagate param info to the local variables, data, and params of
 		// the calling function
 		//println("Processing propagation results - count: " + results.size());
 		for (int i = 0; i < results.size(); i++) {
@@ -68,7 +70,7 @@ public class PropagateExternalParametersScript extends GhidraScript {
 				continue;
 			}
 
-			//If operand of pushed parameter points to data make a symbol and comment at that location 
+			//If operand of pushed parameter points to data make a symbol and comment at that location
 			if (((opType & OperandType.ADDRESS) != 0) && (((opType & OperandType.DATA) != 0)) ||
 				((opType & OperandType.SCALAR) != 0) || ((opType & OperandType.DYNAMIC) != 0)) {
 				Reference[] refs = listing.getCodeUnitAt(ppi.getAddress()).getOperandReferences(0);
@@ -88,7 +90,9 @@ public class PropagateExternalParametersScript extends GhidraScript {
 					String newComment = new String(
 						ppi.getName() + " parameter of " + ppi.getCalledFunctionName() + "\n");
 
-					if ((getSymbol(symbolName, null) == null) && (isString == false)) {
+					List<Symbol> symbols = getSymbols(symbolName, null);
+
+					if (symbols.isEmpty() && !isString) {
 						createLabel(dataAddress, symbolName, true, SourceType.USER_DEFINED);
 					}
 
@@ -101,8 +105,10 @@ public class PropagateExternalParametersScript extends GhidraScript {
 					}
 
 					if ((data != null) &&
-						(listing.getCodeUnitAt(dataAddress).getMnemonicString().startsWith(
-							"undefined"))) {
+						(listing.getCodeUnitAt(dataAddress)
+								.getMnemonicString()
+								.startsWith(
+									"undefined"))) {
 						clearListing(dataAddress);
 					}
 					if (listing.isUndefined(dataAddress, dataAddress.add(dt.getLength() - 1))) {
@@ -130,8 +136,8 @@ public class PropagateExternalParametersScript extends GhidraScript {
 		for (Reference extRef : extRefs) {
 
 			Address refAddr = extRef.getFromAddress();
-
 			String refMnemonic = listing.getCodeUnitAt(refAddr).getMnemonicString();
+
 			Function calledFromFunc = listing.getFunctionContaining(refAddr);
 			if (calledFromFunc == null) {
 				continue;
@@ -143,8 +149,14 @@ public class PropagateExternalParametersScript extends GhidraScript {
 				while (tempIter.hasNext()) {
 					Reference thunkRef = tempIter.next();
 					Address thunkRefAddr = thunkRef.getFromAddress();
-					String thunkRefMnemonic =
-						listing.getCodeUnitAt(thunkRefAddr).getMnemonicString();
+
+					CodeUnit cu = listing.getCodeUnitAt(thunkRefAddr);
+					if (cu == null) {
+						// println("Referenced CodeUnit is null: " + thunkRefAddr);
+						continue;
+					}
+					String thunkRefMnemonic = cu.getMnemonicString();
+
 					Function thunkRefFunc = listing.getFunctionContaining(thunkRefAddr);
 					if ((thunkRefMnemonic.equals(new String("CALL")) && (thunkRefFunc != null))) {
 						CodeUnitIterator cuIt =
@@ -182,7 +194,7 @@ public class PropagateExternalParametersScript extends GhidraScript {
 	 * PUSH arg 2 to call func2    |
 	 * PUSH arg 1 to call func2	   | -- want to bypass these
 	 * CALL func2               ___|
-	 * PUSH arg 2 to call func1           ; put arg2 of func1 here 
+	 * PUSH arg 2 to call func1           ; put arg2 of func1 here
 	 * PUSH arg 1 to call func1           ; put arg1 of func1 here
 	 * CALL func1
 	 */
@@ -272,7 +284,7 @@ public class PropagateExternalParametersScript extends GhidraScript {
 			// need to take into account calls between the pushes and skip the pushes for those calls
 			// skip pushes that are used for another call
 
-			// if label, then probably a branch, allow current push to be commented and 
+			// if label, then probably a branch, allow current push to be commented and
 			// next time through stop
 			// can also be a branch if not label there but this case should still have parameters set
 			// before it as long as not an unconditional jump - this wouldn't make sense so it shouldn't happen
@@ -290,10 +302,18 @@ public class PropagateExternalParametersScript extends GhidraScript {
 					numSkips--;
 				}
 				else {
+
+					// if option is true add the value of the optype to the EOL comment
+					String opType = "";
+					if (PRINT_OPTYPE) {
+						opType = " " + toHexString(currentProgram.getListing()
+								.getInstructionAt(cu.getMinAddress())
+								.getOperandType(0),
+							false, true);
+					}
 					setEOLComment(cu.getMinAddress(), params[index].getDataType().getDisplayName() +
-						" " + params[index].getName() + " for " + extFuncName);
-					// add the following to the EOL comment to see the value of the optype	
-					//	+" " + toHexString(currentProgram.getListing().getInstructionAt(cu.getMinAddress()).getOperandType(0), false, true)
+						" " + params[index].getName() + " for " + extFuncName + opType);
+
 					addResult(params[index].getName(), params[index].getDataType(),
 						cu.getMinAddress(), extFuncName);
 					index++;

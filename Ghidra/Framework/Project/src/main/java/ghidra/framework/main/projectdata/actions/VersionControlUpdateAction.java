@@ -18,17 +18,17 @@ package ghidra.framework.main.projectdata.actions;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.swing.ImageIcon;
+import javax.swing.Icon;
 
 import docking.action.MenuData;
 import docking.action.ToolBarData;
+import generic.theme.GIcon;
 import ghidra.framework.main.AppInfo;
 import ghidra.framework.main.datatable.DomainFileContext;
 import ghidra.framework.model.DomainFile;
 import ghidra.framework.plugintool.Plugin;
 import ghidra.util.task.Task;
 import ghidra.util.task.TaskListener;
-import resources.ResourceManager;
 
 /**
  * Action to update the current checked out domain file to contain the changes 
@@ -44,11 +44,9 @@ public class VersionControlUpdateAction extends VersionControlAction {
 	 */
 	public VersionControlUpdateAction(Plugin plugin) {
 		super("Update", plugin.getName(), plugin.getTool());
-		ImageIcon icon = ResourceManager.loadImage("images/vcMerge.png");
+		Icon icon = new GIcon("icon.projectdata.version.control.update");
 		setPopupMenuData(new MenuData(new String[] { "Update..." }, icon, GROUP));
-
 		setToolBarData(new ToolBarData(icon, GROUP));
-
 		setDescription("Update checked out file with latest version");
 
 		setEnabled(false);
@@ -59,11 +57,12 @@ public class VersionControlUpdateAction extends VersionControlAction {
 		update(context.getSelectedFiles());
 	}
 
-	/**
-	 * Returns true if at least one checked out file has a newer version in the repository.
-	 */
 	@Override
 	public boolean isEnabledForContext(DomainFileContext context) {
+		if (isFileSystemBusy()) {
+			return false; // don't block; we should get called again later
+		}
+
 		List<DomainFile> providedList = context.getSelectedFiles();
 		for (DomainFile domainFile : providedList) {
 			if (domainFile.isVersioned() &&
@@ -83,7 +82,7 @@ public class VersionControlUpdateAction extends VersionControlAction {
 			return;
 		}
 
-		List<DomainFile> updateList = new ArrayList<DomainFile>();
+		List<DomainFile> updateList = new ArrayList<>();
 		for (DomainFile domainFile : domainFiles) {
 			if (domainFile != null && domainFile.canMerge()) {
 				if (!canCloseDomainFile(domainFile)) {

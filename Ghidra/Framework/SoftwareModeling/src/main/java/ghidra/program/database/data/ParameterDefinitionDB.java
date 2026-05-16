@@ -4,23 +4,20 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/*
- *
- */
 package ghidra.program.database.data;
 
 import java.io.IOException;
 
-import db.Record;
+import db.DBRecord;
 import ghidra.program.model.data.*;
 import ghidra.program.model.listing.Parameter;
 import ghidra.program.model.listing.Variable;
@@ -32,19 +29,19 @@ import ghidra.program.model.symbol.SymbolUtilities;
 final class ParameterDefinitionDB implements ParameterDefinition {
 
 	private DataTypeManagerDB dataMgr;
-	private Record record;
+	private DBRecord record;
 	private FunctionDefinitionDB parent;
 	private FunctionParameterAdapter adapter;
 
 	ParameterDefinitionDB(DataTypeManagerDB dataMgr, FunctionParameterAdapter adapter,
-			FunctionDefinitionDB parent, Record record) {
+			FunctionDefinitionDB parent, DBRecord record) {
 		this.dataMgr = dataMgr;
 		this.parent = parent;
 		this.adapter = adapter;
 		this.record = record;
 	}
 
-	Record getRecord() {
+	DBRecord getRecord() {
 		return record;
 	}
 
@@ -64,19 +61,32 @@ final class ParameterDefinitionDB implements ParameterDefinition {
 
 	@Override
 	public void setDataType(DataType type) {
-		type = ParameterDefinitionImpl.validateDataType(type, dataMgr, false);
+		// TODO: This is not a DatabaseObject so it lacks ability to refresh properly
+		// and parameter objects are not singletons.  It also lacks locking.
+		// There is risk of using a stale or deleted parameter object which could lead 
+		// to corruption of a function definition and datatype parent tracking.
 
-		getDataType().removeParent(parent);
+		doSetDataType(type, true);
+	}
 
-		type = dataMgr.resolve(type, null);
-		type.addParent(parent);
-
-		record.setLongValue(FunctionParameterAdapter.PARAMETER_DT_ID_COL,
-			dataMgr.getResolvedID(type));
-		record.setIntValue(FunctionParameterAdapter.PARAMETER_DT_LENGTH_COL, type.getLength());
+	void doSetDataType(DataType type, boolean notify) {
 		try {
+
+			type = ParameterDefinitionImpl.validateDataType(type, dataMgr, false);
+
+			getDataType().removeParent(parent);
+
+			type = dataMgr.resolve(type, null);
+			type.addParent(parent);
+
+			record.setLongValue(FunctionParameterAdapter.PARAMETER_DT_ID_COL,
+				dataMgr.getResolvedID(type));
+			record.setIntValue(FunctionParameterAdapter.PARAMETER_DT_LENGTH_COL, type.getLength());
 			adapter.updateRecord(record);
-			dataMgr.dataTypeChanged(parent);
+
+			if (notify) {
+				dataMgr.dataTypeChanged(parent, false);
+			}
 		}
 		catch (IOException e) {
 			dataMgr.dbError(e);
@@ -109,7 +119,7 @@ final class ParameterDefinitionDB implements ParameterDefinition {
 		record.setString(FunctionParameterAdapter.PARAMETER_NAME_COL, name);
 		try {
 			adapter.updateRecord(record);
-			dataMgr.dataTypeChanged(parent);
+			dataMgr.dataTypeChanged(parent, false);
 		}
 		catch (IOException e) {
 			dataMgr.dbError(e);
@@ -123,10 +133,16 @@ final class ParameterDefinitionDB implements ParameterDefinition {
 
 	@Override
 	public void setComment(String comment) {
+		doSetComment(comment, true);
+	}
+
+	void doSetComment(String comment, boolean notify) {
 		record.setString(FunctionParameterAdapter.PARAMETER_COMMENT_COL, comment);
 		try {
 			adapter.updateRecord(record);
-			dataMgr.dataTypeChanged(parent);
+			if (notify) {
+				dataMgr.dataTypeChanged(parent, false);
+			}
 		}
 		catch (IOException e) {
 			dataMgr.dbError(e);
@@ -142,6 +158,30 @@ final class ParameterDefinitionDB implements ParameterDefinition {
 		return record.getIntValue(FunctionParameterAdapter.PARAMETER_ORDINAL_COL);
 	}
 
+	boolean isEquivalent(ParameterDefinition parm, DataTypeConflictHandler handler) {
+		if (parm == null) {
+			return false;
+		}
+		if (getOrdinal() != parm.getOrdinal()) {
+			return false;
+		}
+
+		DataType dataType = getDataType();
+		DataType otherDataType = parm.getDataType();
+
+		// if they contain datatypes that have same ids, then we are essentially equivalent.
+		if (DataTypeUtilities.isSameDataType(dataType, otherDataType)) {
+			return true;
+		}
+
+		return DataTypeDB.isEquivalent(dataType, otherDataType, handler);
+	}
+
+	@Override
+	public boolean isEquivalent(ParameterDefinition parm) {
+		return isEquivalent(parm, null);
+	}
+
 	@Override
 	public boolean isEquivalent(Variable otherVar) {
 		if (otherVar == null) {
@@ -154,20 +194,6 @@ final class ParameterDefinitionDB implements ParameterDefinition {
 			return false;
 		}
 		if (!DataTypeUtilities.isSameOrEquivalentDataType(getDataType(), otherVar.getDataType())) {
-			return false;
-		}
-		return true;
-	}
-
-	@Override
-	public boolean isEquivalent(ParameterDefinition parm) {
-		if (parm == null) {
-			return false;
-		}
-		if (getOrdinal() != parm.getOrdinal()) {
-			return false;
-		}
-		if (!DataTypeUtilities.isSameOrEquivalentDataType(getDataType(), parm.getDataType())) {
 			return false;
 		}
 		return true;

@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,119 +16,113 @@
 package ghidra.app.cmd.data;
 
 import ghidra.framework.cmd.Command;
-import ghidra.framework.model.DomainObject;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.*;
 import ghidra.program.model.listing.*;
+import ghidra.util.Msg;
 
 /**
- * Command to create an array inside of a structure.
+ * Command to create an array inside of a structure. All conflicting components
+ * within the targeted structure will be replaced with the new array component. 
  * 
  */
-public class CreateArrayInStructureCmd implements Command {
+public class CreateArrayInStructureCmd implements Command<Program> {
 	private String msg;
 	private Address addr;
 	private int numElements;
 	private DataType dataType;
 	private int[] compPath;
-	
+
+	// NOTE: This command does not currently handle Dynamic types whose length may
+	// be specified since no elementLength parameter exists.
+
 	/**
 	 * Constructs a new command for creating arrays inside of structures.
+	 * The specified component will be replaced as will subsequent components within 
+	 * the structure required to make room for the new array component.
+	 * NOTE: This is intended for replacing existing components and not for
+	 * simply inserting an array component. 
 	 * @param addr The address of the structure that will contain the new array.
-	 * @param numElements the number of elements in the array to be created.
+	 * @param numElements the number of elements in the array to be created.  A 0 element count is permitted.
 	 * @param dt the dataType of the elements in the array to be created.
-	 * @param compPath the component path within the structure at which to create
-	 * the array. The component path is an array of integers where each integer
-	 * is a component index of the component above it.
-	 */	
-	public CreateArrayInStructureCmd(Address addr, int numElements, DataType dt,
-									  int[] compPath) {
+	 * @param compPath the target component path within the structure of an existing component where 
+	 * the array should be created. The component path is an array of integers where each integer
+	 * is a component index of the component above it.  
+	 */
+	public CreateArrayInStructureCmd(Address addr, int numElements, DataType dt, int[] compPath) {
 		this.addr = addr;
 		this.numElements = numElements;
 		this.dataType = dt;
 		this.compPath = compPath;
 	}
-	/**
-	 * 
-	 * @see ghidra.framework.cmd.Command#applyTo(ghidra.framework.model.DomainObject)
-	 */
-	public boolean applyTo(DomainObject obj) {
-		Program program = (Program)obj;
+
+	@Override
+	public boolean applyTo(Program program) {
 		Listing listing = program.getListing();
-		
-		if (dataType instanceof FactoryDataType) {
-			msg = "Array not allowed on a Factory data-type: " + dataType.getName();
-			return false;
-		}
-		if (dataType instanceof Dynamic && !((Dynamic)dataType).canSpecifyLength()) {
-			msg = "Array not allowed on a non-sizable Dynamic data-type: " + dataType.getName();
-			return false;
-		}
-		if (numElements <= 0) {
-			msg = "Number of elements must be positive, not "+numElements;
-			return false;
-		}
 
 		Data data = listing.getDataContaining(addr);
 		Data compData = data.getComponent(compPath);
-		
-		int elementLength;
-		if (dataType instanceof Dynamic) {
-			elementLength = compData.getLength();
-		}
-		else {
-			elementLength = dataType.getLength();
-		}
-		if (elementLength <=0) {
-			msg = "DataType must have fixed size > 0, not "+elementLength;
+		if (compData == null) {
+			msg = "Invalid target component path specified";
 			return false;
 		}
-		int length = numElements*elementLength;
 
-        int index = compData.getComponentIndex();
-        int offset = compData.getParentOffset();
-        DataType parentDataType = compData.getParent().getBaseDataType();
+		int index = compData.getComponentIndex();
+		int offset = compData.getParentOffset();
+		DataType parentDataType = compData.getParent().getBaseDataType();
 
-        if (!(parentDataType instanceof Structure)) {
-            msg = "Data not in a structure";
-            return false;
-        }
-        Structure struct = (Structure)parentDataType;
-       	if (offset+length > struct.getLength()) {
-       		msg = "Array too big for structure";
-       		return false;
-       	}
+		if (!(parentDataType instanceof Structure)) {
+			msg = "Data not in a structure";
+			return false;
+		}
+		Structure struct = (Structure) parentDataType;
+
+		DataType baseDt = dataType;
+		if (dataType instanceof TypeDef) {
+			baseDt = ((TypeDef) dataType).getBaseDataType();
+		}
+		if (baseDt instanceof Dynamic) {
+			msg = "Dynamic data-type may not be specified: " + dataType.getName();
+			return false;
+		}
 
 		try {
-        	ArrayDataType adt = new ArrayDataType(dataType, numElements, dataType.getLength());
+			ArrayDataType adt = new ArrayDataType(dataType, numElements, dataType.getLength());
+			int length = adt.isZeroLength() ? 0 : adt.getLength();
+			if (!struct.isPackingEnabled() && (offset + length) > struct.getLength()) {
+				msg = "Array too big for structure";
+				return false;
+			}
 			clearStruct(struct, compData.getParentOffset(), length);
-			if (struct.isInternallyAligned()) {
-				struct.insert(index, adt, adt.getLength());
+			if (struct.isPackingEnabled()) {
+				struct.insert(index, adt, -1);
 			}
 			else {
-				struct.replace(index, adt, adt.getLength());
+				struct.replace(index, adt, -1);
 			}
 		}
-		catch(Exception e) {
-			msg = e.getMessage();
+		catch (RuntimeException e) {
+			msg = "Unexpected error: " + e.toString();
+			Msg.error(this, msg, e);
 			return false;
-		}	
+		}
 		return true;
 	}
 
 	private void clearStruct(Structure struct, int offset, int length) {
 		DataTypeComponent[] comps = struct.getDefinedComponents();
-		int endOffset = offset+length;
-		for(int i=comps.length-1;i>=0;i--) {
+		int endOffset = offset + length;
+		for (int i = comps.length - 1; i >= 0; i--) {
 			if (comps[i].getOffset() >= offset && comps[i].getOffset() < endOffset) {
 				struct.clearComponent(comps[i].getOrdinal());
 			}
 		}
 	}
-	
+
 	/**
 	 * @see ghidra.framework.cmd.Command#getStatusMsg()
 	 */
+	@Override
 	public String getStatusMsg() {
 		return msg;
 	}
@@ -137,6 +130,7 @@ public class CreateArrayInStructureCmd implements Command {
 	/**
 	 * @see ghidra.framework.cmd.Command#getName()
 	 */
+	@Override
 	public String getName() {
 		return "Create Array";
 	}

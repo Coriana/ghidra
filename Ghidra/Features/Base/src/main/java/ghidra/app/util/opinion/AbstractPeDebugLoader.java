@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,13 +17,15 @@ package ghidra.app.util.opinion;
 
 import java.util.*;
 
-import ghidra.app.util.bin.format.pdb.*;
-import ghidra.app.util.bin.format.pe.FileHeader;
-import ghidra.app.util.bin.format.pe.SectionHeader;
+import ghidra.app.util.Option;
+import ghidra.app.util.bin.ByteProvider;
+import ghidra.app.util.bin.format.pdb.PdbInfoCodeView;
+import ghidra.app.util.bin.format.pdb.PdbInfoDotNet;
+import ghidra.app.util.bin.format.pe.*;
 import ghidra.app.util.bin.format.pe.debug.*;
-import ghidra.app.util.datatype.microsoft.GUID;
 import ghidra.app.util.demangler.DemangledObject;
 import ghidra.app.util.demangler.DemanglerUtil;
+import ghidra.framework.model.DomainObject;
 import ghidra.framework.options.Options;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.DWordDataType;
@@ -36,11 +38,56 @@ import ghidra.util.Msg;
 import ghidra.util.exception.InvalidInputException;
 import ghidra.util.task.TaskMonitor;
 
-abstract class AbstractPeDebugLoader extends AbstractLibrarySupportLoader {
+abstract class AbstractPeDebugLoader extends AbstractOrdinalSupportLoader {
+
+	/** Loader option to display line numbers */
+	public static final String SHOW_LINE_NUMBERS_OPTION_NAME = "Show Debug Line Number Comments";
+	static final boolean SHOW_LINE_NUMBERS_OPTION_DEFAULT = false;
+
 	private HashMap<Address, StringBuffer> plateCommentMap = new HashMap<>();
 	private HashMap<Address, StringBuffer> preCommentMap = new HashMap<>();
 	private HashMap<Address, StringBuffer> postCommentMap = new HashMap<>();
 	private HashMap<Address, StringBuffer> eolCommentMap = new HashMap<>();
+
+	@Override
+	public List<Option> getDefaultOptions(ByteProvider provider, LoadSpec loadSpec,
+			DomainObject domainObject, boolean loadIntoProgram, boolean mirrorFsLayout) {
+		List<Option> list = super.getDefaultOptions(provider, loadSpec, domainObject,
+			loadIntoProgram, mirrorFsLayout);
+		list.add(Option.newBoolean(SHOW_LINE_NUMBERS_OPTION_NAME)
+				.value(SHOW_LINE_NUMBERS_OPTION_DEFAULT)
+				.commandLineArgument(createArg("-showDebugLineNumbers"))
+				.build());
+		return list;
+	}
+
+	@Override
+	public String validateOptions(ByteProvider provider, LoadSpec loadSpec, List<Option> options,
+			Program program) {
+		if (options != null) {
+			for (Option option : options) {
+				String name = option.getName();
+				if (name.equals(SHOW_LINE_NUMBERS_OPTION_NAME)) {
+					if (!Boolean.class.isAssignableFrom(option.getValueClass())) {
+						return "Invalid type for option: " + name + " - " + option.getValueClass();
+					}
+				}
+			}
+		}
+		return super.validateOptions(provider, loadSpec, options, program);
+	}
+
+	private boolean shouldShowDebugLineNumbers(List<Option> options) {
+		if (options != null) {
+			for (Option option : options) {
+				String optName = option.getName();
+				if (optName.equals(SHOW_LINE_NUMBERS_OPTION_NAME)) {
+					return (Boolean) option.getValue();
+				}
+			}
+		}
+		return SHOW_LINE_NUMBERS_OPTION_DEFAULT;
+	}
 
 	protected void processComments(Listing listing, TaskMonitor monitor) {
 		List<HashMap<Address, StringBuffer>> maps = new ArrayList<>();
@@ -49,8 +96,8 @@ abstract class AbstractPeDebugLoader extends AbstractLibrarySupportLoader {
 		maps.add(postCommentMap);
 		maps.add(eolCommentMap);
 
-		int[] types = new int[] { CodeUnit.PLATE_COMMENT, CodeUnit.PRE_COMMENT,
-			CodeUnit.POST_COMMENT, CodeUnit.EOL_COMMENT };
+		CommentType[] types = new CommentType[] { CommentType.PLATE, CommentType.PRE,
+			CommentType.POST, CommentType.EOL };
 		String[] typeNames = new String[] { "PLATE", "PRE", "POST", "EOL" };
 		int index = 0;
 		for (HashMap<Address, StringBuffer> map : maps) {
@@ -81,8 +128,9 @@ abstract class AbstractPeDebugLoader extends AbstractLibrarySupportLoader {
 		return list;
 	}
 
-	protected void processDebug(DebugDirectoryParser parser, FileHeader fileHeader,
-			Map<SectionHeader, Address> sectionToAddress, Program program, TaskMonitor monitor) {
+	protected void processDebug(DebugDirectoryParser parser, NTHeader ntHeader,
+			Map<SectionHeader, Address> sectionToAddress, Program program, List<Option> options,
+			TaskMonitor monitor) {
 
 		if (parser == null) {
 			return;
@@ -95,16 +143,17 @@ abstract class AbstractPeDebugLoader extends AbstractLibrarySupportLoader {
 		processDebugFixup(parser.getDebugFixup());
 
 		monitor.setMessage("Processing code view debug...");
-		processDebugCodeView(parser.getDebugCodeView(), fileHeader, sectionToAddress, program,
-			monitor);
+		processDebugCodeView(parser.getDebugCodeView(), ntHeader, sectionToAddress, program,
+			options, monitor);
 
 		monitor.setMessage("Processing coff debug...");
-		processDebugCOFF(parser.getDebugCOFFSymbolsHeader(), fileHeader, sectionToAddress, program,
-			monitor);
+		processDebugCOFF(parser.getDebugCOFFSymbolsHeader(), ntHeader, sectionToAddress, program,
+			options, monitor);
 	}
 
-	private void processDebugCodeView(DebugCodeView dcv, FileHeader fileHeader,
-			Map<SectionHeader, Address> sectionToAddress, Program program, TaskMonitor monitor) {
+	private void processDebugCodeView(DebugCodeView dcv, NTHeader ntHeader,
+			Map<SectionHeader, Address> sectionToAddress, Program program, List<Option> options,
+			TaskMonitor monitor) {
 
 		if (dcv == null) {
 			return;
@@ -112,56 +161,14 @@ abstract class AbstractPeDebugLoader extends AbstractLibrarySupportLoader {
 
 		Options proplist = program.getOptions(Program.PROGRAM_INFO);
 
-		PdbInfoIface cvPdbInfo = dcv.getPdbInfo();
+		PdbInfoCodeView cvPdbInfo = dcv.getPdbInfo();
 		if (cvPdbInfo != null) {
-			byte[] magic = cvPdbInfo.getMagic();
-			int sig = cvPdbInfo.getSig();
-			int age = cvPdbInfo.getAge();
-			String name = cvPdbInfo.getPdbName();
-
-			proplist.setString(PdbParserConstants.PDB_VERSION, Conv.toString(magic));
-			proplist.setString(PdbParserConstants.PDB_SIGNATURE, Conv.toHexString(sig));
-			proplist.setString(PdbParserConstants.PDB_AGE, Conv.toHexString(age));
-			proplist.setString(PdbParserConstants.PDB_FILE, name);
-/*
-			DebugDirectory dd = dcv.getDebugDirectory();
-			if (dd.getAddressOfRawData() > 0) {
-				Address address = space.getAddress(imageBase + dd.getAddressOfRawData());
-				listing.setComment(address, CodeUnit.PLATE_COMMENT, "CodeView PDB Info");
-				try {
-					listing.createData(address, cvPdbInfo.toDataType());
-				}
-				catch (IOException e) {}
-				catch (DuplicateNameException e) {}
-				catch (CodeUnitInsertionException e) {}
-			}
-*/
+			cvPdbInfo.serializeToOptions(proplist);
 		}
 
-		PdbInfoDotNetIface dotnetPdbInfo = dcv.getDotNetPdbInfo();
+		PdbInfoDotNet dotnetPdbInfo = dcv.getDotNetPdbInfo();
 		if (dotnetPdbInfo != null) {
-			byte[] magic = dotnetPdbInfo.getMagic();
-			GUID guid = dotnetPdbInfo.getGUID();
-			int age = dotnetPdbInfo.getAge();
-			String name = dotnetPdbInfo.getPdbName();
-
-			proplist.setString(PdbParserConstants.PDB_VERSION, Conv.toString(magic));
-			proplist.setString(PdbParserConstants.PDB_GUID, guid.toString());
-			proplist.setString(PdbParserConstants.PDB_AGE, Conv.toHexString(age));
-			proplist.setString(PdbParserConstants.PDB_FILE, name);
-/*
-			DebugDirectory dd = dcv.getDebugDirectory();
-			if (dd.getAddressOfRawData() > 0) {
-				Address address = space.getAddress(imageBase + dd.getAddressOfRawData());
-				listing.setComment(address, CodeUnit.PLATE_COMMENT, ".NET PDB Info");
-				try {
-					listing.createData(address, dotnetPdbInfo.toDataType());
-				}
-				catch (IOException e) {}
-				catch (DuplicateNameException e) {}
-				catch (CodeUnitInsertionException e) {}
-			}
-*/
+			dotnetPdbInfo.serializeToOptions(proplist);
 		}
 
 		DebugCodeViewSymbolTable dcvst = dcv.getSymbolTable();
@@ -169,16 +176,14 @@ abstract class AbstractPeDebugLoader extends AbstractLibrarySupportLoader {
 			return;
 		}
 
+		FileHeader fileHeader = ntHeader.getFileHeader();
 		List<OMFSrcModule> srcModules = dcvst.getOMFSrcModules();
 		for (OMFSrcModule module : srcModules) {
-			short[] segs = module.getSegments();
-			int segIndex = 0;
-
 			OMFSrcModuleFile[] files = module.getOMFSrcModuleFiles();
 			for (OMFSrcModuleFile file : files) {
-				processFiles(file, segs[segIndex++], fileHeader, sectionToAddress, monitor);
+				processFiles(file, module.getSegments(), fileHeader, sectionToAddress, monitor);
 				processLineNumbers(fileHeader, sectionToAddress, file.getOMFSrcModuleLines(),
-					monitor);
+					options, monitor);
 
 				if (monitor.isCancelled()) {
 					return;
@@ -231,7 +236,7 @@ abstract class AbstractPeDebugLoader extends AbstractLibrarySupportLoader {
 
 				Address address = sectionToAddress.get(fileHeader.getSectionHeader(segVal - 1));
 				if (address != null) {
-					address = address.add(Conv.intToLong(offVal));
+					address = address.add(Integer.toUnsignedLong(offVal));
 
 					try {
 						symTable.createLabel(address, name, SourceType.IMPORTED);
@@ -256,41 +261,47 @@ abstract class AbstractPeDebugLoader extends AbstractLibrarySupportLoader {
 	}
 
 	private void demangle(Address address, String name, Program program) {
-		DemangledObject demangledObj = null;
+		StringBuilder builder = new StringBuilder();
 		try {
-			demangledObj = DemanglerUtil.demangle(program, name);
+			List<DemangledObject> demangledObjects = DemanglerUtil.demangle(program, name, address);
+			for (DemangledObject demangledObj : demangledObjects) {
+				if (builder.length() > 0) {
+					builder.append("\t");
+				}
+				builder.append(demangledObj.getSignature(true));
+			}
 		}
 		catch (Exception e) {
 			//log.appendMsg("Unable to demangle: "+name);
 		}
-		if (demangledObj != null) {
-			setComment(CodeUnit.PLATE_COMMENT, address, demangledObj.getSignature(true));
+		if (builder.length() > 0) {
+			setComment(CommentType.PLATE, address, builder.toString());
 		}
 	}
 
-	private void processFiles(OMFSrcModuleFile file, short segment, FileHeader fileHeader,
+	private void processFiles(OMFSrcModuleFile file, short[] segments, FileHeader fileHeader,
 			Map<SectionHeader, Address> sectionToAddress, TaskMonitor monitor) {
 
 		int[] starts = file.getStarts();
 		int[] ends = file.getEnds();
 
 		for (int k = 0; k < starts.length; ++k) {
-			if (starts[k] == 0 || ends[k] == 0) {
+			if (starts[k] == 0 || ends[k] == 0 || k >= segments.length) {
 				continue;
 			}
 
-			Address addr = sectionToAddress.get(fileHeader.getSectionHeader(segment - 1));
+			Address addr = sectionToAddress.get(fileHeader.getSectionHeader(segments[k] - 1));
 			if (addr == null) {
 				continue;
 			}
 
-			Address startAddr = addr.add(Conv.intToLong(starts[k]));
+			Address startAddr = addr.add(Integer.toUnsignedLong(starts[k]));
 			String cmt = "START-> " + file.getName() + ": " + "?";
-			setComment(CodeUnit.PRE_COMMENT, startAddr, cmt);
+			setComment(CommentType.PRE, startAddr, cmt);
 
-			Address endAddr = addr.add(Conv.intToLong(ends[k]));
+			Address endAddr = addr.add(Integer.toUnsignedLong(ends[k]));
 			cmt = "END-> " + file.getName() + ": " + "?";
-			setComment(CodeUnit.PRE_COMMENT, endAddr, cmt);
+			setComment(CommentType.PRE, endAddr, cmt);
 
 			if (monitor.isCancelled()) {
 				return;
@@ -300,7 +311,10 @@ abstract class AbstractPeDebugLoader extends AbstractLibrarySupportLoader {
 
 	private void processLineNumbers(FileHeader fileHeader,
 			Map<SectionHeader, Address> sectionToAddress, OMFSrcModuleLine[] lines,
-			TaskMonitor monitor) {//TODO revisit this method for accuracy
+			List<Option> options, TaskMonitor monitor) {//TODO revisit this method for accuracy
+		if (!shouldShowDebugLineNumbers(options)) {
+			return;
+		}
 		for (OMFSrcModuleLine line : lines) {
 			if (monitor.isCancelled()) {
 				return;
@@ -314,23 +328,18 @@ abstract class AbstractPeDebugLoader extends AbstractLibrarySupportLoader {
 					if (monitor.isCancelled()) {
 						return;
 					}
-					if (offsets[j] == 0) {
-						System.out.println("");
-					}
-					if (offsets[j] == 1) {
-						System.out.println("");
-					}
 					if (offsets[j] > 0) {
-						addLineComment(addr.add(Conv.intToLong(offsets[j])),
-							Conv.shortToInt(lineNumbers[j]));
+						addLineComment(addr.add(Integer.toUnsignedLong(offsets[j])),
+							Short.toUnsignedInt(lineNumbers[j]));
 					}
 				}
 			}
 		}
 	}
 
-	private void processDebugCOFF(DebugCOFFSymbolsHeader dcsh, FileHeader fileHeader,
-			Map<SectionHeader, Address> sectionToAddress, Program program, TaskMonitor monitor) {
+	private void processDebugCOFF(DebugCOFFSymbolsHeader dcsh, NTHeader ntHeader,
+			Map<SectionHeader, Address> sectionToAddress, Program program, List<Option> options,
+			TaskMonitor monitor) {
 		if (dcsh == null) {
 			return;
 		}
@@ -338,13 +347,12 @@ abstract class AbstractPeDebugLoader extends AbstractLibrarySupportLoader {
 		if (dcst == null) {
 			return;
 		}
-		DebugCOFFSymbol[] symbols = dcst.getSymbols();
 		int errorCount = 0;
-		for (DebugCOFFSymbol symbol : symbols) {
+		for (DebugCOFFSymbol symbol : dcst.getSymbols()) {
 			if (monitor.isCancelled()) {
 				return;
 			}
-			if (!processDebugCoffSymbol(symbol, fileHeader, sectionToAddress, program, monitor)) {
+			if (!processDebugCoffSymbol(symbol, ntHeader, sectionToAddress, program, monitor)) {
 				++errorCount;
 			}
 		}
@@ -355,7 +363,7 @@ abstract class AbstractPeDebugLoader extends AbstractLibrarySupportLoader {
 		}
 
 		DebugCOFFLineNumber[] lineNumbers = dcsh.getLineNumbers();
-		if (lineNumbers != null) {
+		if (shouldShowDebugLineNumbers(options) && lineNumbers != null) {
 			for (DebugCOFFLineNumber lineNumber : lineNumbers) {
 				if (monitor.isCancelled()) {
 					return;
@@ -366,16 +374,16 @@ abstract class AbstractPeDebugLoader extends AbstractLibrarySupportLoader {
 				}
 				else {
 					addLineComment(
-						program.getImageBase().add(Conv.intToLong(lineNumber.getVirtualAddress())),
+						program.getImageBase()
+								.add(Integer.toUnsignedLong(lineNumber.getVirtualAddress())),
 						lineNumber.getLineNumber());
 				}
 			}
 		}
 	}
 
-	protected boolean processDebugCoffSymbol(DebugCOFFSymbol symbol, FileHeader fileHeader,
-			Map<SectionHeader, Address> sectionToAddress, Program program,
-			TaskMonitor monitor) {
+	protected boolean processDebugCoffSymbol(DebugCOFFSymbol symbol, NTHeader ntHeader,
+			Map<SectionHeader, Address> sectionToAddress, Program program, TaskMonitor monitor) {
 
 		if (symbol.getSectionNumber() == 0) {
 			return true;
@@ -399,22 +407,33 @@ abstract class AbstractPeDebugLoader extends AbstractLibrarySupportLoader {
 			return true;
 		}
 
+		FileHeader fileHeader = ntHeader.getFileHeader();
 		SectionHeader section = fileHeader.getSectionHeader(symbol.getSectionNumber() - 1);
 		if (section == null) {
 			return false;
 		}
-		Address address = sectionToAddress.get(section);
+
+		Address address = null;
+		PeSubsystem subsystem = PeSubsystem.parse(ntHeader.getOptionalHeader().getSubsystem());
+		if (subsystem == PeSubsystem.IMAGE_SUBSYSTEM_NATIVE) {
+			// We've observed that drivers add symbol values to the image base rather than the start
+			// of their reported section.
+			address = program.getImageBase();
+		}
+		else {
+			address = sectionToAddress.get(section);
+		}
 		if (address == null) {
 			return false;
 		}
 
-		address = address.add(Conv.intToLong(val));
+		address = address.add(Integer.toUnsignedLong(val));
 
 		try {
 			Symbol newSymbol =
 				program.getSymbolTable().createLabel(address, sym, SourceType.IMPORTED);
 
-			// Force non-section symbols to be primary.  We never want section symbols (.text, 
+			// Force non-section symbols to be primary.  We never want section symbols (.text,
 			// .text$func_name) to be primary because we don't want to use them for function names
 			// or demangling.
 			if (!sym.equals(section.getName()) && !sym.startsWith(section.getName() + "$")) {
@@ -436,7 +455,7 @@ abstract class AbstractPeDebugLoader extends AbstractLibrarySupportLoader {
 			if (aux == null) {
 				continue;
 			}
-			setComment(CodeUnit.PRE_COMMENT, address, aux.toString());
+			setComment(CommentType.PRE, address, aux.toString());
 		}
 
 		return true;
@@ -465,7 +484,7 @@ abstract class AbstractPeDebugLoader extends AbstractLibrarySupportLoader {
 			Address address = program.getImageBase().add(dd.getAddressOfRawData());
 			try {
 				program.getListing().createData(address, new StringDataType(), actualData.length());
-				program.getListing().setComment(address, CodeUnit.PLATE_COMMENT, "Debug Misc");
+				program.getListing().setComment(address, CommentType.PLATE, "Debug Misc");
 				address = address.add(actualData.length());
 				program.getListing().createData(address, new DWordDataType());
 			}
@@ -482,60 +501,57 @@ abstract class AbstractPeDebugLoader extends AbstractLibrarySupportLoader {
 
 	private void addLineComment(Address addr, int line) {
 		String cmt = addr + " -> " + "Line #" + line;
-		setComment(CodeUnit.PRE_COMMENT, addr, cmt);
+		setComment(CommentType.PRE, addr, cmt);
 	}
 
-	protected boolean hasComment(int type, Address address) {
-		switch (type) {
-			case CodeUnit.PLATE_COMMENT:
-				return plateCommentMap.get(address) != null;
-			case CodeUnit.PRE_COMMENT:
-				return preCommentMap.get(address) != null;
-			case CodeUnit.POST_COMMENT:
-				return postCommentMap.get(address) != null;
-			case CodeUnit.EOL_COMMENT:
-				return eolCommentMap.get(address) != null;
-		}
-		return false;
+	protected boolean hasComment(CommentType type, Address address) {
+		return switch (type) {
+			case PLATE -> plateCommentMap.get(address) != null;
+			case PRE -> preCommentMap.get(address) != null;
+			case POST -> postCommentMap.get(address) != null;
+			case EOL -> eolCommentMap.get(address) != null;
+			default -> throw new IllegalArgumentException(
+				"Unsupported comment type: " + type.name());
+		};
 	}
 
-	protected void setComment(int type, Address address, String comment) {
+	protected void setComment(CommentType type, Address address, String comment) {
 		StringBuffer buffer = null;
 		switch (type) {
-			case CodeUnit.PLATE_COMMENT:
+			case CommentType.PLATE:
 				buffer = plateCommentMap.get(address);
 				if (buffer == null) {
 					buffer = new StringBuffer();
 					plateCommentMap.put(address, buffer);
 				}
 				break;
-			case CodeUnit.PRE_COMMENT:
+			case CommentType.PRE:
 				buffer = preCommentMap.get(address);
 				if (buffer == null) {
 					buffer = new StringBuffer();
 					preCommentMap.put(address, buffer);
 				}
 				break;
-			case CodeUnit.POST_COMMENT:
+			case CommentType.POST:
 				buffer = postCommentMap.get(address);
 				if (buffer == null) {
 					buffer = new StringBuffer();
 					postCommentMap.put(address, buffer);
 				}
 				break;
-			case CodeUnit.EOL_COMMENT:
+			case CommentType.EOL:
 				buffer = eolCommentMap.get(address);
 				if (buffer == null) {
 					buffer = new StringBuffer();
 					eolCommentMap.put(address, buffer);
 				}
 				break;
+			default:
+				throw new IllegalArgumentException("Unsupported comment type: " + type.name());
 		}
-		if (buffer != null) {
-			if (buffer.length() > 0) {
-				buffer.append('\n');
-			}
-			buffer.append(comment);
+		if (buffer.length() > 0) {
+			buffer.append('\n');
 		}
+		buffer.append(comment);
 	}
 }

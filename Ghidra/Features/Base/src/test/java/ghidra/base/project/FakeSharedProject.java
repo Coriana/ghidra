@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,30 +16,31 @@
 package ghidra.base.project;
 
 import static generic.test.AbstractGTest.*;
-import static generic.test.AbstractGenericTest.getInstanceField;
 import static generic.test.AbstractGenericTest.invokeInstanceMethod;
 import static generic.test.TestUtils.*;
 import static org.junit.Assert.*;
 
+import java.io.File;
 import java.io.IOException;
-import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.lang3.StringUtils;
 
-import generic.test.AbstractGenericTest;
+import generic.test.AbstractGTest;
 import generic.test.TestUtils;
 import ghidra.framework.data.*;
 import ghidra.framework.model.*;
 import ghidra.framework.remote.User;
 import ghidra.framework.store.FileSystem;
-import ghidra.framework.store.FileSystemListener;
+import ghidra.framework.store.FileSystemEventManager;
 import ghidra.framework.store.local.LocalFileSystem;
 import ghidra.program.model.listing.Program;
 import ghidra.test.TestEnv;
 import ghidra.test.TestProgramManager;
+import ghidra.util.Msg;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
-import junit.framework.AssertionFailedError;
+import utilities.util.FileUtilities;
 
 /**
  * This class represents the idea of a shared Ghidra project.  Each project is associated with
@@ -58,25 +59,23 @@ public class FakeSharedProject {
 	private GhidraProject gProject;
 	private TestProgramManager programManager = new TestProgramManager();
 	private FakeRepository repo;
+	private boolean isFileSharingEnabled; // set true if multiple projects share repo files
 
 	public FakeSharedProject(FakeRepository repo, User user) throws IOException {
 
 		this.repo = repo;
-		String projectDirPath = AbstractGenericTest.getTestDirectoryPath();
+		String projectDirPath = AbstractGTest.getTestDirectoryPath();
 		gProject =
 			GhidraProject.createProject(projectDirPath, "TestProject_" + user.getName(), true);
 		gProject.setDeleteOnClose(true);
 
-		LocalFileSystem fs = repo.getSharedFileSystem();
-		if (fs != null) {
-			// first project will keeps its versioned file system
-			setVersionedFileSystem(fs);
-		}
+		// use local shared fake repo versioned file system
+		setVersionedFileSystem(repo.getSharedFileSystem());
 	}
 
 	FakeSharedProject(User user) throws IOException {
 
-		String projectDirPath = AbstractGenericTest.getTestDirectoryPath();
+		String projectDirPath = AbstractGTest.getTestDirectoryPath();
 		gProject =
 			GhidraProject.createProject(projectDirPath, "TestProject_" + user.getName(), true);
 	}
@@ -84,8 +83,16 @@ public class FakeSharedProject {
 	// Note: this how we share multiple projects
 	void setVersionedFileSystem(LocalFileSystem fs) {
 
-		ProjectFileManager fm = getProjectFileManager();
-		invokeInstanceMethod("setVersionedFileSystem", fm, argTypes(FileSystem.class), args(fs));
+		DefaultProjectData pd = getProjectData();
+		invokeInstanceMethod("setVersionedFileSystem", pd, argTypes(FileSystem.class), args(fs));
+	}
+
+	/**
+	 * Mark project as sharing file with another project via a common repo.
+	 * This is needed to bypass check performed by assertFileInProject
+	 */
+	public void enableFileSharing() {
+		isFileSharingEnabled = true;
 	}
 
 	/**
@@ -97,12 +104,12 @@ public class FakeSharedProject {
 	}
 
 	/**
-	 * Gets the project file manager
+	 * Gets the project data instance
 	 * 
-	 * @return the project file manager
+	 * @return the project data instance
 	 */
-	public ProjectFileManager getProjectFileManager() {
-		return (ProjectFileManager) gProject.getProject().getProjectData();
+	public DefaultProjectData getProjectData() {
+		return (DefaultProjectData) gProject.getProjectData();
 	}
 
 	/**
@@ -111,8 +118,8 @@ public class FakeSharedProject {
 	 * @return the root folder of this project
 	 */
 	public RootGhidraFolder getRootFolder() {
-		ProjectFileManager pfm = getProjectFileManager();
-		return (RootGhidraFolder) pfm.getRootFolder();
+		DefaultProjectData pd = getProjectData();
+		return (RootGhidraFolder) pd.getRootFolder();
 	}
 
 	/**
@@ -165,6 +172,7 @@ public class FakeSharedProject {
 	public DomainFile getDomainFile(String filepath) {
 		Project project = getGhidraProject().getProject();
 		ProjectData projectData = project.getProjectData();
+		refresh(); // force refresh since we do not employ repo listener
 		DomainFile df;
 		if (filepath.startsWith("/")) {
 			df = projectData.getFile(filepath);
@@ -184,6 +192,7 @@ public class FakeSharedProject {
 	 * 	<li>calling {@link #addDomainFile(String)}</li>
 	 *  <li>Adding a versioned file to another project that shares the same repo with this project</li>
 	 * </ul>
+	 * @param parentPath the parent folder path
 	 * @param filename the filename
 	 * @return the file
 	 */
@@ -197,8 +206,7 @@ public class FakeSharedProject {
 	 * Creates a folder by the given name in the given parent folder, creating the parent 
 	 * folder if needed
 	 * 
-	 * @param parentPath the parent folder path
-	 * @param name the name of the folder to create
+	 * @param path the full path of the folder to create
 	 * @return the created folder
 	 * @throws Exception if there are any exceptions creating the folder
 	 */
@@ -208,7 +216,7 @@ public class FakeSharedProject {
 	}
 
 	/**
-	 * Opens the the program by the given name.  The path can be a simple name or a relative or
+	 * Opens the program by the given name.  The path can be a simple name or a relative or
 	 * absolute path to the file within the project.
 	 * 
 	 * @param filePath the path to the file to open 
@@ -290,7 +298,7 @@ public class FakeSharedProject {
 			}
 		};
 
-		df.checkin(ch, false, TaskMonitor.DUMMY);
+		df.checkin(ch, TaskMonitor.DUMMY);
 		repo.refresh();
 	}
 
@@ -370,8 +378,33 @@ public class FakeSharedProject {
 	 * @see FakeRepository#dispose()
 	 */
 	public void dispose() {
+		ProjectLocator projectLocator = getProjectData().getProjectLocator();
 		programManager.disposeOpenPrograms();
+
+		String projectName = "<No project>";
+		Project project = gProject.getProject();
+		if (project != null) {
+			projectName = project.getName();
+		}
+
 		gProject.close();
+
+		File projectDir = projectLocator.getProjectDir();
+		if (projectDir.exists()) {
+			boolean success = FileUtilities.deleteDir(projectDir);
+			if (!success) {
+				Msg.error(this, "Unable to delete test project dir '%s' in %s"
+						.formatted(projectName, projectDir));
+			}
+		}
+
+		File markerFile = projectLocator.getMarkerFile();
+		if (markerFile.exists()) {
+			boolean success = markerFile.delete();
+			if (!success) {
+				Msg.error(this, "Unable to delete test project marker file: " + markerFile);
+			}
+		}
 	}
 
 	@Override
@@ -387,8 +420,12 @@ public class FakeSharedProject {
 			throw new IllegalArgumentException("DomainFile cannot be null");
 		}
 
+		if (isFileSharingEnabled) {
+			return;
+		}
+
 		ProjectLocator pl = df.getProjectLocator();
-		ProjectLocator mypl = getProjectFileManager().getProjectLocator();
+		ProjectLocator mypl = getProjectData().getProjectLocator();
 		if (!pl.equals(mypl)) {
 			throw new IllegalArgumentException("Domain file '" + df + "' is not in this project: " +
 				mypl.getName() + "\nYou must call addDomainFile(filename).");
@@ -397,10 +434,10 @@ public class FakeSharedProject {
 
 	private void waitForFileSystemEvents() {
 		LocalFileSystem versionedFileSystem = getVersionedFileSystem();
-		FileSystemListener listener =
-			(FileSystemListener) invokeInstanceMethod("getListener", versionedFileSystem);
-		List<?> eventList = (List<?>) getInstanceField("events", listener);
-		waitForCondition(() -> eventList.isEmpty());
+		FileSystemEventManager eventManager = (FileSystemEventManager) TestUtils
+				.getInstanceField("eventManager", versionedFileSystem);
+
+		eventManager.flushEvents(DEFAULT_WAIT_TIMEOUT, TimeUnit.MILLISECONDS);
 	}
 
 	private DomainFolder getFolder(String path) throws Exception {
@@ -443,20 +480,14 @@ public class FakeSharedProject {
 	}
 
 	LocalFileSystem getVersionedFileSystem() {
-		ProjectFileManager fileManager = getProjectFileManager();
+		DefaultProjectData projectData = getProjectData();
 		LocalFileSystem fs =
-			(LocalFileSystem) TestUtils.invokeInstanceMethod("getVersionedFileSystem", fileManager);
+			(LocalFileSystem) TestUtils.invokeInstanceMethod("getVersionedFileSystem", projectData);
 		return fs;
 	}
 
 	void refresh() {
-		ProjectFileManager fileManager = getProjectFileManager();
-		try {
-			fileManager.refresh(true);
-		}
-		catch (IOException e) {
-			// shouldn't happen
-			throw new AssertionFailedError("Unable to refresh project " + this);
-		}
+		DefaultProjectData projectData = getProjectData();
+		projectData.refresh(true);
 	}
 }

@@ -16,11 +16,13 @@
 /// \file database_ghidra.hh
 /// \brief Facilities for retrieving symbol information from a Ghidra client
 
-#ifndef __DATABASE_GHIDRA__
-#define __DATABASE_GHIDRA__
+#ifndef __DATABASE_GHIDRA_HH__
+#define __DATABASE_GHIDRA_HH__
 
 #include "database.hh"
 #include "ghidra_arch.hh"
+
+namespace ghidra {
 
 /// \brief An implementation of the Scope interface by querying a Ghidra client for Symbol information
 ///
@@ -36,19 +38,18 @@ class ScopeGhidra : public Scope {
   ArchitectureGhidra *ghidra;		///< Architecture and connection to the Ghidra client
   mutable ScopeInternal *cache;		///< An internal cache of previously fetched Symbol objects
   mutable RangeList holes;		///< List of (queried) memory ranges with no Symbol in them
-  mutable map<uint8,Scope *> namespaceMap;	///< Map from id to formal global namespace objects
   vector<int4> spacerange;		///< List of address spaces that are in the global range
   partmap<Address,uint4> flagbaseDefault;	///< Default boolean properties on memory
   mutable bool cacheDirty;		///< Is flagbaseDefault different from cache
-  Symbol *dump2Cache(Document *doc) const;			///< Parse a response into the cache
+  Symbol *dump2Cache(Decoder &decoder) const;			///< Parse a response into the cache
   Symbol *removeQuery(const Address &addr) const;		///< Process a query that missed the cache
-  void processHole(const Element *el) const;			///< Process a response describing a hole
+  void decodeHole(Decoder &decoder) const;			///< Process a \<hole> response element
   Scope *reresolveScope(uint8 id) const;	///< Find the Scope that will contain a result Symbol
   virtual void addRange(AddrSpace *spc,uintb first,uintb last);
   virtual void removeRange(AddrSpace *spc,uintb first,uintb last) {
     throw LowlevelError("remove_range should not be performed on ghidra scope");
   }
-  virtual Scope *buildSubScope(const string &nm);
+  virtual Scope *buildSubScope(uint8 id,const string &nm);
   virtual void addSymbolInternal(Symbol *sym) { throw LowlevelError("add_symbol_internal unimplemented"); }
   virtual SymbolEntry *addMapInternal(Symbol *sym,uint4 exfl,const Address &addr,int4 off,int4 sz,
 				      const RangeList &uselim) { throw LowlevelError("addMap unimplemented"); }
@@ -66,7 +67,7 @@ public:
   void lockDefaultProperties(void) { flagbaseDefault = ghidra->symboltab->getProperties(); cacheDirty = false; }
   virtual ~ScopeGhidra(void);
   virtual void clear(void);
-  virtual SymbolEntry *addSymbol(const string &name,Datatype *ct,
+  virtual SymbolEntry *addSymbol(const string &nm,Datatype *ct,
 				 const Address &addr,const Address &usepoint);
   virtual string buildVariableName(const Address &addr,
 				   const Address &pc,
@@ -77,6 +78,7 @@ public:
   virtual void clearAttribute(Symbol *sym,uint4 attr) { cache->clearAttribute(sym,attr); }
   virtual void setDisplayFormat(Symbol *sym,uint4 attr) { cache->setDisplayFormat(sym,attr); }
 
+  virtual void adjustCaches(void) { cache->adjustCaches(); }
   virtual SymbolEntry *findAddr(const Address &addr,const Address &usepoint) const;
   virtual SymbolEntry *findContainer(const Address &addr,int4 size,
 					const Address &usepoint) const;
@@ -89,7 +91,7 @@ public:
   virtual Funcdata *resolveExternalRefFunction(ExternRefSymbol *sym) const;
 
   virtual SymbolEntry *findOverlap(const Address &addr,int4 size) const { throw LowlevelError("findOverlap unimplemented"); }
-  virtual void findByName(const string &name,vector<Symbol *> &res) const { throw LowlevelError("findByName unimplemented"); }
+  virtual void findByName(const string &nm,vector<Symbol *> &res) const { throw LowlevelError("findByName unimplemented"); }
   virtual bool isNameUsed(const string &nm,const Scope *op2) const { throw LowlevelError("isNameUsed unimplemented"); }
 
   virtual MapIterator begin(void) const { throw LowlevelError("begin unimplemented"); }
@@ -107,8 +109,8 @@ public:
   virtual void renameSymbol(Symbol *sym,const string &newname) { throw LowlevelError("renameSymbol unimplemented"); }
   virtual void retypeSymbol(Symbol *sym,Datatype *ct) { throw LowlevelError("retypeSymbol unimplemented"); }
   virtual string makeNameUnique(const string &nm) const { throw LowlevelError("makeNameUnique unimplemented"); }
-  virtual void saveXml(ostream &s) const { throw LowlevelError("saveXml unimplemented"); }
-  virtual void restoreXml(const Element *el) { throw LowlevelError("restoreXml unimplemented"); }
+  virtual void encode(Encoder &encoder) const { throw LowlevelError("encode unimplemented"); }
+  virtual void decode(Decoder &decoder) { throw LowlevelError("decode unimplemented"); }
   virtual void printEntries(ostream &s) const { throw LowlevelError("printEntries unimplemented"); }
   virtual int4 getCategorySize(int4 cat) const { throw LowlevelError("getCategorySize unimplemented"); }
   virtual Symbol *getCategorySymbol(int4 cat,int4 ind) const { throw LowlevelError("getCategorySymbol unimplemented"); }
@@ -127,17 +129,15 @@ public:
 class ScopeGhidraNamespace : public ScopeInternal {
   friend class ScopeGhidra;
   ArchitectureGhidra *ghidra;		///< Connection to the Ghidra client
-  uint8 scopeId;			///< Internal id allowing Ghidra client to reference formal namespaces
-  void setClientId(uint8 id) { scopeId = id; }
 protected:
   virtual SymbolEntry *addMapInternal(Symbol *sym,uint4 exfl,const Address &addr,int4 off,int4 sz,
 				      const RangeList &uselim);
 public:
-  ScopeGhidraNamespace(const string &nm,ArchitectureGhidra *g)
-    : ScopeInternal(nm,g) { ghidra = g; scopeId = 0; }		///< Constructor
+  ScopeGhidraNamespace(uint8 id,const string &nm,ArchitectureGhidra *g)
+    : ScopeInternal(id,nm,g) { ghidra = g; }		///< Constructor
 
-  uint8 getClientId(void) const { return scopeId; }		///< Get the Ghidra specific id
   virtual bool isNameUsed(const string &nm,const Scope *op2) const;
 };
 
+} // End namespace ghidra
 #endif

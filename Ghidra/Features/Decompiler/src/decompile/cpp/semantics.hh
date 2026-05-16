@@ -4,19 +4,22 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#ifndef __SEMANTICS__
-#define __SEMANTICS__
+#ifndef __SEMANTICS_HH__
+#define __SEMANTICS_HH__
 
 #include "context.hh"
+#include "slaformat.hh"
+
+namespace ghidra {
 
 // We remap these opcodes for internal use during pcode generation
 
@@ -30,9 +33,9 @@ class Translate;		// Forward declaration
 class HandleTpl;		// Forward declaration
 class ConstTpl {
 public:
-  enum const_type { real=0, handle=1, j_start=2, j_next=3, j_curspace=4, 
-		    j_curspace_size=5, spaceid=6, j_relative=7,
-		    j_flowref=8, j_flowref_size=9, j_flowdest=10, j_flowdest_size=11 };
+  enum const_type { real=0, handle=1, j_start=2, j_next=3, j_next2=4, j_curspace=5, 
+		    j_curspace_size=6, spaceid=7, j_relative=8,
+		    j_flowref=9, j_flowref_size=10, j_flowdest=11, j_flowdest_size=12 };
   enum v_field { v_space=0, v_offset=1, v_size=2, v_offset_plus=3 };
 private:
   const_type type;
@@ -43,8 +46,6 @@ private:
   } value;
   uintb value_real;
   v_field select;		// Which part of handle to use as constant
-  static void printHandleSelector(ostream &s,v_field val);
-  static v_field readHandleSelector(const string &name);
 public:
   ConstTpl(void) { type = real; value_real = 0; }
   ConstTpl(const ConstTpl &op2) {
@@ -70,8 +71,8 @@ public:
   void changeHandleIndex(const vector<int4> &handmap);
   void fillinSpace(FixedHandle &hand,const ParserWalker &walker) const;
   void fillinOffset(FixedHandle &hand,const ParserWalker &walker) const;
-  void saveXml(ostream &s) const;
-  void restoreXml(const Element *el,const AddrSpaceManager *manage);
+  void encode(Encoder &encoder) const;
+  void decode(Decoder &decoder);
 };
 
 class VarnodeTpl {
@@ -90,6 +91,8 @@ public:
   bool isDynamic(const ParserWalker &walker) const;
   int4 transfer(const vector<HandleTpl *> &params);
   bool isZeroSize(void) const { return size.isZero(); }
+  bool operator==(const VarnodeTpl &op2) const;
+  bool operator!=(const VarnodeTpl &op2) const;
   bool operator<(const VarnodeTpl &op2) const;
   void setOffset(uintb constVal) { offset = ConstTpl(ConstTpl::real,constVal); }
   void setRelative(uintb constVal) { offset = ConstTpl(ConstTpl::j_relative,constVal); }
@@ -100,8 +103,8 @@ public:
   bool isRelative(void) const { return (offset.getType() == ConstTpl::j_relative); }
   void changeHandleIndex(const vector<int4> &handmap);
   bool adjustTruncation(int4 sz,bool isbigendian);
-  void saveXml(ostream &s) const;
-  void restoreXml(const Element *el,const AddrSpaceManager *manage);
+  void encode(Encoder &encoder) const;
+  void decode(Decoder &decoder);
 };
 
 class HandleTpl {
@@ -130,8 +133,8 @@ public:
   void setTempOffset(uintb val) { temp_offset = ConstTpl(ConstTpl::real,val); }
   void fix(FixedHandle &hand,const ParserWalker &walker) const;
   void changeHandleIndex(const vector<int4> &handmap);
-  void saveXml(ostream &s) const;
-  void restoreXml(const Element *el,const AddrSpaceManager *manage);
+  void encode(Encoder &encoder) const;
+  void decode(Decoder &decoder);
 };
 
 class OpTpl {
@@ -154,8 +157,8 @@ public:
   void setInput(VarnodeTpl *vt,int4 slot) { input[slot] = vt; }
   void removeInput(int4 index);
   void changeHandleIndex(const vector<int4> &handmap);
-  void saveXml(ostream &s) const;
-  void restoreXml(const Element *el,const AddrSpaceManager *manage);
+  void encode(Encoder &encoder) const;
+  void decode(Decoder &decoder);
 };
 
 class ConstructTpl {
@@ -183,8 +186,8 @@ public:
   void setInput(VarnodeTpl *vn,int4 index,int4 slot);
   void setOutput(VarnodeTpl *vn,int4 index);
   void deleteOps(const vector<int4> &indices);
-  void saveXml(ostream &s,int4 sectionid) const;
-  int4 restoreXml(const Element *el,const AddrSpaceManager *manage);
+  void encode(Encoder &encoder,int4 sectionid) const;
+  int4 decode(Decoder &decoder);
 };
 
 class PcodeEmit;   // Forward declaration for emitter
@@ -208,4 +211,5 @@ public:
   virtual void appendCrossBuild(OpTpl *bld,int4 secnum)=0;
 };
 
+} // End namespace ghidra
 #endif

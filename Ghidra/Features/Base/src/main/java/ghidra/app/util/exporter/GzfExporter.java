@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,11 +16,14 @@
 package ghidra.app.util.exporter;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.List;
 
 import ghidra.app.util.DomainObjectService;
 import ghidra.app.util.Option;
+import ghidra.framework.model.DomainFile;
 import ghidra.framework.model.DomainObject;
+import ghidra.program.database.ProgramDB;
 import ghidra.program.model.address.AddressSetView;
 import ghidra.util.HelpLocation;
 import ghidra.util.exception.CancelledException;
@@ -35,6 +38,17 @@ public class GzfExporter extends Exporter {
 
 	public GzfExporter() {
 		super(NAME, EXTENSION, new HelpLocation("ExporterPlugin", "gzf"));
+	}
+
+	@Override
+	public boolean canExportDomainFile(DomainFile domainFile) {
+		// Avoid exporting link-file itself
+		return !domainFile.isLink() && canExportDomainObject(domainFile.getDomainObjectClass());
+	}
+
+	@Override
+	public boolean canExportDomainObject(Class<? extends DomainObject> domainObjectClass) {
+		return ProgramDB.class.isAssignableFrom(domainObjectClass);
 	}
 
 	@Override
@@ -65,6 +79,25 @@ public class GzfExporter extends Exporter {
 	}
 
 	@Override
+	public boolean export(File file, DomainFile domainFile, TaskMonitor monitor)
+			throws ExporterException, IOException {
+		if (!canExportDomainFile(domainFile)) {
+			throw new UnsupportedOperationException("only ProgramDB files are supported");
+		}
+		try {
+			domainFile.packFile(file, monitor);
+		}
+		catch (CancelledException e) {
+			return false;
+		}
+		catch (Exception e) {
+			log.appendMsg("Unexpected exception exporting file: " + e.getMessage());
+			return false;
+		}
+		return true;
+	}
+
+	@Override
 	public List<Option> getOptions(DomainObjectService domainObjectService) {
 		return EMPTY_OPTIONS;
 	}
@@ -78,7 +111,7 @@ public class GzfExporter extends Exporter {
 	 * Returns false.  GZF export only supports entire database.
 	 */
 	@Override
-	public boolean supportsPartialExport() {
+	public boolean supportsAddressRestrictedExport() {
 		return false;
 	}
 }

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -30,71 +30,44 @@ import docking.*;
 import docking.test.AbstractDockingTest;
 import docking.widgets.PasswordDialog;
 import generic.test.category.NightlyCategory;
-import ghidra.util.Msg;
 
 // The splash screen is sensitive to windows being activated/deactivated, so don't run
 // when other test windows may be open
 @Category(NightlyCategory.class)
 public class SplashScreenTest extends AbstractDockingTest {
 
-	private AboutDialog aboutDialog;
-
 	@After
 	public void tearDown() {
-		Msg.debug(this, "tearDown() - open windows before closing");
-		printOpenWindows();
-
 		runSwing(() -> SplashScreen.disposeSplashScreen());
-
-		closeAllWindows();
-		printOpenWindows();
-
-		Msg.debug(this, "tearDown() - open windows after closing");
+		disposeAllWindows();
 	}
 
-	@Test
-	public void testShowInfoWindow() throws Exception {
-		// no parent
-		showModalInfoWindow(null);
-
-		ensureInfoWindowVisible();
-		hideInfoWindow();
-
-		// not visible parent
-		JFrame parentFrame = new JFrame("InfoWindowTest.testShowInfoWindow Frame");
-		parentFrame.setBounds(-100, -100, 0, 0);
-		showModalInfoWindow(parentFrame);
-
-		ensureInfoWindowVisible();
-		hideInfoWindow();
-
-		// visible parent
-		parentFrame.setVisible(true);
-		showModalInfoWindow(parentFrame);
-
-		ensureInfoWindowVisible();
-		hideInfoWindow();
+	private void disposeAllWindows() {
+		for (Window window : getAllWindows()) {
+			runSwing(window::dispose);
+		}
+		waitForSwing();
 	}
 
 	@Test
 	public void testShowAndHideSplashScreen() {
 		showSplashScreen(true);
-		ensureSpashScreenVisible(true);
+		assertSpashScreenVisible(true);
 
 		showSplashScreen(false);
-		ensureSpashScreenVisible(false);
+		assertSpashScreenVisible(false);
 
 		showSplashScreen(true);
-		ensureSpashScreenVisible(true);
+		assertSpashScreenVisible(true);
 
 		showSplashScreen(false);
-		ensureSpashScreenVisible(false);
+		assertSpashScreenVisible(false);
 	}
 
 	@Test
 	public void testUpdateSplashScreenStatus() {
 		showSplashScreen(true);
-		ensureSpashScreenVisible(true);
+		assertSpashScreenVisible(true);
 
 		JLabel statusLabel = (JLabel) getInstanceField("statusLabel", SplashScreen.class);
 
@@ -102,7 +75,8 @@ public class SplashScreenTest extends AbstractDockingTest {
 		String newStatusText = "New Status Text";
 		SplashScreen.updateSplashScreenStatus(newStatusText);
 
-		String updatedText = statusLabel.getText().trim();
+		waitForSwing();
+		String updatedText = runSwing(() -> statusLabel.getText().trim());
 
 		assertEquals("The text of the label does not match the updated " + "text that was passed.",
 			newStatusText, updatedText);
@@ -110,42 +84,50 @@ public class SplashScreenTest extends AbstractDockingTest {
 		showSplashScreen(false);
 	}
 
-	/**
+	/*
 	 * Test that the modal password dialog does not get hidden behind the
-	 * splash screen. 
-	 * 
+	 * splash screen.
+	 *
 	 * @since Tracker Id 275
 	 */
 	@Test
 	public void testSplashScreenPasswordModality_SharedParent() throws Exception {
 
 		showSplashScreen(true);
-		ensureSpashScreenVisible(true);
+		assertSpashScreenVisible(true);
 
 		// show a modal dialog with no parent (this will use the Splash Screen's parent)
-		showModalPasswordDialog(null);
+		DockingDialog dialog = showModalPasswordDialog(null);
 
-		// When the splash screen and the dialog share a parent, then the dialog should NOT 
+		// When the splash screen and the dialog share a parent, then the dialog should NOT
 		// cause the splash screen to go away
-		ensureSpashScreenVisible(true);
+		assertSpashScreenVisible(true);
+
+		close(dialog);
 	}
 
 	@Test
 	public void testSplashScreenPasswordModality_UnsharedParent() throws Exception {
 		// show the splash screen
 		showSplashScreen(true);
-		ensureSpashScreenVisible(true);
+		assertSpashScreenVisible(true);
 
 		DockingFrame frame = new DockingFrame("Modal Parent Frame");
-		frame.setVisible(true);
+		show(frame);
 		showModalPasswordDialog(frame);
 
 		ensureSplashScreenWillClose();
+
+		close(frame);
 	}
 
 //==================================================================================================
 // Private Methods
-//==================================================================================================	
+//==================================================================================================
+
+	private void show(JFrame frame) {
+		runSwing(() -> frame.setVisible(true));
+	}
 
 	private void ensureSplashScreenWillClose() {
 		waitForCondition(() -> {
@@ -155,42 +137,43 @@ public class SplashScreenTest extends AbstractDockingTest {
 	}
 
 	private DockingDialog showModalPasswordDialog(Frame parentFrame) throws Exception {
-		String dialogTitle = "InfoWindowTest.testSplashScreenPasswordModality() Dialog";
-		DialogComponentProvider passwordDialog = runSwing(() -> new PasswordDialog(dialogTitle,
-			"Server Type", "Server Name", "Prompt", null, null));
 
-		executeOnSwingWithoutBlocking(
-			() -> DockingWindowManager.showDialog(parentFrame, passwordDialog));
+		String dialogTitle = "InfoWindowTest.testSplashScreenPasswordModality() Dialog";
+		DialogComponentProvider passwordDialog =
+			runSwing(() -> new PasswordDialog(dialogTitle, "Server Type", "Server Name", "Prompt"));
+
+		if (parentFrame == null) {
+			// null means to share the parent
+			Object splashParent = getInstanceField("hiddenFrame", SplashScreen.class);
+			parentFrame = (Frame) splashParent;
+		}
+
+		Frame finalParent = parentFrame;
+		executeOnSwingWithoutBlocking(() -> {
+			DockingDialog dialog =
+				DockingDialog.createDialog(finalParent, passwordDialog, finalParent);
+			dialog.setVisible(true);
+		});
 
 		JDialog dialog = waitForJDialog(dialogTitle);
 		assertNotNull(dialog);
 
-		Window dialogWindow = SwingUtilities.windowForComponent(dialog);
-		Msg.debug(this, "Created modal dialog with parent: " + getTitleForWindow(dialogWindow) +
-			" - id: " + System.identityHashCode(dialogWindow));
-
 		return (DockingDialog) dialog;
-	}
-
-	// handles showing the modal info window, which must be done from a  thread outside of the 
-	// test thread
-	private void showModalInfoWindow(final JFrame parentFrame) {
-		// create a thread to show the modal dialog so that the current thread doesn't block
-		aboutDialog = runSwing(() -> new AboutDialog());
-		executeOnSwingWithoutBlocking(() -> DockingWindowManager.showDialog(null, aboutDialog));
 	}
 
 	private void showSplashScreen(final boolean makeVisible) {
 
 		if (makeVisible) {
-			SplashScreen splash = runSwing(() -> SplashScreen.showSplashScreen());
+			SplashScreen splash = SplashScreen.showNow();
 			assertNotNull("Failed showing splash screen", splash);
+			waitForSwing();
 			return;
 		}
 		SplashScreen.disposeSplashScreen();
+		waitForSwing();
 	}
 
-	private void ensureSpashScreenVisible(boolean visible) {
+	private void assertSpashScreenVisible(boolean visible) {
 		// get the 'splashWindow' and make sure that it is not null and that it is visible
 		SplashScreen splashScreen = getSplash();
 
@@ -206,23 +189,6 @@ public class SplashScreenTest extends AbstractDockingTest {
 
 		// timing issue debug
 		waitForCondition(() -> splashScreen.isVisible());
-
-		if (!splashScreen.isVisible()) {
-
-			// this can happen if other OS windows trigger the splash window to be hidden
-			printOpenWindows();
-			fail("The splash screen is not visible when expected to be so - " + splashScreen);
-		}
-	}
-
-	private void ensureInfoWindowVisible() {
-		// get the 'infoDialog' and make sure that it is not null and that it is visible
-		assertTrue("The info dialog is not visible after it was supposed to " + "have been shown.",
-			aboutDialog.isVisible());
-	}
-
-	private void hideInfoWindow() throws Exception {
-		runSwing(() -> aboutDialog.close());
 	}
 
 	private SplashScreen getSplash() {

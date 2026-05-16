@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -52,7 +52,7 @@ public class Pic24DInitAnalyzer extends AbstractAnalyzer {
 		if (!isSupportedProcessor) {
 			return false;
 		}
-		if (!ElfLoader.ELF_NAME.equals(program.getExecutableFormat())) {
+		if (!ElfLoader.isElf(program)) {
 			return false;
 		}
 		return program.getMemory().getBlock(".dinit") != null;
@@ -75,7 +75,7 @@ public class Pic24DInitAnalyzer extends AbstractAnalyzer {
 		long available = dinitBlock.getSize();
 		
 		Structure dataRecordType = new StructureDataType("data_record", 0, program.getDataTypeManager());
-		dataRecordType.setInternallyAligned(true);
+		dataRecordType.setPackingEnabled(true);
 		dataRecordType.add(PointerDataType.dataType, "dst", null);
 		// NOTE: long is used instead of int to ensure that 4-bytes within ROM are consumed
 		dataRecordType.add(LongDataType.dataType, "len", null);
@@ -84,8 +84,8 @@ public class Pic24DInitAnalyzer extends AbstractAnalyzer {
 			dataRecordType.addBitField(LongDataType.dataType, 9, "page", null); // TODO: factor into dst ram reference
 		} catch (InvalidDataTypeException e) {
 			throw new AssertException(e);
-		} 
-		dataRecordType.setFlexibleArrayComponent(ByteDataType.dataType, "data", null);
+		}
+		dataRecordType.add(new ArrayDataType(ByteDataType.dataType, 0, -1), "data", null);
 		
 		dataRecordType = (Structure) program.getDataTypeManager().resolve(dataRecordType, null);
 		

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,10 +16,12 @@
 /// \file flow.hh
 /// \brief Utilities for following control-flow in p-code generated from machine instructions
 
-#ifndef __CPUI_FLOW__
-#define __CPUI_FLOW__
+#ifndef __FLOW_HH__
+#define __FLOW_HH__
 
 #include "funcdata.hh"
+
+namespace ghidra {
 
 /// \brief A class for generating the control-flow structure for a single function
 ///
@@ -125,7 +127,7 @@ private:
   bool checkForFlowModification(FuncCallSpecs &fspecs);
   void queryCall(FuncCallSpecs &fspecs);		///< Try to recover the Funcdata object corresponding to a given call
   bool setupCallSpecs(PcodeOp *op,FuncCallSpecs *fc);	///< Set up the FuncCallSpecs object for a new call site
-  bool setupCallindSpecs(PcodeOp *op,bool tryoverride,FuncCallSpecs *fc);
+  bool setupCallindSpecs(PcodeOp *op,FuncCallSpecs *fc);
   void xrefInlinedBranch(PcodeOp *op);			///< Check for control-flow in a new injected p-code op
   void doInjection(InjectPayload *payload,InjectContext &icontext,PcodeOp *op,FuncCallSpecs *fc);
   void injectUserOp(PcodeOp *op);			///< Perform \e injection for a given user-defined p-code op
@@ -133,9 +135,9 @@ private:
   bool injectSubFunction(FuncCallSpecs *fc);		///< Perform \e injection replacing the CALL at the given call site
   void checkContainedCall(void);
   void checkMultistageJumptables(void);
+  void recoverJumpTables(vector<JumpTable *> &newTables,vector<PcodeOp *> &notreached);
   void deleteCallSpec(FuncCallSpecs *fc);		///< Remove the given call site from the list for \b this function
-  void truncateIndirectJump(PcodeOp *op,int4 failuremode);  	///< Treat indirect jump as indirect call that never returns
-  static bool isInArray(vector<PcodeOp *> &array,PcodeOp *op);
+  void truncateIndirectJump(PcodeOp *op,JumpTable::RecoveryMode mode);  ///< Treat indirect jump as CALLIND/RETURN
 public:
   FlowInfo(Funcdata &d,PcodeOpBank &o,BlockGraph &b,vector<FuncCallSpecs *> &q);	///< Constructor
   FlowInfo(Funcdata &d,PcodeOpBank &o,BlockGraph &b,vector<FuncCallSpecs *> &q,const FlowInfo *op2);	///< Cloning constructor
@@ -145,6 +147,7 @@ public:
   void clearFlags(uint4 val) { flags &= ~val; }	///< Disable a specific option
   PcodeOp *target(const Address &addr) const;	///< Return first p-code op for instruction at given address
   PcodeOp *branchTarget(PcodeOp *op) const;	///< Find the target referred to by a given BRANCH or CBRANCH
+  void updateTarget(PcodeOp *oldOp,PcodeOp *newOp);	///< Update the branch target for an inlined p-code op
   void generateOps(void);			///< Generate raw control-flow from the function's base address
   void generateBlocks(void);			///< Generate basic blocks from the raw control-flow
   bool testHardInlineRestrictions(Funcdata *inlinefd,PcodeOp *op,Address &retaddr);
@@ -164,4 +167,5 @@ public:
   bool doesJumpRecord(void) const { return ((flags & record_jumploads)!=0); }	///< Should jump table structure be recorded
 };
 
+} // End namespace ghidra
 #endif

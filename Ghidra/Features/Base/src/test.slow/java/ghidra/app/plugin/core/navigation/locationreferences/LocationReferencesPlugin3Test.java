@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,14 +15,18 @@
  */
 package ghidra.app.plugin.core.navigation.locationreferences;
 
-import static org.hamcrest.CoreMatchers.instanceOf;
-import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.CoreMatchers.*;
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.*;
 
 import java.util.*;
 
+import javax.swing.ListSelectionModel;
+
 import org.junit.Test;
 
+import docking.action.DockingActionIf;
+import docking.widgets.table.GTable;
 import ghidra.app.cmd.function.SetReturnDataTypeCmd;
 import ghidra.app.cmd.refs.RemoveReferenceCmd;
 import ghidra.app.plugin.core.clear.ClearCmd;
@@ -44,7 +48,7 @@ public class LocationReferencesPlugin3Test extends AbstractLocationReferencesTes
 		int parameterColumn = 1;
 		goTo(address, "Function Signature", parameterColumn);
 
-		// change the return type 
+		// change the return type
 		DataType dataType = setReturnTypeToByte(address);
 
 		search();
@@ -107,7 +111,7 @@ public class LocationReferencesPlugin3Test extends AbstractLocationReferencesTes
 
 		// 0100415a - sscanf
 		Address address = addr(0x0100415a);
-		int parameterColumn = 28; // param 0's name
+		int parameterColumn = 24; // param 0's name
 		goTo(address, "Function Signature", parameterColumn);
 
 		search();
@@ -143,8 +147,8 @@ public class LocationReferencesPlugin3Test extends AbstractLocationReferencesTes
 
 		// 0100415a - sscanf
 		Address address = addr(0x0100415a);
-		int parameterColumn = 11;
-		goTo(address, "Function Signature", parameterColumn);
+		int returnTypeColumn = 7;
+		goTo(address, "Function Signature", returnTypeColumn);
 
 		search();
 
@@ -174,9 +178,36 @@ public class LocationReferencesPlugin3Test extends AbstractLocationReferencesTes
 	}
 
 	@Test
+	public void testDeleteReferencesFromTable() {
+
+		// 01002cf5 - ghidra
+		Address address = addr(0x01002cf5);
+		int functionNameColumn = 15;
+		goTo(address, "Function Signature", functionNameColumn);
+
+		search();
+
+		List<Address> referenceAddresses = getResultAddresses();
+		int referenceCount = referenceAddresses.size();
+
+		DockingActionIf deleteAction =
+			getAction(tool, locationReferencesPlugin.getName(), "Delete Reference");
+		LocationReferencesProvider provider = getResultsProvider();
+		assertFalse(isEnabled(deleteAction, provider));
+
+		selectRows(0);
+		assertTrue(isEnabled(deleteAction, provider));
+		performAction(deleteAction, provider, true);
+
+		referenceAddresses = getResultAddresses();
+		int updatedReferenceCount = referenceAddresses.size();
+		assertEquals(referenceCount - 1, updatedReferenceCount);
+	}
+
+	@Test
 	public void testLabelLocationDescriptor() throws Exception {
 
-		// 010039fe - LAB_010039fe 
+		// 010039fe - LAB_010039fe
 		Address address = addr(0x010039fe);
 		int column = 3;
 		goTo(address, "Label", column);
@@ -232,19 +263,6 @@ public class LocationReferencesPlugin3Test extends AbstractLocationReferencesTes
 	}
 
 	@Test
-	public void testFieldNameLocationDescriptor_StructureFieldName_ArrayInStructure()
-			throws Exception {
-
-		openData(0x01005540);
-
-		goTo(addr(0x01005541), FieldNameFieldFactory.FIELD_NAME, 1);
-
-		ProgramLocation location = codeBrowser.getCurrentLocation();
-		LocationDescriptor descriptor = ReferenceUtils.getLocationDescriptor(location);
-		assertThat(descriptor, is(instanceOf(StructureMemberLocationDescriptor.class)));
-	}
-
-	@Test
 	public void testFieldNameLocationDescriptor_StructureInArray() throws Exception {
 
 		openData(0x01005520);
@@ -261,7 +279,7 @@ public class LocationReferencesPlugin3Test extends AbstractLocationReferencesTes
 
 	@Test
 	public void testFindReferencesToFunctionDefinitionDataTypeFromService() throws Exception {
-		// 
+		//
 		// For this test we will have to create a FunctionDefinitionData type that matches
 		// that of an existing function
 		//
@@ -311,8 +329,8 @@ public class LocationReferencesPlugin3Test extends AbstractLocationReferencesTes
 	public void testDyamicData_AddressField() throws Exception {
 
 		//
-		// Dynamic data types should show all references to the the outermost data, including
-		// offcut.  
+		// Dynamic data types should show all references to the outermost data, including
+		// offcut.
 		//
 
 		// go to an unused address
@@ -350,7 +368,7 @@ public class LocationReferencesPlugin3Test extends AbstractLocationReferencesTes
 	public void testDyamicData_MnemonicField() throws Exception {
 
 		//
-		// Dynamic data types should show all references to the the outermost data, including
+		// Dynamic data types should show all references to the outermost data, including
 		// offcut.  Also, since we are searching from the mnemonic, we find all data references.
 		//
 
@@ -379,11 +397,22 @@ public class LocationReferencesPlugin3Test extends AbstractLocationReferencesTes
 		assertContains(results, from1, from2, from3, stringAddr);
 	}
 
-	
-
 //==================================================================================================
 // Private Methods
-//==================================================================================================	
+//==================================================================================================
+
+	private void selectRows(int... rows) {
+	
+		LocationReferencesProvider provider = getResultsProvider();
+		runSwing(() -> {
+			GTable gTable = provider.getTable();
+			ListSelectionModel selectionModel = gTable.getSelectionModel();
+			for (int row : rows) {
+				selectionModel.addSelectionInterval(row, row);
+			}
+		});
+		waitForSwing();
+	}
 
 	private void createString_CallStructure(String addressString) throws Exception {
 		// String

@@ -15,34 +15,37 @@
  */
 package ghidra.graph.export;
 
-import java.util.List;
+import java.util.*;
 
-import org.jgrapht.Graph;
-
+import docking.action.DockingActionIf;
+import docking.widgets.EventTrigger;
+import ghidra.app.services.GraphDisplayBroker;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.service.graph.*;
 import ghidra.util.Swing;
+import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
 
 /**
  * {@link GraphDisplay} implementation for exporting graphs.  In this case, there is no
- * associated visual display, instead the graph output gets sent to a file.  The 
+ * associated visual display, instead the graph output gets sent to a file.  The
  * {@link GraphDisplay} is mostly just a placeholder for executing the export function.  By
  * hijacking the {@link GraphDisplayProvider} and {@link GraphDisplay} interfaces for exporting,
  * all graph generating operations can be exported instead of being displayed without changing
- * the graph generation code.    
+ * the graph generation code.
  */
 class ExportAttributedGraphDisplay implements GraphDisplay {
 
-	private final PluginTool pluginTool;
-	private String description;
+	private final PluginTool tool;
+	private String title;
+	private AttributedGraph graph;
 
 	/**
 	 * Create the initial display, the graph-less visualization viewer, and its controls
 	 * @param programGraphDisplayProvider provides a {@link PluginTool} for Docking features
 	 */
 	ExportAttributedGraphDisplay(ExportAttributedGraphDisplayProvider programGraphDisplayProvider) {
-		this.pluginTool = programGraphDisplayProvider.getPluginTool();
+		this.tool = programGraphDisplayProvider.getPluginTool();
 	}
 
 	@Override
@@ -52,17 +55,8 @@ class ExportAttributedGraphDisplay implements GraphDisplay {
 
 	@Override
 	public void setGraphDisplayListener(GraphDisplayListener listener) {
-		// This display is not interactive, so N/A
-	}
-
-	@Override
-	public void selectVertices(List<String> vertexList) {
-		// This display is not interactive, so N/A
-	}
-
-	@Override
-	public void setLocation(String vertexID) {
-		// This display is not interactive, so N/A
+		// This display is not interactive, so just dispose the listener
+		listener.dispose();
 	}
 
 	/**
@@ -70,49 +64,80 @@ class ExportAttributedGraphDisplay implements GraphDisplay {
 	 * @param attributedGraph the {@link AttributedGraph} to visualize
 	 */
 	private void doSetGraphData(AttributedGraph attributedGraph) {
-		GraphExporterDialog dialog = new GraphExporterDialog(attributedGraph);
-		Swing.runLater(() -> pluginTool.showDialog(dialog));
+		List<AttributedGraphExporter> exporters = findGraphExporters();
+		GraphExporterDialog dialog =
+			Swing.runNow(() -> new GraphExporterDialog(attributedGraph, exporters));
+		tool.showDialog(dialog);
+	}
+
+	private List<AttributedGraphExporter> findGraphExporters() {
+		GraphDisplayBroker service = tool.getService(GraphDisplayBroker.class);
+		if (service != null) {
+			return service.getGraphExporters();
+		}
+		return Collections.emptyList();
 	}
 
 	@Override
-	public void defineVertexAttribute(String attributeName) {
-		// no effect
+	public void setGraph(AttributedGraph graph, String title, boolean append, TaskMonitor monitor) {
+		this.title = title;
+		this.graph = graph;
+		doSetGraphData(graph);
 	}
 
 	@Override
-	public void defineEdgeAttribute(String attributeName) {
-		// no effect
+	public void setGraph(AttributedGraph graph, GraphDisplayOptions options, String title,
+			boolean append, TaskMonitor monitor) throws CancelledException {
+		this.setGraph(graph, title, append, monitor);
 	}
 
-	@Override
-	public void setVertexLabel(String attributeName, int alignment, int size, boolean monospace,
-			int maxLines) {
-		// no effect
-	}
-
-	@Override
-	public void setGraph(AttributedGraph graphData, String description, boolean append,
-			TaskMonitor monitor) {
-		this.description = description;
-		doSetGraphData(graphData);
-	}
-
-	/**
-	 * remove all vertices and edges from the {@link Graph}
-	 */
 	@Override
 	public void clear() {
 		// not interactive, so N/A
 	}
 
 	@Override
-	public void updateVertexName(String id, String newName) {
+	public void updateVertexName(AttributedVertex vertex, String newName) {
 		// do nothing
 	}
 
 	@Override
-	public String getGraphDescription() {
-		return description;
+	public String getGraphTitle() {
+		return title;
 	}
 
+	@Override
+	public void addAction(DockingActionIf action) {
+		// do nothing, actions are not supported by this display
+	}
+
+	@Override
+	public Collection<DockingActionIf> getActions() {
+		return Collections.emptyList();
+	}
+
+	@Override
+	public AttributedVertex getFocusedVertex() {
+		return null;
+	}
+
+	@Override
+	public Set<AttributedVertex> getSelectedVertices() {
+		return Collections.emptySet();
+	}
+
+	@Override
+	public void setFocusedVertex(AttributedVertex vertex, EventTrigger eventTrigger) {
+		// not interactive, so N/A
+	}
+
+	@Override
+	public AttributedGraph getGraph() {
+		return graph;
+	}
+
+	@Override
+	public void selectVertices(Set<AttributedVertex> vertexList, EventTrigger eventTrigger) {
+		// not interactive, so N/A
+	}
 }

@@ -20,10 +20,13 @@ import java.awt.event.KeyEvent;
 import docking.action.KeyBindingData;
 import docking.action.MenuData;
 import ghidra.app.plugin.core.decompile.DecompilerActionContext;
+import ghidra.app.util.HelpTopics;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.pcode.HighFunction;
 import ghidra.program.model.pcode.HighFunctionDBUtil;
+import ghidra.program.model.pcode.HighFunctionDBUtil.ReturnCommitOption;
 import ghidra.program.model.symbol.SourceType;
+import ghidra.util.HelpLocation;
 import ghidra.util.Msg;
 import ghidra.util.exception.*;
 
@@ -31,6 +34,7 @@ public class CommitParamsAction extends AbstractDecompilerAction {
 
 	public CommitParamsAction() {
 		super("Commit Params/Return");
+		setHelpLocation(new HelpLocation(HelpTopics.DECOMPILER, "ActionCommitParams"));
 		setPopupMenuData(new MenuData(new String[] { "Commit Params/Return" }, "Commit"));
 		setKeyBindingData(new KeyBindingData(KeyEvent.VK_P, 0));
 		setDescription(
@@ -56,8 +60,8 @@ public class CommitParamsAction extends AbstractDecompilerAction {
 				source = SourceType.USER_DEFINED;
 			}
 
-			HighFunctionDBUtil.commitReturnToDatabase(hfunc, source);
-			HighFunctionDBUtil.commitParamsToDatabase(hfunc, true, source);
+			HighFunctionDBUtil.commitParamsToDatabase(hfunc, true, ReturnCommitOption.COMMIT,
+				source);
 		}
 		catch (DuplicateNameException e) {
 			throw new AssertException("Unexpected exception", e);

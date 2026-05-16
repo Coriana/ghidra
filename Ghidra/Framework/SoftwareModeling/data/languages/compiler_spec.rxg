@@ -263,6 +263,13 @@
           </element>
         </zeroOrMore>
 
+		<zeroOrMore>
+		  <element name="modelalias">
+		    <attribute name="name"/>
+		    <attribute name="parent"/>
+		  </element>
+		</zeroOrMore>
+
         <optional>
           <element name="eval_current_prototype">
             <attribute name="name"/>
@@ -283,17 +290,21 @@
     <optional> <attribute name="maxsize"/> </optional>
     <optional> <attribute name="minsize"/> </optional>
     <optional> <attribute name="align"/> </optional>
-    <optional> <attribute name="metatype"/> </optional>
-    <optional>
-      <attribute name="trial">
-        <ref name="boolean_type"/>
-      </attribute>
-    </optional>
+    <optional> <attribute name="storage"/> </optional>
+    <optional> <attribute name="metatype"/> </optional>  <!-- deprecated -->
     <optional> <attribute name="extension"/> </optional>
     <!--
         THIS IS THE WEAK ADDR TYPE.  Attribute size is not required.
       -->
     <ref name="addr_tags_type"/>
+  </define>
+
+  <define name="pentry_group_type">
+    <oneOrMore>
+      <element name="pentry">
+      	<ref name="pentry_type"/>
+      </element>
+    </oneOrMore>
   </define>
 
   <define name="rangelist_type">
@@ -331,15 +342,166 @@
     </choice>
   </define>
 
+  <define name="model_datatype_type">
+    <attribute name="name"/>
+    <optional><attribute name="maxprimitives"/></optional>
+    <optional><attribute name="minsize"/></optional>
+    <optional><attribute name="maxsize"/></optional>
+    <optional><attribute name="sizes"/></optional>
+  </define>
+  
+  <define name="modelrule_type">
+    <element name="datatype">
+      <ref name="model_datatype_type"/>
+    </element>
+    <interleave>
+      <optional>
+        <element name="varargs">
+          <optional>
+            <attribute name="first"/>
+          </optional>
+          <optional>
+            <attribute name="last"/>
+          </optional>
+        </element>
+      </optional>
+      <optional>
+        <element name="position">
+          <attribute name="index"/>
+        </element>
+      </optional>
+      <zeroOrMore>
+        <element name="datatype_at">
+          <attribute name="index"/>
+          <element name="datatype">
+            <ref name="model_datatype_type"/>
+          </element>
+        </element>
+      </zeroOrMore>
+    </interleave>
+    <zeroOrMore>
+      <element name="consume_extra">
+        <attribute name="storage"/>
+        <optional>
+          <attribute name="matchsize">
+            <ref name="boolean_type"/>
+          </attribute>
+        </optional>
+      </element>
+    </zeroOrMore>
+    <choice>
+      <element name="consume">
+        <attribute name="storage"/>
+      </element>
+      <element name="convert_to_ptr">
+        <empty/>
+      </element>
+      <element name="goto_stack">
+        <empty/>
+      </element>
+      <element name="join">
+        <optional>
+          <attribute name="reversejustify">
+            <ref name="boolean_type"/>
+          </attribute>
+        </optional>
+        <optional>
+          <attribute name="reversesignif">
+            <ref name="boolean_type"/>
+          </attribute>
+        </optional>
+        <optional>
+          <attribute name="align">
+            <ref name="boolean_type"/>
+          </attribute>
+        </optional>
+        <optional>
+          <attribute name="storage"/>
+        </optional>
+        <optional>
+          <attribute name="stackspill"/>
+        </optional>
+        <optional>
+          <attribute name="backfill">
+            <ref name="boolean_type"/>
+          </attribute>
+        </optional>
+      </element>
+      <element name="hidden_return">
+        <optional>
+          <attribute name="voidlock">
+            <ref name="boolean_type"/>
+          </attribute>
+        </optional>
+      </element>
+      <element name="join_per_primitive">
+        <optional>
+          <attribute name="storage"/>
+        </optional>
+      </element>
+      <element name="join_dual_class">
+        <optional>
+          <attribute name="reversejustify">
+            <ref name="boolean_type"/>
+          </attribute>
+        </optional>
+        <optional>
+          <attribute name="reversesignif">
+            <ref name="boolean_type"/>
+          </attribute>
+        </optional>
+		<optional>
+          <attribute name="stackspill">
+            <ref name="boolean_type"/>
+          </attribute>
+        </optional>
+        <optional>
+          <attribute name="fillalternate">
+            <ref name="boolean_type"/>
+          </attribute>
+        </optional>
+        <optional>
+          <attribute name="storage"/>
+        </optional>
+        <optional>
+          <attribute name="a"/>
+        </optional>
+        <optional>
+          <attribute name="b"/>
+        </optional>
+      </element>
+    </choice>
+	<zeroOrMore>
+      <element name="extra_stack">
+        <optional>
+          <attribute name="afterbytes"/>
+        </optional>
+        <optional>
+          <attribute name="afterstorage"/>
+        </optional>
+      </element>
+    </zeroOrMore>
+    <zeroOrMore>
+      <element name="consume_extra">
+        <attribute name="storage"/>
+        <optional>
+          <attribute name="matchsize">
+            <ref name="boolean_type"/>
+          </attribute>
+        </optional>
+      </element>
+    </zeroOrMore>
+    <zeroOrMore>
+      <element name="consume_remaining">
+        <attribute name="storage"/>
+	  </element>
+	</zeroOrMore>
+  </define>
+ 
   <define name="prototype_type">
     <attribute name="extrapop"/>
     <attribute name="stackshift"/>
     <attribute name="name"/>
-    <optional>
-    	<attribute name="type">
-                <ref name="generic_calling_convention_type"/>
-        </attribute>
-    </optional>
 
     <optional>
       <attribute name="strategy">
@@ -359,9 +521,22 @@
         <optional> <attribute name="pointermax"/> </optional>
         <optional> <attribute name="thisbeforeretpointer"/> </optional>
         <optional> <attribute name="killedbycall"/> </optional>
+        <optional> <attribute name="separatefloat"/> </optional>
+        <interleave>
+          <zeroOrMore>
+            <element name="pentry">
+              <ref name="pentry_type"/>
+            </element>
+          </zeroOrMore>
+          <zeroOrMore>
+            <element name="group">
+              <ref name="pentry_group_type"/>
+            </element>
+          </zeroOrMore>
+        </interleave>
         <zeroOrMore>
-          <element name="pentry">
-            <ref name="pentry_type"/>
+          <element name="rule">
+            <ref name="modelrule_type"/>
           </element>
         </zeroOrMore>
       </element>
@@ -371,6 +546,11 @@
         <zeroOrMore>
           <element name="pentry">
             <ref name="pentry_type"/>
+          </element>
+        </zeroOrMore>
+        <zeroOrMore>
+          <element name="rule">
+            <ref name="modelrule_type"/>
           </element>
         </zeroOrMore>
       </element>
@@ -429,6 +609,14 @@
         </element>
       </optional>
 
+      <optional>
+        <element name="internal_storage">
+          <oneOrMore>
+            <ref name="varnode_tags_type"/>
+          </oneOrMore>
+        </element>
+      </optional>
+      
       <optional>
         <element name="localrange">
           <ref name="rangelist_type"/>

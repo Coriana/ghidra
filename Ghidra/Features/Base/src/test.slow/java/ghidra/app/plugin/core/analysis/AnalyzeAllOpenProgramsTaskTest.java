@@ -15,24 +15,14 @@
  */
 package ghidra.app.plugin.core.analysis;
 
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 import javax.swing.JComponent;
 import javax.swing.table.TableModel;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.*;
 
 import docking.widgets.OptionDialog;
 import ghidra.GhidraOptions;
@@ -40,7 +30,7 @@ import ghidra.framework.model.Project;
 import ghidra.framework.options.Options;
 import ghidra.framework.options.ToolOptions;
 import ghidra.framework.plugintool.PluginTool;
-import ghidra.framework.plugintool.util.PluginClassManager;
+import ghidra.framework.plugintool.PluginsConfiguration;
 import ghidra.program.database.ProgramBuilder;
 import ghidra.program.model.listing.Program;
 import ghidra.test.AbstractGhidraHeadedIntegrationTest;
@@ -71,6 +61,7 @@ public class AnalyzeAllOpenProgramsTaskTest extends AbstractGhidraHeadedIntegrat
 		for (Program program : openPrograms) {
 			env.release(program);
 		}
+		tool.close();
 		env.dispose();
 	}
 
@@ -236,7 +227,7 @@ public class AnalyzeAllOpenProgramsTaskTest extends AbstractGhidraHeadedIntegrat
 			openPrograms.toArray(new Program[openPrograms.size()]), spy);
 		runTask(task);
 
-		OptionDialog warningDialog = waitForDialogComponent(null, OptionDialog.class, 2000);
+		OptionDialog warningDialog = waitForDialogComponent(OptionDialog.class);
 		pressButtonByText(warningDialog, "Cancel");
 
 		waitForTasks();
@@ -246,12 +237,12 @@ public class AnalyzeAllOpenProgramsTaskTest extends AbstractGhidraHeadedIntegrat
 	}
 
 	/**
-	 * Verifies that changing the analyzers to be run affects the task list for 
+	 * Verifies that changing the analyzers to be run affects the task list for
 	 * all open programs.
 	 * <p>
 	 * For this test we'll verify that a specific analyzer is enabled, then turn off all
 	 * analyzers and check again to verify that the analyzer is no longer enabled.
-	 * 
+	 *
 	 * @throws Exception if there is a problem building the test programs
 	 */
 	@Test
@@ -286,7 +277,7 @@ public class AnalyzeAllOpenProgramsTaskTest extends AbstractGhidraHeadedIntegrat
 
 	/**
 	 * Returns true if the given analyzer is enabled.
-	 * 
+	 *
 	 * @param name the name of the analyzer
 	 * @param program the program to check
 	 * @return true if the analyzer is enabled; false otherwise
@@ -305,19 +296,21 @@ public class AnalyzeAllOpenProgramsTaskTest extends AbstractGhidraHeadedIntegrat
 		AnalysisOptionsDialog optionsDialog = waitForDialogComponent(AnalysisOptionsDialog.class);
 		AnalysisPanel panel =
 			findComponent(optionsDialog.getComponent(), AnalysisPanel.class, false);
-		invokeInstanceMethod("deselectAll", panel);
-		waitForSwing();
+
+		runSwing(() -> invokeInstanceMethod("deselectAll", panel));
+		runSwing(() -> panel.applyChanges());
+
+		close(optionsDialog);
 	}
 
 	private void enableOption(String optionName, boolean expectWarning) {
 
 		if (expectWarning) {
-			OptionDialog warningDialog = waitForDialogComponent(null, OptionDialog.class, 2000);
+			OptionDialog warningDialog = waitForDialogComponent(OptionDialog.class);
 			pressButtonByText(warningDialog, "Continue");
 		}
 
-		AnalysisOptionsDialog optionsDialog =
-			waitForDialogComponent(null, AnalysisOptionsDialog.class, DEFAULT_WINDOW_TIMEOUT);
+		AnalysisOptionsDialog optionsDialog = waitForDialogComponent(AnalysisOptionsDialog.class);
 
 		// select some options
 		JComponent root = optionsDialog.getComponent();
@@ -331,8 +324,7 @@ public class AnalyzeAllOpenProgramsTaskTest extends AbstractGhidraHeadedIntegrat
 	}
 
 	private void cancelAnalysisDialog() {
-		AnalysisOptionsDialog optionsDialog =
-			waitForDialogComponent(null, AnalysisOptionsDialog.class, DEFAULT_WINDOW_TIMEOUT);
+		AnalysisOptionsDialog optionsDialog = waitForDialogComponent(AnalysisOptionsDialog.class);
 
 		// press Apply
 		pressButtonByText(optionsDialog, "Cancel");
@@ -378,12 +370,7 @@ public class AnalyzeAllOpenProgramsTaskTest extends AbstractGhidraHeadedIntegrat
 		}
 
 		final int analyzerRow = row;
-		runSwing(new Runnable() {
-			@Override
-			public void run() {
-				model.setValueAt(Boolean.TRUE, analyzerRow, 0);
-			}
-		});
+		runSwing(() -> model.setValueAt(Boolean.TRUE, analyzerRow, 0));
 	}
 
 	private void runTask(final AnalyzeAllOpenProgramsTask task) {
@@ -426,8 +413,8 @@ public class AnalyzeAllOpenProgramsTaskTest extends AbstractGhidraHeadedIntegrat
 		}
 
 		@Override
-		public PluginClassManager getPluginClassManager() {
-			return null;
+		public PluginsConfiguration createPluginsConfigurations() {
+			return null; // prevent slow class loading
 		}
 
 		@Override
@@ -436,6 +423,16 @@ public class AnalyzeAllOpenProgramsTaskTest extends AbstractGhidraHeadedIntegrat
 				return options;
 			}
 			return super.getOptions(categoryName);
+		}
+
+		@Override
+		public void close() {
+			runSwing(() -> super.close());
+		}
+
+		@Override
+		public void saveTool() {
+			// do not save our stub tool
 		}
 	}
 

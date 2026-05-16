@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -31,7 +31,7 @@ public class DockingActionProxy
 		implements ToggleDockingActionIf, MultiActionDockingActionIf, PropertyChangeListener {
 	private WeakSet<PropertyChangeListener> propertyListeners =
 		WeakDataStructureFactory.createSingleThreadAccessWeakSet();
-	private final DockingActionIf dockingAction;
+	protected final DockingActionIf dockingAction;
 
 	public DockingActionProxy(DockingActionIf dockingAction) {
 		this.dockingAction = dockingAction;
@@ -229,12 +229,18 @@ public class DockingActionProxy
 	}
 
 	@Override
-	public void setSupportsDefaultToolContext(boolean newValue) {
-		dockingAction.setSupportsDefaultToolContext(newValue);
+	public Class<? extends ActionContext> getContextClass() {
+		return dockingAction.getContextClass();
 	}
 
 	@Override
-	public boolean supportsDefaultToolContext() {
-		return dockingAction.supportsDefaultToolContext();
+	public boolean supportsDefaultContext() {
+		return dockingAction.supportsDefaultContext();
+	}
+
+	@Override
+	public void setContextClass(Class<? extends ActionContext> type,
+			boolean supportsDefaultContext) {
+		dockingAction.setContextClass(type, supportsDefaultContext);
 	}
 }

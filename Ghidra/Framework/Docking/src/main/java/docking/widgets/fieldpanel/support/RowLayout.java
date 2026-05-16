@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,6 +16,7 @@
 package docking.widgets.fieldpanel.support;
 
 import java.awt.*;
+import java.util.Arrays;
 
 import javax.swing.JComponent;
 
@@ -67,12 +68,25 @@ public class RowLayout implements Layout {
 	}
 
 	@Override
+	public int getWidth() {
+		int startX = fields[0].getStartX();
+		int rowWidth = startX;
+
+		for (int i = 0; i < fields.length; i++) {
+			Field field = fields[i];
+			int width = field.getWidth(); // layout manager width
+			rowWidth += width;
+		}
+		return rowWidth;
+	}
+
+	@Override
 	public int getCompressableWidth() {
 		//
 		// Can only compress the last field, as the rest are potentially part of a grid surrounded
 		// by other layouts
 		//
-		// Notes: we have to account for any offset for fields that are disabled and are in 
+		// Notes: we have to account for any offset for fields that are disabled and are in
 		//        the beginning of the row.
 		//
 		int startX = fields[0].getStartX();
@@ -93,6 +107,7 @@ public class RowLayout implements Layout {
 
 	/**
 	 * Returns the height above the baseline.
+	 * @return the height above the baseline.
 	 */
 	public int getHeightAbove() {
 		return heightAbove;
@@ -100,6 +115,7 @@ public class RowLayout implements Layout {
 
 	/**
 	 * Returns the height below the baseline.
+	 * @return the height below the baseline.
 	 */
 	public int getHeightBelow() {
 		return heightBelow;
@@ -107,6 +123,7 @@ public class RowLayout implements Layout {
 
 	/**
 	 * Returns the row number of this layout with respect to its containing layout.
+	 * @return the row number of this layout with respect to its containing layout.
 	 */
 	public int getRowID() {
 		return rowID;
@@ -180,8 +197,9 @@ public class RowLayout implements Layout {
 			gapIndex = fields.length;
 		}
 		int startX =
-			gapIndex == 0 ? rect.x : fields[gapIndex - 1].getStartX() +
-				fields[gapIndex - 1].getWidth();
+			gapIndex == 0 ? rect.x
+					: fields[gapIndex - 1].getStartX() +
+						fields[gapIndex - 1].getWidth();
 		int endX = gapIndex >= fields.length ? rect.x + rect.width : fields[gapIndex].getStartX();
 
 		if (startX < endX) {
@@ -197,11 +215,13 @@ public class RowLayout implements Layout {
 		if (index < 0) {
 			index = 0;
 		}
-
 		Field field = fields[index];
-
+		// y passed-in is 0-based; update y to be relative to our starting position, which is 
+		// the tallest field in this group of fields, using that field's height above its font
+		// baseline.
+		int offsetY = y - heightAbove;
 		cursorLoc.fieldNum = index;
-		cursorLoc.row = field.getRow(y - heightAbove);
+		cursorLoc.row = field.getRow(offsetY);
 		cursorLoc.col = field.getCol(cursorLoc.row, x);
 		return field.getX(cursorLoc.row, cursorLoc.col);
 	}
@@ -373,6 +393,9 @@ public class RowLayout implements Layout {
 	 * Finds the most appropriate field to place the cursor for the given horizontal
 	 * position.  If the position is between fields, first try to the left and if that
 	 * doesn't work, try to the right.
+	 * @param x the x coordinate relative to the field panel
+	 * @param y the y coordinate relative to the field panel
+	 * @return the index 
 	 */
 	int findAppropriateFieldIndex(int x, int y) {
 		y -= heightAbove;
@@ -397,33 +420,6 @@ public class RowLayout implements Layout {
 		// no matches
 		return -1;
 	}
-
-	/**
-	 * Draws the selection background for individual fields.
-	 */
-//    private void drawSelection(Graphics g,int startField, int endField) {
-//        int start = fields[startField].getStartX();
-//        int end = fields[endField].getStartX()+fields[endField].getWidth();
-//        int width = end-start;
-//        g.fillRect(start,0,width,heightAbove+heightBelow);
-//    }
-
-	/**
-	 * Draws the selection background for individual fields.
-	 */
-//    private void drawSelection(Graphics g, int startField, int endField,
-//                               int first, int last) {
-//        int start = fields[startField].getStartX();
-//        int end = fields[endField].getStartX()+fields[endField].getWidth();
-//        if (first != -1 && first < start) {
-//            start = first;
-//        }
-//        if (last != -1 && last > end) {
-//            end = last;
-//        }
-//        int width = end-start;
-//		g.fillRect(start,0,width,heightAbove+heightBelow);
-//    }
 
 	@Override
 	public int getPrimaryOffset() {
@@ -456,5 +452,16 @@ public class RowLayout implements Layout {
 	@Override
 	public int getEndRowFieldNum(int field2) {
 		return getNumFields();
+	}
+
+	@Override
+	public int getFieldIndex(int x, int y) {
+		int index = this.findAppropriateFieldIndex(x, y);
+		return index >= 0 ? index : 0;
+	}
+
+	@Override
+	public String toString() {
+		return Arrays.toString(fields);
 	}
 }

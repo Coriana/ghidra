@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,17 +15,14 @@
  */
 package ghidra.program.database.oldfunction;
 
+import db.DBHandle;
 import ghidra.program.database.map.AddressMap;
 import ghidra.program.database.util.SharedRangeMapDB;
 import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.address.AddressSetView;
 import ghidra.util.datastruct.IndexRange;
 import ghidra.util.datastruct.IndexRangeIterator;
-import db.DBHandle;
 
-/**
- * 
- */
 @SuppressWarnings("deprecation")
 class OldFunctionMapDB {
 
@@ -52,7 +48,8 @@ class OldFunctionMapDB {
 
 	/**
 	 * Get the address set which makes up a function.
-	 * @param functionKey
+	 * @param functionKey the function key
+	 * @return the addresses
 	 */
 	synchronized AddressSetView getBody(long functionKey) {
 		AddressSet body = new AddressSet();
@@ -81,7 +78,7 @@ class OldFunctionMapDB {
 //	}
 //
 //	/**
-//	 * Get all function keys whoose body contains the specified address.
+//	 * Get all function keys whose body contains the specified address.
 //	 * @param addr
 //	 * @return a LongField function key iterator.
 //	 */
@@ -89,9 +86,9 @@ class OldFunctionMapDB {
 //		long index = addrMap.getKey(addr, false);
 //		return rangeMap.getValueIterator(index, index);
 //	}
-//	
+//
 //	/**
-//	 * Get all function keys whoose body overlaps the specified address set.
+//	 * Get all function keys whose body overlaps the specified address set.
 //	 * @param set
 //	 * @return a LongField function key iterator.
 //	 */

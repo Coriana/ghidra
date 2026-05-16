@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,10 +17,9 @@ package ghidra.app.util.bin.format.macho.threadcommand;
 
 import java.io.IOException;
 
-import ghidra.app.util.bin.format.FactoryBundledWithBinaryReader;
+import ghidra.app.util.bin.BinaryReader;
 import ghidra.app.util.bin.format.macho.MachConstants;
 import ghidra.program.model.data.*;
-import ghidra.util.Conv;
 import ghidra.util.exception.DuplicateNameException;
 
 /**
@@ -46,21 +45,7 @@ public class ThreadStateX86_32 extends ThreadStateX86 {
 	public int fs;
 	public int gs;
 
-	static ThreadStateX86_32 createThreadStateX86_32(FactoryBundledWithBinaryReader reader)
-			throws IOException {
-		ThreadStateX86_32 threadStateX86_32 =
-			(ThreadStateX86_32) reader.getFactory().create(ThreadStateX86_32.class);
-		threadStateX86_32.initThreadStateX86_32(reader);
-		return threadStateX86_32;
-	}
-
-	/**
-	 * DO NOT USE THIS CONSTRUCTOR, USE create*(GenericFactory ...) FACTORY METHODS INSTEAD.
-	 */
-	public ThreadStateX86_32() {
-	}
-
-	private void initThreadStateX86_32(FactoryBundledWithBinaryReader reader) throws IOException {
+	ThreadStateX86_32(BinaryReader reader) throws IOException {
 		eax = reader.readNextInt();
 		ebx = reader.readNextInt();
 		ecx = reader.readNextInt();
@@ -81,7 +66,7 @@ public class ThreadStateX86_32 extends ThreadStateX86 {
 
     @Override
     public long getInstructionPointer() {
-		return Conv.intToLong(eip);
+		return Integer.toUnsignedLong(eip);
     }
 
 	@Override

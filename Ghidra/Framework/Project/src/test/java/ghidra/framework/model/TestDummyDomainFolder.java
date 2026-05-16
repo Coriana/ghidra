@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,11 +17,13 @@ package ghidra.framework.model;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.commons.lang3.StringUtils;
 
+import ghidra.framework.data.*;
 import ghidra.framework.store.FolderNotEmptyException;
 import ghidra.util.InvalidNameException;
 import ghidra.util.exception.CancelledException;
@@ -50,6 +52,16 @@ public class TestDummyDomainFolder implements DomainFolder {
 
 	@Override
 	public int compareTo(DomainFolder o) {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public boolean isSame(DomainFolder folder) {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public boolean isSameOrAncestor(DomainFolder folder) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -83,8 +95,18 @@ public class TestDummyDomainFolder implements DomainFolder {
 	}
 
 	@Override
-	public boolean isInWritableProject() {
+	public URL getSharedProjectURL() {
 		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public URL getLocalProjectURL() {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public boolean isInWritableProject() {
+		return parent != null ? parent.isInWritableProject() : false;
 	}
 
 	@Override
@@ -120,7 +142,14 @@ public class TestDummyDomainFolder implements DomainFolder {
 	@Override
 	public synchronized DomainFile createFile(String name, DomainObject obj, TaskMonitor monitor)
 			throws InvalidNameException, IOException, CancelledException {
-		DomainFile file = new TestDummyDomainFile(this, name);
+
+		String contentType = ContentHandler.UNKNOWN_CONTENT;
+		if (obj != null) {
+			ContentHandler<?> ch = DomainObjectAdapter.getContentHandler(obj);
+			contentType = ch.getContentType();
+		}
+
+		DomainFile file = new TestDummyDomainFile(this, name, contentType);
 		files.add(file);
 		return file;
 	}
@@ -132,9 +161,20 @@ public class TestDummyDomainFolder implements DomainFolder {
 	}
 
 	@Override
-	public synchronized DomainFolder createFolder(String name)
-			throws InvalidNameException, IOException {
-		DomainFolder folder = new TestDummyDomainFolder(this, name);
+	public DomainFile createLinkFile(ProjectData sourceProjectData, String pathname,
+			boolean makeRelative, String linkFilename, LinkHandler<?> lh) throws IOException {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public DomainFile createLinkFile(String ghidraUrl, String linkFilename, LinkHandler<?> lh)
+			throws IOException {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public synchronized TestDummyDomainFolder createFolder(String name) {
+		TestDummyDomainFolder folder = new TestDummyDomainFolder(this, name);
 		subFolders.add(folder);
 		return folder;
 	}
@@ -159,6 +199,11 @@ public class TestDummyDomainFolder implements DomainFolder {
 	@Override
 	public DomainFolder copyTo(DomainFolder newParent, TaskMonitor monitor)
 			throws IOException, CancelledException {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public DomainFile copyToAsLink(DomainFolder newParent, boolean relative) throws IOException {
 		throw new UnsupportedOperationException();
 	}
 

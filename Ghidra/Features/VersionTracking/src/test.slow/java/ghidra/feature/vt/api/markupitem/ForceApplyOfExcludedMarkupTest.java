@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -32,7 +32,7 @@ import ghidra.framework.options.ToolOptions;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.symbol.SourceType;
-import ghidra.util.task.TaskMonitorAdapter;
+import ghidra.util.task.TaskMonitor;
 
 public class ForceApplyOfExcludedMarkupTest extends AbstractFunctionSignatureMarkupTest {
 
@@ -164,36 +164,36 @@ public class ForceApplyOfExcludedMarkupTest extends AbstractFunctionSignatureMar
 
 	@Test
 	public void testForceApplyForExcludedPlateComment() throws Exception {
-		genericTestForceApplyForExcludedComment(PlateCommentMarkupType.class,
-			CodeUnit.PLATE_COMMENT, PLATE_COMMENT);
+		genericTestForceApplyForExcludedComment(PlateCommentMarkupType.class, CommentType.PLATE,
+			PLATE_COMMENT);
 	}
 
 	@Test
 	public void testForceApplyForExcludedPreComment() throws Exception {
-		genericTestForceApplyForExcludedComment(PreCommentMarkupType.class, CodeUnit.PRE_COMMENT,
+		genericTestForceApplyForExcludedComment(PreCommentMarkupType.class, CommentType.PRE,
 			PRE_COMMENT);
 	}
 
 	@Test
 	public void testForceApplyForExcludedEOLComment() throws Exception {
-		genericTestForceApplyForExcludedComment(EolCommentMarkupType.class, CodeUnit.EOL_COMMENT,
+		genericTestForceApplyForExcludedComment(EolCommentMarkupType.class, CommentType.EOL,
 			END_OF_LINE_COMMENT);
 	}
 
 	@Test
 	public void testForceApplyForExcludeRepeatableComment() throws Exception {
 		genericTestForceApplyForExcludedComment(RepeatableCommentMarkupType.class,
-			CodeUnit.REPEATABLE_COMMENT, REPEATABLE_COMMENT);
+			CommentType.REPEATABLE, REPEATABLE_COMMENT);
 	}
 
 	@Test
 	public void testForceApplyForExcludedPostComment() throws Exception {
-		genericTestForceApplyForExcludedComment(PostCommentMarkupType.class, CodeUnit.POST_COMMENT,
+		genericTestForceApplyForExcludedComment(PostCommentMarkupType.class, CommentType.POST,
 			POST_COMMENT);
 	}
 
 	private void genericTestForceApplyForExcludedComment(
-			Class<? extends CommentMarkupType> commentMarkupClass, int commentType,
+			Class<? extends CommentMarkupType> commentMarkupClass, CommentType commentType,
 			String vtOptionName) throws Exception {
 
 		useMatch("0x00411ab0", "0x00411a90");
@@ -230,7 +230,7 @@ public class ForceApplyOfExcludedMarkupTest extends AbstractFunctionSignatureMar
 
 	//----------------------------
 
-	protected void checkComments(final int commentType, final Address sourceAddr,
+	protected void checkComments(CommentType commentType, final Address sourceAddr,
 			final String expectedSourceComment, final Address destinationAddr,
 			final String expectedDestinationComment) {
 
@@ -274,7 +274,7 @@ public class ForceApplyOfExcludedMarkupTest extends AbstractFunctionSignatureMar
 	protected VTMarkupItem getFunctionNameMarkup(VTMatch match) {
 		MatchInfo matchInfo = controller.getMatchInfo(match);
 		Collection<VTMarkupItem> appliableMarkupItems =
-			matchInfo.getAppliableMarkupItems(TaskMonitorAdapter.DUMMY_MONITOR);
+			matchInfo.getAppliableMarkupItems(TaskMonitor.DUMMY);
 		for (VTMarkupItem vtMarkupItem : appliableMarkupItems) {
 			if (vtMarkupItem.getMarkupType() instanceof FunctionNameMarkupType) {
 				return vtMarkupItem;
@@ -283,7 +283,7 @@ public class ForceApplyOfExcludedMarkupTest extends AbstractFunctionSignatureMar
 		return null;
 	}
 
-	protected void checkCommentStatus(VTMatch match, int commentType,
+	protected void checkCommentStatus(VTMatch match, CommentType commentType,
 			VTMarkupItemStatus expectedStatus) {
 		VTMarkupItem markupItem = getCommentMarkup(match, commentType);
 		if (expectedStatus == null && markupItem == null) {
@@ -293,33 +293,33 @@ public class ForceApplyOfExcludedMarkupTest extends AbstractFunctionSignatureMar
 		checkMarkupStatus(markupItem, expectedStatus);
 	}
 
-	protected VTMarkupItem getCommentMarkup(VTMatch match, int commentType) {
+	protected VTMarkupItem getCommentMarkup(VTMatch match, CommentType commentType) {
 		MatchInfo matchInfo = controller.getMatchInfo(match);
 		Collection<VTMarkupItem> appliableMarkupItems =
-			matchInfo.getAppliableMarkupItems(TaskMonitorAdapter.DUMMY_MONITOR);
+			matchInfo.getAppliableMarkupItems(TaskMonitor.DUMMY);
 		for (VTMarkupItem vtMarkupItem : appliableMarkupItems) {
 			switch (commentType) {
-				case CodeUnit.PLATE_COMMENT:
+				case PLATE:
 					if (vtMarkupItem.getMarkupType() instanceof PlateCommentMarkupType) {
 						return vtMarkupItem;
 					}
 					continue;
-				case CodeUnit.PRE_COMMENT:
+				case PRE:
 					if (vtMarkupItem.getMarkupType() instanceof PreCommentMarkupType) {
 						return vtMarkupItem;
 					}
 					continue;
-				case CodeUnit.EOL_COMMENT:
+				case EOL:
 					if (vtMarkupItem.getMarkupType() instanceof EolCommentMarkupType) {
 						return vtMarkupItem;
 					}
 					continue;
-				case CodeUnit.REPEATABLE_COMMENT:
+				case REPEATABLE:
 					if (vtMarkupItem.getMarkupType() instanceof RepeatableCommentMarkupType) {
 						return vtMarkupItem;
 					}
 					continue;
-				case CodeUnit.POST_COMMENT:
+				case POST:
 					if (vtMarkupItem.getMarkupType() instanceof PostCommentMarkupType) {
 						return vtMarkupItem;
 					}
@@ -336,7 +336,8 @@ public class ForceApplyOfExcludedMarkupTest extends AbstractFunctionSignatureMar
 		waitOnPossibleBackgroundProcessing();
 	}
 
-	protected void setComment(Program program, Address address, int commentType, String comment) {
+	protected void setComment(Program program, Address address, CommentType commentType,
+			String comment) {
 		int transaction = -1;
 		try {
 			transaction = program.startTransaction("Test - Set Comment: " + address.toString(true));

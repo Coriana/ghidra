@@ -23,16 +23,18 @@ public class RegisterManager {
 
 	private List<Register> registers;
 	private Map<String, Register> registerNameMap = new HashMap<String, Register>(); // include aliases and case-variations
-	
+
 	private List<String> registerNames; // alphabetical sorted list, excludes aliases
 	private List<Register> contextRegisters;
 	private Register contextBaseRegister;
-	
+
 	private Map<RegisterSizeKey, Register> sizeMap = new HashMap<RegisterSizeKey, Register>();
 	private Map<Address, List<Register>> registerAddressMap =
 		new HashMap<Address, List<Register>>();
+	private AddressSet registerAddresses = new AddressSet();
+	private AddressSetView registerAddressesView = new AddressSetViewAdapter(registerAddresses);
 
-	/**List of vector registers, sorted first by size and then by offset**/
+	/** List of vector registers, sorted first by size and then by offset **/
 	private List<Register> sortedVectorRegisters;
 
 	class RegisterSizeKey {
@@ -80,10 +82,11 @@ public class RegisterManager {
 
 	/**
 	 * Construct RegisterManager
-	 * @param registers all defined registers with appropriate parent-child relationships
-	 * properly established.
-	 * @param registerNameMap a complete name-to-register map including all register aliases
-	 * and alternate spellings (e.g., case-variations)
+	 * 
+	 * @param registers all defined registers with appropriate parent-child relationships properly
+	 *            established.
+	 * @param registerNameMap a complete name-to-register map including all register aliases and
+	 *            alternate spellings (e.g., case-variations)
 	 */
 	RegisterManager(List<Register> registers, Map<String, Register> registerNameMap) {
 		this.registers = Collections.unmodifiableList(registers);
@@ -113,6 +116,7 @@ public class RegisterManager {
 				registerAddressMap.put(addr, list);
 			}
 			list.add(reg);
+			addRegisterAddresses(reg);
 			if (reg.isProcessorContext()) {
 				continue;
 			}
@@ -124,6 +128,10 @@ public class RegisterManager {
 				populateSizeMapLittleEndian(reg);
 			}
 		}
+		// if there is no context register, force a default one
+		if (contextBaseRegister == null) {
+			contextBaseRegister = Register.NO_CONTEXT;
+		}
 		// handle the register size 0 case;
 		Collections.reverse(registerListSortedBySize);
 		for (Register register : registerListSortedBySize) {
@@ -132,6 +140,11 @@ public class RegisterManager {
 		contextRegisters = Collections.unmodifiableList(contextRegisterList);
 		Collections.sort(registerNameList);
 		registerNames = Collections.unmodifiableList(registerNameList);
+	}
+
+	private void addRegisterAddresses(Register reg) {
+		Address min = reg.getAddress();
+		registerAddresses.add(min, min.add(reg.getNumBytes()-1));
 	}
 
 	private void populateSizeMapBigEndian(Register reg) {
@@ -151,6 +164,7 @@ public class RegisterManager {
 
 	/**
 	 * Get context base-register
+	 * 
 	 * @return context base register or null if one has not been defined by the language.
 	 */
 	public Register getContextBaseRegister() {
@@ -158,7 +172,9 @@ public class RegisterManager {
 	}
 
 	/**
-	 * Get unsorted unmodifiable list of all processor context registers (include base context register and children)
+	 * Get unsorted unmodifiable list of all processor context registers (include base context
+	 * register and children)
+	 * 
 	 * @return all processor context registers
 	 */
 	public List<Register> getContextRegisters() {
@@ -166,9 +182,8 @@ public class RegisterManager {
 	}
 
 	/**
-	 * Get an alphabetical sorted unmodifiable list of original register names 
-	 * (including context registers).  Names correspond to orignal register
-	 * name and not aliases which may be defined.
+	 * Get an alphabetical sorted unmodifiable list of original register names (including context
+	 * registers). Names correspond to orignal register name and not aliases which may be defined.
 	 * 
 	 * @return alphabetical sorted unmodifiable list of original register names.
 	 */
@@ -178,6 +193,7 @@ public class RegisterManager {
 
 	/**
 	 * Returns the largest register located at the specified address
+	 * 
 	 * @param addr register address
 	 * @return register or null if not found
 	 */
@@ -217,6 +233,7 @@ public class RegisterManager {
 
 	/**
 	 * Get register by address and size
+	 * 
 	 * @param addr register address
 	 * @param size register size
 	 * @return register or null if not found
@@ -230,9 +247,9 @@ public class RegisterManager {
 	}
 
 	/**
-	 * Get register by name.  A semi-case-insensitive lookup is performed.
-	 * The specified name must match either the case-sensitive name or
-	 * be entirely lowercase or uppercase.
+	 * Get register by name. A semi-case-insensitive lookup is performed. The specified name must
+	 * match either the case-sensitive name or be entirely lowercase or uppercase.
+	 * 
 	 * @param name register name
 	 * @return register or null if not found
 	 */
@@ -242,6 +259,7 @@ public class RegisterManager {
 
 	/**
 	 * Get all registers as an unsorted unmodifiable list.
+	 * 
 	 * @return unmodifiable list of all registers defined
 	 */
 	public List<Register> getRegisters() {
@@ -250,7 +268,8 @@ public class RegisterManager {
 
 	/**
 	 * Get an unmodifiable list of all vector registers indentified by the processor specification
-	 * in sorted order based upon address and size.  
+	 * in sorted order based upon address and size.
+	 * 
 	 * @return all vector registers as unmodifiable list
 	 */
 	public List<Register> getSortedVectorRegisters() {
@@ -268,14 +287,25 @@ public class RegisterManager {
 	}
 
 	/**
+	 * Get the set of addresses contained in registers
+	 * 
+	 * @return the address set
+	 */
+	public AddressSetView getRegisterAddresses() {
+		return registerAddressesView;
+	}
+
+	/**
 	 * Compares two vector registers, first by size (descending) and then by offset (ascending).
+	 * 
 	 * @param reg1 vector register
 	 * @param reg2 vector register
 	 * @return result of comparison
 	 */
 	private static int compareVectorRegisters(Register reg1, Register reg2) {
 		if (!(reg1.isVectorRegister() && reg2.isVectorRegister())) {
-			throw new IllegalArgumentException("compareVectorRegisters can only be applied to vector registers!");
+			throw new IllegalArgumentException(
+				"compareVectorRegisters can only be applied to vector registers!");
 		}
 		//want registers sorted in descending order of size
 		int sizeComp = Integer.compare(reg2.getBitLength(), reg1.getBitLength());

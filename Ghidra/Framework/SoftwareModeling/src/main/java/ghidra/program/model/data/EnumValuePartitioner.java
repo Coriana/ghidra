@@ -24,12 +24,12 @@ import java.util.*;
 public class EnumValuePartitioner {
 
 	private static void merge(List<BitGroup> list, BitGroup bitGroup) {
-		Iterator<BitGroup> iterator = list.iterator();
-		while (iterator.hasNext()) {
-			BitGroup next = iterator.next();
+		Iterator<BitGroup> it = list.iterator();
+		while (it.hasNext()) {
+			BitGroup next = it.next();
 			if (bitGroup.intersects(next)) {
 				bitGroup.merge(next);
-				iterator.remove();
+				it.remove();
 			}
 		}
 		list.add(bitGroup);
@@ -38,18 +38,23 @@ public class EnumValuePartitioner {
 	/**
 	 * Partition the given values into a list of non-intersecting BitGroups.
 	 * @param values the values to be partitioned.
+	 * @param size size of enum value in bytes
 	 * @return a list of BitGroups with non-intersecting bits.
 	 */
-	public static List<BitGroup> partition(long[] values) {
+	public static List<BitGroup> partition(long[] values, int size) {
 		List<BitGroup> list = new LinkedList<>();
-		long totalMask = 0;
+		long usedBits = 0;
 		for (long value : values) {
-			totalMask |= value;
+			usedBits |= value;
 			BitGroup bitGroup = new BitGroup(value);
 			merge(list, bitGroup);
 		}
+
 		// now create a BitGroup for all bits not accounted for
-		list.add(new BitGroup(~totalMask));
+		int bits = size * 8;
+		long allEnumBits = ~(-1L << bits);
+		long unusedBits = ~usedBits;
+		list.add(new BitGroup(unusedBits & allEnumBits));
 
 		return list;
 	}

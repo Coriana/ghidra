@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,13 +18,13 @@ package ghidra.app.util.bin.format.pe;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 
-import generic.continues.GenericFactory;
+import ghidra.app.util.bin.BinaryReader;
 import ghidra.app.util.bin.ByteProvider;
-import ghidra.app.util.bin.format.FactoryBundledWithBinaryReader;
 import ghidra.app.util.bin.format.mz.DOSHeader;
+import ghidra.app.util.importer.MessageLog;
 import ghidra.util.DataConverter;
 import ghidra.util.Msg;
-import ghidra.util.exception.NotYetImplementedException;
+import ghidra.util.task.TaskMonitor;
 
 /**
  * A class to manage loading Portable Executables (PE).
@@ -47,7 +47,7 @@ public class PortableExecutable {
 		MEMORY
 	}
 
-	private FactoryBundledWithBinaryReader reader;
+	private BinaryReader reader;
 	private DOSHeader dosHeader;
 	private RichHeader richHeader;
 	private NTHeader ntHeader;
@@ -58,63 +58,43 @@ public class PortableExecutable {
 	 * Constructs a new Portable Executable using the specified byte provider and layout.
 	 *  <p>
 	 * Same as calling <code>createFileAlignedPortableExecutable(factory, bp, layout, true, false)</code>
-	 * @param factory generic factory instance
 	 * @param bp the byte provider
 	 * @param layout specifies the layout of the underlying provider and governs RVA resolution
 	 * @throws IOException if an I/O error occurs.
-	 * @see #createPortableExecutable(GenericFactory, ByteProvider, SectionLayout, boolean, boolean)
+	 * @see #PortableExecutable(ByteProvider, SectionLayout, boolean, boolean)
 	 **/
-	public static PortableExecutable createPortableExecutable(GenericFactory factory,
-			ByteProvider bp, SectionLayout layout) throws IOException {
-		return createPortableExecutable(factory, bp, layout, true, false);
+	public PortableExecutable(ByteProvider bp, SectionLayout layout) throws IOException {
+		this(bp, layout, true, false);
 	}
 
 	/**
 	 * Constructs a new Portable Executable using the specified byte provider and layout.
-	 * @param factory generic factory instance
 	 * @param bp the byte provider
 	 * @param layout specifies the layout of the underlying provider and governs RVA resolution
 	 * @param advancedProcess if true, the data directories are also processed
 	 * @param parseCliHeaders if true, CLI headers are parsed (if present)
 	 * @throws IOException if an I/O error occurs.
 	 */
-	public static PortableExecutable createPortableExecutable(GenericFactory factory,
-			ByteProvider bp, SectionLayout layout, boolean advancedProcess, boolean parseCliHeaders)
-			throws IOException {
-		PortableExecutable portableExecutable =
-			(PortableExecutable) factory.create(PortableExecutable.class);
-		portableExecutable.initPortableExecutable(factory, bp, layout, advancedProcess,
-			parseCliHeaders);
-		return portableExecutable;
-	}
+	public PortableExecutable(ByteProvider bp, SectionLayout layout, boolean advancedProcess,
+			boolean parseCliHeaders) throws IOException {
+		reader = new BinaryReader(bp, true);
 
-	/**
-	 * DO NOT USE THIS CONSTRUCTOR, USE create*(GenericFactory ...) FACTORY METHODS INSTEAD.
-	 */
-	public PortableExecutable() {
-	}
-
-	private void initPortableExecutable(GenericFactory factory, ByteProvider bp,
-			SectionLayout layout, boolean advancedProcess, boolean parseCliHeaders)
-			throws IOException {
-		reader = new FactoryBundledWithBinaryReader(factory, bp, true);
-
-		dosHeader = DOSHeader.createDOSHeader(reader);
+		dosHeader = new DOSHeader(reader);
 		if (dosHeader.isDosSignature()) {
-			richHeader = RichHeader.createRichHeader(reader);
+			richHeader = new RichHeader(reader);
 			if (richHeader.getSize() > 0) {
 				dosHeader.decrementStub(richHeader.getOffset());
 			}
 
 			try {
-				ntHeader = NTHeader.createNTHeader(reader, dosHeader.e_lfanew(), layout,
-					advancedProcess, parseCliHeaders);
+				ntHeader = new NTHeader(reader, dosHeader.e_lfanew(), layout, parseCliHeaders);
+				if (advancedProcess) {
+					ntHeader.getOptionalHeader()
+							.processDataDirectories(new MessageLog(), TaskMonitor.DUMMY);
+				}
 			}
 			catch (InvalidNTHeaderException e) {
 				Msg.debug(this, "Expected InvalidNTHeaderException, ignoring");
-			}
-			catch (NotYetImplementedException e) {
-				Msg.debug(this, "Expected NotYetImplementedException, ignoring");
 			}
 			catch (ArrayIndexOutOfBoundsException e) {
 				Msg.error(this, "Unexpected Exception: " + e.getMessage(), e);
@@ -192,14 +172,6 @@ public class PortableExecutable {
 	}
 	
 	public long getFileLength() {
-		if (reader != null) {
-			try {
-				return reader.length();
-			} catch (IOException e) {
-				// IGNORE
-				return  0;
-			}
-		}
-		return  0;
+		return reader != null ? reader.length() : 0;
 	}
 }

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,13 +17,13 @@ package ghidra.program.database.code;
 
 import static org.junit.Assert.*;
 
-import java.awt.Color;
 import java.math.BigInteger;
 import java.util.Iterator;
 
 import org.junit.*;
 
 import generic.test.AbstractGenericTest;
+import generic.theme.GThemeDefaults.Colors.Palette;
 import ghidra.program.database.ProgramDB;
 import ghidra.program.model.address.*;
 import ghidra.program.model.data.*;
@@ -37,6 +37,7 @@ import ghidra.program.model.util.CodeUnitInsertionException;
 import ghidra.program.model.util.PropertyMap;
 import ghidra.test.ToyProgramBuilder;
 import ghidra.util.Lock;
+import ghidra.util.Lock.Closeable;
 import ghidra.util.SaveableColor;
 import ghidra.util.exception.NoValueException;
 import ghidra.util.task.TaskMonitor;
@@ -174,14 +175,14 @@ public class CodeManagerTest extends AbstractGenericTest {
 		parseStatic(addr(0x2000), addr(0x2003));
 
 		CodeUnit cu = listing.getCodeUnitAt(addr(0x2000));
-		cu.setComment(CodeUnit.EOL_COMMENT, "eol comment");
-		cu.setComment(CodeUnit.PLATE_COMMENT, "plate comment");
+		cu.setComment(CommentType.EOL, "eol comment");
+		cu.setComment(CommentType.PLATE, "plate comment");
 
 		cu = listing.getCodeUnitAt(addr(0x2000));
-		String comment = cu.getComment(CodeUnit.EOL_COMMENT);
+		String comment = cu.getComment(CommentType.EOL);
 		assertNotNull(comment);
 		assertEquals("eol comment", comment);
-		comment = cu.getComment(CodeUnit.PLATE_COMMENT);
+		comment = cu.getComment(CommentType.PLATE);
 		assertNotNull(comment);
 		assertEquals("plate comment", comment);
 	}
@@ -364,30 +365,30 @@ public class CodeManagerTest extends AbstractGenericTest {
 		InstructionIterator iter = listing.getInstructions(true);
 		while (iter.hasNext()) {
 			Instruction inst = iter.next();
-			inst.setComment(CodeUnit.PRE_COMMENT, "pre comment");
-			inst.setComment(CodeUnit.EOL_COMMENT, "eol comment");
+			inst.setComment(CommentType.PRE, "pre comment");
+			inst.setComment(CommentType.EOL, "eol comment");
 
-			assertEquals("pre comment", inst.getComment(CodeUnit.PRE_COMMENT));
-			assertEquals("eol comment", inst.getComment(CodeUnit.EOL_COMMENT));
+			assertEquals("pre comment", inst.getComment(CommentType.PRE));
+			assertEquals("eol comment", inst.getComment(CommentType.EOL));
 		}
 
 		Instruction inst = listing.getInstructionAt(addr(0x2000));
-		assertEquals("pre comment", inst.getComment(CodeUnit.PRE_COMMENT));
-		assertEquals("eol comment", inst.getComment(CodeUnit.EOL_COMMENT));
+		assertEquals("pre comment", inst.getComment(CommentType.PRE));
+		assertEquals("eol comment", inst.getComment(CommentType.EOL));
 
 		listing.clearComments(addr(0x2000), addr(0x2100));
 
 		inst = listing.getInstructionAfter(addr(0x2000));
-		assertNull(inst.getComment(CodeUnit.PRE_COMMENT));
-		assertNull(inst.getComment(CodeUnit.EOL_COMMENT));
+		assertNull(inst.getComment(CommentType.PRE));
+		assertNull(inst.getComment(CommentType.EOL));
 
 		inst = listing.getInstructionAt(addr(0x2000));
-		assertNull(inst.getComment(CodeUnit.PRE_COMMENT));
-		assertNull(inst.getComment(CodeUnit.EOL_COMMENT));
+		assertNull(inst.getComment(CommentType.PRE));
+		assertNull(inst.getComment(CommentType.EOL));
 
 		inst = listing.getInstructionBefore(addr(0x2000));
-		assertEquals("pre comment", inst.getComment(CodeUnit.PRE_COMMENT));
-		assertEquals("eol comment", inst.getComment(CodeUnit.EOL_COMMENT));
+		assertEquals("pre comment", inst.getComment(CommentType.PRE));
+		assertEquals("eol comment", inst.getComment(CommentType.EOL));
 	}
 
 	@Test
@@ -470,10 +471,10 @@ public class CodeManagerTest extends AbstractGenericTest {
 		Instruction inst = listing.getInstructionAt(addr(0x1100));
 		inst.setProperty("Numbers", 12);
 
-		PropertyMap map = listing.getPropertyMap("Numbers");
+		PropertyMap<?> map = listing.getPropertyMap("Numbers");
 		assertNotNull(map);
 
-		inst.setProperty("FavoriteColor", new SaveableColor(Color.RED));
+		inst.setProperty("FavoriteColor", new SaveableColor(Palette.RED));
 
 		map = listing.getPropertyMap("FavoriteColor");
 		assertNotNull(map);
@@ -487,10 +488,10 @@ public class CodeManagerTest extends AbstractGenericTest {
 		inst.setProperty("Numbers", 12);
 		assertEquals(12, inst.getIntProperty("Numbers"));
 
-		inst.setProperty("FavoriteColor", new SaveableColor(Color.RED));
+		inst.setProperty("FavoriteColor", new SaveableColor(Palette.RED));
 		SaveableColor c = (SaveableColor) inst.getObjectProperty("FavoriteColor");
 		assertNotNull(c);
-		assertEquals(Color.RED, c.getColor());
+		assertEquals(Palette.RED.getRGB(), c.getColor().getRGB());
 
 		Iterator<String> iter = listing.getUserDefinedProperties();
 		String name1 = iter.next();
@@ -516,7 +517,7 @@ public class CodeManagerTest extends AbstractGenericTest {
 			// expected
 		}
 
-		inst.setProperty("FavoriteColor", new SaveableColor(Color.RED));
+		inst.setProperty("FavoriteColor", new SaveableColor(Palette.RED));
 		SaveableColor c = (SaveableColor) inst.getObjectProperty("FavoriteColor");
 		assertNotNull(c);
 		listing.removeUserDefinedProperty("FavoriteColor");
@@ -536,14 +537,14 @@ public class CodeManagerTest extends AbstractGenericTest {
 		parseStatic(addr(0x1100), addr(0x1200));
 		MemoryBlock block = mem.getBlock(addr(0x1000));
 		CodeUnit cu = listing.getCodeUnitContaining(block.getEnd());
-		cu.setComment(CodeUnit.EOL_COMMENT, "eol comment");
+		cu.setComment(CommentType.EOL, "eol comment");
 		Address oldMin = cu.getMinAddress();
 		Address expectedNewMin = oldMin.addNoWrap(0x8000 - 0x1000);
 
 		cu.setProperty("Numbers", 12);
 		assertEquals(12, cu.getIntProperty("Numbers"));
 
-		cu.setProperty("FavoriteColor", new SaveableColor(Color.RED));
+		cu.setProperty("FavoriteColor", new SaveableColor(Palette.RED));
 		SaveableColor c = (SaveableColor) cu.getObjectProperty("FavoriteColor");
 
 		mem.moveBlock(block, addr(0x8000), new TaskMonitorAdapter());
@@ -552,7 +553,7 @@ public class CodeManagerTest extends AbstractGenericTest {
 
 		cu = listing.getCodeUnitContaining(block.getEnd());
 		assertEquals(expectedNewMin, cu.getMinAddress());
-		assertNotNull(cu.getComment(CodeUnit.EOL_COMMENT));
+		assertNotNull(cu.getComment(CommentType.EOL));
 
 		assertEquals(12, cu.getIntProperty("Numbers"));
 		c = (SaveableColor) cu.getObjectProperty("FavoriteColor");
@@ -576,32 +577,32 @@ public class CodeManagerTest extends AbstractGenericTest {
 	public void testCompositeDataComments() throws Exception {
 
 		CodeUnit cu = listing.getCodeUnitAt(addr(0x1741));
-		cu.setComment(CodeUnit.EOL_COMMENT, "eol comment");
-		cu.setComment(CodeUnit.PLATE_COMMENT, "plate comment");
-		cu.setComment(CodeUnit.POST_COMMENT, "post comment");
-		cu.setComment(CodeUnit.PRE_COMMENT, "pre comment");
+		cu.setComment(CommentType.EOL, "eol comment");
+		cu.setComment(CommentType.PLATE, "plate comment");
+		cu.setComment(CommentType.POST, "post comment");
+		cu.setComment(CommentType.PRE, "pre comment");
 
 		Structure struct = new StructureDataType("struct_1", 0);
 		struct.add(DWordDataType.dataType);
 		struct.add(DWordDataType.dataType);
 
 		Data structData = listing.createData(addr(0x1741), struct, struct.getLength());
-		assertEquals("eol comment", structData.getComment(CodeUnit.EOL_COMMENT));
-		assertEquals("plate comment", structData.getComment(CodeUnit.PLATE_COMMENT));
-		assertEquals("post comment", structData.getComment(CodeUnit.POST_COMMENT));
-		assertEquals("pre comment", structData.getComment(CodeUnit.PRE_COMMENT));
+		assertEquals("eol comment", structData.getComment(CommentType.EOL));
+		assertEquals("plate comment", structData.getComment(CommentType.PLATE));
+		assertEquals("post comment", structData.getComment(CommentType.POST));
+		assertEquals("pre comment", structData.getComment(CommentType.PRE));
 
 		Data firstComp = structData.getComponent(0);
-		assertEquals("eol comment", firstComp.getComment(CodeUnit.EOL_COMMENT));
-		assertEquals("plate comment", firstComp.getComment(CodeUnit.PLATE_COMMENT));
-		assertEquals("post comment", firstComp.getComment(CodeUnit.POST_COMMENT));
-		assertEquals("pre comment", firstComp.getComment(CodeUnit.PRE_COMMENT));
+		assertEquals("eol comment", firstComp.getComment(CommentType.EOL));
+		assertEquals("plate comment", firstComp.getComment(CommentType.PLATE));
+		assertEquals("post comment", firstComp.getComment(CommentType.POST));
+		assertEquals("pre comment", firstComp.getComment(CommentType.PRE));
 
-		structData.setComment(CodeUnit.EOL_COMMENT, "EOL");
-		assertEquals("EOL", firstComp.getComment(CodeUnit.EOL_COMMENT));
+		structData.setComment(CommentType.EOL, "EOL");
+		assertEquals("EOL", firstComp.getComment(CommentType.EOL));
 
-		firstComp.setComment(CodeUnit.POST_COMMENT, "POST");
-		assertEquals("POST", structData.getComment(CodeUnit.POST_COMMENT));
+		firstComp.setComment(CommentType.POST, "POST");
+		assertEquals("POST", structData.getComment(CommentType.POST));
 	}
 
 	@Test
@@ -673,8 +674,7 @@ public class CodeManagerTest extends AbstractGenericTest {
 
 	@Test
 	public void testGetDataContaining() throws Exception {
-		mem.createInitializedBlock("test", addr(0x0), 100, (byte) 0,
-			TaskMonitorAdapter.DUMMY_MONITOR, false);
+		mem.createInitializedBlock("test", addr(0x0), 100, (byte) 0, TaskMonitor.DUMMY, false);
 
 		StringDataType s = new StringDataType();
 		listing.createData(addr(0x0), s, 10);
@@ -716,8 +716,7 @@ public class CodeManagerTest extends AbstractGenericTest {
 
 	@Test
 	public void testGetDataBefore() throws Exception {
-		mem.createInitializedBlock("test", addr(0x0), 200, (byte) 0,
-			TaskMonitorAdapter.DUMMY_MONITOR, false);
+		mem.createInitializedBlock("test", addr(0x0), 200, (byte) 0, TaskMonitor.DUMMY, false);
 
 		StringDataType s = new StringDataType();
 		listing.createData(addr(0x0), s, 10);
@@ -738,8 +737,7 @@ public class CodeManagerTest extends AbstractGenericTest {
 
 	@Test
 	public void testGetDataBefore2() throws Exception {
-		mem.createInitializedBlock("test", addr(0x0), 200, (byte) 0,
-			TaskMonitorAdapter.DUMMY_MONITOR, false);
+		mem.createInitializedBlock("test", addr(0x0), 200, (byte) 0, TaskMonitor.DUMMY, false);
 
 		StringDataType s = new StringDataType();
 		listing.createData(addr(0x0), s, 0x10);
@@ -825,70 +823,67 @@ public class CodeManagerTest extends AbstractGenericTest {
 
 	@Test
 	public void testGetUndefinedDataAfter() throws Exception {
-		mem.createInitializedBlock("bk1", addr(0x0), 0x200, (byte) 0,
-			TaskMonitorAdapter.DUMMY_MONITOR, false);
+		mem.createInitializedBlock("bk1", addr(0x0), 0x200, (byte) 0, TaskMonitor.DUMMY, false);
 		parseStatic(addr(0x1100), addr(0x1500));
 		Instruction inst = listing.getInstructionContaining(addr(0x1500));
 
-		Data data = listing.getUndefinedDataAfter(addr(0x100), TaskMonitorAdapter.DUMMY_MONITOR);
+		Data data = listing.getUndefinedDataAfter(addr(0x100), TaskMonitor.DUMMY);
 		assertNotNull(data);
 		assertEquals(addr(0x101), data.getMinAddress());
 
-		data = listing.getUndefinedDataAfter(addr(0x1499), TaskMonitorAdapter.DUMMY_MONITOR);
+		data = listing.getUndefinedDataAfter(addr(0x1499), TaskMonitor.DUMMY);
 		assertNotNull(data);
 		Address expectedAddr = inst.getMaxAddress().addNoWrap(1);
 		assertEquals(expectedAddr, data.getMinAddress());
 
-		data = listing.getUndefinedDataAfter(expectedAddr, TaskMonitorAdapter.DUMMY_MONITOR);
+		data = listing.getUndefinedDataAfter(expectedAddr, TaskMonitor.DUMMY);
 		assertNotNull(data);
 		assertEquals(expectedAddr.addNoWrap(1), data.getMinAddress());
 
 		parseStatic(addr(0x1700), addr(0x1705));
 		inst = listing.getInstructionContaining(addr(0x1705));
-		data = listing.getUndefinedDataAfter(addr(0x16ff), TaskMonitorAdapter.DUMMY_MONITOR);
+		data = listing.getUndefinedDataAfter(addr(0x16ff), TaskMonitor.DUMMY);
 		expectedAddr = inst.getMaxAddress().next();
 		assertEquals(expectedAddr, data.getMinAddress());
 
 		listing.clearCodeUnits(addr(0x1390), addr(0x1400), false);
-		data = listing.getUndefinedDataAfter(addr(0x1300), TaskMonitorAdapter.DUMMY_MONITOR);
+		data = listing.getUndefinedDataAfter(addr(0x1300), TaskMonitor.DUMMY);
 		assertNotNull(data);
 		assertEquals(addr(0x1390), data.getMinAddress());
 	}
 
 	@Test
 	public void testGetFirstUndefinedData() throws Exception {
-		mem.createInitializedBlock("bk1", addr(0x0), 0x200, (byte) 0,
-			TaskMonitorAdapter.DUMMY_MONITOR, false);
+		mem.createInitializedBlock("bk1", addr(0x0), 0x200, (byte) 0, TaskMonitor.DUMMY, false);
 		parseStatic(addr(0x1100), addr(0x1500));
 		Instruction inst = listing.getInstructionContaining(addr(0x1500));
 
 		Data data = listing.getFirstUndefinedData(new AddressSet(addr(0x101), addr(0x500)),
-			TaskMonitorAdapter.DUMMY_MONITOR);
+			TaskMonitor.DUMMY);
 		assertNotNull(data);
 		assertEquals(addr(0x101), data.getMinAddress());
 
 		data = listing.getFirstUndefinedData(new AddressSet(addr(0x1500), addr(0x2000)),
-			TaskMonitorAdapter.DUMMY_MONITOR);
+			TaskMonitor.DUMMY);
 		assertNotNull(data);
 		Address expectedAddr = inst.getMaxAddress().addNoWrap(1);
 		assertEquals(expectedAddr, data.getMinAddress());
 
 		data = listing.getFirstUndefinedData(
-			new AddressSet(expectedAddr.add(1), expectedAddr.add(500)),
-			TaskMonitorAdapter.DUMMY_MONITOR);
+			new AddressSet(expectedAddr.add(1), expectedAddr.add(500)), TaskMonitor.DUMMY);
 		assertNotNull(data);
 		assertEquals(expectedAddr.addNoWrap(1), data.getMinAddress());
 
 		parseStatic(addr(0x1700), addr(0x1705));
 		inst = listing.getInstructionContaining(addr(0x1705));
 		data = listing.getFirstUndefinedData(new AddressSet(addr(0x1700), addr(0x5000)),
-			TaskMonitorAdapter.DUMMY_MONITOR);
+			TaskMonitor.DUMMY);
 		expectedAddr = inst.getMaxAddress().addNoWrap(1);
 		assertEquals(expectedAddr, data.getMinAddress());
 
 		listing.clearCodeUnits(addr(0x1390), addr(0x1400), false);
 		data = listing.getFirstUndefinedData(new AddressSet(addr(0x1300), addr(0x5000)),
-			TaskMonitorAdapter.DUMMY_MONITOR);
+			TaskMonitor.DUMMY);
 		assertNotNull(data);
 		assertEquals(addr(0x1390), data.getMinAddress());
 	}
@@ -897,20 +892,19 @@ public class CodeManagerTest extends AbstractGenericTest {
 	public void testGetUndefinedDataBefore() throws Exception {
 		parseStatic(addr(0x1100), addr(0x1500));
 
-		Data data = listing.getUndefinedDataBefore(addr(0x1400), TaskMonitorAdapter.DUMMY_MONITOR);
+		Data data = listing.getUndefinedDataBefore(addr(0x1400), TaskMonitor.DUMMY);
 		assertNotNull(data);
 		assertEquals(addr(0x10ff), data.getMinAddress());
 
 		listing.clearCodeUnits(addr(0x1495), addr(0x1500), false);
-		data = listing.getUndefinedDataBefore(addr(0x1600), TaskMonitorAdapter.DUMMY_MONITOR);
+		data = listing.getUndefinedDataBefore(addr(0x1600), TaskMonitor.DUMMY);
 		assertNotNull(data);
 		assertEquals(addr(0x15ff), data.getMinAddress());
 	}
 
 	@Test
 	public void testClearProperties() throws Exception {
-		mem.createInitializedBlock("bk1", addr(0x0), 0x200, (byte) 0,
-			TaskMonitorAdapter.DUMMY_MONITOR, false);
+		mem.createInitializedBlock("bk1", addr(0x0), 0x200, (byte) 0, TaskMonitor.DUMMY, false);
 		// addresses 10-19
 		for (int i = 0; i < 20; i++) {
 			CodeUnit cu = listing.getCodeUnitAt(addr(i + 10));
@@ -923,7 +917,7 @@ public class CodeManagerTest extends AbstractGenericTest {
 			cu.setProperty("Name", "codeUnit_" + i);
 			assertNotNull(cu.getStringProperty("Name"));
 		}
-		listing.clearProperties(addr(0x0), addr(0x15), TaskMonitorAdapter.DUMMY_MONITOR);
+		listing.clearProperties(addr(0x0), addr(0x15), TaskMonitor.DUMMY);
 		CodeUnit cu = listing.getCodeUnitAt(addr(0x10));
 		try {
 			cu.getIntProperty("Numbers");
@@ -936,7 +930,7 @@ public class CodeManagerTest extends AbstractGenericTest {
 		cu = listing.getCodeUnitAt(addr(0x18));
 		cu.getIntProperty("Numbers");
 
-		listing.clearProperties(addr(0x16), addr(0x200), TaskMonitorAdapter.DUMMY_MONITOR);
+		listing.clearProperties(addr(0x16), addr(0x200), TaskMonitor.DUMMY);
 		cu = listing.getCodeUnitAt(addr(0x16));
 		try {
 			cu.getIntProperty("Numbers");
@@ -957,7 +951,7 @@ public class CodeManagerTest extends AbstractGenericTest {
 		parseStatic(addr(0x1500), addr(0x1600));
 
 		assertNotNull(listing.getInstructionAt(addr(0x1500)));
-		listing.clearAll(false, TaskMonitorAdapter.DUMMY_MONITOR);
+		listing.clearAll(false, TaskMonitor.DUMMY);
 
 		assertNull(listing.getInstructionAt(addr(0x1500)));
 		assertEquals(0, listing.getNumInstructions());
@@ -974,16 +968,16 @@ public class CodeManagerTest extends AbstractGenericTest {
 		// to 1-msec to avoid testing delays.
 
 		CodeUnit cu = listing.getCodeUnitAt(addr(0x1000));
-		cu.setComment(CodeUnit.EOL_COMMENT, "This is comment 1");
+		cu.setComment(CommentType.EOL, "This is comment 1");
 
 		Thread.sleep(1);// force a new date to get used
-		cu.setComment(CodeUnit.EOL_COMMENT, "This is a changed comment 2");
+		cu.setComment(CommentType.EOL, "This is a changed comment 2");
 
 		Thread.sleep(1);// force a new date to get used
-		cu.setComment(CodeUnit.EOL_COMMENT, "This is a changed comment 3");
+		cu.setComment(CommentType.EOL, "This is a changed comment 3");
 
 		CodeManager cm = ((ProgramDB) program).getCodeManager();
-		CommentHistory[] history = cm.getCommentHistory(addr(0x1000), CodeUnit.EOL_COMMENT);
+		CommentHistory[] history = cm.getCommentHistory(addr(0x1000), CommentType.EOL);
 		assertEquals(3, history.length);
 		assertEquals("This is a changed comment 3", history[0].getComments());
 		assertEquals("This is a changed comment 2", history[1].getComments());
@@ -999,8 +993,7 @@ public class CodeManagerTest extends AbstractGenericTest {
 		ProgramDB pdb = (ProgramDB) program;
 		Lock lock = pdb.getLock();
 
-		lock.acquire();
-		try {
+		try (Closeable c = lock.write()) {
 
 			Instruction instructionAt = pdb.getListing().getInstructionAt(addr(0x2000));
 			assertEquals(FlowOverride.NONE, instructionAt.getFlowOverride());
@@ -1014,9 +1007,6 @@ public class CodeManagerTest extends AbstractGenericTest {
 			instructionAt = pdb.getListing().getInstructionAt(addr(0x2000));
 			assertEquals(FlowOverride.CALL, instructionAt.getFlowOverride());
 		}
-		finally {
-			lock.release();
-		}
 	}
 
 	@Test
@@ -1027,9 +1017,7 @@ public class CodeManagerTest extends AbstractGenericTest {
 		ProgramDB pdb = (ProgramDB) program;
 		Lock lock = pdb.getLock();
 
-		lock.acquire();
-		try {
-
+		try (Closeable c = lock.write()) {
 			Instruction instructionAt = pdb.getListing().getInstructionAt(addr(0x2000));
 			assertEquals(FlowOverride.NONE, instructionAt.getFlowOverride());
 
@@ -1037,9 +1025,6 @@ public class CodeManagerTest extends AbstractGenericTest {
 
 			instructionAt = pdb.getListing().getInstructionAt(addr(0x2002));
 			assertEquals(null, instructionAt);
-		}
-		finally {
-			lock.release();
 		}
 	}
 
@@ -1063,7 +1048,7 @@ public class CodeManagerTest extends AbstractGenericTest {
 		MemBuffer buf = new DumbMemBufferImpl(mem, atAddr);
 		ProcessorContext context = new ProgramProcessorContext(program.getProgramContext(), atAddr);
 		InstructionPrototype proto = program.getLanguage().parse(buf, context, false);
-		listing.createInstruction(atAddr, proto, buf, context);
+		listing.createInstruction(atAddr, proto, buf, context, 0);
 
 	}
 }

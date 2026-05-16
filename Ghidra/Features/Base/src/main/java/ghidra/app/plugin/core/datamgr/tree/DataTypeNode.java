@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -40,6 +40,8 @@ public class DataTypeNode extends DataTypeTreeNode {
 	private boolean useHighlight = false;
 
 	private String toolTipText;
+	// records the root node's mod count at the last time we computed the tooltip text.
+	private long lastModCount;
 
 	public DataTypeNode(DataType dataType) {
 		this.dataType = dataType;
@@ -49,8 +51,9 @@ public class DataTypeNode extends DataTypeTreeNode {
 
 	@Override
 	public int compareTo(GTreeNode node) {
-		if (node instanceof DataTypeNode) {
-			return super.compareTo(node);
+		if (node instanceof DataTypeNode other) {
+			return DataTypeNameComparator.INSTANCE.compare(dataType.getName(),
+				other.dataType.getName());
 		}
 
 		return 1; // DataTypeNodes always come after ****everything else****
@@ -68,8 +71,14 @@ public class DataTypeNode extends DataTypeTreeNode {
 		if (getClass() != o.getClass()) {
 			return false;
 		}
+
 		DataTypeNode otherNode = (DataTypeNode) o;
-		return dataType.equals(otherNode.dataType) && name.equals(otherNode.name);
+		CategoryPath otherPath = otherNode.getDataType().getCategoryPath();
+		CategoryPath path = dataType.getCategoryPath();
+		if (!path.equals(otherPath)) {
+			return false;
+		}
+		return name.equals(otherNode.name);
 	}
 
 	@Override
@@ -100,15 +109,28 @@ public class DataTypeNode extends DataTypeTreeNode {
 
 	@Override
 	public String getToolTip() {
+		if (archiveChanged()) {
+			toolTipText = null;
+		}
+
 		if (toolTipText == null) {
-			// HACK: SCR 4122 - TypeDefs currently have no way of knowing when the underlying
-			//                  datatype changes and thus cannot update the tooltip cache
-			if (dataType instanceof TypeDef) {
-				return ToolTipUtils.getToolTipText(dataType);
-			}
 			toolTipText = ToolTipUtils.getToolTipText(dataType);
 		}
+
 		return toolTipText;
+	}
+
+	private boolean archiveChanged() {
+		GTreeNode root = getRoot();
+		if (root instanceof ArchiveRootNode archiveRootNode) {
+			long modCount = archiveRootNode.getModificationCount();
+			if (lastModCount == modCount) {
+				return false;
+			}
+			lastModCount = modCount;
+			return true;
+		}
+		return false;
 	}
 
 	@Override
@@ -128,7 +150,7 @@ public class DataTypeNode extends DataTypeTreeNode {
 			return;
 		}
 
-		int transactionID = dataType.getDataTypeManager().startTransaction("rename");
+		int transactionID = dataType.getDataTypeManager().startTransaction("Rename DataType");
 
 		try {
 			dataType.setName(newName);
@@ -157,6 +179,7 @@ public class DataTypeNode extends DataTypeTreeNode {
 	/**
 	 * Returns true if this dataType node uses and editor that is different than Java's default
 	 * editor.
+	 * 
 	 * @return true if this dataType node has a custom editor.
 	 */
 	public boolean hasCustomEditor() {
@@ -189,7 +212,7 @@ public class DataTypeNode extends DataTypeTreeNode {
 	@Override
 	public void setNodeCut(boolean isCut) {
 		this.isCut = isCut;
-		fireNodeChanged(getParent(), this);
+		fireNodeChanged();
 	}
 
 	@Override
@@ -199,11 +222,7 @@ public class DataTypeNode extends DataTypeTreeNode {
 
 	@Override
 	public boolean canPaste(List<GTreeNode> pastedNodes) {
-		if (pastedNodes.size() != 1) {
-			return false;
-		}
-		GTreeNode pastedNode = pastedNodes.get(0);
-		return pastedNode instanceof DataTypeNode;
+		return isModifiable();
 	}
 
 	@Override
@@ -233,12 +252,12 @@ public class DataTypeNode extends DataTypeTreeNode {
 	}
 
 	public void dataTypeStatusChanged() {
-		fireNodeChanged(getParent(), this);
+		fireNodeChanged();
 	}
 
 	public void dataTypeChanged() {
 		toolTipText = null;
-		fireNodeChanged(getParent(), this);
+		fireNodeChanged();
 		GTree tree = getTree();
 		if (tree != null) {
 			tree.repaint(); // need to repaint in case related datatypes changes mod status.
@@ -247,12 +266,12 @@ public class DataTypeNode extends DataTypeTreeNode {
 
 	@Override
 	public String getDisplayText() {
-		// note: we have to check the name each time, as the optional underlying 
+		// note: we have to check the name each time, as the optional underlying
 		//       source archive may have changed.
 		String currentDisplayText = getCurrentDisplayText();
 		if (!displayText.equals(currentDisplayText)) {
 			displayText = currentDisplayText;
-			fireNodeChanged(getParent(), this);
+			fireNodeChanged();
 		}
 		return displayText;
 	}

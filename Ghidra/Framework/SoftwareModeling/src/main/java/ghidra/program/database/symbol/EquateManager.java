@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,15 +20,16 @@ import java.util.*;
 
 import db.*;
 import db.util.ErrorHandler;
+import ghidra.framework.data.OpenMode;
 import ghidra.program.database.*;
 import ghidra.program.database.map.AddressKeyAddressIterator;
 import ghidra.program.database.map.AddressMap;
 import ghidra.program.model.address.*;
-import ghidra.program.model.symbol.Equate;
-import ghidra.program.model.symbol.EquateTable;
-import ghidra.program.util.ChangeManager;
+import ghidra.program.model.symbol.*;
 import ghidra.program.util.EquateInfo;
+import ghidra.program.util.ProgramEvent;
 import ghidra.util.Lock;
+import ghidra.util.Lock.Closeable;
 import ghidra.util.UniversalID;
 import ghidra.util.exception.*;
 import ghidra.util.task.TaskMonitor;
@@ -39,8 +40,8 @@ import ghidra.util.task.TaskMonitor;
 public class EquateManager implements EquateTable, ErrorHandler, ManagerDB {
 
 	private AddressMap addrMap;
-	private DBObjectCache<EquateRefDB> refCache;
-	private DBObjectCache<EquateDB> equateCache;
+	private DbCache<EquateRefDB> refCache;
+	private DbCache<EquateDB> equateCache;
 	private EquateDBAdapter equateAdapter;
 	private EquateRefDBAdapter refAdapter;
 	private ProgramDB program;
@@ -59,21 +60,21 @@ public class EquateManager implements EquateTable, ErrorHandler, ManagerDB {
 	 * @throws VersionException if the database version doesn't match the current version.
 	 * @throws IOException if a database error occurs.
 	 */
-	public EquateManager(DBHandle handle, AddressMap addrMap, int openMode, Lock lock,
+	public EquateManager(DBHandle handle, AddressMap addrMap, OpenMode openMode, Lock lock,
 			TaskMonitor monitor) throws VersionException, IOException {
 
 		this.addrMap = addrMap;
 		this.lock = lock;
 		initializeAdapters(handle, openMode, monitor);
-		refCache = new DBObjectCache<>(100);
-		equateCache = new DBObjectCache<>(100);
+		refCache = new DbCache<>(new EquateRefFactory(), lock, 10);
+		equateCache = new DbCache<>(new EquateFactory(), lock, 10);
 	}
 
 	ProgramDB getProgram() {
 		return program;
 	}
 
-	private void initializeAdapters(DBHandle handle, int openMode, TaskMonitor monitor)
+	private void initializeAdapters(DBHandle handle, OpenMode openMode, TaskMonitor monitor)
 			throws VersionException, IOException {
 		VersionException versionExc = null;
 		try {
@@ -99,7 +100,7 @@ public class EquateManager implements EquateTable, ErrorHandler, ManagerDB {
 	}
 
 	@Override
-	public void programReady(int openMode, int currentRevision, TaskMonitor monitor)
+	public void programReady(OpenMode openMode, int currentRevision, TaskMonitor monitor)
 			throws IOException, CancelledException {
 		// Nothing to do
 	}
@@ -112,41 +113,37 @@ public class EquateManager implements EquateTable, ErrorHandler, ManagerDB {
 	@Override
 	public Equate createEquate(String name, long value)
 			throws DuplicateNameException, InvalidInputException {
-		lock.acquire();
-		try {
+		try (Closeable c = lock.write()) {
 			if (equateAdapter.hasRecord(name)) {
 				throw new DuplicateNameException(name + " already exists for an equate.");
 			}
 			validateName(name);
-			Record record = equateAdapter.createEquate(name, value);
-			EquateDB equate = new EquateDB(this, equateCache, record);
-			program.setChanged(ChangeManager.DOCR_EQUATE_ADDED,
-				new EquateInfo(name, value, null, 0, 0), null);
+			DBRecord record = equateAdapter.createEquate(name, value);
+			EquateDB equate = new EquateDB(this, record);
+			equateCache.add(equate);
+			program.setChanged(ProgramEvent.EQUATE_ADDED, new EquateInfo(name, value, null, 0, 0),
+				null);
 			return equate;
 
 		}
 		catch (IOException e) {
 			program.dbError(e);
 		}
-		finally {
-			lock.release();
-		}
 		return null;
 	}
 
 	@Override
 	public Equate getEquate(Address reference, int opIndex, long scalarValue) {
-		lock.acquire();
-		try {
+		try (Closeable c = lock.read()) {
 			long refAddr = addrMap.getKey(reference, false);
 			if (refAddr == AddressMap.INVALID_ADDRESS_KEY) {
 				return null;
 			}
-			long[] keys = refAdapter.getRecordKeysForAddr(refAddr);
-			for (long key : keys) {
-				EquateRefDB ref = getEquateRefDB(key);
+			Field[] keys = refAdapter.getRecordKeysForAddr(refAddr);
+			for (Field key : keys) {
+				EquateRefDB ref = refCache.getCachedInstance(key.getLongValue());
 				if (ref.getOpIndex() == opIndex) {
-					EquateDB equate = getEquateDB(ref.getEquateID());
+					EquateDB equate = equateCache.getCachedInstance(ref.getEquateID());
 					if (equate.getValue() == scalarValue) {
 						return equate;
 					}
@@ -156,34 +153,27 @@ public class EquateManager implements EquateTable, ErrorHandler, ManagerDB {
 		catch (IOException e) {
 			program.dbError(e);
 		}
-		finally {
-			lock.release();
-		}
 		return null;
 	}
 
 	@Override
 	public List<Equate> getEquates(Address reference, int opIndex) {
 		List<Equate> ret = new LinkedList<>();
-		lock.acquire();
-		try {
+		try (Closeable c = lock.read()) {
 			long refAddr = addrMap.getKey(reference, false);
 			if (refAddr == AddressMap.INVALID_ADDRESS_KEY) {
 				return ret;
 			}
-			long[] keys = refAdapter.getRecordKeysForAddr(refAddr);
-			for (long key : keys) {
-				EquateRefDB ref = getEquateRefDB(key);
+			Field[] keys = refAdapter.getRecordKeysForAddr(refAddr);
+			for (Field key : keys) {
+				EquateRefDB ref = refCache.getCachedInstance(key.getLongValue());
 				if (ref.getOpIndex() == opIndex) {
-					ret.add(getEquateDB(ref.getEquateID()));
+					ret.add(equateCache.getCachedInstance(ref.getEquateID()));
 				}
 			}
 		}
 		catch (IOException e) {
 			program.dbError(e);
-		}
-		finally {
-			lock.release();
 		}
 		return ret;
 	}
@@ -191,42 +181,34 @@ public class EquateManager implements EquateTable, ErrorHandler, ManagerDB {
 	@Override
 	public List<Equate> getEquates(Address reference) {
 		List<Equate> ret = new LinkedList<>();
-		lock.acquire();
-		try {
+		try (Closeable c = lock.read()) {
 			long refAddr = addrMap.getKey(reference, false);
 			if (refAddr == AddressMap.INVALID_ADDRESS_KEY) {
 				return ret;
 			}
-			long[] keys = refAdapter.getRecordKeysForAddr(refAddr);
-			for (long key : keys) {
-				EquateRefDB ref = getEquateRefDB(key);
-				ret.add(getEquateDB(ref.getEquateID()));
+			Field[] keys = refAdapter.getRecordKeysForAddr(refAddr);
+			for (Field key : keys) {
+				EquateRefDB ref = refCache.getCachedInstance(key.getLongValue());
+				ret.add(equateCache.getCachedInstance(ref.getEquateID()));
 			}
 		}
 		catch (IOException e) {
 			program.dbError(e);
-		}
-		finally {
-			lock.release();
 		}
 		return ret;
 	}
 
 	@Override
 	public Equate getEquate(String name) {
-		lock.acquire();
-		try {
+		try (Closeable c = lock.read()) {
 			long equateID = equateAdapter.getRecordKey(name);
-			return getEquateDB(equateID);
+			return equateCache.getCachedInstance(equateID);
 		}
 		catch (NotFoundException e) {
 			// just return null below
 		}
 		catch (IOException e) {
 			program.dbError(e);
-		}
-		finally {
-			lock.release();
 		}
 		return null;
 	}
@@ -293,14 +275,15 @@ public class EquateManager implements EquateTable, ErrorHandler, ManagerDB {
 
 	@Override
 	public List<Equate> getEquates(long value) {
+
 		ArrayList<Equate> list = new ArrayList<>();
-		try {
+		try (Closeable c = lock.read()) {
 			RecordIterator iter = equateAdapter.getRecords();
 			while (iter.hasNext()) {
-				Record rec = iter.next();
-				EquateDB equateDB = getEquateDB(rec.getKey());
-				if (equateDB.getValue() == value) {
-					list.add(equateDB);
+				DBRecord rec = iter.next();
+				long equateValue = rec.getLongValue(EquateDBAdapter.VALUE_COL);
+				if (equateValue == value) {
+					list.add(equateCache.getCachedInstance(rec));
 				}
 			}
 		}
@@ -313,8 +296,8 @@ public class EquateManager implements EquateTable, ErrorHandler, ManagerDB {
 	@Override
 	public void deleteAddressRange(Address startAddr, Address endAddr, TaskMonitor monitor)
 			throws CancelledException {
-		lock.acquire();
-		try {
+		AddressRange.checkValidRange(startAddr, endAddr);
+		try (Closeable c = lock.write()) {
 			ArrayList<EquateRefDB> list = new ArrayList<>();
 			AddressIterator iter = getEquateAddresses(startAddr, endAddr);
 			while (iter.hasNext()) {
@@ -322,18 +305,17 @@ public class EquateManager implements EquateTable, ErrorHandler, ManagerDB {
 					throw new CancelledException();
 				}
 				Address addr = iter.next();
-				long[] keys = refAdapter.getRecordKeysForAddr(addrMap.getKey(addr, false));
-				for (long key : keys) {
-					EquateRefDB ref = getEquateRefDB(key);
+				Field[] keys = refAdapter.getRecordKeysForAddr(addrMap.getKey(addr, false));
+				for (Field key : keys) {
+					EquateRefDB ref = refCache.getCachedInstance(key.getLongValue());
 					list.add(ref);
 				}
 			}
-			for (int i = 0; i < list.size(); i++) {
+			for (EquateRefDB ref : list) {
 				if (monitor.isCancelled()) {
 					throw new CancelledException();
 				}
-				EquateRefDB ref = list.get(i);
-				EquateDB equateDB = getEquateDB(ref.getEquateID());
+				EquateDB equateDB = equateCache.getCachedInstance(ref.getEquateID());
 
 				removeRef(equateDB, ref);
 				if (getReferenceCount(equateDB.getKey()) == 0) {
@@ -345,9 +327,6 @@ public class EquateManager implements EquateTable, ErrorHandler, ManagerDB {
 		catch (IOException e) {
 			program.dbError(e);
 		}
-		finally {
-			lock.release();
-		}
 	}
 
 	@Override
@@ -355,9 +334,7 @@ public class EquateManager implements EquateTable, ErrorHandler, ManagerDB {
 		if (name == null) {
 			return false;
 		}
-		lock.acquire();
-		try {
-
+		try (Closeable c = lock.write()) {
 			EquateDB equateDB = (EquateDB) getEquate(name);
 			if (equateDB != null) {
 				long equateID = equateDB.getKey();
@@ -372,25 +349,16 @@ public class EquateManager implements EquateTable, ErrorHandler, ManagerDB {
 		catch (IOException e) {
 			program.dbError(e);
 		}
-		finally {
-			lock.release();
-		}
 		return false;
 	}
 
 	private void removeEquate(EquateDB equateDB) throws IOException {
-		lock.acquire();
-		try {
-			String name = equateDB.getName();
-			long equateID = equateDB.getKey();
-			equateAdapter.removeRecord(equateID);
-			equateCache.delete(equateID);
-			// fire event: oldValue = equate name, newValue=null
-			program.setChanged(ChangeManager.DOCR_EQUATE_REMOVED, name, null);
-		}
-		finally {
-			lock.release();
-		}
+		String name = equateDB.getName();
+		long equateID = equateDB.getKey();
+		equateAdapter.removeRecord(equateID);
+		equateCache.delete(equateID);
+		// fire event: oldValue = equate name, newValue=null
+		program.setChanged(ProgramEvent.EQUATE_REMOVED, name, null);
 	}
 
 	AddressMap getAddressMap() {
@@ -407,45 +375,41 @@ public class EquateManager implements EquateTable, ErrorHandler, ManagerDB {
 
 	void addReference(long equateID, Address address, int opIndex, long dynamicHash)
 			throws IOException {
-		lock.acquire();
-		try {
-			EquateDB equateDB = getEquateDB(equateID);
-			String name = equateDB.getName();
-			long value = equateDB.getValue();
+		EquateDB equateDB = equateCache.getCachedInstance(equateID);
+		String name = equateDB.getName();
+		long value = equateDB.getValue();
 
-			long addr = addrMap.getKey(address, true);
+		long addr = addrMap.getKey(address, true);
 
-			// first remove reference for address and opIndex
-			long[] keys = refAdapter.getRecordKeysForAddr(addr);
-			for (long key : keys) {
-				EquateRefDB ref = getEquateRefDB(key);
-				if (dynamicHash != 0) {
-					if (ref.getDynamicHashValue() == dynamicHash) {
-						removeRef(equateDB, ref);
-					}
-				}
-				else if (ref.getDynamicHashValue() == 0 && ref.getOpIndex() == opIndex) {
+		// first remove reference for address and opIndex
+		Field[] keys = refAdapter.getRecordKeysForAddr(addr);
+		for (Field key : keys) {
+			EquateRefDB ref = refCache.getCachedInstance(key.getLongValue());
+			if (dynamicHash != 0) {
+				if (ref.getDynamicHashValue() == dynamicHash) {
 					removeRef(equateDB, ref);
 				}
 			}
-			Record record =
-				refAdapter.createReference(addr, (short) opIndex, dynamicHash, equateID);
-			new EquateRefDB(this, refCache, record);
+			else if (ref.getDynamicHashValue() == 0 && ref.getOpIndex() == opIndex) {
+				removeRef(equateDB, ref);
+			}
+		}
+		DBRecord record =
+			refAdapter.createReference(addr, (short) opIndex, dynamicHash, equateID);
+		EquateRefDB eq = new EquateRefDB(this, record);
+		refCache.add(eq);
 
-			// fire event: oldValue=EquateInfo, newValue = null
-			program.setChanged(ChangeManager.DOCR_EQUATE_REFERENCE_ADDED, address, address,
-				new EquateInfo(name, value, address, opIndex, dynamicHash), null);
-		}
-		finally {
-			lock.release();
-		}
+		// fire event: oldValue=EquateInfo, newValue = null
+		program.setChanged(ProgramEvent.EQUATE_REFERENCE_ADDED, address, address,
+			new EquateInfo(name, value, address, opIndex, dynamicHash), null);
+
 	}
 
 	EquateRefDB[] getReferences(long equateID) throws IOException {
-		long[] keys = refAdapter.getRecordKeysForEquateID(equateID);
+		Field[] keys = refAdapter.getRecordKeysForEquateID(equateID);
 		EquateRefDB[] refs = new EquateRefDB[keys.length];
 		for (int i = 0; i < keys.length; i++) {
-			refs[i] = getEquateRefDB(keys[i]);
+			refs[i] = refCache.getCachedInstance(keys[i].getLongValue());
 		}
 		return refs;
 	}
@@ -454,11 +418,27 @@ public class EquateManager implements EquateTable, ErrorHandler, ManagerDB {
 		return getReferences(equateID).length;
 	}
 
+	List<EquateReference> getReferences(long equateID, Address reference) throws IOException {
+		List<EquateReference> refs = new ArrayList<>();
+		long refAddr = addrMap.getKey(reference, false);
+		if (refAddr == AddressMap.INVALID_ADDRESS_KEY) {
+			return refs;
+		}
+		Field[] keys = refAdapter.getRecordKeysForAddr(refAddr);
+		for (Field key : keys) {
+			EquateRefDB ref = refCache.getCachedInstance(key.getLongValue());
+			if (ref.getEquateID() == equateID) {
+				refs.add(ref);
+			}
+		}
+		return refs;
+	}
+
 	void removeReference(EquateDB equateDB, Address refAddr, short opIndex) throws IOException {
 
-		long[] keys = refAdapter.getRecordKeysForEquateID(equateDB.getKey());
-		for (long key : keys) {
-			EquateRefDB ref = getEquateRefDB(key);
+		Field[] keys = refAdapter.getRecordKeysForEquateID(equateDB.getKey());
+		for (Field key : keys) {
+			EquateRefDB ref = refCache.getCachedInstance(key.getLongValue());
 			if (ref.getOpIndex() == opIndex && ref.getAddress().equals(refAddr)) {
 				removeRef(equateDB, ref);
 				break;
@@ -468,9 +448,9 @@ public class EquateManager implements EquateTable, ErrorHandler, ManagerDB {
 
 	void removeReference(EquateDB equateDB, long dynamicHash, Address refAddr) throws IOException {
 
-		long[] keys = refAdapter.getRecordKeysForEquateID(equateDB.getKey());
-		for (long key : keys) {
-			EquateRefDB ref = getEquateRefDB(key);
+		Field[] keys = refAdapter.getRecordKeysForEquateID(equateDB.getKey());
+		for (Field key : keys) {
+			EquateRefDB ref = refCache.getCachedInstance(key.getLongValue());
 			if (ref.getDynamicHashValue() == dynamicHash && ref.getAddress().equals(refAddr)) {
 				removeRef(equateDB, ref);
 				break;
@@ -494,10 +474,10 @@ public class EquateManager implements EquateTable, ErrorHandler, ManagerDB {
 	 * @param newName new name
 	 */
 	void equateNameChanged(String oldName, String newName) {
-		program.setChanged(ChangeManager.DOCR_EQUATE_RENAMED, oldName, newName);
+		program.setChanged(ProgramEvent.EQUATE_RENAMED, oldName, newName);
 	}
 
-	Record getEquateRecord(long equateID) {
+	DBRecord getEquateRecord(long equateID) {
 		try {
 			return equateAdapter.getRecord(equateID);
 		}
@@ -507,7 +487,7 @@ public class EquateManager implements EquateTable, ErrorHandler, ManagerDB {
 		return null;
 	}
 
-	Record getEquateRefRecord(long refID) {
+	DBRecord getEquateRefRecord(long refID) {
 		try {
 			return refAdapter.getRecord(refID);
 		}
@@ -518,64 +498,27 @@ public class EquateManager implements EquateTable, ErrorHandler, ManagerDB {
 	}
 
 	private void removeRef(EquateDB equateDB, EquateRefDB ref) throws IOException {
-		lock.acquire();
-		try {
+		try (Closeable c = lock.write()) {
 			long key = ref.getKey();
 			refAdapter.removeRecord(key);
 			refCache.delete(key);
 			referenceRemoved(equateDB, ref.getAddress(), ref.getOpIndex(),
 				ref.getDynamicHashValue());
 		}
-		finally {
-			lock.release();
-		}
-
-	}
-
-	private EquateDB getEquateDB(long equateID) throws IOException {
-		lock.acquire();
-		try {
-			EquateDB equateDB = equateCache.get(equateID);
-			if (equateDB == null) {
-				Record record = equateAdapter.getRecord(equateID);
-				if (record != null) {
-					equateDB = new EquateDB(this, equateCache, record);
-				}
-			}
-			return equateDB;
-		}
-		finally {
-			lock.release();
-		}
-	}
-
-	private EquateRefDB getEquateRefDB(long key) throws IOException {
-		lock.acquire();
-		try {
-			EquateRefDB ref = refCache.get(key);
-			if (ref == null) {
-				Record record = refAdapter.getRecord(key);
-				ref = new EquateRefDB(this, refCache, record);
-			}
-			return ref;
-		}
-		finally {
-			lock.release();
-		}
 	}
 
 	private void removeReferences(long equateID) throws IOException {
-		EquateDB equateDB = getEquateDB(equateID);
-		long[] keys = refAdapter.getRecordKeysForEquateID(equateID);
-		for (long key : keys) {
-			EquateRefDB ref = getEquateRefDB(key);
+		EquateDB equateDB = equateCache.getCachedInstance(equateID);
+		Field[] keys = refAdapter.getRecordKeysForEquateID(equateID);
+		for (Field key : keys) {
+			EquateRefDB ref = refCache.getCachedInstance(key.getLongValue());
 			removeRef(equateDB, ref);
 		}
 	}
 
 	private void referenceRemoved(EquateDB equateDB, Address refAddr, short opIndex,
 			long dynamichash) {
-		program.setChanged(ChangeManager.DOCR_EQUATE_REFERENCE_REMOVED, refAddr, refAddr,
+		program.setChanged(ProgramEvent.EQUATE_REFERENCE_REMOVED, refAddr, refAddr,
 			new EquateInfo(equateDB.getName(), equateDB.getValue(), refAddr, opIndex, dynamichash),
 			null);
 	}
@@ -586,29 +529,21 @@ public class EquateManager implements EquateTable, ErrorHandler, ManagerDB {
 
 	@Override
 	public void invalidateCache(boolean all) {
-		lock.acquire();
-		try {
+		try (Closeable c = lock.write()) {
 			refCache.invalidate();
 			equateCache.invalidate();
-		}
-		finally {
-			lock.release();
 		}
 	}
 
 	@Override
 	public void moveAddressRange(Address fromAddr, Address toAddr, long length, TaskMonitor monitor)
 			throws CancelledException {
-		lock.acquire();
-		try {
+		try (Closeable c = lock.write()) {
 			invalidateCache(true);
 			refAdapter.moveAddressRange(fromAddr, toAddr, length, monitor);
 		}
 		catch (IOException e) {
 			dbError(e);
-		}
-		finally {
-			lock.release();
 		}
 	}
 
@@ -688,9 +623,9 @@ public class EquateManager implements EquateTable, ErrorHandler, ManagerDB {
 		public Equate next() {
 			if (iter != null) {
 				try {
-					Record record = iter.next();
+					DBRecord record = iter.next();
 					if (record != null) {
-						return getEquateDB(record.getKey());
+						return equateCache.getCachedInstance(record.getKey());
 					}
 				}
 				catch (IOException e) {
@@ -703,6 +638,47 @@ public class EquateManager implements EquateTable, ErrorHandler, ManagerDB {
 		@Override
 		public void remove() {
 			throw new UnsupportedOperationException("remove is not supported.");
+		}
+
+	}
+
+	class EquateFactory implements DbFactory<EquateDB> {
+
+		@Override
+		public EquateDB instantiate(long key) {
+			try {
+				DBRecord record = equateAdapter.getRecord(key);
+				return record == null ? null : instantiate(record);
+			}
+			catch (IOException e) {
+				dbError(e);
+				return null;
+			}
+		}
+
+		@Override
+		public EquateDB instantiate(DBRecord record) {
+			return new EquateDB(EquateManager.this, record);
+		}
+	}
+
+	class EquateRefFactory implements DbFactory<EquateRefDB> {
+
+		@Override
+		public EquateRefDB instantiate(long key) {
+			try {
+				DBRecord record = refAdapter.getRecord(key);
+				return record == null ? null : instantiate(record);
+			}
+			catch (IOException e) {
+				dbError(e);
+				return null;
+			}
+		}
+
+		@Override
+		public EquateRefDB instantiate(DBRecord record) {
+			return new EquateRefDB(EquateManager.this, record);
 		}
 
 	}

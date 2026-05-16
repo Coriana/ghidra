@@ -18,14 +18,16 @@ package docking.action.builder;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BiConsumer;
+import java.util.function.Supplier;
 
 import javax.swing.Icon;
 
 import docking.ActionContext;
-import docking.menu.*;
+import docking.menu.ActionState;
+import docking.menu.MultiStateDockingAction;
 import docking.widgets.EventTrigger;
 
-/** 
+/**
  * Builder for {@link MultiStateDockingAction}
  * 
  * @param <T> The action state type
@@ -34,13 +36,14 @@ public class MultiStateActionBuilder<T> extends
 		AbstractActionBuilder<MultiStateDockingAction<T>, ActionContext, MultiStateActionBuilder<T>> {
 
 	private BiConsumer<ActionState<T>, EventTrigger> actionStateChangedCallback;
-	private boolean performActionOnButtonClick = false;
-	private boolean fireFirstAction = true;
+	private boolean useCheckboxForIcons;
 
 	private List<ActionState<T>> states = new ArrayList<>();
+	private Supplier<List<ActionState<T>>> generator = null;
 
 	/**
 	 * Builder constructor
+	 * 
 	 * @param name the name of the action to be built
 	 * @param owner the owner of the action to be build
 	 */
@@ -55,8 +58,10 @@ public class MultiStateActionBuilder<T> extends
 
 	/**
 	 * Sets the primary callback to be executed when this action changes its action state.
-	 * This builder will throw an {@link IllegalStateException} if one of the build methods is 
-	 * called without providing this callback
+	 * 
+	 * <p>
+	 * This builder will throw an {@link IllegalStateException} if one of the build methods is
+	 * called without providing this callback.
 	 * 
 	 * @param biConsumer the callback to execute when the selected action state is changed.
 	 * @return this builder (for chaining)
@@ -69,19 +74,23 @@ public class MultiStateActionBuilder<T> extends
 	}
 
 	/**
-	 * Configure whether to perform actions on a button click. 
-	 * See {@link MultiActionDockingAction#setPerformActionOnButtonClick(boolean)}
+	 * Overrides the default icons for actions shown in popup menu of the multi-state action.
 	 * 
-	 * @param b true if the main action is invokable
+	 * <p>
+	 * By default, the popup menu items will use the icons as provided by the {@link ActionState}.
+	 * By passing true to this method, icons will not be used in the popup menu. Instead, a checkbox
+	 * icon will be used to show the active action state.
+	 * 
+	 * @param b true to use a checkbox
 	 * @return this MultiActionDockingActionBuilder (for chaining)
 	 */
-	public MultiStateActionBuilder<T> performActionOnButtonClick(boolean b) {
-		this.performActionOnButtonClick = b;
+	public MultiStateActionBuilder<T> useCheckboxForIcons(boolean b) {
+		this.useCheckboxForIcons = b;
 		return self();
 	}
 
 	/**
-	 * Add an action state 
+	 * Add an action state
 	 * 
 	 * @param displayName the name to appear in the action menu
 	 * @param icon the icon to appear in the action menu
@@ -89,12 +98,12 @@ public class MultiStateActionBuilder<T> extends
 	 * @return this MultiActionDockingActionBuilder (for chaining)
 	 */
 	public MultiStateActionBuilder<T> addState(String displayName, Icon icon, T userData) {
-		states.add(new ActionState<T>(displayName, icon, userData));
+		states.add(new ActionState<>(displayName, icon, userData));
 		return self();
 	}
 
 	/**
-	 * Add an action state 
+	 * Add an action state
 	 * 
 	 * @param actionState the action state to add
 	 * @return this MultiActionDockingActionBuilder (for chaining)
@@ -105,7 +114,7 @@ public class MultiStateActionBuilder<T> extends
 	}
 
 	/**
-	 * Add a list of action states 
+	 * Add a list of action states
 	 * 
 	 * @param list a list of ActionStates;
 	 * @return this MultiActionDockingActionBuilder (for chaining)
@@ -116,13 +125,17 @@ public class MultiStateActionBuilder<T> extends
 	}
 
 	/**
-	 * controls whether the first action added will automatically fire an event or not
-	 *
-	 * @param fireFirstAction do fire an action on the first action. Defaults to {@code true}
+	 * Generate the states dynamically upon the user clicking the button
+	 * 
+	 * <p>
+	 * It is highly recommended that the current state is included in the list of available states.
+	 * Otherwise, the user could become confused or frustrated.
+	 * 
+	 * @param generator a function from action context to available states
 	 * @return this MultiActionDockingActionBuilder (for chaining)
 	 */
-	public MultiStateActionBuilder<T> fireFirstAction(boolean fireFirstAction) {
-		this.fireFirstAction = fireFirstAction;
+	public MultiStateActionBuilder<T> stateGenerator(Supplier<List<ActionState<T>>> generator) {
+		this.generator = generator;
 		return self();
 	}
 
@@ -130,7 +143,7 @@ public class MultiStateActionBuilder<T> extends
 	public MultiStateDockingAction<T> build() {
 		validate();
 		MultiStateDockingAction<T> action =
-			new MultiStateDockingAction<>(name, owner, isToolbarAction()) {
+			new MultiStateDockingAction<>(name, owner) {
 
 				@Override
 				public void actionStateChanged(ActionState<T> newActionState,
@@ -139,28 +152,37 @@ public class MultiStateActionBuilder<T> extends
 				}
 
 				@Override
-				protected void doActionPerformed(ActionContext context) {
+				public void actionPerformed(ActionContext context) {
 					if (actionCallback != null) {
 						actionCallback.accept(context);
 					}
+					else {
+						super.actionPerformed(context);
+					}
+				}
+
+				@Override
+				protected List<ActionState<T>> getStates() {
+					if (generator == null) {
+						return super.getStates();
+					}
+					else {
+						return generator.get();
+					}
 				}
 			};
-		action.setFireFirstEvent(fireFirstAction);
 
 		for (ActionState<T> actionState : states) {
 			action.addActionState(actionState);
 		}
 
 		decorateAction(action);
-		action.setPerformActionOnPrimaryButtonClick(performActionOnButtonClick);
+		action.setUseCheckboxForIcons(useCheckboxForIcons);
 		return action;
 	}
 
 	@Override
 	protected void validate() {
-		if (performActionOnButtonClick) {
-			super.validate();	// require an action callback has been defined
-		}
 		if (actionStateChangedCallback == null) {
 			throw new IllegalStateException(
 				"Can't build a MultiStateDockingAction without an action state changed callback");

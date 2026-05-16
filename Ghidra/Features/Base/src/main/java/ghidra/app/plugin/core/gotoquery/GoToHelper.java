@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -30,7 +30,7 @@ import ghidra.app.util.NamespaceUtils;
 import ghidra.app.util.SymbolPath;
 import ghidra.app.util.query.TableService;
 import ghidra.framework.cmd.Command;
-import ghidra.framework.main.DataTreeDialog;
+import ghidra.framework.main.ProgramFileChooser;
 import ghidra.framework.model.DomainFile;
 import ghidra.framework.model.ProjectData;
 import ghidra.framework.plugintool.PluginTool;
@@ -40,6 +40,7 @@ import ghidra.program.model.mem.Memory;
 import ghidra.program.model.symbol.*;
 import ghidra.program.util.*;
 import ghidra.util.HelpLocation;
+import ghidra.util.Swing;
 import ghidra.util.table.AddressArrayTableModel;
 
 public class GoToHelper {
@@ -80,6 +81,10 @@ public class GoToHelper {
 	}
 
 	public boolean goTo(final Navigatable navigatable, ProgramLocation loc, Program program) {
+		return Swing.runNow(() -> doGoTo(navigatable, loc, program));
+	}
+
+	private boolean doGoTo(final Navigatable navigatable, ProgramLocation loc, Program program) {
 		if (loc == null || loc.getAddress() == null) {
 			return false;
 		}
@@ -99,8 +104,10 @@ public class GoToHelper {
 			ExternalLocation externalLoc =
 				program.getExternalManager().getExternalLocation(externalSym);
 
-			// TODO - this seems like a mistake to always pass 'false' here; please doc why we
-			//        wish to ignore the user options for when to navigate to external programs
+			// TODO - This seems like a mistake to always pass 'false' here; please doc why we
+			//        wish to ignore the user options for when to navigate to external programs.
+			//        It appears this was done since this method is invoked on simple external
+			//        location node selection within symbol tree where you would not want a popup.
 			return goToExternalLinkage(navigatable, externalLoc, false);
 		}
 
@@ -115,17 +122,6 @@ public class GoToHelper {
 		if (!navigatable.goTo(program, loc)) {
 			return false;
 		}
-
-// If we want the goto to request focus then we will need to add a new parameter - you don't always
-//       	want to request focus.
-//       	// sometimes this gets call directly after creating a new provider window.  Need to
-//       	// request focus in an invokeLater to give WindowManager a chance to create the component
-//       	// hierarchy tree.
-//       	SwingUtilities.invokeLater(new Runnable() {
-//			public void run() {
-//		       	navigatable.requestFocus();
-//			}
-//		});
 
 		saveLocation(navigatable);
 
@@ -148,6 +144,7 @@ public class GoToHelper {
 		if (loc != null) {
 			return loc;
 		}
+
 		if (gotoAddress.isStackAddress() || gotoAddress.isRegisterAddress()) {
 			// Convert stack/register address into variable address
 			Function func = program.getFunctionManager().getFunctionContaining(currentAddress);
@@ -173,29 +170,30 @@ public class GoToHelper {
 	}
 
 	/**
-	 * GoTo external address linkage location (pointer or thunk) within the current program
-	 * which is associated with the specified external location.
+	 * GoTo external address linkage location (pointer or thunk) within the current program which is
+	 * associated with the specified external location.
 	 * <p>
-	 * For those use cases which should not popup a window the popupAllowed
-	 * option should be <b>false</b>.
+	 * For those use cases which should not popup a window the popupAllowed option should be
+	 * <b>false</b>.
 	 * <p>
-	 * This method will generally cause navigation to a linkage location associated with
-	 * the specified external location.  A linkage location is either a pointer to the
-	 * external location (identified by reference) or a thunk to the external
-	 * location, provided the thunk does not reference a linkage pointer.  If more than one
-	 * linkage location exists and popupAllowed is <b>true</b>, a table will be displayed allowing
-	 * the user to navigate to any of the linkage locations.  If navigation is initiated from the
-	 * only known linkage location, and popupAllowed is <b>true</b>, navigation to the external
-	 * program will be attempted regardless of the current
-	 * {@link NavigationOptions#isGotoExternalProgramEnabled} setting.
+	 * This method will generally cause navigation to a linkage location associated with the
+	 * specified external location. A linkage location is either a pointer to the external location
+	 * (identified by reference) or a thunk to the external location, provided the thunk does not
+	 * reference a linkage pointer. If more than one linkage location exists and popupAllowed is
+	 * <b>true</b>, a table will be displayed allowing the user to navigate to any of the linkage
+	 * locations. If navigation is initiated from the only known linkage location, and popupAllowed
+	 * is <b>true</b>, navigation to the external program will be attempted regardless of the
+	 * current {@link NavigationOptions#isGotoExternalProgramEnabled} setting.
+	 * 
 	 * @param nav Navigatable
 	 * @param externalLoc external location
-	 * @param popupAllowed if true a table may be displayed when multiple linkage locations
-	 * exist, otherwise navigation to the first linkage location will be performed
-	 * @return true if navigation was successful or a list of possible linkage locations
-	 * was displayed.
+	 * @param popupAllowed if true a table may be displayed when multiple linkage locations exist
+	 *         or navigation to an external program, otherwise navigation to the first linkage 
+	 *         location will be performed
+	 * @return true if navigation was successful or a list of possible linkage locations was
+	 *         displayed, false if no navigation was performed.
 	 */
-	private boolean goToExternalLinkage(Navigatable nav, ExternalLocation externalLoc,
+	protected boolean goToExternalLinkage(Navigatable nav, ExternalLocation externalLoc,
 			boolean popupAllowed) {
 		if (externalLoc == null) {
 			return false;
@@ -207,8 +205,16 @@ public class GoToHelper {
 		Address[] externalLinkageAddresses =
 			NavigationUtils.getExternalLinkageAddresses(program, externalSym.getAddress());
 		if (externalLinkageAddresses.length == 0) {
-			tool.setStatusInfo("Failed to identify external linkage address for " +
-				externalSym.getName(true) + ". Unable to perform navigation.", true);
+			if (externalLoc.isFunction()) {
+				// This assume external functions always require linkage location
+				tool.setStatusInfo("Failed to identify external linkage address for function " +
+					externalSym.getName(true), true);
+			}
+			else if (popupAllowed) {
+				// If there are no linkage location try to navigate to external program if a popup
+				// is tolerated.
+				return goToExternalLocation(nav, externalLoc, false);
+			}
 			return false;
 		}
 		if (externalLinkageAddresses.length > 1) {
@@ -217,8 +223,8 @@ public class GoToHelper {
 				AddressArrayTableModel model = new AddressArrayTableModel("Goto: ", tool, program,
 					externalLinkageAddresses, null);
 				TableService service = tool.getService(TableService.class);
-				service.showTable("Goto " + externalSym.getName(true) + " linkage location", "Goto",
-					model, "Go To", nav);
+				service.showTable("Goto " + externalSym.getName(true) + " linkage location",
+					"Go To Results", model, "Go To", nav);
 				return true;
 			}
 			tool.setStatusInfo(
@@ -240,27 +246,28 @@ public class GoToHelper {
 
 	/**
 	 * Navigate to either the external program location or address linkage location.
-	 * This method will only navigate to the
-	 * external program associated with the specified location if either checkNavigationOption
-	 * is false, or the navigation option is set to Show External Program, or
-	 * the current location is the same as the single linkage location.  See
-	 * {@link #goToExternalLinkage(Navigatable, ExternalLocation, boolean)} method for
-	 * external linkage navigation behavior.
 	 * <p>
-	 * If navigation to an external program will be performed, the associated program will
-	 * be identified and the location within that program found.  Once this occurs, the
-	 * external program will be opened within the current tool and navigation completed.  If an
-	 * external program association has not yet been established, the user will be prompted to make
-	 * an association if they choose before completing the navigation.
+	 * This method will only navigate to the external program associated with the specified location
+	 * if either checkNavigationOption is false, or the navigation option is set to Show External
+	 * Program, or the current location is the same as the single linkage location. See
+	 * {@link #goToExternalLinkage(Navigatable, ExternalLocation, boolean)} method for external
+	 * linkage navigation behavior.
+	 * <p>
+	 * If navigation to an external program will be performed, the associated program will be
+	 * identified and the location within that program found. Once this occurs, the external program
+	 * will be opened within the current tool and navigation completed. If an external program
+	 * association has not yet been established, the user will be prompted to make an association if
+	 * they choose before completing the navigation.
+	 * 
 	 * @param nav Navigatable
 	 * @param externalLocation external location
-	 * @param checkNavigationOption if true the {@link NavigationOptions#isGotoExternalProgramEnabled}
-	 * option will be used to determine if navigation to the external program will be
-	 * attempted, or if navigation to the external linkage location within the current
-	 * program will be attempted.  If false, only navigation to the external linkage will be
-	 * attempted.
-	 * @return true if navigation to the external program was successful or navigation to a
-	 * linkage location was performed.
+	 * @param checkNavigationOption if true the
+	 *            {@link NavigationOptions#isGotoExternalProgramEnabled} option will be used to
+	 *            determine if navigation to the external program will be attempted, or if
+	 *            navigation to the external linkage location within the current program will be
+	 *            attempted. If false, only navigation to the external linkage will be attempted.
+	 * @return true if navigation to the external program was successful or navigation to a linkage
+	 *         location was performed.
 	 */
 	public boolean goToExternalLocation(Navigatable nav, ExternalLocation externalLocation,
 			boolean checkNavigationOption) {
@@ -306,7 +313,7 @@ public class GoToHelper {
 		}
 
 		ProjectData pd = tool.getProject().getProjectData();
-		DomainFile domainFile = pd.getFile(pathName);
+		DomainFile domainFile = pd.getFile(pathName, ProgramFileChooser.PROGRAM_FILE_FILTER);
 		ProgramManager service = tool.getService(ProgramManager.class);
 		if (domainFile == null || service == null) {
 			tool.setStatusInfo("Unable to navigate to external location. " +
@@ -347,7 +354,7 @@ public class GoToHelper {
 		String extProgName = externalLocation.getLibraryName();
 		if (Library.UNKNOWN.equals(extProgName)) {
 			tool.setStatusInfo(" External location refers to " + Library.UNKNOWN +
-				" library. Unable to " + "perform navigation.", true);
+				" library. Unable to perform navigation.", true);
 			return null;
 		}
 
@@ -391,6 +398,7 @@ public class GoToHelper {
 		if (nameStack == null) {
 			return null; // name is not valid for external program
 		}
+
 		StringBuilder buf = new StringBuilder();
 		while (!nameStack.isEmpty()) {
 			buf.append(nameStack.pop());
@@ -439,9 +447,9 @@ public class GoToHelper {
 		if (result == OptionDialog.CANCEL_OPTION) {
 			return;
 		}
-		final DataTreeDialog dialog = new DataTreeDialog(null,
-			"Choose External Program (" + extProgName + ")", DataTreeDialog.OPEN);
 
+		ProgramFileChooser dialog =
+			new ProgramFileChooser(null, "Choose External Program (" + extProgName + ")");
 		dialog.setSearchText(extProgName);
 		dialog.setHelpLocation(new HelpLocation("ReferencesPlugin", "ChooseExternalProgram"));
 		tool.showDialog(dialog);
@@ -453,7 +461,7 @@ public class GoToHelper {
 		ExternalManager externalManager = program.getExternalManager();
 		String externalLibraryPath = externalManager.getExternalLibraryPath(extProgName);
 		if (!pathName.equals(externalLibraryPath)) {
-			Command cmd = new SetExternalNameCmd(extProgName, domainFile.getPathname());
+			Command<Program> cmd = new SetExternalNameCmd(extProgName, domainFile.getPathname());
 			tool.execute(cmd, program);
 		}
 	}
@@ -461,10 +469,6 @@ public class GoToHelper {
 	private Program findGoToProgram(Program currentProgram, Address address) {
 		// we need to try and find a suitable program
 		Program goToProgram = findProgramContaining(currentProgram, address);
-		if (goToProgram == null) {
-			return null;
-		}
-
 		return goToProgram;
 	}
 

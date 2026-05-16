@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,8 +20,8 @@ import java.awt.event.KeyEvent;
 import java.io.*;
 import java.util.*;
 
-import org.jdom.Element;
-import org.jdom.input.SAXBuilder;
+import org.jdom2.Element;
+import org.jdom2.input.SAXBuilder;
 
 import docking.ActionContext;
 import docking.action.*;
@@ -65,8 +65,6 @@ class ToolActionManager implements ToolChestChangeListener {
 	private Map<String, DockingAction> runToolActionMap;
 	private Map<String, DockingAction> delToolActionMap;
 	private Map<String, DockingAction> exportToolActionMap;
-
-	private GhidraFileChooser fileChooser;
 
 	ToolActionManager(FrontEndPlugin fePlugin) {
 		plugin = fePlugin;
@@ -211,8 +209,7 @@ class ToolActionManager implements ToolChestChangeListener {
 		}
 
 		List<String> list = dialog.getSelectedList();
-		for (int i = 0; i < list.size(); i++) {
-			String filename = list.get(i);
+		for (String filename : list) {
 			addDefaultTool(filename);
 		}
 	}
@@ -319,7 +316,7 @@ class ToolActionManager implements ToolChestChangeListener {
 		Workspace ws = plugin.getActiveWorkspace();
 
 		// create the running tool
-		PluginTool runningTool = (PluginTool) ws.createTool();
+		PluginTool runningTool = ws.createTool();
 
 		// whenever we create a new tool, the first thing the
 		// user will want to do is configure it, so automatically
@@ -417,22 +414,25 @@ class ToolActionManager implements ToolChestChangeListener {
 	 * tool.
 	 */
 	private void importTool() {
-		if (fileChooser == null) {
-			fileChooser = new GhidraFileChooser(tool.getToolFrame());
-			fileChooser.setFileFilter(
-				new ExtensionFileFilter(new String[] { "tool", "tcd" }, "Tools"));
-			fileChooser.setTitle("Import Tool");
-			fileChooser.setApproveButtonText("Import");
 
-			String importDir = Preferences.getProperty(Preferences.LAST_TOOL_IMPORT_DIRECTORY);
-			if (importDir != null) {
-				fileChooser.setCurrentDirectory(new File(importDir));
+		GhidraFileChooser fileChooser = new GhidraFileChooser(tool.getToolFrame());
+		fileChooser.setFileFilter(
+			new ExtensionFileFilter(new String[] { "tool", "tcd" }, "Tools"));
+		fileChooser.setTitle("Import Tool");
+		fileChooser.setApproveButtonText("Import");
+
+		String importDir = Preferences.getProperty(Preferences.LAST_TOOL_IMPORT_DIRECTORY);
+		if (importDir != null) {
+			File dir = new File(importDir);
+			if (dir.isDirectory()) {
+				fileChooser.setCurrentDirectory(dir);
 			}
 		}
 
 		fileChooser.rescanCurrentDirectory();
 
 		File selectedFile = fileChooser.getSelectedFile(true);
+		fileChooser.dispose();
 		if (selectedFile == null) {
 			return;
 		}

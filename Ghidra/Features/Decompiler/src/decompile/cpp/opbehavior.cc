@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,6 +15,8 @@
  */
 #include "opbehavior.hh"
 #include "translate.hh"
+
+namespace ghidra {
 
 /// This routine generates a vector of OpBehavior objects indexed by opcode
 /// \param inst is the vector of behaviors to be filled
@@ -100,8 +102,10 @@ void OpBehavior::registerInstructions(vector<OpBehavior *> &inst,const Translate
   inst[CPUI_CPOOLREF] = new OpBehavior(CPUI_CPOOLREF,false,true);
   inst[CPUI_NEW] = new OpBehavior(CPUI_NEW,false,true);
   inst[CPUI_INSERT] = new OpBehavior(CPUI_INSERT,false);
-  inst[CPUI_EXTRACT] = new OpBehavior(CPUI_EXTRACT,false);
+  inst[CPUI_ZPULL] = new OpBehavior(CPUI_ZPULL,false);
   inst[CPUI_POPCOUNT] = new OpBehaviorPopcount();
+  inst[CPUI_LZCOUNT] = new OpBehaviorLzcount();
+  inst[CPUI_SPULL] = new OpBehavior(CPUI_SPULL,false);
 }
 
 /// \param sizeout is the size of the output in bytes
@@ -126,7 +130,20 @@ uintb OpBehavior::evaluateBinary(int4 sizeout,int4 sizein,uintb in1,uintb in2) c
   string name(get_opname(opcode));
   throw LowlevelError("Binary emulation unimplemented for "+name);
 }
-  
+
+/// \param sizeout is the size of the output in bytes
+/// \param sizein is the size of the inputs in bytes
+/// \param in1 is the first input value
+/// \param in2 is the second input value
+/// \param in3 is the third input value
+/// \return the output value
+uintb OpBehavior::evaluateTernary(int4 sizeout,int4 sizein,uintb in1,uintb in2,uintb in3) const
+
+{
+  string name(get_opname(opcode));
+  throw LowlevelError("Ternary emulation unimplemented for "+name);
+}
+
 /// If the output value is known, recover the input value.
 /// \param sizeout is the size of the output in bytes
 /// \param out is the output value
@@ -350,10 +367,24 @@ uintb OpBehaviorInt2Comp::evaluateUnary(int4 sizeout,int4 sizein,uintb in1) cons
   return res;
 }
 
+uintb OpBehaviorInt2Comp::recoverInputUnary(int4 sizeout,uintb out,int4 sizein) const
+
+{
+  uintb res = uintb_negate(out-1,sizein);
+  return res;
+}
+
 uintb OpBehaviorIntNegate::evaluateUnary(int4 sizeout,int4 sizein,uintb in1) const
 
 {
   uintb res = uintb_negate(in1,sizein);
+  return res;
+}
+
+uintb OpBehaviorIntNegate::recoverInputUnary(int4 sizeout,uintb out,int4 sizein) const
+
+{
+  uintb res = uintb_negate(out,sizein);
   return res;
 }
 
@@ -479,12 +510,10 @@ uintb OpBehaviorIntSdiv::evaluateBinary(int4 sizeout,int4 sizein,uintb in1,uintb
 {
   if (in2 == 0)
     throw EvaluationError("Divide by 0");
-  intb num = in1;		// Convert to signed
-  intb denom = in2;
-  sign_extend(num,8*sizein-1);
-  sign_extend(denom,8*sizein-1);
+  intb num = sign_extend(in1,8*sizein-1);		// Convert to signed
+  intb denom = sign_extend(in2,8*sizein-1);
   intb sres = num/denom;	// Do the signed division
-  zero_extend(sres,8*sizeout-1); // Cut to appropriate size
+  sres = zero_extend(sres,8*sizeout-1); // Cut to appropriate size
   return (uintb)sres;		// Recast as unsigned
 }
 
@@ -503,12 +532,10 @@ uintb OpBehaviorIntSrem::evaluateBinary(int4 sizeout,int4 sizein,uintb in1,uintb
 {
   if (in2 == 0)
     throw EvaluationError("Remainder by 0");
-  intb val = in1;
-  intb mod = in2;
-  sign_extend(val,8*sizein-1);	// Convert inputs to signed values
-  sign_extend(mod,8*sizein-1);
-  intb sres = in1 % in2;	// Do the remainder
-  zero_extend(sres,8*sizeout-1); // Convert back to unsigned
+  intb val = sign_extend(in1,8*sizein-1);	// Convert inputs to signed values
+  intb mod = sign_extend(in2,8*sizein-1);
+  intb sres = val % mod;	// Do the remainder
+  sres = zero_extend(sres,8*sizeout-1); // Convert back to unsigned
   return (uintb)sres;
 }
 
@@ -733,7 +760,23 @@ uintb OpBehaviorPiece::evaluateBinary(int4 sizeout,int4 sizein,uintb in1,uintb i
 uintb OpBehaviorSubpiece::evaluateBinary(int4 sizeout,int4 sizein,uintb in1,uintb in2) const
 
 {
+  if (in2 >= sizeof(uintb))
+    return 0;
   uintb res = (in1>>(in2*8)) & calc_mask(sizeout);
+  return res;
+}
+
+uintb OpBehaviorPtradd::evaluateTernary(int4 sizeout,int4 sizein,uintb in1,uintb in2,uintb in3) const
+
+{
+  uintb res = (in1 + in2 * in3) & calc_mask(sizeout);
+  return res;
+}
+
+uintb OpBehaviorPtrsub::evaluateBinary(int4 sizeout,int4 sizein,uintb in1,uintb in2) const
+
+{
+  uintb res = (in1 + in2) & calc_mask(sizeout);
   return res;
 }
 
@@ -743,3 +786,10 @@ uintb OpBehaviorPopcount::evaluateUnary(int4 sizeout,int4 sizein,uintb in1) cons
   return (uintb)popcount(in1);
 }
 
+uintb OpBehaviorLzcount::evaluateUnary(int4 sizeout,int4 sizein,uintb in1) const
+
+{
+  return (uintb)(count_leading_zeros(in1) - 8*(sizeof(uintb) - sizein));
+}
+
+} // End namespace ghidra

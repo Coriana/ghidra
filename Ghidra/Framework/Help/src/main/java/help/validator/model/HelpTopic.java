@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,21 +15,24 @@
  */
 package help.validator.model;
 
-import help.HelpBuildUtils;
-import help.validator.location.DirectoryHelpModuleLocation;
-import help.validator.location.HelpModuleLocation;
-
 import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 
+import help.GHelpMsg;
+import help.HelpBuildUtils;
+import help.validator.location.DirectoryHelpModuleLocation;
+import help.validator.location.HelpModuleLocation;
+
 public class HelpTopic implements Comparable<HelpTopic> {
 	private final HelpModuleLocation help;
-	private final Path topicFile;
+	private final Path topicDir;
+
+	// topics/TopicName
 	private final Path relativePath;
 
-	private Map<Path, HelpFile> helpFiles = new LinkedHashMap<Path, HelpFile>();
+	private Map<Path, HelpFile> helpFiles;
 
 	public static HelpTopic fromHTMLFile(Path topicFile) {
 
@@ -45,66 +47,81 @@ public class HelpTopic implements Comparable<HelpTopic> {
 		return helpTopic;
 	}
 
-	public HelpTopic(HelpModuleLocation help, Path topicFile) {
+	public HelpTopic(HelpModuleLocation help, Path topicDir) {
 		this.help = help;
-		this.topicFile = topicFile;
+		this.topicDir = topicDir;
 
 		Path helpDir = help.getHelpLocation();
 
-		Path unknowFSRelativePath = helpDir.relativize(topicFile); // may or may not be jar paths
-		this.relativePath = HelpBuildUtils.toDefaultFS(unknowFSRelativePath);
-
-		loadHelpFiles(topicFile);
+		// topic file: /help/topics/TopicName
+		// relative:   topics/TopicName
+		Path relativeTopicPath = helpDir.relativize(topicDir); // may or may not be jar paths
+		this.relativePath = HelpBuildUtils.relativeToWorkingDir(relativeTopicPath);
 	}
 
-	public Path getTopicFile() {
-		return topicFile;
+	public Path getTopicDir() {
+		return topicDir;
 	}
 
-	private void loadHelpFiles(final Path dir) {
-		final PathMatcher matcher =
-			dir.getFileSystem().getPathMatcher("glob:**/*.{[Hh][Tt][Mm],[Hh][Tt][Mm][Ll]}");
+	private void lazyLoad() {
+		if (helpFiles != null) {
+			return;
+		}
 
-		// Ex:
-		// 		jar: /help/topics/FooPlugin
-		final Path dirDefaultFS = HelpBuildUtils.toDefaultFS(dir);
+		helpFiles = new LinkedHashMap<>();
+		loadHelpFiles(topicDir);
+	}
+
+	private void loadHelpFiles(Path dir) {
+		FileSystem fs = dir.getFileSystem();
+		PathMatcher matcher =
+			fs.getPathMatcher("glob:**/*.{[Hh][Tt][Mm],[Hh][Tt][Mm][Ll]}");
+
+		// Ex: /help/topics/FooPlugin
+		Path dirDefaultFS = HelpBuildUtils.relativeToWorkingDir(dir);
 		try {
 			Files.walkFileTree(dir, new SimpleFileVisitor<Path>() {
 				@Override
 				public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
 						throws IOException {
 					if (matcher.matches(file)) {
-						// Ex:
-						//		jar: /help/topics/FooPlugin/Foo.html
-						Path fileDefaultFS = HelpBuildUtils.toDefaultFS(file);
-
-						// Ex:  jar: Foo.html
-						Path relFilePath = dirDefaultFS.relativize(fileDefaultFS);
-
-						// Ex:  jar: topics/FooPlugin/Foo.html
-						relFilePath = relativePath.resolve(relFilePath);
-						helpFiles.put(relFilePath, new HelpFile(help, file));
+						mapHelpFile(dirDefaultFS, file);
 					}
 					return FileVisitResult.CONTINUE;
 				}
 			});
 		}
 		catch (IOException e) {
-			System.err.println("Error loading help files: " + dir.toUri());
-			e.printStackTrace(System.err);
+			GHelpMsg.error("Error loading help files: " + dir.toUri(), e);
 		}
 	}
 
+	private void mapHelpFile(Path dirDefaultFS, Path file) {
+
+		// Ex:  /help/topics/FooPlugin/Foo.html
+		Path fileDefaultFS = HelpBuildUtils.relativeToWorkingDir(file);
+
+		// Ex:  Foo.html
+		Path relFilePath = dirDefaultFS.relativize(fileDefaultFS);
+
+		// Ex:  topics/FooPlugin/Foo.html
+		relFilePath = relativePath.resolve(relFilePath);
+		helpFiles.put(relFilePath, new HelpFile(help, file));
+	}
+
 	void addHelpFile(Path relPath, HelpFile helpFile) {
+		lazyLoad();
 		helpFiles.put(relPath, helpFile);
 	}
 
 	public Collection<HREF> getAllHREFs() {
 		// Don't need to validate hrefs already in a .jar
-		if (topicFile.getFileSystem() != FileSystems.getDefault()) {
+		if (topicDir.getFileSystem() != FileSystems.getDefault()) {
 			return Collections.emptyList();
 		}
-		List<HREF> list = new ArrayList<HREF>();
+
+		lazyLoad();
+		List<HREF> list = new ArrayList<>();
 		for (HelpFile helpFile : helpFiles.values()) {
 			list.addAll(helpFile.getAllHREFs());
 		}
@@ -113,10 +130,12 @@ public class HelpTopic implements Comparable<HelpTopic> {
 
 	public Collection<IMG> getAllIMGs() {
 		// Don't need to validate imgs already in a .jar
-		if (topicFile.getFileSystem() != FileSystems.getDefault()) {
+		if (topicDir.getFileSystem() != FileSystems.getDefault()) {
 			return Collections.emptyList();
 		}
-		List<IMG> list = new ArrayList<IMG>();
+
+		lazyLoad();
+		List<IMG> list = new ArrayList<>();
 		for (HelpFile helpFile : helpFiles.values()) {
 			list.addAll(helpFile.getAllIMGs());
 		}
@@ -125,7 +144,8 @@ public class HelpTopic implements Comparable<HelpTopic> {
 
 	public Collection<AnchorDefinition> getAllAnchorDefinitions() {
 		// The current module may refer to anchors in pre-built modules.
-		List<AnchorDefinition> list = new ArrayList<AnchorDefinition>();
+		lazyLoad();
+		List<AnchorDefinition> list = new ArrayList<>();
 		for (HelpFile helpFile : helpFiles.values()) {
 			list.addAll(helpFile.getAllAnchorDefinitions());
 		}
@@ -133,9 +153,14 @@ public class HelpTopic implements Comparable<HelpTopic> {
 	}
 
 	public Collection<HelpFile> getHelpFiles() {
+		lazyLoad();
 		return helpFiles.values();
 	}
 
+	/**
+	 * Returns the relative path, which is {@code topics/TopicName}
+	 * @return the path
+	 */
 	Path getRelativePath() {
 		return relativePath;
 	}
@@ -145,16 +170,16 @@ public class HelpTopic implements Comparable<HelpTopic> {
 	}
 
 	public String getName() {
-		return topicFile.getFileName().toString();
+		return topicDir.getFileName().toString();
 	}
 
 	@Override
 	public int compareTo(HelpTopic o) {
-		return topicFile.compareTo(o.topicFile);
+		return topicDir.compareTo(o.topicDir);
 	}
 
 	@Override
 	public String toString() {
-		return topicFile.toString();
+		return topicDir.toString();
 	}
 }

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,49 +15,13 @@
  */
 package ghidra.app.plugin.core.compositeeditor;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
-import org.junit.Assert;
 import org.junit.Test;
 
 import ghidra.program.model.data.*;
-import ghidra.util.exception.DuplicateNameException;
 
 public class StructureEditorUnlockedEnablementTest extends AbstractStructureEditorTest {
-
-	protected void init(Structure dt, final Category cat) {
-		boolean commit = true;
-		startTransaction("Structure Editor Test Initialization");
-		try {
-			DataTypeManager dataTypeManager = cat.getDataTypeManager();
-			if (dt.getDataTypeManager() != dataTypeManager) {
-				dt = (Structure) dt.clone(dataTypeManager);
-			}
-			CategoryPath categoryPath = cat.getCategoryPath();
-			if (!dt.getCategoryPath().equals(categoryPath)) {
-				try {
-					dt.setCategoryPath(categoryPath);
-				}
-				catch (DuplicateNameException e) {
-					commit = false;
-					Assert.fail(e.getMessage());
-				}
-			}
-		}
-		finally {
-			endTransaction(commit);
-		}
-		final Structure structDt = dt;
-		runSwing(() -> {
-			installProvider(new StructureEditorProvider(plugin, structDt, false));
-			model = provider.getModel();
-			structureModel = (StructureEditorModel) model;
-//				model.setLocked(false);
-		});
-//		assertTrue(!model.isLocked());
-		getActions();
-	}
 
 	@Test
 	public void testEmptyStructureEditorState() {
@@ -119,7 +83,8 @@ public class StructureEditorUnlockedEnablementTest extends AbstractStructureEdit
 			if ((action instanceof FavoritesAction) || (action instanceof CycleGroupAction) ||
 				(action instanceof EditFieldAction) || (action instanceof InsertUndefinedAction) ||
 				(action instanceof AddBitFieldAction) || (action instanceof PointerAction) ||
-				(action instanceof HexNumbersAction)) {
+				(action instanceof HexNumbersAction) ||
+				(action instanceof ShowDataTypeInTreeAction)) {
 				checkEnablement(action, true);
 			}
 			else {
@@ -152,7 +117,9 @@ public class StructureEditorUnlockedEnablementTest extends AbstractStructureEdit
 				(action instanceof DuplicateMultipleAction) || (action instanceof DeleteAction) ||
 				(action instanceof ArrayAction) || (action instanceof PointerAction) ||
 				(action instanceof HexNumbersAction) ||
-				(action instanceof CreateInternalStructureAction)) {
+				(action instanceof CreateInternalStructureAction) ||
+				(action instanceof ShowDataTypeInTreeAction ||
+					action instanceof FindReferencesToStructureFieldAction)) {
 				checkEnablement(action, true);
 			}
 			else if (action instanceof FavoritesAction) {
@@ -167,7 +134,7 @@ public class StructureEditorUnlockedEnablementTest extends AbstractStructureEdit
 				String name = cycleGroupAction.getName();
 				checkEnablement(action,
 					name.equals("Cycle: byte,word,dword,qword") ||
-						name.equals("Cycle: float,double") ||
+						name.equals("Cycle: float,double,longdouble") ||
 						name.equals("Cycle: char,string,unicode") || name.equals("char") ||
 						name.equals("string"));
 			}
@@ -191,7 +158,9 @@ public class StructureEditorUnlockedEnablementTest extends AbstractStructureEdit
 				(action instanceof MoveUpAction) || (action instanceof ClearAction) ||
 				(action instanceof DeleteAction) || (action instanceof ArrayAction) ||
 				(action instanceof PointerAction) || (action instanceof HexNumbersAction) ||
-				(action instanceof CreateInternalStructureAction)) {
+				(action instanceof CreateInternalStructureAction) ||
+				(action instanceof ShowDataTypeInTreeAction ||
+					action instanceof FindReferencesToStructureFieldAction)) {
 				checkEnablement(action, true);
 			}
 			else if (action instanceof FavoritesAction) {
@@ -206,7 +175,7 @@ public class StructureEditorUnlockedEnablementTest extends AbstractStructureEdit
 				String name = cycleGroupAction.getName();
 				checkEnablement(action,
 					name.equals("Cycle: byte,word,dword,qword") ||
-						name.equals("Cycle: float,double") ||
+						name.equals("Cycle: float,double,longdouble") ||
 						name.equals("Cycle: char,string,unicode") || name.equals("char") ||
 						name.equals("string"));
 			}
@@ -231,7 +200,9 @@ public class StructureEditorUnlockedEnablementTest extends AbstractStructureEdit
 				(action instanceof DuplicateMultipleAction) || (action instanceof DeleteAction) ||
 				(action instanceof ArrayAction) || (action instanceof PointerAction) ||
 				(action instanceof HexNumbersAction) ||
-				(action instanceof CreateInternalStructureAction)) {
+				(action instanceof CreateInternalStructureAction) ||
+				(action instanceof ShowDataTypeInTreeAction ||
+					action instanceof FindReferencesToStructureFieldAction)) {
 				checkEnablement(action, true);
 			}
 			else if (action instanceof FavoritesAction) {
@@ -250,7 +221,7 @@ public class StructureEditorUnlockedEnablementTest extends AbstractStructureEdit
 				String name = cycleGroupAction.getName();
 				checkEnablement(action,
 					name.equals("Cycle: byte,word,dword,qword") ||
-						name.equals("Cycle: float,double") ||
+						name.equals("Cycle: float,double,longdouble") ||
 						name.equals("Cycle: char,string,unicode") || name.equals("char") ||
 						name.equals("string"));
 			}
@@ -270,7 +241,8 @@ public class StructureEditorUnlockedEnablementTest extends AbstractStructureEdit
 			if ((action instanceof FavoritesAction) || (action instanceof CycleGroupAction) ||
 				(action instanceof EditFieldAction) || (action instanceof InsertUndefinedAction) ||
 				(action instanceof AddBitFieldAction) || (action instanceof PointerAction) ||
-				(action instanceof HexNumbersAction)) {
+				(action instanceof HexNumbersAction) ||
+				(action instanceof ShowDataTypeInTreeAction)) {
 				checkEnablement(action, true);
 			}
 			else {
@@ -284,8 +256,9 @@ public class StructureEditorUnlockedEnablementTest extends AbstractStructureEdit
 			throws ArrayIndexOutOfBoundsException, InvalidDataTypeException {
 		init(complexStructure, pgmBbCat);
 
-		((Structure) structureModel.viewComposite).insertBitField(2, 1, 4, CharDataType.dataType, 2,
-			"bf1", null);
+		structureModel.viewDTM.withTransaction("Add Bitfield",
+			() -> structureModel.viewComposite.insertBitField(2, 1, 4,
+				CharDataType.dataType, 2, "bf1", null));
 
 		setSelection(new int[] { 2 });
 		assertEquals("char:2", getDataType(2).getDisplayName());
@@ -325,8 +298,9 @@ public class StructureEditorUnlockedEnablementTest extends AbstractStructureEdit
 			throws ArrayIndexOutOfBoundsException, InvalidDataTypeException {
 		init(complexStructure, pgmBbCat);
 
-		((Structure) structureModel.viewComposite).insertBitField(2, 1, 4, CharDataType.dataType, 2,
-			"bf1", null);
+		structureModel.viewDTM.withTransaction("Add Bitfield",
+			() -> structureModel.viewComposite.insertBitField(2, 1, 4,
+				CharDataType.dataType, 2, "bf1", null));
 
 		setSelection(new int[] { 2 });
 		assertEquals("char:2", getDataType(2).getDisplayName());
@@ -336,7 +310,7 @@ public class StructureEditorUnlockedEnablementTest extends AbstractStructureEdit
 		assertEquals("word", getDataType(3).getDisplayName());
 		assertTrue(!editBitFieldAction.isEnabled());
 
-		structureModel.setAligned(true);
+		structureModel.setPackingType(PackingType.DEFAULT, 0);
 
 		// Edit Bitfield action not enabled for Aligned mode
 		setSelection(new int[] { 1 });
@@ -370,7 +344,7 @@ public class StructureEditorUnlockedEnablementTest extends AbstractStructureEdit
 
 		setSelection(new int[] { 19 });
 		assertEquals("simpleStructureTypedef", getDataType(19).getDisplayName());
-		assertTrue(!unpackageAction.isEnabled());
+		assertTrue(unpackageAction.isEnabled());
 
 		setSelection(new int[] { 21 });
 		assertEquals("simpleStructure", getDataType(21).getDisplayName());

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,13 +21,13 @@ import java.nio.ByteOrder;
 import ghidra.app.cmd.comments.SetCommentCmd;
 import ghidra.app.cmd.data.CreateArrayCmd;
 import ghidra.app.plugin.exceptionhandlers.gcc.*;
-import ghidra.app.plugin.exceptionhandlers.gcc.datatype.*;
+import ghidra.app.plugin.exceptionhandlers.gcc.datatype.DwarfEncodingModeDataType;
+import ghidra.app.util.bin.LEB128Info;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressOutOfBoundsException;
 import ghidra.program.model.data.*;
 import ghidra.program.model.listing.*;
-import ghidra.program.model.mem.*;
-import ghidra.program.model.scalar.Scalar;
+import ghidra.program.model.mem.MemoryAccessException;
 import ghidra.program.model.symbol.RefType;
 import ghidra.program.model.symbol.SourceType;
 import ghidra.util.Msg;
@@ -134,7 +134,7 @@ public class Cie extends GccAnalysisClass {
 		 * appropriate comment for the new structure.
 		 */
 		String comment = "(CIE) Length";
-		createAndCommentData(program, addr, dwordDT, comment, CodeUnit.EOL_COMMENT);
+		createAndCommentData(program, addr, dwordDT, comment, CommentType.EOL);
 		program.getMemory().getBytes(addr, enc_length);
 		curSize += DWORD_LEN;
 
@@ -161,7 +161,7 @@ public class Cie extends GccAnalysisClass {
 		 * appropriate comment for the new structure.
 		 */
 		String comment = "(CIE) ID";
-		createAndCommentData(program, addr, dwordDT, comment, CodeUnit.EOL_COMMENT);
+		createAndCommentData(program, addr, dwordDT, comment, CommentType.EOL);
 
 		program.getMemory().getBytes(addr, enc_cieId);
 		cieId = (int) GccAnalysisUtils.readDWord(program, addr);
@@ -184,7 +184,7 @@ public class Cie extends GccAnalysisClass {
 		 * appropriate comment for the new structure.
 		 */
 		String comment = "(CIE) Version";
-		createAndCommentData(program, addr, new ByteDataType(), comment, CodeUnit.EOL_COMMENT);
+		createAndCommentData(program, addr, new ByteDataType(), comment, CommentType.EOL);
 		version = GccAnalysisUtils.readByte(program, addr);
 		curSize += BYTE_LEN;
 
@@ -208,7 +208,7 @@ public class Cie extends GccAnalysisClass {
 		 * and sets an appropriate comment for the new structure.
 		 */
 		String comment = "(CIE) Augmentation String";
-		createAndCommentData(program, addr, new StringDataType(), comment, CodeUnit.EOL_COMMENT);
+		createAndCommentData(program, addr, new StringDataType(), comment, CommentType.EOL);
 		Data dataAt = program.getListing().getDataAt(addr);
 		if (dataAt == null) {
 			throw new ExceptionHandlerFrameException(
@@ -236,7 +236,7 @@ public class Cie extends GccAnalysisClass {
 		 * appropriate comment for the new structure.
 		 */
 		String comment = "(CIE) Pointer Size";
-		createAndCommentData(program, addr, new ByteDataType(), comment, CodeUnit.EOL_COMMENT);
+		createAndCommentData(program, addr, new ByteDataType(), comment, CommentType.EOL);
 		ptrSize = GccAnalysisUtils.readByte(program, addr);
 		curSize += BYTE_LEN;
 
@@ -258,7 +258,7 @@ public class Cie extends GccAnalysisClass {
 		 * appropriate comment for the new structure.
 		 */
 		String comment = "(CIE) Segment Size";
-		createAndCommentData(program, addr, new ByteDataType(), comment, CodeUnit.EOL_COMMENT);
+		createAndCommentData(program, addr, new ByteDataType(), comment, CommentType.EOL);
 		segmentSize = GccAnalysisUtils.readByte(program, addr);
 		curSize += BYTE_LEN;
 
@@ -280,18 +280,16 @@ public class Cie extends GccAnalysisClass {
 		 */
 		String comment = "(CIE) Code Alignment";
 
-		UnsignedLeb128DataType uleb = UnsignedLeb128DataType.dataType;
-		MemBuffer buf = new DumbMemBufferImpl(program.getMemory(), addr);
-		int encodedLen = uleb.getLength(buf, AbstractLeb128DataType.MAX_LEB128_ENCODED_VALUE_LEN);
-		Object augLenObj = uleb.getValue(buf, uleb.getDefaultSettings(), encodedLen);
+		LEB128Info uleb128 = GccAnalysisUtils.readULEB128Info(program, addr);
 
-		codeAlignFactor = (int) ((Scalar) augLenObj).getUnsignedValue();
+		codeAlignFactor = (int) uleb128.asLong();
 
-		createAndCommentData(program, addr, uleb, comment, CodeUnit.EOL_COMMENT);
+		createAndCommentData(program, addr, UnsignedLeb128DataType.dataType, comment,
+			CommentType.EOL);
 
-		curSize += encodedLen;
+		curSize += uleb128.getLength();
 
-		return addr.add(encodedLen);
+		return addr.add(uleb128.getLength());
 	}
 
 	/**
@@ -309,18 +307,16 @@ public class Cie extends GccAnalysisClass {
 		 */
 		String comment = "(CIE) Data Alignment";
 
-		SignedLeb128DataType sleb = SignedLeb128DataType.dataType;
-		MemBuffer buf = new DumbMemBufferImpl(program.getMemory(), addr);
-		int encodedLen = sleb.getLength(buf, -1);
-		Object alignObj = sleb.getValue(buf, sleb.getDefaultSettings(), encodedLen);
+		LEB128Info sleb128 = GccAnalysisUtils.readSLEB128Info(program, addr);
 
-		dataAlignFactor = (int) ((Scalar) alignObj).getSignedValue();
+		dataAlignFactor = (int) sleb128.asLong();
 
-		createAndCommentData(program, addr, sleb, comment, CodeUnit.EOL_COMMENT);
+		createAndCommentData(program, addr, SignedLeb128DataType.dataType, comment,
+			CommentType.EOL);
 
-		curSize += encodedLen;
+		curSize += sleb128.getLength();
 
-		return addr.add(encodedLen);
+		return addr.add(sleb128.getLength());
 	}
 
 	/**
@@ -349,20 +345,18 @@ public class Cie extends GccAnalysisClass {
 		}
 		else {
 
-			UnsignedLeb128DataType uleb = UnsignedLeb128DataType.dataType;
-			encodedDt = uleb;
+			LEB128Info uleb128 = GccAnalysisUtils.readULEB128Info(program, addr);
+
+			encodedDt = UnsignedLeb128DataType.dataType;
 			// TODO Instead use the following data type once it can correctly determine the register.
 			// encodedDt = new DwarfRegisterLeb128DataType();
 
-			MemBuffer buf = new DumbMemBufferImpl(program.getMemory(), addr);
-			encodedLen = uleb.getLength(buf, AbstractLeb128DataType.MAX_LEB128_ENCODED_VALUE_LEN);
-			Object augLenObj = uleb.getValue(buf, uleb.getDefaultSettings(), encodedLen);
-
-			returnAddrRegister = (int) ((Scalar) augLenObj).getUnsignedValue();
+			encodedLen = uleb128.getLength();
+			returnAddrRegister = (int) uleb128.asLong();
 
 		}
 
-		createAndCommentData(program, addr, encodedDt, comment, CodeUnit.EOL_COMMENT);
+		createAndCommentData(program, addr, encodedDt, comment, CommentType.EOL);
 		curSize += encodedLen;
 
 		return addr.add(encodedLen);
@@ -383,18 +377,16 @@ public class Cie extends GccAnalysisClass {
 		 */
 		String comment = "(CIE) Augmentation Data Length";
 
-		UnsignedLeb128DataType uleb = UnsignedLeb128DataType.dataType;
-		MemBuffer buf = new DumbMemBufferImpl(program.getMemory(), addr);
-		int encodedLen = uleb.getLength(buf, AbstractLeb128DataType.MAX_LEB128_ENCODED_VALUE_LEN);
-		Object augLenObj = uleb.getValue(buf, uleb.getDefaultSettings(), encodedLen);
+		LEB128Info uleb128 = GccAnalysisUtils.readULEB128Info(program, addr);
 
-		augmentationDataLength = (int) ((Scalar) augLenObj).getUnsignedValue();
+		augmentationDataLength = (int) uleb128.asLong();
 
-		createAndCommentData(program, addr, uleb, comment, CodeUnit.EOL_COMMENT);
+		createAndCommentData(program, addr, UnsignedLeb128DataType.dataType, comment,
+			CommentType.EOL);
 
-		curSize += encodedLen;
+		curSize += uleb128.getLength();
 
-		return addr.add(encodedLen);
+		return addr.add(uleb128.getLength());
 
 	}
 
@@ -438,8 +430,7 @@ public class Cie extends GccAnalysisClass {
 		initialInstructionCount = intLength - curSize;
 		arrayCmd = new CreateArrayCmd(addr, initialInstructionCount, new ByteDataType(), BYTE_LEN);
 		arrayCmd.applyTo(program);
-		SetCommentCmd.createComment(program, addr, "(CIE) Initial Instructions",
-			CodeUnit.EOL_COMMENT);
+		SetCommentCmd.createComment(program, addr, "(CIE) Initial Instructions", CommentType.EOL);
 
 		initialInstructions = new byte[initialInstructionCount];
 		int numBytesRead = program.getMemory().getBytes(addr, initialInstructions);
@@ -533,8 +524,8 @@ public class Cie extends GccAnalysisClass {
 	}
 
 	private void markEndOfFrame(Address addr) {
-		createAndCommentData(program, addr, dwordDT, "End of Frame", CodeUnit.EOL_COMMENT);
-		SetCommentCmd commentCmd = new SetCommentCmd(addr, CodeUnit.PLATE_COMMENT, "END OF FRAME");
+		createAndCommentData(program, addr, dwordDT, "End of Frame", CommentType.EOL);
+		SetCommentCmd commentCmd = new SetCommentCmd(addr, CommentType.PLATE, "END OF FRAME");
 		commentCmd.applyTo(program);
 	}
 
@@ -557,7 +548,7 @@ public class Cie extends GccAnalysisClass {
 		if (intLength == 0xffffffff) {
 			hasExtLength = true;
 			String comment = "(CIE) Extended Length";
-			createAndCommentData(program, addr, new QWordDataType(), comment, CodeUnit.EOL_COMMENT);
+			createAndCommentData(program, addr, new QWordDataType(), comment, CommentType.EOL);
 			program.getMemory().getBytes(addr, enc_extLength);
 			addr = addr.add(QWORD_LEN);
 			curSize += QWORD_LEN;
@@ -628,7 +619,7 @@ public class Cie extends GccAnalysisClass {
 		String lsdaComment = "(CIE Augmentation Data) LSDA Personality Function Pointer Encoding";
 
 		createAndCommentData(program, augmentationDataAddr.add(augmentationDataIndex),
-			new DwarfEncodingModeDataType(), lsdaComment, CodeUnit.EOL_COMMENT);
+			new DwarfEncodingModeDataType(), lsdaComment, CommentType.EOL);
 	}
 
 	private void processFdeEncoding(Address augmentationDataAddr, int augmentationDataIndex,
@@ -638,7 +629,7 @@ public class Cie extends GccAnalysisClass {
 
 		createAndCommentData(program, augmentationDataAddr.add(augmentationDataIndex),
 			new DwarfEncodingModeDataType(), "(CIE Augmentation Data) FDE Encoding",
-			CodeUnit.EOL_COMMENT);
+			CommentType.EOL);
 	}
 
 	private DwarfEHDecoder processPersonalityEncoding(Address augmentationDataAddr,
@@ -651,7 +642,7 @@ public class Cie extends GccAnalysisClass {
 		String prsnltyComment = "(CIE Augmentation Data) Personality Function Pointer Encoding";
 
 		createAndCommentData(program, augmentationDataAddr.add(augmentationDataIndex),
-			new DwarfEncodingModeDataType(), prsnltyComment, CodeUnit.EOL_COMMENT);
+			new DwarfEncodingModeDataType(), prsnltyComment, CommentType.EOL);
 		return personalityDecoder;
 	}
 
@@ -668,11 +659,11 @@ public class Cie extends GccAnalysisClass {
 		createAndCommentData(program, augmentationDataAddr.add(augmentationDataIndex),
 			prnsFuncPtrDt,
 			"(CIE Augmentation Data) Personality Function Pointer (" + personalityFuncAddr + ")",
-			CodeUnit.EOL_COMMENT);
+			CommentType.EOL);
 
-		program.getReferenceManager().addMemoryReference(
-			augmentationDataAddr.add(augmentationDataIndex), personalityFuncAddr, RefType.DATA,
-			SourceType.ANALYSIS, 0);
+		program.getReferenceManager()
+				.addMemoryReference(augmentationDataAddr.add(augmentationDataIndex),
+					personalityFuncAddr, RefType.DATA, SourceType.ANALYSIS, 0);
 		return personalityDecodeContext;
 	}
 

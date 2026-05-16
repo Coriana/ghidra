@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,16 +18,14 @@ package ghidra.app.plugin.core.navigation.locationreferences;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.event.MouseEvent;
-import java.util.Collection;
+import java.util.*;
 
 import javax.swing.JPanel;
 import javax.swing.ListSelectionModel;
 import javax.swing.event.TableModelListener;
 
-import ghidra.app.services.GoToService;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
-import ghidra.program.util.ProgramSelection;
 import ghidra.util.table.*;
 
 /**
@@ -58,8 +56,7 @@ public class LocationReferencesPanel extends JPanel {
 		setLayout(new BorderLayout(10, 10));
 
 		PluginTool tool = locationReferencesProvider.getTool();
-		GoToService goToService = tool.getService(GoToService.class);
-		table.installNavigation(goToService, goToService.getDefaultNavigatable());
+		table.installNavigation(tool);
 
 		GhidraTableFilterPanel<LocationReference> tableFilterPanel =
 			new GhidraTableFilterPanel<>(table, tableModel);
@@ -73,10 +70,6 @@ public class LocationReferencesPanel extends JPanel {
 
 	GhidraTable getTable() {
 		return table;
-	}
-
-	ProgramSelection getSelection() {
-		return table.getProgramSelection();
 	}
 
 	/**
@@ -95,6 +88,26 @@ public class LocationReferencesPanel extends JPanel {
 		tableModel.fullReload();
 	}
 
+	boolean isBusy() {
+		return tableModel.isBusy();
+	}
+
+	void remove(List<LocationReference> refs) {
+		for (LocationReference lr : refs) {
+			tableModel.removeObject(lr);
+		}
+	}
+
+	List<LocationReference> getSelectedReferences() {
+		List<LocationReference> list = new ArrayList<>();
+		int[] rows = table.getSelectedRows();
+		for (int row : rows) {
+			LocationReference lr = tableModel.getRowObject(row);
+			list.add(lr);
+		}
+		return list;
+	}
+
 	void addTableModelListener(TableModelListener listener) {
 		tableModel.addTableModelListener(listener);
 	}
@@ -108,7 +121,6 @@ public class LocationReferencesPanel extends JPanel {
 	}
 
 	void dispose() {
-		tablePanel.dispose();
 		table.dispose();
 	}
 }

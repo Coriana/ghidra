@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,13 +15,13 @@
  */
 package ghidra.program.database.code;
 
+import java.util.Iterator;
+
 import ghidra.program.model.address.*;
 import ghidra.program.model.listing.*;
 
-import java.util.Iterator;
-
 /**
- * Combines an Instruction iterator and Data iterator into a codeunit iterator
+ * Combines an Instruction iterator and Data iterator into a code unit iterator
  */
 
 class CodeUnitRecordIterator implements CodeUnitIterator {
@@ -39,10 +38,10 @@ class CodeUnitRecordIterator implements CodeUnitIterator {
 
 	/**
 	 * Constructs a new CodeUnitRecordIterator
-	 * @param codeMgr the code managaer
+	 * @param codeMgr the code manager
 	 * @param instIt the instruction iterator
 	 * @param dataIt the data iterator
-	 * @param set the address set
+	 * @param set the address set (required)
 	 * @param forward the iterator direction
 	 */
 	CodeUnitRecordIterator(CodeManager codeMgr, InstructionIterator instIt, DataIterator dataIt,
@@ -58,17 +57,11 @@ class CodeUnitRecordIterator implements CodeUnitIterator {
 
 	}
 
-	/**
-	 * @see java.util.Iterator#remove()
-	 */
 	@Override
 	public void remove() {
 		throw new UnsupportedOperationException();
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.CodeUnitIterator#hasNext()
-	 */
 	@Override
 	public boolean hasNext() {
 		if (nextCu == null) {
@@ -77,9 +70,6 @@ class CodeUnitRecordIterator implements CodeUnitIterator {
 		return nextCu != null;
 	}
 
-	/**
-	 * @see ghidra.program.model.listing.CodeUnitIterator#next()
-	 */
 	@Override
 	public CodeUnit next() {
 		if (hasNext()) {

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -24,18 +24,18 @@ import javax.swing.*;
 import docking.ActionContext;
 import docking.DialogComponentProvider;
 import docking.action.*;
+import generic.theme.GIcon;
 import ghidra.feature.vt.api.main.*;
 import ghidra.feature.vt.gui.editors.MatchTagComboBox;
 import ghidra.feature.vt.gui.plugin.VTController;
 import ghidra.feature.vt.gui.plugin.VTPlugin;
 import ghidra.feature.vt.gui.provider.matchtable.VTMatchContext;
 import ghidra.util.HelpLocation;
-import resources.ResourceManager;
 
 public class ChooseMatchTagAction extends DockingAction {
 
 	private static final String MENU_GROUP = VTPlugin.TAG_MENU_GROUP;
-	private static final Icon EDIT_TAG_ICON = ResourceManager.loadImage("images/tag_blue.png");
+	private static final Icon EDIT_TAG_ICON = new GIcon("icon.version.tracking.action.choose.tag");
 	private static final String ACTION_NAME = "Choose Match Tag";
 
 	private final VTController controller;
@@ -127,7 +127,6 @@ public class ChooseMatchTagAction extends DockingAction {
 			tagComboBox = new MatchTagComboBox(session, matches, component, selectedTag);
 			Dimension dim = new Dimension(50, tagComboBox.getPreferredSize().height);
 			tagComboBox.setMinimumSize(dim);
-			tagComboBox.addActionListener(e -> fieldEdited());
 			panel.add(tagComboBox, BorderLayout.CENTER);
 			return panel;
 		}
@@ -147,13 +146,6 @@ public class ChooseMatchTagAction extends DockingAction {
 
 		VTMatchTag getSelectedTag() {
 			return selectedTag;
-		}
-
-		/**
-		 * An address edit action occurred in the panel so handle it as if ok button were pressed.
-		 */
-		public void fieldEdited() {
-			okCallback();
 		}
 	}
 }

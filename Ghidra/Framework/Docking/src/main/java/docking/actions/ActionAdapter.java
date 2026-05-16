@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -25,6 +25,7 @@ import javax.swing.Action;
 import javax.swing.Icon;
 
 import docking.ActionContext;
+import docking.DefaultActionContext;
 import docking.action.ActionContextProvider;
 import docking.action.DockingActionIf;
 
@@ -42,7 +43,7 @@ public class ActionAdapter implements Action, PropertyChangeListener {
 	 * <p>Most clients should use {@link #ActionAdapter(DockingActionIf, ActionContextProvider)}
 	 * @param dockingAction the action to adapt
 	 */
-	ActionAdapter(DockingActionIf dockingAction) {
+	public ActionAdapter(DockingActionIf dockingAction) {
 		this(dockingAction, null);
 	}
 
@@ -119,11 +120,15 @@ public class ActionAdapter implements Action, PropertyChangeListener {
 		ActionContext context = null;
 		if (contextProvider != null) {
 			context = contextProvider.getActionContext(null);
+			context.setContextProvider(contextProvider);
 		}
+
 		if (context == null) {
-			context = new ActionContext();
-			context.setSourceObject(e.getSource());
+			context = new DefaultActionContext();
 		}
+
+		context.setSourceObject(e.getSource());
+
 		if (dockingAction.isEnabledForContext(context)) {
 			dockingAction.actionPerformed(context);
 		}

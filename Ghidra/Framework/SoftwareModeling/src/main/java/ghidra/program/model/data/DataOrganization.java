@@ -15,7 +15,7 @@
  */
 package ghidra.program.model.data;
 
-import ghidra.util.exception.NoValueException;
+import java.util.Arrays;
 
 public interface DataOrganization {
 
@@ -75,17 +75,17 @@ public interface DataOrganization {
 	int getLongLongSize();
 
 	/**
-	 * @return the size of a float primitive data type in bytes.
+	 * @return the encoding size of a float primitive data type in bytes.
 	 */
 	int getFloatSize();
 
 	/**
-	 * @return the size of a double primitive data type in bytes.
+	 * @return the encoding size of a double primitive data type in bytes.
 	 */
 	int getDoubleSize();
 
 	/**
-	 * @return the size of a long double primitive data type in bytes.
+	 * @return the encoding size of a long double primitive data type in bytes.
 	 */
 	int getLongDoubleSize();
 
@@ -119,12 +119,14 @@ public interface DataOrganization {
 	int getDefaultPointerAlignment();
 
 	/**
-	 * Gets the alignment that is defined for a data type of the indicated size if one is defined.
-	 * @param size the size of the data type
+	 * Gets the primitive data alignment that is defined for the specified size.  If no entry has 
+	 * been defined for the specified size alignment of the next smaller map entry will be returned.
+	 * If the map is empty the {@link #getDefaultAlignment() default alignment}.  The returned
+	 * value will not exceed the {@link #getAbsoluteMaxAlignment() defined maximum alignment}.
+	 * @param size the primitive data size
 	 * @return the alignment of the data type.
-	 * @throws NoValueException if there isn't an alignment defined for the indicated size.
 	 */
-	int getSizeAlignment(int size) throws NoValueException;
+	int getSizeAlignment(int size);
 
 	/**
 	 * Get the composite bitfield packing information associated with this data organization.
@@ -133,19 +135,14 @@ public interface DataOrganization {
 	BitFieldPacking getBitFieldPacking();
 
 	/**
-	 * Remove all entries from the size alignment map
-	 */
-	void clearSizeAlignmentMap();
-
-	/**
 	 * Gets the number of sizes that have an alignment specified.
 	 * @return the number of sizes with an alignment mapped to them.
 	 */
 	int getSizeAlignmentCount();
 
 	/**
-	 * Gets the sizes that have an alignment specified.
-	 * @return the sizes with alignments mapped to them.
+	 * Gets the ordered list of sizes that have an alignment specified.
+	 * @return the ordered list of sizes with alignments mapped to them.
 	 */
 	int[] getSizes();
 
@@ -161,24 +158,71 @@ public interface DataOrganization {
 
 	/**
 	 * Determines the alignment value for the indicated data type. (i.e. how the data type gets
-	 * aligned within other data types.)  NOTE: the alignment of bitfields is dependent upon packing
-	 * rules which must be considered at the composite level.
+	 * aligned within other data types.)  NOTE: this method should not be used for bitfields
+	 * which are highly dependent upon packing for a composite.  This method will always return 1
+	 * for Dynamic and FactoryDataTypes.
 	 * @param dataType the data type
-	 * @param dtSize the data type's size or component size
-	 * @return the alignment
+	 * @return the datatype alignment
 	 */
-	int getAlignment(DataType dataType, int dtSize);
-
-	boolean isForcingAlignment(DataType dataType);
-
-	int getForcedAlignment(DataType dataType);
+	int getAlignment(DataType dataType);
 
 	/**
-	 * Determines the offset where the specified data type should be placed to be properly aligned.
-	 * @param minimumOffset the minimum allowable offset where the data type can be placed.
-	 * @param dataType the data type
-	 * @param dtSize the data type's size
-	 * @return the aligned offset for the data type
+	 * Determine if this DataOrganization is equivalent to another specific instance
+	 * @param obj is the other instance
+	 * @return true if they are equivalent
 	 */
-	int getAlignmentOffset(int minimumOffset, DataType dataType, int dtSize);
+	public default boolean isEquivalent(DataOrganization obj) {
+		if (getAbsoluteMaxAlignment() != obj.getAbsoluteMaxAlignment()) {
+			return false;
+		}
+		if (isBigEndian() != obj.isBigEndian()) {
+			return false;
+		}
+		if (!getBitFieldPacking().isEquivalent(obj.getBitFieldPacking())) {
+			return false;
+		}
+		if (getCharSize() != obj.getCharSize() || getWideCharSize() != obj.getWideCharSize()) {
+			return false;
+		}
+		if (getDefaultAlignment() != obj.getDefaultAlignment()) {
+			return false;
+		}
+		if (getDefaultPointerAlignment() != obj.getDefaultPointerAlignment()) {
+			return false;
+		}
+		if (getDoubleSize() != obj.getDoubleSize() || getFloatSize() != obj.getFloatSize()) {
+			return false;
+		}
+		if (getIntegerSize() != obj.getIntegerSize() ||
+			getLongLongSize() != obj.getLongLongSize()) {
+			return false;
+		}
+		if (getShortSize() != obj.getShortSize()) {
+			return false;
+		}
+		if (getLongSize() != obj.getLongSize() || getLongDoubleSize() != obj.getLongDoubleSize()) {
+			return false;
+		}
+		if (isSignedChar() != obj.isSignedChar()) {
+			return false;
+		}
+		if (getMachineAlignment() != obj.getMachineAlignment()) {
+			return false;
+		}
+		if (getPointerSize() != obj.getPointerSize() ||
+			getPointerShift() != obj.getPointerShift()) {
+			return false;
+		}
+		int[] keys = getSizes();
+		int[] op2keys = obj.getSizes();
+		if (!Arrays.equals(keys, op2keys)) {
+			return false;
+		}
+		for (int k : keys) {
+			if (getSizeAlignment(k) != obj.getSizeAlignment(k)) {
+				return false;
+			}
+		}
+		return true;
+	}
 }

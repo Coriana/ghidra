@@ -18,8 +18,6 @@ package ghidra.app.script;
 import java.util.HashMap;
 import java.util.Set;
 
-import javax.swing.JOptionPane;
-
 import ghidra.app.events.*;
 import ghidra.framework.model.Project;
 import ghidra.framework.plugintool.PluginEvent;
@@ -41,7 +39,6 @@ public class GhidraState {
 	private ProgramSelection currentSelection;
 	private ProgramSelection currentHighlight;
 	private HashMap<String, Object> envmap = new HashMap<>();
-	private GatherParamPanel gatherParamPanel;
 	private Project project;
 	private final boolean isGlobalState;
 
@@ -63,9 +60,6 @@ public class GhidraState {
 		this.currentSelection = selection;
 		this.currentHighlight = highlight;
 		this.isGlobalState = true;
-		if (!SystemUtilities.isInHeadlessMode()) {
-			gatherParamPanel = new GatherParamPanel(this);
-		}
 	}
 
 	public GhidraState(GhidraState state) {
@@ -112,10 +106,6 @@ public class GhidraState {
 			return;
 		}
 		this.currentProgram = program;
-		if (gatherParamPanel == null) {
-			return;
-		}
-		gatherParamPanel.currentProgramChanged();
 	}
 
 	/**
@@ -128,7 +118,7 @@ public class GhidraState {
 
 	/**
 	 * If it differs, set the current location to the given address and fire a {@link ProgramLocationPluginEvent}.
-	 * 
+	 *
 	 * @param address the address
 	 */
 	public void setCurrentAddress(Address address) {
@@ -147,8 +137,8 @@ public class GhidraState {
 
 	/**
 	 * If it differs, set the current location and fire a {@link ProgramLocationPluginEvent}.
-	 * 
-	 * @param location
+	 *
+	 * @param location the location
 	 */
 	public void setCurrentLocation(ProgramLocation location) {
 		if (SystemUtilities.isEqual(currentLocation, location)) {
@@ -170,7 +160,7 @@ public class GhidraState {
 
 	/**
 	 * Set the currently highlighted selection and fire a {@link ProgramHighlightPluginEvent}.
-	 * 
+	 *
 	 * @param highlight the selection
 	 */
 	public void setCurrentHighlight(ProgramSelection highlight) {
@@ -195,8 +185,8 @@ public class GhidraState {
 	}
 
 	/**
-	 * Set the current selection and fire a {@link kProgramSelectionPluginEvent}.
-	 * 
+	 * Set the current selection and fire a {@link ProgramSelectionPluginEvent}.
+	 *
 	 * @param selection the selection
 	 */
 	public void setCurrentSelection(ProgramSelection selection) {
@@ -247,34 +237,6 @@ public class GhidraState {
 
 	public Object getEnvironmentVar(String name) {
 		return envmap.get(name);
-	}
-
-	public void addParameter(String key, String label, int type, Object defaultValue) {
-		if (gatherParamPanel == null) {
-			return;
-		}
-		gatherParamPanel.addParameter(key, label, type, defaultValue);
-	}
-
-	public boolean displayParameterGatherer(String title) {
-		if (gatherParamPanel == null) {
-			return false;
-		}
-		if (!gatherParamPanel.panelShown()) {
-			int ans = JOptionPane.showConfirmDialog(null, gatherParamPanel, title,
-				JOptionPane.OK_CANCEL_OPTION);
-			if (ans == JOptionPane.CANCEL_OPTION) {
-				gatherParamPanel.setShown(false);
-				return false;
-			}
-			gatherParamPanel.setShown(true);
-			gatherParamPanel.setParamsInState();
-		}
-		return true;
-	}
-
-	public GatherParamPanel getParamPanel() {
-		return gatherParamPanel;
 	}
 
 	public Set<String> getEnvironmentNames() {

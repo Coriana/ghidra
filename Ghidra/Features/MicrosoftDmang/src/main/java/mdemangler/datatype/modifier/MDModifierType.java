@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 package mdemangler.datatype.modifier;
-
-import java.util.Objects;
 
 import mdemangler.*;
 import mdemangler.datatype.*;
@@ -28,7 +26,7 @@ import mdemangler.functiontype.MDFunctionType;
  *  of the other types.
  */
 // TODO: 20160126: Maybe is should extend MDType which extends MDDT.
-public class MDModifierType extends MDDataType {
+public abstract class MDModifierType extends MDDataType {
 	public static final char SPACE = ' ';
 	private static final String CONST = "const";
 	private static final String VOLATILE = "volatile";
@@ -41,10 +39,6 @@ public class MDModifierType extends MDDataType {
 
 	protected Boolean hasCVMod = true; // 20160329
 	protected MDType refType;
-
-	// Other special types
-	// private boolean isArray;
-	protected String arrayString = "";
 
 	// private String modifierTypeName = "";
 
@@ -110,13 +104,8 @@ public class MDModifierType extends MDDataType {
 	// }
 
 	// @Override
-	public void setConst() {
-		isConst = true;
-	}
-
-	// @Override
-	public void clearConst() {
-		isConst = false;
+	public void setConst(boolean isConst) {
+		this.isConst = isConst;
 	}
 
 	// @Override
@@ -125,13 +114,8 @@ public class MDModifierType extends MDDataType {
 	}
 
 	// @Override
-	public void setVolatile() {
-		isVolatile = true;
-	}
-
-	// @Override
-	public void clearVolatile() {
-		isVolatile = false;
+	public void setVolatile(boolean isVolatile) {
+		this.isVolatile = isVolatile;
 	}
 
 	// @Override
@@ -160,7 +144,7 @@ public class MDModifierType extends MDDataType {
 	}
 
 	protected MDDataType parseReferencedType() throws MDException {
-		return MDDataTypeParser.parsePrimaryDataType(dmang, false);
+		return MDDataTypeParser.parseBasicDataType(dmang, false);
 	}
 
 	@Override
@@ -177,9 +161,9 @@ public class MDModifierType extends MDDataType {
 			refType.parse();
 			// 20160819 if (managedProperty == null ) {
 			// if (cvMod.isPointerType() || cvMod.isReferenceType()) {
-			// //20160819: might need to add more (carrot, percent)
+			// //20160819: might need to add more (caret, percent)
 			// if (cvMod.isFunctionPointerType() || cvMod.isReferenceType()) {
-			// //20160819: might need to add more (carrot, percent)
+			// //20160819: might need to add more (caret, percent)
 			// ((MDFunctionType) refType).setFromModifier();
 			// }
 			// 20160819 if (cvMod.isFunctionPointer()) {
@@ -214,62 +198,33 @@ public class MDModifierType extends MDDataType {
 		// 20170418 dmang.popContext();
 	}
 
-	protected void parseArrayProperty() throws MDException {
-		if (dmang.peek() == 'Y') {
-			dmang.parseInfoPush(0, "Array Property");
-			dmang.increment();
-			MDEncodedNumber n1 = new MDEncodedNumber(dmang);
-			n1.parse();
-			int num = n1.getValue().intValue();
-			String arrString = "";
-			while (num-- > 0) {
-				MDEncodedNumber n2 = new MDEncodedNumber(dmang);
-				n2.parse();
-				arrString = arrString + '[' + n2 + ']';
-			}
-			setArrayString(arrString);
-			dmang.parseInfoPop();
-		}
-	}
-
-	/**
-	 * This method will possibly be removed from this class when we
-	 *  determine how to only use it in MDArrayReference.  It is used
-	 *  to set the arrayString.
-	 *  @param arrayString -- null not permitted.
-	 */
-	public void setArrayString(String arrayString) {
-		this.arrayString = Objects.requireNonNull(arrayString);
-	}
-
-	public String getArrayString() {
-		return arrayString;
-	}
-
 	protected void insertCVMod(StringBuilder builder) {
 		cvMod.insert(builder);
-		// Following to to clean the Based5 "bug" if seen.  See comments in MDBasedAttribute.
+		// Following is to clean the Based5 "bug" if seen.  See comments in MDBasedAttribute.
 		dmang.cleanOutput(builder); // 20170714
 	}
 
-	public void insertArrayString(StringBuilder builder) {
-		// This is from 'Y' optional prefix
-		// TODO: check if this should also apply to managed properties.
-		if (!arrayString.isEmpty()) {
-			if (!dmang.isEffectivelyEmpty(builder)) {
-				dmang.insertString(builder, "(");
-				dmang.appendString(builder, ")");
-			}
-			dmang.appendString(builder, getArrayString());
+	protected void insertReferredType(StringBuilder builder, boolean asArg) {
+		// LATER: Investigate weather we can change refType definition from MDType to MDDataType
+		if (refType instanceof MDDataType mdt && asArg) {
+			mdt.insertAsArg(builder);
 		}
-	}
-
-	protected void insertReferredType(StringBuilder builder) {
-		refType.insert(builder);
+		else {
+			refType.insert(builder);
+		}
 	}
 
 	@Override
 	public void insert(StringBuilder builder) {
+		insertInternal(builder, false);
+	}
+
+	@Override
+	public void insertAsArg(StringBuilder builder) {
+		insertInternal(builder, true);
+	}
+
+	private void insertInternal(StringBuilder builder, boolean asArg) {
 		// Added 20170412 to try have available to get MSFT affect on this
 		// "invalid" condition.
 		// if (cvMod.isBasedPtrBased()) {
@@ -326,7 +281,7 @@ public class MDModifierType extends MDDataType {
 		// if (!isArray()) { //20170523
 		insertCVMod(builder);
 		// }
-		// Following to to clean the Based5 "bug" if seen.  See comments in MDBasedAttribute.
+		// Following is to clean the Based5 "bug" if seen.  See comments in MDBasedAttribute.
 		// 20170714 dmang.cleanOutput(builder);
 		// 20170605 insertArrayString(builder); //only available for "data"
 		// refType
@@ -334,12 +289,12 @@ public class MDModifierType extends MDDataType {
 		// builder.insertString(" "); //20160701
 		if (refType instanceof MDArrayReferencedType) {
 			// 20170714 refType.insert(builder);
-			insertReferredType(builder);// 20170714
+			insertReferredType(builder, asArg);// 20170714
 		}
 		else if (cvMod.isPinPointer()) {
 			StringBuilder refBuilder = new StringBuilder();
 			// 20170714 refType.insert(refBuilder);
-			insertReferredType(refBuilder);// 20170714
+			insertReferredType(refBuilder, asArg);// 20170714
 			dmang.appendString(refBuilder, " ");
 			if (!(cvMod.isQuestionType() ||
 				(cvMod.isPointerType() && (refType instanceof MDVoidDataType)))) {
@@ -356,7 +311,7 @@ public class MDModifierType extends MDDataType {
 		else if (cvMod.isCLIArray()) {
 			StringBuilder refBuilder = new StringBuilder();
 			// 20170714 refType.insert(refBuilder);
-			insertReferredType(refBuilder);// 20170714
+			insertReferredType(refBuilder, asArg);// 20170714
 			if (!(refType instanceof MDVoidDataType)) {
 				cvMod.insertManagedPropertiesPrefix(refBuilder);
 				// cvMod.insertManagedProperties(refBuilder);
@@ -379,10 +334,7 @@ public class MDModifierType extends MDDataType {
 			// }
 			// //Could be function (function pointer or function) or data.
 			// 20170714 refType.insert(builder);
-			insertReferredType(builder);// 20170714
+			insertReferredType(builder, asArg);// 20170714
 		}
 	}
 }
-
-/******************************************************************************/
-/******************************************************************************/

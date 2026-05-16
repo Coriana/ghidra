@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,32 +19,34 @@ import java.io.*;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.swing.Icon;
-import javax.swing.JComponent;
+import javax.swing.*;
 
 import docking.ActionContext;
 import docking.action.DockingAction;
 import docking.action.ToolBarData;
+import docking.action.builder.ActionBuilder;
+import docking.widgets.FindDialog;
 import docking.widgets.OptionDialog;
+import docking.widgets.search.TextComponentSearcher;
+import generic.theme.GIcon;
+import ghidra.app.util.HelpTopics;
 import ghidra.framework.plugintool.ComponentProviderAdapter;
 import ghidra.util.HelpLocation;
 import resources.Icons;
-import resources.ResourceManager;
 import utility.function.Callback;
 
 public class InterpreterComponentProvider extends ComponentProviderAdapter
 		implements InterpreterConsole {
 
-	private static final String CONSOLE_GIF = "images/monitor.png";
-	private static final String CLEAR_GIF = "images/erase16.png";
-
 	private InterpreterPanel panel;
 	private InterpreterConnection interpreter;
 	private List<Callback> firstActivationCallbacks;
 
+	private FindDialog findDialog;
+
 	public InterpreterComponentProvider(InterpreterPanelPlugin plugin,
 			InterpreterConnection interpreter, boolean visible) {
-		super(plugin.getTool(), interpreter.getTitle(), plugin.getName());
+		super(plugin.getTool(), interpreter.getTitle(), interpreter.getTitle());
 
 		this.panel = new InterpreterPanel(plugin.getTool(), interpreter);
 		this.interpreter = interpreter;
@@ -57,7 +59,7 @@ public class InterpreterComponentProvider extends ComponentProviderAdapter
 
 		Icon icon = interpreter.getIcon();
 		if (icon == null) {
-			icon = ResourceManager.loadImage(CONSOLE_GIF);
+			icon = new GIcon("icon.plugin.interpreter.provider");
 		}
 		setIcon(icon);
 
@@ -66,17 +68,38 @@ public class InterpreterComponentProvider extends ComponentProviderAdapter
 
 	private void createActions() {
 
-		DockingAction clearAction = new DockingAction("Clear Interpreter", getName()) {
+		DockingAction clearAction = new DockingAction("Clear Interpreter", getOwner()) {
 			@Override
 			public void actionPerformed(ActionContext context) {
 				clear();
 			}
 		};
 		clearAction.setDescription("Clear Interpreter");
-		clearAction.setToolBarData(new ToolBarData(ResourceManager.loadImage(CLEAR_GIF), null));
+		clearAction.setToolBarData(new ToolBarData(Icons.CLEAR_ICON, null));
 		clearAction.setEnabled(true);
-
 		addLocalAction(clearAction);
+
+		//@formatter:off
+		new ActionBuilder("Find", getOwner())
+			.keyBinding("Ctrl F")
+			.sharedKeyBinding()
+			.helpLocation(new HelpLocation(HelpTopics.CONSOLE, "Console_Find"))
+			.popupMenuPath("Find...")
+			.onAction(c -> {
+				showFindDialog();
+			})
+			.buildAndInstallLocal(this)
+			;
+		//@formatter:on	
+	}
+
+	private void showFindDialog() {
+		if (findDialog == null) {
+			JTextPane textPane = panel.getOutputTextPane();
+			TextComponentSearcher searcher = new TextComponentSearcher(textPane);
+			findDialog = new FindDialog("Intepreter Find", searcher);
+		}
+		getTool().showDialog(findDialog);
 	}
 
 	@Override
@@ -131,6 +154,10 @@ public class InterpreterComponentProvider extends ComponentProviderAdapter
 	@Override
 	public void clear() {
 		panel.clear();
+
+		if (findDialog != null) {
+			findDialog.close(); // this will also dispose of any search highlights
+		}
 	}
 
 	@Override
@@ -156,6 +183,15 @@ public class InterpreterComponentProvider extends ComponentProviderAdapter
 	@Override
 	public PrintWriter getErrWriter() {
 		return panel.getErrWriter();
+	}
+
+	/**
+	 * For testing purposes, but should probably be promoted to InterpreterConsole interface
+	 * 
+	 * @return the prompt;
+	 */
+	public String getPrompt() {
+		return panel.getPrompt();
 	}
 
 	@Override
@@ -185,5 +221,34 @@ public class InterpreterComponentProvider extends ComponentProviderAdapter
 	@Override
 	public void addFirstActivationCallback(Callback activationCallback) {
 		firstActivationCallbacks.add(activationCallback);
+	}
+
+	@Override
+	public boolean isInputPermitted() {
+		return panel.isInputPermitted();
+	}
+
+	@Override
+	public void setInputPermitted(boolean permitted) {
+		panel.setInputPermitted(permitted);
+	}
+
+	@Override
+	public void show() {
+		tool.showComponentProvider(this, true);
+	}
+
+	@Override
+	public void updateTitle() {
+		tool.updateTitle(this);
+	}
+
+	/**
+	 * For testing purposes only
+	 * 
+	 * @return the text in the output buffer
+	 */
+	public String getOutputText() {
+		return panel.getOutputText();
 	}
 }

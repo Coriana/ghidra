@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,21 +20,18 @@ import static org.junit.Assert.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 
-import javax.swing.Action;
-import javax.swing.KeyStroke;
+import javax.swing.*;
 import javax.swing.table.TableColumn;
 
 import org.junit.Test;
 
 import docking.DockingUtils;
 import docking.action.DockingActionIf;
-import docking.actions.*;
+import docking.actions.KeyBindingUtils;
+import docking.actions.ToolActions;
+import ghidra.util.TaskUtilities;
 
 public class GhidraScriptMgrPlugin1Test extends AbstractGhidraScriptMgrPluginTest {
-
-	public GhidraScriptMgrPlugin1Test() {
-		super();
-	}
 
 	@Test
 	public void testRunLastScriptAction() throws Exception {
@@ -46,7 +43,7 @@ public class GhidraScriptMgrPlugin1Test extends AbstractGhidraScriptMgrPluginTes
 		//
 		String initialScriptName = "HelloWorldScript.java";
 		selectScript(initialScriptName);
-		String fullOutput = runScript(initialScriptName);
+		String fullOutput = runSelectedScript(initialScriptName);
 		String expectedOutput = "Hello World";
 		assertTrue("Script did not run - output: " + fullOutput,
 			fullOutput.indexOf(expectedOutput) != -1);
@@ -63,7 +60,7 @@ public class GhidraScriptMgrPlugin1Test extends AbstractGhidraScriptMgrPluginTes
 		//
 		String secondScriptName = "FormatExampleScript.java";
 		selectScript(secondScriptName);
-		fullOutput = runScript(secondScriptName);
+		fullOutput = runSelectedScript(secondScriptName);
 		expectedOutput = "jumped over the";
 		assertTrue("Script did not run - output: " + fullOutput,
 			fullOutput.indexOf(expectedOutput) != -1);
@@ -84,7 +81,7 @@ public class GhidraScriptMgrPlugin1Test extends AbstractGhidraScriptMgrPluginTes
 		//
 		String scriptName = "HelloWorldScript.java";
 		selectScript(scriptName);
-		String fullOutput = runScript(scriptName);
+		String fullOutput = runSelectedScript(scriptName);
 		String expectedOutput = "Hello World";
 		assertTrue("Script did not run - output: " + fullOutput,
 			fullOutput.indexOf(expectedOutput) != -1);
@@ -105,7 +102,7 @@ public class GhidraScriptMgrPlugin1Test extends AbstractGhidraScriptMgrPluginTes
 		//
 		String scriptName = "HelloWorldScript.java";
 		selectScript(scriptName);
-		String fullOutput = runScript(scriptName);
+		String fullOutput = runSelectedScript(scriptName);
 		String expectedOutput = "Hello World";
 		assertTrue("Script did not run - output: " + fullOutput,
 			fullOutput.indexOf(expectedOutput) != -1);
@@ -115,7 +112,7 @@ public class GhidraScriptMgrPlugin1Test extends AbstractGhidraScriptMgrPluginTes
 		//
 		// Run the script again
 		//
-		fullOutput = runGlobalLastScriptAction(scriptName);
+		fullOutput = runLastScript(scriptName);
 		assertTrue("Did not rerun last run script", fullOutput.indexOf(expectedOutput) != -1);
 	}
 
@@ -149,6 +146,59 @@ public class GhidraScriptMgrPlugin1Test extends AbstractGhidraScriptMgrPluginTes
 		ToolActions toolActions = (ToolActions) plugin.getTool().getToolActions();
 		Action toolActionByKeyStroke = toolActions.getAction(newKs);
 		assertNotNull(toolActionByKeyStroke);
+	}
+
+	@Test
+	public void testScriptQuickChooser() throws Exception {
+
+		ScriptSelectionDialog dialog = launchQuickChooser();
+
+		String scriptName = "HelloWorldScript";
+		pickScript(dialog, scriptName, "HelloWorldScript.java");
+
+		String output = getConsoleText();
+
+		String expectedOutput = "Hello World";
+		assertTrue("Script did not run - output: " + output,
+			output.indexOf(expectedOutput) != -1);
+	}
+
+	@Test
+	public void testScriptQuickLaunch_WithGlobbing() throws Exception {
+
+		ScriptSelectionDialog dialog = launchQuickChooser();
+
+		String scriptName = "Hello*dScr";
+		pickScript(dialog, scriptName, "HelloWorldScript.java");
+
+		String output = getConsoleText();
+
+		String expectedOutput = "Hello World";
+		assertTrue("Script did not run - output: " + output,
+			output.indexOf(expectedOutput) != -1);
+	}
+
+//==================================================================================================
+// Private Methods 
+//==================================================================================================	
+
+	private void pickScript(ScriptSelectionDialog dialog, String userText, String scriptName) {
+		JTextField textField = findComponent(dialog.getComponent(), JTextField.class);
+
+		triggerText(textField, userText);
+
+		TaskListenerFlag taskFlag = new TaskListenerFlag(scriptName);
+		TaskUtilities.addTrackedTaskListener(taskFlag);
+
+		triggerEnter(textField);
+
+		waitForTaskEnd(taskFlag);
+	}
+
+	private ScriptSelectionDialog launchQuickChooser() {
+		DockingActionIf action = getAction(env.getTool(), "Script Quick Launch");
+		performAction(action, false);
+		return waitForDialogComponent(ScriptSelectionDialog.class);
 	}
 
 	private void assertColumnValue(String columnName, Object expectedValue) {

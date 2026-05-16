@@ -15,8 +15,8 @@
  */
 package utilities.util;
 
-import static generic.test.AbstractGTest.assertListEqualsArrayOrdered;
-import static org.hamcrest.CoreMatchers.equalTo;
+import static generic.test.AbstractGTest.*;
+import static org.hamcrest.CoreMatchers.*;
 import static org.junit.Assert.*;
 
 import java.io.*;
@@ -30,8 +30,7 @@ import org.junit.Test;
 
 import generic.jar.ResourceFile;
 import generic.test.AbstractGenericTest;
-import ghidra.framework.OperatingSystem;
-import ghidra.framework.Platform;
+import ghidra.framework.*;
 import utilities.util.FileResolutionResult.FileResolutionStatus;
 
 public class FileUtilitiesTest {
@@ -140,6 +139,38 @@ public class FileUtilitiesTest {
 		assertNull(relative);
 	}
 
+	@Test
+	public void testRelativizePath_ResourceFiles() {
+		ResourceFile f1 = new ResourceFile(new File("/a/b"));
+		ResourceFile f2 = new ResourceFile(new File("/a/b/c"));
+		String relative = FileUtilities.relativizePath(f1, f2);
+		assertEquals("c", relative);
+	}
+
+	@Test
+	public void testRelativizePath_ResourceFiles2() {
+		ResourceFile f1 = new ResourceFile(new File("/a/b"));
+		ResourceFile f2 = new ResourceFile(new File("/a/b/c/d"));
+		String relative = FileUtilities.relativizePath(f1, f2);
+		assertEquals("c/d", relative);
+	}
+
+	@Test
+	public void testRelativizePath_ResourceFiles_NotRelated() {
+		ResourceFile f1 = new ResourceFile(new File("/a/b"));
+		ResourceFile f2 = new ResourceFile(new File("/c/d"));
+		String relative = FileUtilities.relativizePath(f1, f2);
+		assertNull(relative);
+	}
+
+	@Test
+	public void testRelativizePath_ResourceFiles_Same() {
+		ResourceFile f1 = new ResourceFile(new File("/a/b"));
+		ResourceFile f2 = new ResourceFile(new File("/a/b"));
+		String relative = FileUtilities.relativizePath(f1, f2);
+		assertNull(relative);
+	}
+
 	private ResourceFile createNestedTempFile(String path) throws Exception {
 
 		String tmpdir = AbstractGenericTest.getTestDirectoryPath();
@@ -166,11 +197,11 @@ public class FileUtilitiesTest {
 	@Test
 	public void copyFile_ResourceFile_To_ResourceFile() throws Exception {
 
-		File from = File.createTempFile("from.file", ".txt");
+		File from = Application.createTempFile("from.file", ".txt");
 		FileUtilities.writeLinesToFile(from, Arrays.asList("From file contents"));
 		from.deleteOnExit();
 
-		File to = File.createTempFile("to.file", ".txt");
+		File to = Application.createTempFile("to.file", ".txt");
 		to.deleteOnExit();
 		FileUtilities.writeLinesToFile(to, Arrays.asList("To file contents"));
 
@@ -190,7 +221,7 @@ public class FileUtilitiesTest {
 			}
 		};
 
-		File to = File.createTempFile("to.file", ".txt");
+		File to = Application.createTempFile("to.file", ".txt");
 		to.deleteOnExit();
 
 		// should fail
@@ -200,7 +231,7 @@ public class FileUtilitiesTest {
 	@Test(expected = IOException.class)
 	public void copyFile_ExceptionFromOutputStream() throws Exception {
 
-		File from = File.createTempFile("from.file", ".txt");
+		File from = Application.createTempFile("from.file", ".txt");
 		from.deleteOnExit();
 
 		ResourceFile to = new ResourceFile(new File("/to.from.file")) {

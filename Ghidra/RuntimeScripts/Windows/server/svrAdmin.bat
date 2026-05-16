@@ -1,3 +1,18 @@
+:: ###
+:: IP: GHIDRA
+::
+:: Licensed under the Apache License, Version 2.0 (the "License");
+:: you may not use this file except in compliance with the License.
+:: You may obtain a copy of the License at
+::
+::      http://www.apache.org/licenses/LICENSE-2.0
+::
+:: Unless required by applicable law or agreed to in writing, software
+:: distributed under the License is distributed on an "AS IS" BASIS,
+:: WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+:: See the License for the specific language governing permissions and
+:: limitations under the License.
+:: ##
 @echo off
 
 :: ***********************************************************
@@ -31,18 +46,18 @@ set MAXMEM=128M
 :: '% ~' dereferences the value in param 0
 :: 'd' - drive
 :: 'p' - path (without filename)
-set SCRIPT_DIR=%~dp0
+set "SCRIPT_DIR=%~dp0"
 
 :: Production Environment
-set CONFIG=%SCRIPT_DIR%.\server.conf
+set "CONFIG=%SCRIPT_DIR%.\server.conf"
 
 if exist "%CONFIG%" goto continue
 
 :: Development Environment
-set CONFIG=%SCRIPT_DIR%..\..\Common\server\server.conf
+set "CONFIG=%SCRIPT_DIR%..\..\Common\server\server.conf"
 
 :continue
 
-set VMARGS=-DUserAdmin.invocation="%0" -DUserAdmin.config="%CONFIG%"
+set VMARGS=-DUserAdmin.invocation=%~n0
 
-call "%~dp0\..\support\launch.bat" fg svrAdmin "%MAXMEM%" "%VMARGS%" ghidra.server.ServerAdmin %*
+call "%~dp0\..\support\launch.bat" fg jre svrAdmin "%MAXMEM%" "%VMARGS%" ghidra.server.ServerAdmin "%CONFIG%" %*

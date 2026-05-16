@@ -54,22 +54,28 @@ public class UndefinedFunction implements Function {
 		frame = new StackFrameImpl(this);
 	}
 
+	@Override
+	public boolean isDeleted() {
+		return false;
+	}
+
 	/**
-	 * locates the function based on the location given at construction time.
+	 * Identifies a <code>UndefinedFunction</code> based on the location given based upon the current
+	 * listing disassembly at time of construction using a block model.
+	 * @param program program to be searched
+	 * @param address address within body of function
+	 * @param monitor task monitor
+	 * @return function or null if invalid parameters, not found, or cancelled
 	 */
 	public static UndefinedFunction findFunction(Program program, Address address,
 			TaskMonitor monitor) {
-		if (program == null || address == null) {
-			return null;
-		}
-
-		if (monitor.isCancelled()) {
+		if (program == null || address == null || monitor.isCancelled()) {
 			return null;
 		}
 
 		// first try to walk back up to the top of the function
 		UndefinedFunction function = findFunctionUsingSimpleBlockModel(program, address, monitor);
-		if (function != null) {
+		if (function != null || monitor.isCancelled()) {
 			return function;
 		}
 
@@ -170,17 +176,23 @@ public class UndefinedFunction implements Function {
 			while (iterator.hasNext() && !monitor.isCancelled()) {
 				CodeBlockReference blockReference = iterator.next();
 				FlowType flowType = blockReference.getFlowType();
-				if (flowType.isCall())
-					continue;			// Don't follow call edges for within-function analysis
-				count += 1;			// Count the existence of source that is NOT a call
+				if (flowType.isCall()) {
+					continue; // Don't follow call edges for within-function analysis
+				}
+				if (flowType.isIndirect()) {
+					continue; // Don't follow improper use of Indirect reference
+				}
+				count += 1;	  // Count the existence of source that is NOT a call
 				Address sourceAddr = blockReference.getSourceAddress();
-				if (visitedAddresses.contains(sourceAddr))
-					continue;			// Already visited this block
+				if (visitedAddresses.contains(sourceAddr)) {
+					continue; // Already visited this block
+				}
 				visitedAddresses.addRange(sourceAddr, sourceAddr);
 				worklist.add(blockReference.getSourceBlock());
 			}
-			if (count == 0)				// We found a block with no incoming edges, a likely function start
+			if (count == 0) {
 				return curblock;
+			}
 		}
 		return null;
 	}
@@ -207,6 +219,11 @@ public class UndefinedFunction implements Function {
 	}
 
 	@Override
+	public boolean hasUnknownCallingConventionName() {
+		return true;
+	}
+
+	@Override
 	public String getCallingConventionName() {
 		return Function.UNKNOWN_CALLING_CONVENTION_STRING;
 	}
@@ -219,11 +236,6 @@ public class UndefinedFunction implements Function {
 	@Override
 	public String[] getCommentAsArray() {
 		return new String[0];
-	}
-
-	@Override
-	public String getDefaultCallingConventionName() {
-		return p.getCompilerSpec().getDefaultCallingConvention().getName();
 	}
 
 	@Override
@@ -315,11 +327,8 @@ public class UndefinedFunction implements Function {
 	public Parameter getReturn() {
 		try {
 			DataType dt = getReturnType();
-			if (dt instanceof TypeDef) {
-				dt = ((TypeDef) dt).getBaseDataType();
-			}
 			return new ReturnParameterImpl(dt,
-				(dt instanceof VoidDataType) ? VariableStorage.VOID_STORAGE
+				VoidDataType.isVoidDataType(dt) ? VariableStorage.VOID_STORAGE
 						: VariableStorage.UNASSIGNED_STORAGE,
 				getProgram());
 		}
@@ -469,8 +478,9 @@ public class UndefinedFunction implements Function {
 
 	@Override
 	public void setReturnType(DataType type, SourceType source) {
-		if (type == DataType.DEFAULT)
+		if (type == DataType.DEFAULT) {
 			return;
+		}
 		throw new UnsupportedOperationException();
 	}
 
@@ -542,7 +552,7 @@ public class UndefinedFunction implements Function {
 	}
 
 	@Override
-	public Address[] getFunctionThunkAddresses() {
+	public Address[] getFunctionThunkAddresses(boolean recursive) {
 		return null;
 	}
 

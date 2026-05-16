@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,13 +17,13 @@ package ghidra.app.plugin.exceptionhandlers.gcc.structures.gccexcepttable;
 
 import ghidra.app.cmd.comments.SetCommentCmd;
 import ghidra.app.plugin.exceptionhandlers.gcc.*;
-import ghidra.app.plugin.exceptionhandlers.gcc.datatype.UnsignedLeb128DataType;
+import ghidra.app.util.bin.LEB128Info;
 import ghidra.program.model.address.*;
 import ghidra.program.model.data.DataType;
-import ghidra.program.model.listing.CodeUnit;
+import ghidra.program.model.data.UnsignedLeb128DataType;
+import ghidra.program.model.listing.CommentType;
 import ghidra.program.model.listing.Program;
-import ghidra.program.model.mem.*;
-import ghidra.program.model.scalar.Scalar;
+import ghidra.program.model.mem.MemoryAccessException;
 import ghidra.program.model.symbol.RefType;
 import ghidra.program.model.symbol.SourceType;
 import ghidra.util.task.TaskMonitor;
@@ -97,17 +96,19 @@ public class LSDACallSiteRecord extends GccAnalysisClass {
 		landingPadAddr = lpStart.add(getLandingPadOffset());
 
 		SetCommentCmd commentCmd =
-			new SetCommentCmd(baseAddr, CodeUnit.PLATE_COMMENT, "(LSDA) Call Site Record");
+			new SetCommentCmd(baseAddr, CommentType.PLATE, "(LSDA) Call Site Record");
 		commentCmd.applyTo(program);
 
 		if (program.getMemory().contains(callSiteBaseAddr)) {
-			program.getReferenceManager().addMemoryReference(callSiteDataAddr, callSiteBaseAddr,
-				RefType.DATA, SourceType.ANALYSIS, 0);
+			program.getReferenceManager()
+					.addMemoryReference(callSiteDataAddr, callSiteBaseAddr, RefType.DATA,
+						SourceType.ANALYSIS, 0);
 		}
 
 		if (program.getMemory().contains(landingPadAddr)) {
-			program.getReferenceManager().addMemoryReference(lpDataAddr, landingPadAddr,
-				RefType.DATA, SourceType.ANALYSIS, 0);
+			program.getReferenceManager()
+					.addMemoryReference(lpDataAddr, landingPadAddr, RefType.DATA,
+						SourceType.ANALYSIS, 0);
 		}
 
 		nextAddress = addr;
@@ -125,7 +126,7 @@ public class LSDACallSiteRecord extends GccAnalysisClass {
 
 		DataType encodedDt = decoder.getDataType(program);
 
-		createAndCommentData(program, addr, encodedDt, comment, CodeUnit.EOL_COMMENT);
+		createAndCommentData(program, addr, encodedDt, comment, CommentType.EOL);
 
 		return addr.add(encodedLen);
 	}
@@ -142,7 +143,7 @@ public class LSDACallSiteRecord extends GccAnalysisClass {
 
 		DataType encodedDt = decoder.getDataType(program);
 
-		createAndCommentData(program, addr, encodedDt, comment, CodeUnit.EOL_COMMENT);
+		createAndCommentData(program, addr, encodedDt, comment, CommentType.EOL);
 
 		return addr.add(encodedLen);
 	}
@@ -159,30 +160,25 @@ public class LSDACallSiteRecord extends GccAnalysisClass {
 
 		DataType encodedDt = decoder.getDataType(program);
 
-		createAndCommentData(program, addr, encodedDt, comment, CodeUnit.EOL_COMMENT);
+		createAndCommentData(program, addr, encodedDt, comment, CommentType.EOL);
 
 		return addr.add(encodedLen);
 	}
 
-	private Address createAction(Address addr) {
+	private Address createAction(Address addr) throws MemoryAccessException {
 		String comment = "(LSDA Call Site) Action Table Offset";
 
-		UnsignedLeb128DataType uleb = UnsignedLeb128DataType.dataType;
-		MemBuffer buf = new DumbMemBufferImpl(program.getMemory(), addr);
+		LEB128Info uleb128 = GccAnalysisUtils.readULEB128Info(program, addr);
 
-		int encodedLen = uleb.getLength(buf, -1);
-
-		Object actionObj = uleb.getValue(buf, uleb.getDefaultSettings(), encodedLen);
-
-		actionOffset = (int) ((Scalar) actionObj).getUnsignedValue();
-		encodedLen = ((Scalar) actionObj).bitLength() / 8;
+		actionOffset = (int) uleb128.asLong();
 
 		if (actionOffset == 0) {
 			comment += " (No action -- cleanup)";
 		}
 
-		createAndCommentData(program, addr, uleb, comment, CodeUnit.EOL_COMMENT);
-		return addr.add(encodedLen);
+		createAndCommentData(program, addr, UnsignedLeb128DataType.dataType, comment,
+			CommentType.EOL);
+		return addr.add(uleb128.getLength());
 	}
 
 	/**

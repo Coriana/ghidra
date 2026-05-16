@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -23,12 +23,11 @@ import javax.swing.JTextField;
 import org.junit.Test;
 
 import ghidra.program.model.data.*;
-import ghidra.program.model.data.Composite.AlignmentType;
 
 public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 
 	@Test
-    public void testUnalignedUnion() {
+	public void testUnalignedUnion() {
 		init(emptyUnion, pgmRootCat, false);
 
 		assertTrue(unionModel.hasChanges());// empty union that hasn't been saved yet.
@@ -40,30 +39,26 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 			unionModel.getOriginalCategoryPath().getPath());
 		assertEquals(0, unionModel.getNumComponents());// no components
 		assertEquals(1, unionModel.getRowCount());// blank row
-		assertIsInternallyAligned(false);
-		assertPackingValue(Composite.NOT_PACKING);
-		assertMinimumAlignmentType(AlignmentType.DEFAULT_ALIGNED);
-		assertMinimumAlignmentValue(Composite.DEFAULT_ALIGNMENT_VALUE);
+		assertIsPackingEnabled(false);
+		assertIsDefaultAligned();
 		assertLength(0);
 		assertActualAlignment(1);
 		assertEquals(0, unionModel.getNumSelectedComponentRows());
 		assertEquals(1, unionModel.getNumSelectedRows());
 		checkSelection(new int[] { 0 });
 
-//		// Check enablement.
-//		CompositeEditorAction[] pActions = provider.getActions();
-//		for (int i = 0; i < pActions.length; i++) {
-//			if ((pActions[i] instanceof FavoritesAction)
-//			|| (pActions[i] instanceof CycleGroupAction)
-//			|| (pActions[i] instanceof EditFieldAction)
-//			|| (pActions[i] instanceof PointerAction)
-//			|| (pActions[i] instanceof HexNumbersAction)) {
-//				checkEnablement(pActions[i], true);
-//			}
-//			else {
-//				checkEnablement(pActions[i], false);
-//			}
-//		}
+		// Check enablement for empty table with modified state.
+		CompositeEditorTableAction[] pActions = provider.getActions();
+		for (CompositeEditorTableAction pAction : pActions) {
+			if ((pAction instanceof FavoritesAction) || (pAction instanceof CycleGroupAction) ||
+				(pAction instanceof EditFieldAction) || (pAction instanceof PointerAction) ||
+				(pAction instanceof HexNumbersAction) || (pAction instanceof ApplyAction)) {
+				checkEnablement(pAction, true);
+			}
+			else {
+				checkEnablement(pAction, false);
+			}
+		}
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
 		addDataType(new ByteDataType());
@@ -80,7 +75,7 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testDefaultAlignedUnion() throws Exception {
+	public void testDefaultAlignedUnion() throws Exception {
 		init(emptyUnion, pgmRootCat, false);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
@@ -88,7 +83,9 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 		addDataType(new FloatDataType());
 		addDataType(arrayDt);
 
-		pressButtonByName(getPanel(), "Internally Aligned");
+		pressButtonByName(getPanel(), "Packing Enablement"); // toggle -> enable packing
+		assertIsPackingEnabled(true);
+		assertDefaultPacked();
 
 		assertEquals(true, unionModel.viewComposite.isDefaultAligned());
 		assertEquals(3, unionModel.getNumComponents());
@@ -101,27 +98,36 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testEnablementDefaultAlignedUnion() throws Exception {
-		emptyUnion.setInternallyAligned(true);
+	public void testEnablementDefaultAlignedUnion() throws Exception {
+		emptyUnion.setPackingEnabled(true);
 		init(emptyUnion, pgmRootCat, false);
+
+		CompositeEditorTableAction undoAction =
+			provider.actionMgr.getNamedAction("Undo Editor Change");
+		assertNotNull(undoAction);
+		checkEnablement(undoAction, false);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
 		addDataType(new ByteDataType());
 		addDataType(new FloatDataType());
 		addDataType(arrayDt);
 
+		// Undo should be enabled
+
 		// Check enablement.
 		CompositeEditorTableAction[] pActions = provider.getActions();
-		for (int i = 0; i < pActions.length; i++) {
-			if ((pActions[i] instanceof FavoritesAction) ||
-				(pActions[i] instanceof CycleGroupAction) ||
-				(pActions[i] instanceof EditFieldAction) ||
-				(pActions[i] instanceof PointerAction) ||
-				(pActions[i] instanceof HexNumbersAction) || (pActions[i] instanceof ApplyAction)) {
-				checkEnablement(pActions[i], true);
+		for (CompositeEditorTableAction pAction : pActions) {
+			if ((pAction instanceof FavoritesAction) || (pAction instanceof CycleGroupAction) ||
+				(pAction instanceof EditFieldAction) || (pAction instanceof PointerAction) ||
+				(pAction instanceof HexNumbersAction) || (pAction instanceof MoveDownAction) ||
+				(pAction instanceof DuplicateAction) ||
+				(pAction instanceof DuplicateMultipleAction) || (pAction instanceof DeleteAction) ||
+				(pAction instanceof ArrayAction) || (pAction instanceof ShowComponentPathAction) ||
+				(pAction instanceof ApplyAction) || (pAction instanceof UndoChangeAction)) {
+				checkEnablement(pAction, true);
 			}
 			else {
-				checkEnablement(pActions[i], false);
+				checkEnablement(pAction, false);
 			}
 		}
 
@@ -136,7 +142,7 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testMachineAlignedUnion() throws Exception {
+	public void testMachineAlignedUnion() throws Exception {
 		init(emptyUnion, pgmRootCat, false);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
@@ -144,8 +150,11 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 		addDataType(new FloatDataType());
 		addDataType(arrayDt);
 
-		pressButtonByName(getPanel(), "Internally Aligned");
-		pressButtonByName(getPanel(), "Machine Minimum Alignment");
+		pressButtonByName(getPanel(), "Packing Enablement"); // toggle -> enable packing
+		assertIsPackingEnabled(true);
+		assertDefaultPacked();
+
+		pressButtonByName(getPanel(), "Machine Alignment");
 
 		assertEquals(true, unionModel.viewComposite.isMachineAligned());
 		assertEquals(3, unionModel.getNumComponents());
@@ -158,7 +167,7 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testByValueAlignedUnion() throws Exception {
+	public void testByValueAlignedUnion() throws Exception {
 		init(emptyUnion, pgmRootCat, false);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
@@ -166,16 +175,19 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 		addDataType(new FloatDataType());
 		addDataType(arrayDt);
 
-		pressButtonByName(getPanel(), "Internally Aligned");
-		pressButtonByName(getPanel(), "By Value Minimum Alignment");
+		pressButtonByName(getPanel(), "Packing Enablement"); // toggle -> enable packing
+		assertIsPackingEnabled(true);
+		assertDefaultPacked();
+
+		pressButtonByName(getPanel(), "Explicit Alignment");
 
 		JTextField minAlignField =
-			(JTextField) findComponentByName(getPanel(), "Minimum Alignment Value");
-		assertEquals("4", minAlignField.getText());
+			(JTextField) findComponentByName(getPanel(), "Explicit Alignment Value");
+		assertEquals("8", minAlignField.getText());  // toy.cspec machine alignment is default value
 
 		assertEquals(false, unionModel.viewComposite.isDefaultAligned());
 		assertEquals(false, unionModel.viewComposite.isMachineAligned());
-		assertEquals(4, unionModel.getMinimumAlignment());
+		assertEquals(8, unionModel.getExplicitMinimumAlignment());
 
 		assertEquals(3, unionModel.getNumComponents());
 		assertEquals(4, unionModel.getRowCount());
@@ -183,37 +195,38 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 		checkRow(1, 4, "float", new FloatDataType(), "", "");
 		checkRow(2, 5, "char[5]", arrayDt, "", "");
 		assertLength(8);
-		assertActualAlignment(4);
+		assertActualAlignment(8);
 	}
 
 	@Test
-    public void testByValue1AlignedUnion() throws Exception {
+	public void testByValue1AlignedUnion() throws Exception {
 		checkByValueAlignedUnion(1, 4, 8);
 	}
 
 	@Test
-    public void testByValue2AlignedUnion() throws Exception {
+	public void testByValue2AlignedUnion() throws Exception {
 		checkByValueAlignedUnion(2, 4, 8);
 	}
 
 	@Test
-    public void testByValue4AlignedUnion() throws Exception {
+	public void testByValue4AlignedUnion() throws Exception {
 		checkByValueAlignedUnion(4, 4, 8);
 	}
 
 	@Test
-    public void testByValue8AlignedUnion() throws Exception {
+	public void testByValue8AlignedUnion() throws Exception {
 		checkByValueAlignedUnion(8, 8, 8);
 	}
 
 	@Test
-    public void testByValue16AlignedUnion() throws Exception {
+	public void testByValue16AlignedUnion() throws Exception {
 		checkByValueAlignedUnion(16, 16, 16);
 	}
 
-	public void checkByValueAlignedUnion(int value, int alignment, int length) throws Exception {
-		emptyUnion.setInternallyAligned(true);
-		emptyUnion.setMinimumAlignment(value);
+	public void checkByValueAlignedUnion(int minAlignment, int alignment, int length)
+			throws Exception {
+		emptyUnion.setPackingEnabled(true);
+		emptyUnion.setExplicitMinimumAlignment(minAlignment);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
 		emptyUnion.add(new ByteDataType());
@@ -223,15 +236,15 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 		init(emptyUnion, pgmRootCat, false);
 
 		JRadioButton byValueButton =
-			(JRadioButton) findComponentByName(getPanel(), "By Value Minimum Alignment");
+			(JRadioButton) findComponentByName(getPanel(), "Explicit Alignment");
 		assertEquals(true, byValueButton.isSelected());
 		JTextField minAlignField =
-			(JTextField) findComponentByName(getPanel(), "Minimum Alignment Value");
-		assertEquals("" + value, minAlignField.getText());
+			(JTextField) findComponentByName(getPanel(), "Explicit Alignment Value");
+		assertEquals("" + minAlignment, minAlignField.getText());
 
 		assertEquals(false, unionModel.viewComposite.isDefaultAligned());
 		assertEquals(false, unionModel.viewComposite.isMachineAligned());
-		assertEquals(value, unionModel.getMinimumAlignment());
+		assertEquals(minAlignment, unionModel.getExplicitMinimumAlignment());
 
 		assertEquals(3, unionModel.getNumComponents());
 		assertEquals(4, unionModel.getRowCount());
@@ -243,9 +256,9 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testTurnOffAlignmentInUnion() throws Exception {
-		emptyUnion.setInternallyAligned(true);
-		emptyUnion.setMinimumAlignment(8);
+	public void testTurnOffAlignmentInUnion() throws Exception {
+		emptyUnion.setPackingEnabled(true);
+		emptyUnion.setExplicitMinimumAlignment(8);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
 		emptyUnion.add(new ByteDataType());
@@ -255,15 +268,15 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 		init(emptyUnion, pgmRootCat, false);
 
 		JRadioButton byValueButton =
-			(JRadioButton) findComponentByName(getPanel(), "By Value Minimum Alignment");
+			(JRadioButton) findComponentByName(getPanel(), "Explicit Alignment");
 		assertEquals(true, byValueButton.isSelected());
 		JTextField minAlignField =
-			(JTextField) findComponentByName(getPanel(), "Minimum Alignment Value");
+			(JTextField) findComponentByName(getPanel(), "Explicit Alignment Value");
 		assertEquals("8", minAlignField.getText());
 
 		assertEquals(false, unionModel.viewComposite.isDefaultAligned());
 		assertEquals(false, unionModel.viewComposite.isMachineAligned());
-		assertEquals(8, unionModel.getMinimumAlignment());
+		assertEquals(8, unionModel.getExplicitMinimumAlignment());
 
 		assertEquals(3, unionModel.getNumComponents());
 		assertEquals(4, unionModel.getRowCount());
@@ -272,14 +285,14 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 		checkRow(2, 5, "char[5]", arrayDt, "", "");
 		assertLength(8);
 		assertActualAlignment(8);
-		assertEquals(true, unionModel.isAligned());
+		assertEquals(true, unionModel.isPackingEnabled());
 
-		pressButtonByName(getPanel(), "Internally Aligned");
+		pressButtonByName(getPanel(), "Packing Enablement"); // toggle -> disable packing
 
-		assertEquals(false, unionModel.isAligned());
+		assertEquals(false, unionModel.isPackingEnabled());
 		assertEquals(true, unionModel.viewComposite.isDefaultAligned());
 		assertEquals(false, unionModel.viewComposite.isMachineAligned());
-		assertEquals(Composite.DEFAULT_ALIGNMENT_VALUE, unionModel.getMinimumAlignment());
+		assertEquals(false, unionModel.viewComposite.hasExplicitMinimumAlignment());
 
 		assertEquals(3, unionModel.getNumComponents());
 		assertEquals(4, unionModel.getRowCount());
@@ -291,8 +304,8 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testInsertUnaligned1() throws Exception {
-		emptyUnion.setInternallyAligned(false);
+	public void testInsertUnaligned1() throws Exception {
+		emptyUnion.setPackingEnabled(false);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
 		emptyUnion.add(new ByteDataType());
@@ -324,8 +337,8 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testInsertUnaligned2() throws Exception {
-		emptyUnion.setInternallyAligned(false);
+	public void testInsertUnaligned2() throws Exception {
+		emptyUnion.setPackingEnabled(false);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
 		emptyUnion.add(new ByteDataType());
@@ -357,8 +370,8 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testInsertUnaligned3() throws Exception {
-		emptyUnion.setInternallyAligned(false);
+	public void testInsertUnaligned3() throws Exception {
+		emptyUnion.setPackingEnabled(false);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
 		emptyUnion.add(new ByteDataType());
@@ -390,8 +403,8 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testReplaceUnaligned1() throws Exception {
-		emptyUnion.setInternallyAligned(false);
+	public void testReplaceUnaligned1() throws Exception {
+		emptyUnion.setPackingEnabled(false);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
 		emptyUnion.add(new ByteDataType());
@@ -422,8 +435,8 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testReplaceUnaligned2() throws Exception {
-		emptyUnion.setInternallyAligned(false);
+	public void testReplaceUnaligned2() throws Exception {
+		emptyUnion.setPackingEnabled(false);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
 		emptyUnion.add(new ByteDataType());
@@ -455,8 +468,8 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testInsertAligned1() throws Exception {
-		emptyUnion.setInternallyAligned(true);
+	public void testInsertAligned1() throws Exception {
+		emptyUnion.setPackingEnabled(true);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
 		emptyUnion.add(new ByteDataType());
@@ -488,8 +501,8 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testInsertAligned2() throws Exception {
-		emptyUnion.setInternallyAligned(true);
+	public void testInsertAligned2() throws Exception {
+		emptyUnion.setPackingEnabled(true);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
 		emptyUnion.add(new ByteDataType());
@@ -521,8 +534,8 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testInsertAligned3() throws Exception {
-		emptyUnion.setInternallyAligned(true);
+	public void testInsertAligned3() throws Exception {
+		emptyUnion.setPackingEnabled(true);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
 		emptyUnion.add(new ByteDataType());
@@ -554,8 +567,8 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testReplaceAligned1() throws Exception {
-		emptyUnion.setInternallyAligned(true);
+	public void testReplaceAligned1() throws Exception {
+		emptyUnion.setPackingEnabled(true);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
 		emptyUnion.add(new ByteDataType());
@@ -586,8 +599,8 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testReplaceAligned2() throws Exception {
-		emptyUnion.setInternallyAligned(true);
+	public void testReplaceAligned2() throws Exception {
+		emptyUnion.setPackingEnabled(true);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
 		emptyUnion.add(new ByteDataType());
@@ -630,7 +643,8 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	private DataTypeComponent addDataType(DataType dataType) {
-		return unionModel.viewComposite.add(dataType);
+		return unionModel.viewDTM.withTransaction("Add Component",
+			() -> unionModel.viewComposite.add(dataType));
 	}
 
 }

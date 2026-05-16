@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,9 +17,11 @@ package ghidra.program.util;
 
 import java.util.*;
 
+import ghidra.framework.store.LockException;
 import ghidra.program.database.function.FunctionManagerDB;
 import ghidra.program.database.function.OverlappingFunctionException;
 import ghidra.program.database.properties.UnsupportedMapDB;
+import ghidra.program.database.sourcemap.SourceFile;
 import ghidra.program.disassemble.*;
 import ghidra.program.model.address.*;
 import ghidra.program.model.data.DataType;
@@ -27,14 +29,14 @@ import ghidra.program.model.lang.*;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.listing.Function.FunctionUpdateType;
 import ghidra.program.model.mem.*;
+import ghidra.program.model.sourcemap.SourceFileManager;
+import ghidra.program.model.sourcemap.SourceMapEntry;
 import ghidra.program.model.symbol.*;
 import ghidra.program.model.util.*;
 import ghidra.util.*;
 import ghidra.util.datastruct.LongLongHashtable;
 import ghidra.util.exception.*;
-import ghidra.util.prop.PropertyVisitor;
 import ghidra.util.task.TaskMonitor;
-import ghidra.util.task.TaskMonitorAdapter;
 
 /**
  * <CODE>ProgramMerge</CODE> is a class for merging the differences between two
@@ -46,7 +48,7 @@ import ghidra.util.task.TaskMonitorAdapter;
  * and a one up number.
  */
 
-public class ProgramMerge implements PropertyVisitor {
+public class ProgramMerge {
 
 	/** Suffix that is attached to a symbol name and then followed by a number to create a new unique symbol name. */
 	public static String SYMBOL_CONFLICT_SUFFIX = "_conflict";
@@ -66,10 +68,6 @@ public class ProgramMerge implements PropertyVisitor {
 	private Listing resultListing;
 	/** The listing for the program being merged from. */
 	private Listing originListing;
-	/** The current code unit that is being modified when a user defined property is merged. */
-	private CodeUnit resultCu;
-	/** The current property name being merged, when merging user defined properties. */
-	private String propertyName;
 
 	private SymbolMerge symbolMerge;
 	private FunctionMerge functionMerge;
@@ -254,7 +252,7 @@ public class ProgramMerge implements PropertyVisitor {
 				if (!originReg.isBaseRegister() || originReg.isProcessorContext()) {
 					continue;
 				}
-				monitor.checkCanceled();
+				monitor.checkCancelled();
 				try {
 					mergeProgramContext(resultContext, originContext, originReg, originRange,
 						resultRange, monitor);
@@ -291,7 +289,7 @@ public class ProgramMerge implements PropertyVisitor {
 			originRange.getMinAddress(), originRange.getMaxAddress());
 		resultContext.remove(resultRange.getMinAddress(), resultRange.getMaxAddress(), resultReg);
 		while (origValueIter.hasNext()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			AddressRange origValueRange = origValueIter.next();
 			AddressRange resultValueRange =
 				originToResultTranslator.getAddressRange(origValueRange);
@@ -325,7 +323,7 @@ public class ProgramMerge implements PropertyVisitor {
 		// Copy each range.
 		AddressRangeIterator iter = originAddressSet.getAddressRanges();
 		while (iter.hasNext()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			AddressRange fromRange = iter.next();
 			copyByteRange(toMem, fromMem, fromRange);
 		}
@@ -401,7 +399,7 @@ public class ProgramMerge implements PropertyVisitor {
 			AddressRangeIterator resultRangeIter = resultInstructionSet.getAddressRanges();
 			int count = 0;
 			while (resultRangeIter.hasNext()) {
-				monitor.checkCanceled();
+				monitor.checkCancelled();
 				AddressRange resultRange = resultRangeIter.next();
 				Address resultMin = resultRange.getMinAddress();
 				Address resultMax = resultRange.getMaxAddress();
@@ -442,7 +440,7 @@ public class ProgramMerge implements PropertyVisitor {
 			AddressRangeIterator rangeIter = resultInstructionSet.getAddressRanges();
 			int count = 0;
 			while (rangeIter.hasNext()) {
-				monitor.checkCanceled();
+				monitor.checkCancelled();
 				AddressRange range = rangeIter.next();
 				Address min = range.getMinAddress();
 				Address max = range.getMaxAddress();
@@ -474,14 +472,14 @@ public class ProgramMerge implements PropertyVisitor {
 			Address max = range.getMaxAddress();
 			Instruction instr = listing.getInstructionContaining(min);
 			if (instr != null) {
-				instructionSet.add(
-					new AddressRangeImpl(instr.getMinAddress(), instr.getMaxAddress()));
+				instructionSet
+						.add(new AddressRangeImpl(instr.getMinAddress(), instr.getMaxAddress()));
 			}
 			InstructionIterator instIter = listing.getInstructions(new AddressSet(min, max), true);
 			while (instIter.hasNext()) {
 				instr = instIter.next();
-				instructionSet.add(
-					new AddressRangeImpl(instr.getMinAddress(), instr.getMaxAddress()));
+				instructionSet
+						.add(new AddressRangeImpl(instr.getMinAddress(), instr.getMaxAddress()));
 			}
 		}
 		return instructionSet;
@@ -563,8 +561,8 @@ public class ProgramMerge implements PropertyVisitor {
 					resultRange.getMaxAddress(), false);
 
 				try {
-					if (resultContextReg != null) {
-						if (originContextReg != null) {
+					if (resultContextReg != Register.NO_CONTEXT) {
+						if (originContextReg != Register.NO_CONTEXT) {
 							// Copy context register value
 							mergeProgramContext(resultContext, originContext,
 								originContext.getBaseContextRegister(), newOriginRange, resultRange,
@@ -588,7 +586,7 @@ public class ProgramMerge implements PropertyVisitor {
 		// Get each code unit out of the iterator and set it in the merged
 		// program if it is an instruction.
 		for (long count = 0; originSourceCodeUnits.hasNext() && !monitor.isCancelled(); count++) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			CodeUnit originCodeUnit = originSourceCodeUnits.next();
 			if (count == PROGRESS_COUNTER_GRANULARITY) {
 				monitor.setMessage(
@@ -634,7 +632,9 @@ public class ProgramMerge implements PropertyVisitor {
 			return true;
 		}
 		try {
-			if (!Arrays.equals(instruction.getBytes(), resultInstruction.getBytes())) {
+			byte[] bytes = instruction.getParsedBytes();
+			byte[] resultBytes = resultInstruction.getParsedBytes();
+			if (!Arrays.equals(bytes, resultBytes)) {
 				return true; // bytes differ
 			}
 		}
@@ -688,8 +688,8 @@ public class ProgramMerge implements PropertyVisitor {
 			bytesLength = (int) originMax.subtract(originMin);
 		}
 		else {
-			originMax = originInstruction.getMaxAddress();
-			bytesLength = originInstruction.getLength();
+			bytesLength = originInstruction.getParsedLength();
+			originMax = originMin.add(bytesLength - 1);
 		}
 
 		Address resultMax = originToResultTranslator.getAddress(originMax);
@@ -705,7 +705,7 @@ public class ProgramMerge implements PropertyVisitor {
 
 		// If there are byte differences for this instruction then the
 		// bytes need to get copied even though the user did not indicate to.
-		if (bytesAreDifferent(originByteDiffs, originMin, resultMin, bytesLength)) { // FIXME
+		if (bytesMayDiffer(originByteDiffs, originMin, resultMin, bytesLength)) {
 			// Copy all the bytes for the instruction if any bytes differ.
 			ProgramMemoryUtil.copyBytesInRanges(resultProgram, originProgram, resultMin, resultMax);
 		}
@@ -715,7 +715,8 @@ public class ProgramMerge implements PropertyVisitor {
 			newInst = disassembleDelaySlottedInstruction(resultProgram, resultMin);
 		}
 		else {
-			newInst = disassembleNonDelaySlotInstruction(resultProgram, resultMin);
+			newInst = disassembleNonDelaySlotInstruction(resultProgram, resultMin,
+				originInstruction.isLengthOverridden() ? originInstruction.getLength() : 0);
 		}
 		if (newInst == null) {
 			return;
@@ -729,7 +730,7 @@ public class ProgramMerge implements PropertyVisitor {
 		// If instruction has modified fall through, then change it
 		Address oldFallThrough = originInstruction.getFallThrough();
 		Address newFallThrough = originToResultTranslator.getAddress(oldFallThrough);
-		if (!SystemUtilities.isEqual(targetInstruction.getFallThrough(), newFallThrough)) {
+		if (!Objects.equals(targetInstruction.getFallThrough(), newFallThrough)) {
 			if (originInstruction.isFallThroughOverridden()) {
 				targetInstruction.setFallThrough(newFallThrough);
 			}
@@ -746,43 +747,45 @@ public class ProgramMerge implements PropertyVisitor {
 	}
 
 	private Instruction disassembleDelaySlottedInstruction(Program program, Address addr) {
+		// WARNING: does not support instruction length override use
 		// Use heavyweight disassembler for delay slotted instruction
 		AddressSet restrictedSet = new AddressSet(addr);
-		Disassembler disassembler =
-			Disassembler.getDisassembler(program, TaskMonitorAdapter.DUMMY_MONITOR, null);
+		Disassembler disassembler = Disassembler.getDisassembler(program, TaskMonitor.DUMMY, null);
 		disassembler.disassemble(addr, restrictedSet, false);
 		return program.getListing().getInstructionAt(addr);
 	}
 
-	private Instruction disassembleNonDelaySlotInstruction(Program program, Address addr) {
+	private Instruction disassembleNonDelaySlotInstruction(Program program, Address addr,
+			int lengthOverride) {
 		// Use lightweight disassembler for simple case
 		DisassemblerContextImpl context = new DisassemblerContextImpl(program.getProgramContext());
 		context.flowStart(addr);
 		try {
-			InstructionPrototype proto = program.getLanguage().parse(
-				new DumbMemBufferImpl(program.getMemory(), addr), context, false);
+			InstructionPrototype proto = program.getLanguage()
+					.parse(new DumbMemBufferImpl(program.getMemory(), addr), context, false);
+			if (lengthOverride > proto.getLength()) {
+				lengthOverride = 0;
+			}
 			return resultListing.createInstruction(addr, proto,
 				new DumbMemBufferImpl(program.getMemory(), addr),
-				new ProgramProcessorContext(program.getProgramContext(), addr));
+				new ProgramProcessorContext(program.getProgramContext(), addr),
+				Math.min(lengthOverride, proto.getLength()));
 		}
 		catch (Exception e) {
-			program.getBookmarkManager().setBookmark(addr, BookmarkType.ERROR,
-				Disassembler.ERROR_BOOKMARK_CATEGORY, "Diff/Merge applied bad instruction");
+			program.getBookmarkManager()
+					.setBookmark(addr, BookmarkType.ERROR, Disassembler.ERROR_BOOKMARK_CATEGORY,
+						"Diff/Merge applied bad instruction");
 		}
 		return null;
 	}
 
-	private boolean bytesAreDifferent(AddressSetView originByteDiffs, Address originMin,
+	private boolean bytesMayDiffer(AddressSetView originByteDiffs, Address originMin,
 			Address resultMin, int byteCnt) throws MemoryAccessException {
 		if (originByteDiffs != null) {
 			AddressSet resultByteDiffs = originToResultTranslator.getAddressSet(originByteDiffs);
 			return resultByteDiffs.intersects(new AddressSet(resultMin, resultMin.add(byteCnt)));
 		}
-		byte[] originBytes = new byte[byteCnt];
-		originProgram.getMemory().getBytes(originMin, originBytes);
-		byte[] resultBytes = new byte[byteCnt];
-		resultProgram.getMemory().getBytes(resultMin, resultBytes);
-		return !Arrays.equals(originBytes, resultBytes);
+		return true;
 	}
 
 	/**
@@ -813,7 +816,7 @@ public class ProgramMerge implements PropertyVisitor {
 		// If there are byte differences for this instruction then the
 		// bytes need to get copied even though the user did not indicate to.
 		if (copyBytes &&
-			bytesAreDifferent(originByteDiffs, originMin, resultMin, originData.getLength())) {
+			bytesMayDiffer(originByteDiffs, originMin, resultMin, originData.getLength())) {
 			// Copy all the bytes for the instruction if any bytes differ.
 			ProgramMemoryUtil.copyBytesInRanges(resultProgram, originProgram, resultMin, resultMax);
 		}
@@ -865,7 +868,7 @@ public class ProgramMerge implements PropertyVisitor {
 		AddressIterator addresses = originAddressSet.getAddresses(true);
 		// Get each equate out of the equate address iterator and set it in the merged program.
 		for (long count = 0; addresses.hasNext() && !monitor.isCancelled(); count++) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			Address address = addresses.next();
 			if (count == PROGRESS_COUNTER_GRANULARITY) {
 				monitor.setMessage("Applying Equates...   " + address.toString(true, false));
@@ -888,7 +891,7 @@ public class ProgramMerge implements PropertyVisitor {
 		Address resultAddress = originToResultTranslator.getAddress(originAddress);
 		Equate resultEquate = resultEquateTable.getEquate(resultAddress, opIndex, value);
 		Equate originEquate = originEquateTable.getEquate(originAddress, opIndex, value);
-		if (SystemUtilities.isEqual(resultEquate, originEquate)) {
+		if (Objects.equals(resultEquate, originEquate)) {
 			return;
 		}
 		if (resultEquate != null) {
@@ -985,9 +988,6 @@ public class ProgramMerge implements PropertyVisitor {
 		dupEquates.put(dupEquate.getName(), new DupEquate(dupEquate, desiredName));
 	}
 
-	/**
-	 *
-	 */
 	void reApplyDuplicateEquates() {
 		for (String conflictName : dupEquates.keySet()) {
 			DupEquate dupEquate = dupEquates.get(conflictName);
@@ -1018,9 +1018,6 @@ public class ProgramMerge implements PropertyVisitor {
 		}
 	}
 
-	/**
-	 *
-	 */
 	String getDuplicateEquatesInfo() {
 		StringBuffer buf = new StringBuffer();
 		for (String conflictName : dupEquates.keySet()) {
@@ -1034,9 +1031,6 @@ public class ProgramMerge implements PropertyVisitor {
 		return buf.toString();
 	}
 
-	/**
-	 *
-	 */
 	void clearDuplicateEquates() {
 		dupEquates.clear();
 	}
@@ -1109,7 +1103,7 @@ public class ProgramMerge implements PropertyVisitor {
 		MultiAddressIterator originRefAddrIter =
 			new MultiAddressIterator(new AddressIterator[] { convertedResultIter, originIter });
 		for (long count = 0; originRefAddrIter.hasNext() && !monitor.isCancelled(); count++) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			Address originAddress = originRefAddrIter.next();
 			if (count == PROGRESS_COUNTER_GRANULARITY) {
 				monitor.setMessage("Replacing References...   " + originAddress.toString(true));
@@ -1209,7 +1203,7 @@ public class ProgramMerge implements PropertyVisitor {
 		MultiAddressIterator originRefAddrIter =
 			new MultiAddressIterator(new AddressIterator[] { convertedResultIter, originIter });
 		for (long count = 0; originRefAddrIter.hasNext() && !monitor.isCancelled(); count++) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			Address originAddress = originRefAddrIter.next();
 			if (count == PROGRESS_COUNTER_GRANULARITY) {
 				monitor.setMessage("Merging References...   " + originAddress.toString(true));
@@ -1245,14 +1239,14 @@ public class ProgramMerge implements PropertyVisitor {
 
 	private void replaceReferences(CodeUnit originCu, int opIndex) {
 		Address resultAddress = originToResultTranslator.getAddress(originCu.getMinAddress());
-		resultCu = resultListing.getCodeUnitAt(resultAddress);
+		CodeUnit resultCu = resultListing.getCodeUnitAt(resultAddress);
 		if (opIndex > resultCu.getNumOperands()) {
 			return;
 		}
 		ReferenceManager resultRM = resultProgram.getReferenceManager();
 		Reference[] resultRefs = resultRM.getReferencesFrom(resultCu.getMinAddress(), opIndex);
-		Reference[] originRefs = originProgram.getReferenceManager().getReferencesFrom(
-			originCu.getMinAddress(), opIndex);
+		Reference[] originRefs = originProgram.getReferenceManager()
+				.getReferencesFrom(originCu.getMinAddress(), opIndex);
 		HashMap<Reference, Reference> resultsToKeep = new HashMap<>(); // key=OriginRef, value=ResultRef
 		// Determine the result references to keep that match the origin references.
 		for (Reference originRef : originRefs) {
@@ -1299,14 +1293,15 @@ public class ProgramMerge implements PropertyVisitor {
 	 */
 	public Reference replaceReference(Reference resultRef, Reference originRef) {
 		ReferenceManager rm = resultProgram.getReferenceManager();
+		if (resultRef != null) {
+			rm.delete(resultRef); // remove old reference
+		}
 		if (originRef != null) {
 			if (originRef.isExternalReference()) {
 				updateExternalLocation(resultProgram, (ExternalReference) originRef);
 			}
 			return addReference(originRef, -1, true);
 		}
-
-		rm.delete(resultRef);
 		return null;
 	}
 
@@ -1322,7 +1317,7 @@ public class ProgramMerge implements PropertyVisitor {
 			Program fromPgm = fromExtLoc.getSymbol().getProgram();
 			Namespace toNamespace = DiffUtility.createNamespace(fromPgm, fromNamespace, toPgm);
 			ExternalLocation toExternalLocation =
-				SimpleDiffUtility.getMatchingExternalLocation(fromPgm, fromExtLoc, toPgm);
+				SimpleDiffUtility.getMatchingExternalLocation(fromPgm, fromExtLoc, toPgm, false);
 			if (toExternalLocation == null) {
 				toExtMgr.addExtLocation(toNamespace, fromExtLabel, fromExtAddr, fromSourceType);
 			}
@@ -1471,7 +1466,7 @@ public class ProgramMerge implements PropertyVisitor {
 
 		CodeUnitIterator cuIterator2 = originListing.getCodeUnits(originAddressSet, true);
 		for (long count = 0; cuIterator2.hasNext(); count++) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			CodeUnit cu2 = cuIterator2.next();
 			Address originMinAddress = cu2.getMinAddress();
 			if (count == PROGRESS_COUNTER_GRANULARITY) {
@@ -1501,7 +1496,7 @@ public class ProgramMerge implements PropertyVisitor {
 		Address originFallThrough = originInstruction.getFallThrough();
 		Address originFTCompatibleWithResult =
 			originToResultTranslator.getAddress(originFallThrough);
-		if (SystemUtilities.isEqual(resultFallThrough, originFTCompatibleWithResult)) {
+		if (Objects.equals(resultFallThrough, originFTCompatibleWithResult)) {
 			return;
 		}
 		if (!originOverridden) {
@@ -1551,30 +1546,30 @@ public class ProgramMerge implements PropertyVisitor {
 		}
 
 		String typeStr = "Unknown";
-		int cuCommentType;
+		CommentType cuCommentType;
 		switch (type) {
 			case ProgramMergeFilter.PLATE_COMMENTS:
 				typeStr = "Plate";
-				cuCommentType = CodeUnit.PLATE_COMMENT;
+				cuCommentType = CommentType.PLATE;
 				break;
 			case ProgramMergeFilter.PRE_COMMENTS:
 				typeStr = "Pre";
-				cuCommentType = CodeUnit.PRE_COMMENT;
+				cuCommentType = CommentType.PRE;
 				break;
 			case ProgramMergeFilter.EOL_COMMENTS:
 				typeStr = "EOL";
-				cuCommentType = CodeUnit.EOL_COMMENT;
+				cuCommentType = CommentType.EOL;
 				break;
 			case ProgramMergeFilter.REPEATABLE_COMMENTS:
 				typeStr = "Repeatable";
-				cuCommentType = CodeUnit.REPEATABLE_COMMENT;
+				cuCommentType = CommentType.REPEATABLE;
 				break;
 			case ProgramMergeFilter.POST_COMMENTS:
 				typeStr = "Post";
-				cuCommentType = CodeUnit.POST_COMMENT;
+				cuCommentType = CommentType.POST;
 				break;
 			default:
-				throw new AssertException("Unrecognized comment type: " + type);
+				throw new AssertException("Unsupported comment type: " + type);
 		}
 
 		monitor.setMessage("Applying " + typeStr + " comments...");
@@ -1582,13 +1577,13 @@ public class ProgramMerge implements PropertyVisitor {
 			return;
 		}
 
-		monitor.checkCanceled();
+		monitor.checkCancelled();
 
 		boolean both = (setting == ProgramMergeFilter.MERGE) ? true : false;
 		String prefix = both ? "Merging" : "Replacing";
 		AddressIterator addrIter = originAddressSet.getAddresses(true);
 		for (long count = 0; addrIter.hasNext(); count++) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			Address originAddress = addrIter.next();
 			if (count == PROGRESS_COUNTER_GRANULARITY) {
 				monitor.setMessage(
@@ -1609,11 +1604,11 @@ public class ProgramMerge implements PropertyVisitor {
 	 * <CODE>mergeComments</CODE> merges the comment of the indicated
 	 * type in program1 with the comment in program2 at the specified address.
 	 * @param commentType comment type to merge (from CodeUnit class).
-	 * <br>EOL_COMMENT, PRE_COMMENT, POST_COMMENT, REPEATABLE_COMMENT, OR PLATE_COMMENT.
+	 * <br>EOL, PRE, POST, REPEATABLE, OR PLATE.
 	 * @param originAddress the address
 	 * This address should be derived from the origin program.
 	 */
-	public void mergeComments(int commentType, Address originAddress) {
+	public void mergeComments(CommentType commentType, Address originAddress) {
 		Address resultAddress = originToResultTranslator.getAddress(originAddress);
 		String resultComment = resultListing.getComment(commentType, resultAddress);
 		String origComment = originListing.getComment(commentType, originAddress);
@@ -1625,11 +1620,11 @@ public class ProgramMerge implements PropertyVisitor {
 	 * <CODE>replaceComment</CODE> replaces the comment of the indicated
 	 * type in program1 with the comment in program2 at the specified address.
 	 * @param commentType comment type to replace (from CodeUnit class).
-	 * <br>EOL_COMMENT, PRE_COMMENT, POST_COMMENT, REPEATABLE_COMMENT, OR PLATE_COMMENT.
+	 * <br>EOL, PRE, POST, REPEATABLE, OR PLATE.
 	 * @param originAddress the address
 	 * This address should be derived from the origin program.
 	 */
-	public void replaceComment(int commentType, Address originAddress) {
+	public void replaceComment(CommentType commentType, Address originAddress) {
 		Address resultAddress = originToResultTranslator.getAddress(originAddress);
 		String origComment = originListing.getComment(commentType, originAddress);
 		resultListing.setComment(resultAddress, commentType, origComment);
@@ -1660,11 +1655,11 @@ public class ProgramMerge implements PropertyVisitor {
 		if (originAddressSet.isEmpty()) {
 			return;
 		}
-		monitor.checkCanceled();
+		monitor.checkCancelled();
 
 		AddressIterator addrIter = originAddressSet.getAddresses(true);
 		for (long count = 0; addrIter.hasNext(); count++) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			Address originAddress = addrIter.next();
 
 			if (count == PROGRESS_COUNTER_GRANULARITY) {
@@ -1721,9 +1716,7 @@ public class ProgramMerge implements PropertyVisitor {
 		// Now discard any tags we've been told to remove.
 		if (discardTags != null) {
 			Set<String> tagNames = getTagNames(discardTags);
-			Iterator<FunctionTag> iter = resultTags.iterator();
-			while (iter.hasNext()) {
-				FunctionTag tag = iter.next();
+			for (FunctionTag tag : resultTags) {
 				if (tagNames.contains(tag.getName())) {
 					resultFunction.removeTag(tag.getName());
 
@@ -1920,9 +1913,6 @@ public class ProgramMerge implements PropertyVisitor {
 		mergeLabels(originAddressSet, ProgramMergeFilter.REPLACE, true, replaceFunction, monitor);
 	}
 
-	/**
-	 *
-	 */
 	void reApplyDuplicateSymbols() {
 		SymbolTable originSymTab = originProgram.getSymbolTable();
 		SymbolTable resultSymTab = resultProgram.getSymbolTable();
@@ -1953,9 +1943,6 @@ public class ProgramMerge implements PropertyVisitor {
 		}
 	}
 
-	/**
-	 *
-	 */
 	String getDuplicateSymbolsInfo() {
 		StringBuffer buf = new StringBuffer();
 		SymbolTable origSymTab = originProgram.getSymbolTable();
@@ -1987,9 +1974,6 @@ public class ProgramMerge implements PropertyVisitor {
 		return buf.toString();
 	}
 
-	/**
-	 *
-	 */
 	void clearDuplicateSymbols() {
 		conflictSymbolIDMap.removeAll();
 //		dupSyms.clear();
@@ -2119,13 +2103,13 @@ public class ProgramMerge implements PropertyVisitor {
 
 		HashSet<Address> resultsToKeep = new HashSet<>();
 		while (iter2.hasNext()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			Address addr2 = iter2.next();
 			Address addr1 = originToResultTranslator.getAddress(addr2);
 			resultsToKeep.add(addr1);
 		}
 		while (iter1.hasNext()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			Address resultAddress = iter1.next();
 			if (!resultsToKeep.contains(resultAddress)) {
 				monitor.setMessage("Removing Functions...   " + resultAddress.toString(true));
@@ -2157,7 +2141,7 @@ public class ProgramMerge implements PropertyVisitor {
 			new MultiAddressIterator(new AddressIterator[] { iter1, convertedIter2 });
 		AddressSet resultEntrySet = new AddressSet();
 		while (functionIter.hasNext()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			Address address = functionIter.next();
 			resultEntrySet.addRange(address, address);
 		}
@@ -2168,13 +2152,17 @@ public class ProgramMerge implements PropertyVisitor {
 		AddressSet thunkSet = new AddressSet();
 		AddressIterator it = resultEntrySet.getAddresses(true);
 		for (int count = 0; it.hasNext(); count++) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			Address address = it.next();
 			if (count % granularity == 0) {
 				monitor.setProgress(count);
 				monitor.setMessage("Replacing Function " + (count + 1) + " of " + totalAddresses +
 					"." + " Address = " + address.toString(true));
 			}
+
+			// Only use origin memory address
+			address = DiffUtility.getCompatibleMemoryAddress(address, originProgram);
+
 			if (isThunkFunction(address)) {
 				// Skip the thunk, but save it for processing during a second pass.
 				thunkSet.addRange(address, address);
@@ -2187,15 +2175,16 @@ public class ProgramMerge implements PropertyVisitor {
 		replaceThunks(thunkSet, monitor);
 	}
 
-	private void replaceThunks(AddressSet thunkSet, TaskMonitor monitor) throws CancelledException {
+	private void replaceThunks(AddressSet originThunkSet, TaskMonitor monitor)
+			throws CancelledException {
 		long granularity;
 		// Now that all the non-thunk functions have been processed, process the saved thunks.
-		long totalThunks = thunkSet.getNumAddresses();
+		long totalThunks = originThunkSet.getNumAddresses();
 		granularity = (totalThunks / PROGRESS_COUNTER_GRANULARITY) + 1;
 		monitor.initialize(totalThunks);
-		AddressIterator thunkIter = thunkSet.getAddresses(true);
+		AddressIterator thunkIter = originThunkSet.getAddresses(true);
 		for (int count = 0; thunkIter.hasNext(); count++) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			Address address = thunkIter.next();
 			if (count % granularity == 0) {
 				monitor.setProgress(count);
@@ -2262,7 +2251,7 @@ public class ProgramMerge implements PropertyVisitor {
 	 * @throws CancelledException if user cancels via the monitor.
 	 */
 	public Function mergeFunction(Address entry, TaskMonitor monitor) throws CancelledException {
-		monitor.checkCanceled();
+		monitor.checkCancelled();
 //        monitor.setMessage("Replacing Function...   " + address.toString(true));
 		return replaceFunction(entry, monitor);
 	}
@@ -2338,7 +2327,7 @@ public class ProgramMerge implements PropertyVisitor {
 	// FIXME
 //	public void replaceExternalDataType(Address originAddress, TaskMonitor monitor)
 //			throws CancelledException {
-//		monitor.checkCanceled();
+//		monitor.checkCancelled();
 //		Address resultAddress = originToResultTranslator.getAddress(originAddress);
 //		Symbol originSymbol = originProgram.getSymbolTable().getPrimarySymbol(originAddress);
 //		Symbol resultSymbol = resultProgram.getSymbolTable().getPrimarySymbol(resultAddress);
@@ -2377,7 +2366,7 @@ public class ProgramMerge implements PropertyVisitor {
 		if (function != null) {
 			Address entry = function.getEntryPoint();
 			String origName = function.getName();
-			if (!SystemUtilities.isEqual(origName, name)) {
+			if (!Objects.equals(origName, name)) {
 				for (int i = 0; i < Integer.MAX_VALUE; i++) {
 					String newName =
 						(i == 0) ? name : name + ProgramMerge.SYMBOL_CONFLICT_SUFFIX + i;
@@ -2836,7 +2825,9 @@ public class ProgramMerge implements PropertyVisitor {
 			return resultFunction;
 		}
 
+		boolean isDefaultThunk = false;
 		if (originFunction.isThunk()) {
+			isDefaultThunk = originFunction.getSymbol().getSource() == SourceType.DEFAULT;
 			Function thunkedFunction = originFunction.getThunkedFunction(false);
 			Address thunkedEntryPoint = thunkedFunction.getEntryPoint();
 			Address resultThunkedEntryPoint =
@@ -2869,15 +2860,17 @@ public class ProgramMerge implements PropertyVisitor {
 //        VariableReference[] restoreRefs = new VariableReference[0];
 		String originName = originFunction.getName();
 		Namespace desiredToNamespace = resultProgram.getGlobalNamespace();
-		try {
-			desiredToNamespace = symbolMerge.resolveNamespace(originFunction.getParentNamespace(),
-				conflictSymbolIDMap);
-		}
-		catch (DuplicateNameException e1) {
-			Msg.error(this, "Unexpected Exception: " + e1.getMessage(), e1);
-		}
-		catch (InvalidInputException e1) {
-			Msg.error(this, "Unexpected Exception: " + e1.getMessage(), e1);
+		if (!isDefaultThunk) {
+			try {
+				desiredToNamespace = symbolMerge
+						.resolveNamespace(originFunction.getParentNamespace(), conflictSymbolIDMap);
+			}
+			catch (DuplicateNameException e1) {
+				Msg.error(this, "Unexpected Exception: " + e1.getMessage(), e1);
+			}
+			catch (InvalidInputException e1) {
+				Msg.error(this, "Unexpected Exception: " + e1.getMessage(), e1);
+			}
 		}
 
 		AddressSetView oldResultBody = (resultFunction == null) ? null : resultFunction.getBody();
@@ -3119,14 +3112,14 @@ public class ProgramMerge implements PropertyVisitor {
 		}
 		// Remove all locals in the toFunc that don't have a comparable local in the fromFunc.
 		for (Variable local : oldLocals) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			Variable fromVar = DiffUtility.getVariable(local, fromFunc);
 			if (fromVar == null) {
 				toFunc.removeVariable(local);
 			}
 		}
 		for (Variable fromLocal : fromLocals) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			replaceVariable(fromFunc, fromLocal, toFunc);
 		}
 	}
@@ -3483,7 +3476,7 @@ public class ProgramMerge implements PropertyVisitor {
 		}
 		boolean replaceParams = false;
 		for (Variable var : varList) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			if (var instanceof Parameter) {
 				replaceParams = true;
 				break;
@@ -3493,7 +3486,7 @@ public class ProgramMerge implements PropertyVisitor {
 			replaceFunctionParameters(originEntryPoint, monitor);
 		}
 		for (Variable var : varList) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			if (!(var instanceof Parameter)) {
 				replaceVariable(f2, var, f1);
 			}
@@ -3702,7 +3695,7 @@ public class ProgramMerge implements PropertyVisitor {
 		AddressIterator originIter = originAddressSet.getAddresses(true);
 		// Get each address in the address set and change the bookmark.
 		for (long count = 0; originIter.hasNext() && !monitor.isCancelled(); count++) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			Address originAddress = originIter.next();
 			if (count == PROGRESS_COUNTER_GRANULARITY) {
 				monitor.setMessage("Applying Bookmarks...   " + originAddress.toString(true));
@@ -3725,7 +3718,7 @@ public class ProgramMerge implements PropertyVisitor {
 			BookmarkManager bm2 = originProgram.getBookmarkManager();
 			try {
 				bm1.removeBookmarks(new AddressSet(resultAddress, resultAddress),
-					TaskMonitorAdapter.DUMMY_MONITOR);
+					TaskMonitor.DUMMY);
 			}
 			catch (CancelledException e) {
 				// DummyAdapter doesn't let cancel occur.
@@ -3813,7 +3806,7 @@ public class ProgramMerge implements PropertyVisitor {
 		AddressIterator originIter = originAddressSet.getAddresses(true);
 		// Get each address in the address set and change the property.
 		for (long count = 0; originIter.hasNext() && !monitor.isCancelled(); count++) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			Address originAddress = originIter.next();
 			if (count == PROGRESS_COUNTER_GRANULARITY) {
 				monitor.setMessage("Applying Properties...   " + originAddress.toString(true));
@@ -3823,174 +3816,176 @@ public class ProgramMerge implements PropertyVisitor {
 		}
 	}
 
-	/** Replaces the user defined properties from the origin program into the result
+	/** 
+	 * Replaces the user defined properties from the origin program into the result
 	 *  program at the address that is equivalent to the origin address.
 	 *  Note: To merge properties, there must be a code unit AT the equivalent address
 	 *  in the result program.
 	 * @param originAddress the address of the code unit to get the properties from in the origin program.
 	 */
 	private void mergePropertiesAtAddress(Address originAddress) {
-		Address resultAddress = originToResultTranslator.getAddress(originAddress);
-		resultCu = resultListing.getCodeUnitAt(resultAddress);
-		if (resultCu != null) {
-			// Remove the existing properties from the merge program's code unit.
-			Iterator<String> propNames = resultCu.propertyNames();
-			while (propNames.hasNext()) {
-				resultCu.removeProperty(propNames.next());
-			}
 
-			// Add the originating program's user defined properties on the code unit.
-			CodeUnit origCu = originListing.getCodeUnitAt(originAddress);
-			if (origCu != null) {
-				propNames = origCu.propertyNames();
-				while (propNames.hasNext()) {
-					propertyName = propNames.next();
-					if (propertyName.equals("Bookmarks")) {
-						continue; // ignore bookmarks as properties, since the bookmark merge gets these.
+		Address resultAddress;
+		try {
+			resultAddress = originToResultTranslator.getAddress(originAddress);
+		}
+		catch (AddressTranslationException e1) {
+			return;
+		}
+		if (!resultProgram.getMemory().contains(resultAddress)) {
+			return;
+		}
+
+		PropertyMapManager origPropertyMgr = originProgram.getUsrPropertyManager();
+		PropertyMapManager resultPropertyMgr = resultProgram.getUsrPropertyManager();
+
+		Iterator<String> propNames = resultPropertyMgr.propertyManagers();
+		while (propNames.hasNext()) {
+			String propertyName = propNames.next();
+			PropertyMap<?> resultPropertyMap = resultPropertyMgr.getPropertyMap(propertyName);
+			resultPropertyMap.remove(resultAddress);
+		}
+
+		propNames = origPropertyMgr.propertyManagers();
+		while (propNames.hasNext()) {
+			String propertyName = propNames.next();
+			if (propertyName.equals("Bookmarks")) {
+				continue; // ignore bookmarks as properties, since the bookmark merge gets these.
+			}
+			PropertyMap<?> origPropertyMap = origPropertyMgr.getPropertyMap(propertyName);
+			if (origPropertyMap instanceof UnsupportedMapDB) {
+				continue; // ignore property that isn't supported.
+			}
+			PropertyMap<?> resultPropertyMap = resultPropertyMgr.getPropertyMap(propertyName);
+			Object value = origPropertyMap.get(originAddress);
+			if (value != null) {
+				try {
+					if (resultPropertyMap == null) {
+						resultPropertyMap =
+							createPropertyMap(propertyName, resultProgram, origPropertyMap);
 					}
-					// Handle case where the class for a Saveable property is missing.
-					if (originListing.getPropertyMap(propertyName) instanceof UnsupportedMapDB) {
-						continue; // ignore property that isn't supported.
-					}
-					origCu.visitProperty(this, propertyName);
+					resultPropertyMap.add(resultAddress, value);
+				}
+				catch (DuplicateNameException e) {
+					throw new AssertException(e);
+				}
+				catch (IllegalArgumentException e) {
+					String msg = "Property merge failed at " + resultAddress + " '" + propertyName +
+						"': " + e.getMessage();
+					Msg.error(this, msg);
+					errorMsg.append(msg + "\n");
 				}
 			}
 		}
 	}
 
-	/** Replaces the user defined properties from the specified origin address in the origin program
+	private PropertyMap<?> createPropertyMap(String propertyName, Program p,
+			PropertyMap<?> originalMap) throws DuplicateNameException {
+
+		PropertyMapManager usrPropertyManager = p.getUsrPropertyManager();
+		if (originalMap instanceof IntPropertyMap) {
+			return usrPropertyManager.createIntPropertyMap(propertyName);
+		}
+		else if (originalMap instanceof LongPropertyMap) {
+			return usrPropertyManager.createLongPropertyMap(propertyName);
+		}
+		else if (originalMap instanceof StringPropertyMap) {
+			return usrPropertyManager.createStringPropertyMap(propertyName);
+		}
+		else if (originalMap instanceof VoidPropertyMap) {
+			return usrPropertyManager.createVoidPropertyMap(propertyName);
+		}
+		else if (originalMap instanceof ObjectPropertyMap) {
+			Class<? extends Saveable> objectClass =
+				((ObjectPropertyMap<?>) originalMap).getValueClass();
+			return usrPropertyManager.createObjectPropertyMap(propertyName, objectClass);
+		}
+		return null;
+	}
+
+	/** 
+	 * Replaces the user defined properties from the specified origin address in the origin program
 	 * to the equivalent result address in the result program.
 	 * Note: To merge properties, there must be a code unit AT the equivalent address
 	 * in the result program.
+	 * @param userPropertyName original property name
 	 * @param originAddress the address of the code unit to get the properties from in the origin program.
 	 */
 	public void mergeUserProperty(String userPropertyName, Address originAddress) {
 		Address resultAddress = originToResultTranslator.getAddress(originAddress);
 		PropertyMapManager resultPmm = resultProgram.getUsrPropertyManager();
 		PropertyMapManager originPmm = originProgram.getUsrPropertyManager();
-		PropertyMap resultOpm = resultPmm.getPropertyMap(userPropertyName);
-		PropertyMap originOpm = originPmm.getPropertyMap(userPropertyName);
-		Object resultObject = null;
-		Object originObject = null;
-		if (resultOpm != null) {
-			resultObject = getProperty(resultOpm, resultAddress);
-		}
-		if (originOpm != null) {
-			originObject = getProperty(originOpm, originAddress);
-		}
-		if (!SystemUtilities.isEqual(resultObject, originObject)) {
+		PropertyMap<?> resultOpm = resultPmm.getPropertyMap(userPropertyName);
+		PropertyMap<?> originOpm = originPmm.getPropertyMap(userPropertyName);
+		Object resultObject = resultOpm != null ? resultOpm.get(resultAddress) : null;
+		Object originObject = originOpm != null ? originOpm.get(originAddress) : null;
+
+		if (!Objects.equals(resultObject, originObject)) {
 			if (resultObject != null && resultOpm != null) {
 				resultOpm.remove(resultAddress);
 			}
 			if (originObject != null) {
-				if (resultOpm == null) {
-					try {
-						resultOpm =
-							resultPmm.createObjectPropertyMap(userPropertyName, Saveable.class);
+				try {
+					if (resultOpm == null) {
+						resultOpm = createPropertyMap(userPropertyName, resultProgram, originOpm);
 					}
-					catch (DuplicateNameException e) {
-						throw new RuntimeException(e);
+					resultOpm.add(resultAddress, originObject);
+				}
+				catch (DuplicateNameException e) {
+					throw new AssertException(e);
+				}
+				catch (IllegalArgumentException e) {
+					String msg = "Property merge failed at " + resultAddress + " '" +
+						userPropertyName + "': " + e.getMessage();
+					Msg.error(this, msg);
+					errorMsg.append(msg + "\n");
+				}
+			}
+		}
+	}
+
+	/**
+	 * Merge the source map information from the origin program to the result program.
+	 * 
+	 * @param originAddrs address from origin program to merge
+	 * @param settings merge settings
+	 * @param monitor monitor
+	 * @throws LockException if invoked without exclusive access
+	 */
+	public void applySourceMapDifferences(AddressSet originAddrs, int settings, TaskMonitor monitor)
+			throws LockException {
+		SourceFileManager originManager = originProgram.getSourceFileManager();
+		SourceFileManager resultManager = resultProgram.getSourceFileManager();
+		AddressIterator originAddrIter = originAddrs.getAddresses(true);
+		while (originAddrIter.hasNext()) {
+			Address originAddr = originAddrIter.next();
+			try {
+				Address resultAddr = originToResultTranslator.getAddress(originAddr);
+				for (SourceMapEntry resultEntry : resultManager.getSourceMapEntries(resultAddr)) {
+					if (resultAddr.equals(resultEntry.getBaseAddress())) {
+						resultManager.removeSourceMapEntry(resultEntry);
 					}
 				}
-				setProperty(resultOpm, resultAddress, originObject);
+				for (SourceMapEntry originEntry : originManager.getSourceMapEntries(originAddr)) {
+					if (!originEntry.getBaseAddress().equals(originAddr)) {
+						continue;
+					}
+					SourceFile originFile = originEntry.getSourceFile();
+					resultManager.addSourceFile(originFile);
+					resultManager.addSourceMapEntry(originFile, originEntry.getLineNumber(),
+						resultAddr, originEntry.getLength());
+				}
+			}
+			catch (AddressTranslationException e) {
+				// as long as originAddrs comes from ProgramDiff.getSourceMapDifferences
+				// this shouldn't happen
+				throw new AssertException("couldn't translate " + originAddr + " in " +
+					originProgram.getName() + " to " + resultProgram.getName());
+			}
+			catch (AddressOverflowException e) {
+				throw new AssertException("Address overflow when merging source map entries");
 			}
 		}
-	}
-
-	private Object getProperty(PropertyMap map, Address address) {
-		if (map instanceof VoidPropertyMap) {
-			return ((VoidPropertyMap) map).getNextPropertyAddress(address);
-		}
-		else if (map instanceof ObjectPropertyMap) {
-			return ((ObjectPropertyMap) map).getObject(address);
-		}
-		else if (map instanceof LongPropertyMap) {
-			try {
-				return new Long(((LongPropertyMap) map).getLong(address));
-			}
-			catch (NoValueException e) {
-				return null;
-			}
-		}
-		else if (map instanceof IntPropertyMap) {
-			try {
-				return new Integer(((IntPropertyMap) map).getInt(address));
-			}
-			catch (NoValueException e) {
-				return null;
-			}
-		}
-		else if (map instanceof StringPropertyMap) {
-			return ((StringPropertyMap) map).getString(address);
-		}
-		return null;
-	}
-
-	private void setProperty(PropertyMap map, Address address, Object property) {
-		if (map instanceof VoidPropertyMap) {
-			((VoidPropertyMap) map).add(address);
-		}
-		else if (map instanceof ObjectPropertyMap) {
-			((ObjectPropertyMap) map).add(address, (Saveable) property);
-		}
-		else if (map instanceof LongPropertyMap) {
-			((LongPropertyMap) map).add(address, ((Long) property).longValue());
-		}
-		else if (map instanceof IntPropertyMap) {
-			((IntPropertyMap) map).add(address, ((Integer) property).intValue());
-		}
-		else if (map instanceof StringPropertyMap) {
-			((StringPropertyMap) map).add(address, (String) property);
-		}
-	}
-
-	// *******************************************************************
-	// The following are the methods for the PropertyVisitor interface.
-	// *******************************************************************
-	/** Set the property on the merge program's code unit if the named property
-	 *  is a void property type.
-	 */
-	@Override
-	public void visit() {
-		resultCu.setProperty(propertyName);
-	}
-
-	/** Set the property on the merge program's code unit if the named property
-	 *  is a String property type.
-	 * @param value the value for the named property.
-	 */
-	@Override
-	public void visit(String value) {
-		resultCu.setProperty(propertyName, value);
-	}
-
-	/** Set the property on the merge program's code unit if the named property
-	 *  is an Object property type.
-	 * @param value the value for the named property.
-	 */
-	@Override
-	public void visit(Object value) {
-		String message = "Could Not Merge Property.\n" + "Can't merge property, \"" + propertyName +
-			"\", with value of " + value;
-		errorMsg.append(message);
-	}
-
-	/** Set the property on the merge program's code unit if the named property
-	 *  is an Object property type.
-	 * @param value the value for the named property.
-	 */
-	@Override
-	public void visit(Saveable value) {
-		resultCu.setProperty(propertyName, value);
-	}
-
-	/** Set the property on the merge program's code unit if the named property
-	 *  is an int property type.
-	 * @param value the value for the named property.
-	 */
-	@Override
-	public void visit(int value) {
-		resultCu.setProperty(propertyName, value);
 	}
 
 }

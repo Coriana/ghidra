@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,17 +16,21 @@
 package ghidra.app.util.viewer.field;
 
 import java.math.BigInteger;
+import java.util.List;
 
 import docking.widgets.fieldpanel.field.*;
 import docking.widgets.fieldpanel.support.FieldLocation;
-import ghidra.app.util.HighlightProvider;
-import ghidra.app.util.XReferenceUtil;
+import ghidra.app.util.ListingHighlightProvider;
+import ghidra.app.util.XReferenceUtils;
+import ghidra.app.util.viewer.field.ListingColors.XrefColors;
 import ghidra.app.util.viewer.format.FieldFormatModel;
 import ghidra.app.util.viewer.proxy.ProxyObj;
 import ghidra.framework.options.Options;
 import ghidra.framework.options.ToolOptions;
 import ghidra.program.model.address.Address;
-import ghidra.program.model.listing.*;
+import ghidra.program.model.listing.CodeUnit;
+import ghidra.program.model.listing.Data;
+import ghidra.program.model.symbol.Reference;
 import ghidra.program.util.ProgramLocation;
 import ghidra.program.util.XRefHeaderFieldLocation;
 
@@ -47,12 +51,16 @@ public class XRefHeaderFieldFactory extends XRefFieldFactory {
 	 * @param displayOptions the Options for display properties.
 	 * @param fieldOptions the Options for field specific properties.
 	 */
-	public XRefHeaderFieldFactory(FieldFormatModel model, HighlightProvider hlProvider,
+	public XRefHeaderFieldFactory(FieldFormatModel model, ListingHighlightProvider hlProvider,
 			Options displayOptions, ToolOptions fieldOptions) {
 		super(XREF_FIELD_NAME, model, hlProvider, displayOptions, fieldOptions);
+	}
+
+	@Override
+	protected void initDisplayOptions(Options displayOptions) {
 		colorOptionName = "XRef Color";
 		styleOptionName = "XRef Style";
-		initDisplayOptions();
+		super.initDisplayOptions(displayOptions);
 	}
 
 	@Override
@@ -66,7 +74,7 @@ public class XRefHeaderFieldFactory extends XRefFieldFactory {
 		if (headString == null || headString.length() == 0) {
 			return null;
 		}
-		AttributedString as = new AttributedString(headString, color, getMetrics());
+		AttributedString as = new AttributedString(headString, XrefColors.DEFAULT, getMetrics());
 		FieldElement field = new TextFieldElement(as, 0, 0);
 		return ListingTextField.createSingleLineTextField(this, proxy, field, startX + varWidth,
 			width, hlProvider);
@@ -109,7 +117,7 @@ public class XRefHeaderFieldFactory extends XRefFieldFactory {
 	}
 
 	@Override
-	public FieldFactory newInstance(FieldFormatModel formatModel, HighlightProvider provider,
+	public FieldFactory newInstance(FieldFormatModel formatModel, ListingHighlightProvider provider,
 			ToolOptions options, ToolOptions fieldOptions) {
 		return new XRefHeaderFieldFactory(formatModel, provider, options, fieldOptions);
 	}
@@ -119,21 +127,35 @@ public class XRefHeaderFieldFactory extends XRefFieldFactory {
 	 * <br>
 	 * Where:<br>
 	 *      m is the number of cross references <br>
-	 *      n is the number of off-cut cross references <br><br>
+	 *      n is the number of offcut cross references <br><br>
 	 */
 	private String getXRefHeaderString(CodeUnit cu) {
 		if (cu == null) {
 			return null;
 		}
-		Program prog = cu.getProgram();
-		int xrefCnt = prog.getReferenceManager().getReferenceCountTo(cu.getMinAddress());
-		int offcutCnt = XReferenceUtil.getOffcutXRefCount(cu);
 
-		if (offcutCnt > 0) {
-			return "XREF[" + xrefCnt + "," + offcutCnt + "]: ";
+		List<Reference> xrefs = XReferenceUtils.getXReferences(cu, maxXRefs);
+		int xRefCount = xrefs.size();
+
+		String xRefCountText = Integer.toString(xRefCount);
+		if (xRefCount == maxXRefs) {
+			xRefCountText += "+";
 		}
-		if (xrefCnt > 0) {
-			return "XREF[" + xrefCnt + "]: ";
+
+		List<Reference> offcuts = XReferenceUtils.getOffcutXReferences(cu, maxXRefs);
+		int offcutCount = offcuts.size();
+
+		String offcutCountText = Integer.toString(offcutCount);
+		if (offcutCount == maxXRefs) {
+			offcutCountText += "+";
+		}
+
+		if (offcutCount > 0) {
+			return "XREF[" + xRefCountText + "," + offcutCountText + "]: ";
+		}
+
+		if (xRefCount > 0) {
+			return "XREF[" + xRefCountText + "]: ";
 		}
 		return null;
 	}

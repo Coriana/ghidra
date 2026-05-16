@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,31 +22,30 @@ import java.io.IOException;
  * providing various data access methods.
  */
 public interface Buffer {
-	
+
 	/**
 	 * Get the buffer ID for this buffer.
 	 * @return int
 	 */
 	public int getId();
-	
+
 	/**
 	 * Get the length of the buffer in bytes.  The length reflects the number of
 	 * bytes which have been allocated to the buffer.
 	 * @return length of allocated buffer.
 	 */
 	public int length();
-	
+
 	/**
 	 * Get the byte data located at the specified offset and store into the
 	 * bytes array provided. 
 	 * @param offset byte offset from start of buffer.
 	 * @param bytes byte array to store data
-	 * @throws ArrayIndexOutOfBoundsException is thrown if an invalid offset is
-	 * specified.
+	 * @throws IndexOutOfBoundsException is thrown if an invalid offset is specified.
 	 * @throws IOException is thrown if an error occurs while accessing the
 	 * underlying storage.
 	 */
-	public void get(int offset, byte[] bytes) throws IOException;
+	public void get(int offset, byte[] bytes) throws IndexOutOfBoundsException, IOException;
 
 	/**
 	 * Get the byte data located at the specified offset and store into the data
@@ -56,72 +54,72 @@ public interface Buffer {
 	 * @param data byte array to store the data.
 	 * @param dataOffset offset into the data buffer
 	 * @param length amount of data to read
-	 * @throws ArrayIndexOutOfBoundsException if an invalid offset, dataOffset,
-	 * or length is specified.
+	 * @throws IndexOutOfBoundsException if an invalid offset, dataOffset, or length is specified.
 	 * @throws IOException is thrown if an error occurs while accessing the
 	 * underlying storage.
 	 */
-	public void get(int offset, byte[] data, int dataOffset, int length) throws IOException;
-	
+	public void get(int offset, byte[] data, int dataOffset, int length)
+			throws IndexOutOfBoundsException, IOException;
+
 	/**
 	 * Get the byte data located at the specified offset.
 	 * @param offset byte offset from start of buffer.
+	 * @param length number of bytes to be read and returned
 	 * @return the byte array.
-	 * @throws ArrayIndexOutOfBoundsException is thrown if an invalid offset is
+	 * @throws IndexOutOfBoundsException is thrown if an invalid offset is
 	 * specified or the end of the buffer was encountered while reading the
 	 * data.
 	 * @throws IOException is thrown if an error occurs while accessing the
 	 * underlying storage.
 	 */
-	public byte[] get(int offset, int length) throws IOException;
-	
+	public byte[] get(int offset, int length) throws IndexOutOfBoundsException, IOException;
+
 	/**
 	 * Get the 8-bit byte value located at the specified offset.
 	 * @param offset byte offset from start of buffer.
 	 * @return the byte value at the specified offset.
-	 * @throws ArrayIndexOutOfBoundsException is thrown if an invalid offset is
-	 * specified.
+	 * @throws IndexOutOfBoundsException is thrown if an invalid offset is specified.
 	 * @throws IOException is thrown if an error occurs while accessing the
 	 * underlying storage.
 	 */
-	public byte getByte(int offset) throws IOException;
-	
+	public byte getByte(int offset) throws IndexOutOfBoundsException, IOException;
+
 	/**
 	 * Get the 32-bit integer value located at the specified offset.
 	 * @param offset byte offset from start of buffer.
 	 * @return the integer value at the specified offset.
-	 * @throws ArrayIndexOutOfBoundsException is thrown if an invalid offset is
+	 * @throws IndexOutOfBoundsException is thrown if an invalid offset is
 	 * specified or the end of the buffer was encountered while reading the
 	 * value.
 	 * @throws IOException is thrown if an error occurs while accessing the
 	 * underlying storage.
 	 */
-	public int getInt(int offset) throws IOException;
-	
+	public int getInt(int offset) throws IndexOutOfBoundsException, IOException;
+
 	/**
 	 * Get the 16-bit short value located at the specified offset.
 	 * @param offset byte offset from start of buffer.
 	 * @return the short value at the specified offset.
-	 * @throws ArrayIndexOutOfBoundsException is thrown if an invalid offset is
+	 * @throws IndexOutOfBoundsException is thrown if an invalid offset is
 	 * specified or the end of the buffer was encountered while reading the
 	 * value.
 	 * @throws IOException is thrown if an error occurs while accessing the
 	 * underlying storage.
 	 */
-	public short getShort(int offset) throws IOException;
-	
+	public short getShort(int offset) throws IndexOutOfBoundsException, IOException;
+
 	/**
 	 * Get the 64-bit long value located at the specified offset.
 	 * @param offset byte offset from start of buffer.
 	 * @return the long value at the specified offset.
-	 * @throws ArrayIndexOutOfBoundsException is thrown if an invalid offset is
+	 * @throws IndexOutOfBoundsException is thrown if an invalid offset is
 	 * specified or the end of the buffer was encountered while reading the
 	 * value.
 	 * @throws IOException is thrown if an error occurs while accessing the
 	 * underlying storage.
 	 */
-	public long getLong(int offset) throws IOException;
-		
+	public long getLong(int offset) throws IndexOutOfBoundsException, IOException;
+
 	/**
 	 * Put a specified number of bytes from the array provided into the buffer
 	 * at the specified offset.  The number of bytes stored is specified by the
@@ -132,12 +130,13 @@ public interface Buffer {
 	 * @param length the number of bytes to be stored.
 	 * @return the next available offset into the buffer, or -1 if the buffer is
 	 * full.
-	 * @throws ArrayIndexOutOfBoundsException if an invalid offset is provided
+	 * @throws IndexOutOfBoundsException if an invalid offset is provided
 	 * or the end of buffer was encountered while storing the data.
 	 * @throws IOException is thrown if an error occurs while accessing the
 	 * underlying storage.
 	 */
-	public int put(int offset, byte[] data, int dataOffset, int length) throws IOException;
+	public int put(int offset, byte[] data, int dataOffset, int length)
+			throws IndexOutOfBoundsException, IOException;
 
 	/**
 	 * Put the bytes provided into the buffer at the specified offset. The
@@ -147,62 +146,62 @@ public interface Buffer {
 	 * @param bytes the byte data to be stored.
 	 * @return the next available offset into the buffer, or -1 if the buffer is
 	 * full.
-	 * @throws ArrayIndexOutOfBoundsException if an invalid offset is provided
+	 * @throws IndexOutOfBoundsException if an invalid offset is provided
 	 * or the end of buffer was encountered while storing the data.
 	 * @throws IOException is thrown if an error occurs while accessing the
 	 * underlying storage.
 	 */
-	public int put(int offset, byte[] bytes) throws IOException;
-	
+	public int put(int offset, byte[] bytes) throws IndexOutOfBoundsException, IOException;
+
 	/**
 	 * Put the 8-bit byte value into the buffer at the specified offset. 
 	 * @param offset byte offset from start of buffer.
 	 * @param b the byte value to be stored.
 	 * @return the next available offset into the buffer, or -1 if the buffer is
 	 * full.
-	 * @throws ArrayIndexOutOfBoundsException if an invalid offset is provided.
+	 * @throws IndexOutOfBoundsException if an invalid offset is provided.
 	 * @throws IOException is thrown if an error occurs while accessing the
 	 * underlying storage.
 	 */
-	public int putByte(int offset, byte b) throws IOException;
-	
+	public int putByte(int offset, byte b) throws IndexOutOfBoundsException, IOException;
+
 	/**
 	 * Put the 32-bit integer value into the buffer at the specified offset. 
 	 * @param offset byte offset from start of buffer.
 	 * @param v the integer value to be stored.
 	 * @return the next available offset into the buffer, or -1 if the buffer is
 	 * full.
-	 * @throws ArrayIndexOutOfBoundsException if an invalid offset is provided
+	 * @throws IndexOutOfBoundsException if an invalid offset is provided
 	 * or the end of buffer was encountered while storing the data.
 	 * @throws IOException is thrown if an error occurs while accessing the
 	 * underlying storage.
 	 */
-	public int putInt(int offset, int v) throws IOException;
-	
+	public int putInt(int offset, int v) throws IndexOutOfBoundsException, IOException;
+
 	/**
 	 * Put the 16-bit short value into the buffer at the specified offset. 
 	 * @param offset byte offset from start of buffer.
 	 * @param v the short value to be stored.
 	 * @return the next available offset into the buffer, or -1 if the buffer is
 	 * full.
-	 * @throws ArrayIndexOutOfBoundsException if an invalid offset is provided
+	 * @throws IndexOutOfBoundsException if an invalid offset is provided
 	 * or the end of buffer was encountered while storing the data.
 	 * @throws IOException is thrown if an error occurs while accessing the
 	 * underlying storage.
 	 */
-	public int putShort(int offset, short v) throws IOException;
-	
+	public int putShort(int offset, short v) throws IndexOutOfBoundsException, IOException;
+
 	/**
 	 * Put the 64-bit long value into the buffer at the specified offset. 
 	 * @param offset byte offset from start of buffer.
 	 * @param v the long value to be stored.
 	 * @return the next available offset into the buffer, or -1 if the buffer is
 	 * full.
-	 * @throws ArrayIndexOutOfBoundsException if an invalid offset is provided
+	 * @throws IndexOutOfBoundsException if an invalid offset is provided
 	 * or the end of buffer was encountered while storing the data.
 	 * @throws IOException is thrown if an error occurs while accessing the
 	 * underlying storage.
 	 */
-	public int putLong(int offset, long v) throws IOException;
-	
+	public int putLong(int offset, long v) throws IndexOutOfBoundsException, IOException;
+
 }

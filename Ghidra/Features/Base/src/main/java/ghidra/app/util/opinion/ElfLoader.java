@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,25 +18,21 @@ package ghidra.app.util.opinion;
 import java.io.IOException;
 import java.util.*;
 
-import generic.continues.GenericFactory;
-import generic.continues.RethrowContinuesFactory;
 import ghidra.app.util.Option;
-import ghidra.app.util.OptionUtils;
 import ghidra.app.util.bin.ByteProvider;
-import ghidra.app.util.bin.format.elf.ElfException;
-import ghidra.app.util.bin.format.elf.ElfHeader;
-import ghidra.app.util.importer.MessageLog;
-import ghidra.app.util.importer.MessageLogContinuesFactory;
-import ghidra.framework.model.DomainFolder;
+import ghidra.app.util.bin.format.elf.*;
+import ghidra.app.util.bin.format.golang.GoConstants;
+import ghidra.app.util.bin.format.golang.rtti.GoRttiMapper;
+import ghidra.app.util.bin.format.swift.SwiftUtils;
 import ghidra.framework.model.DomainObject;
+import ghidra.framework.model.ProjectData;
 import ghidra.framework.options.Options;
 import ghidra.program.model.lang.Endian;
 import ghidra.program.model.listing.Program;
-import ghidra.program.util.ELFExternalSymbolResolver;
+import ghidra.program.util.ExternalSymbolResolver;
 import ghidra.util.Msg;
 import ghidra.util.NumericUtilities;
 import ghidra.util.exception.CancelledException;
-import ghidra.util.task.TaskMonitor;
 
 /**
  * A {@link Loader} for processing executable and linking files (ELF).
@@ -51,7 +47,6 @@ public class ElfLoader extends AbstractLibrarySupportLoader {
 	public final static String ELF_ORIGINAL_IMAGE_BASE_PROPERTY = "ELF Original Image Base";
 	public final static String ELF_PRELINKED_PROPERTY = "ELF Prelinked";
 
-	public final static String ELF_REQUIRED_LIBRARY_PROPERTY_PREFIX = "ELF Required Library ["; // followed by "#]"
 	public final static String ELF_SOURCE_FILE_PROPERTY_PREFIX = "ELF Source File ["; // followed by "#]"
 
 	/**
@@ -66,17 +61,33 @@ public class ElfLoader extends AbstractLibrarySupportLoader {
 		return (oibStr != null) ? NumericUtilities.parseHexLong(oibStr) : null;
 	}
 
+	/**
+	 * {@return true if the specified program was loaded via the ELF loader}
+	 * @param program {@link Program}
+	 */
+	public static boolean isElf(Program program) {
+		return isElf(program.getExecutableFormat());
+	}
+
+	/**
+	 * {@return true if the specified executable format string matches the ELF loader}
+	 * @param executableFormatString executable format string retrieved from a program's properties
+	 */
+	public static boolean isElf(String executableFormatString) {
+		return executableFormatString != null && ELF_NAME.equals(executableFormatString);
+	}
+
 	public ElfLoader() {
 	}
 
 	@Override
 	public List<Option> getDefaultOptions(ByteProvider provider, LoadSpec loadSpec,
-			DomainObject domainObject, boolean loadIntoProgram) {
+			DomainObject domainObject, boolean loadIntoProgram, boolean mirrorFsLayout) {
 
 		// NOTE: add-to-program is not supported
 
-		List<Option> options =
-			super.getDefaultOptions(provider, loadSpec, domainObject, loadIntoProgram);
+		List<Option> options = super.getDefaultOptions(provider, loadSpec, domainObject,
+			loadIntoProgram, mirrorFsLayout);
 
 		try {
 			ElfLoaderOptionsFactory.addOptions(options, provider, loadSpec);
@@ -93,11 +104,12 @@ public class ElfLoader extends AbstractLibrarySupportLoader {
 	public String validateOptions(ByteProvider provider, LoadSpec loadSpec, List<Option> options,
 			Program program) {
 		if (options != null) {
-			String validationErrorStr = ElfLoaderOptionsFactory.validateOptions(loadSpec, options);
+			String validationErrorStr =ElfLoaderOptionsFactory.validateOptions(loadSpec, options);
 			if (validationErrorStr != null) {
 				return validationErrorStr;
 			}
 		}
+
 		return super.validateOptions(provider, loadSpec, options, program);
 	}
 
@@ -106,10 +118,15 @@ public class ElfLoader extends AbstractLibrarySupportLoader {
 		List<LoadSpec> loadSpecs = new ArrayList<>();
 
 		try {
-			ElfHeader elf = ElfHeader.createElfHeader(RethrowContinuesFactory.INSTANCE, provider);
-			// TODO: Why do we convey image base to loader ?  This will be managed by each loader !
-			List<QueryResult> results =
-				QueryOpinionService.query(getName(), elf.getMachineName(), elf.getFlags());
+			ElfHeader elf = new ElfHeader(provider, null);
+
+			Set<QueryResult> results = new HashSet<>();
+			String machine = elf.getMachineName();
+			String compiler = detectCompilerName(elf);
+			if (compiler != null) {
+				results.addAll(QueryOpinionService.query(getName(), machine, compiler));
+			}
+			results.addAll(QueryOpinionService.query(getName(), machine, elf.getFlags()));
 			for (QueryResult result : results) {
 				boolean add = true;
 				// Some languages are defined with sizes smaller than 32
@@ -143,14 +160,14 @@ public class ElfLoader extends AbstractLibrarySupportLoader {
 	}
 
 	@Override
-	public void load(ByteProvider provider, LoadSpec loadSpec, List<Option> options,
-			Program program, TaskMonitor monitor, MessageLog log)
+	public void load(Program program, ImporterSettings settings)
 			throws IOException, CancelledException {
 
 		try {
-			GenericFactory factory = MessageLogContinuesFactory.create(log);
-			ElfHeader elf = ElfHeader.createElfHeader(factory, provider);
-			ElfProgramBuilder.loadElf(elf, program, options, log, monitor);
+			ElfHeader elf =
+				new ElfHeader(settings.provider(), msg -> settings.log().appendMsg(msg));
+			ElfProgramBuilder.loadElf(elf, program, settings.options(), settings.log(),
+				settings.monitor());
 		}
 		catch (ElfException e) {
 			throw new IOException(e.getMessage());
@@ -158,23 +175,43 @@ public class ElfLoader extends AbstractLibrarySupportLoader {
 	}
 
 	@Override
-	protected void postLoadProgramFixups(List<Program> importedPrograms, DomainFolder importFolder,
-			List<Option> options, MessageLog messageLog, TaskMonitor monitor)
-			throws CancelledException, IOException {
-		super.postLoadProgramFixups(importedPrograms, importFolder, options, messageLog, monitor);
+	protected void postLoadProgramFixups(List<Loaded<Program>> loadedPrograms,
+			ImporterSettings settings) throws CancelledException, IOException {
+		super.postLoadProgramFixups(loadedPrograms, settings);
 
-		if (OptionUtils.getBooleanOptionValue(
-			ElfLoaderOptionsFactory.RESOLVE_EXTERNAL_SYMBOLS_OPTION_NAME, options,
-			ElfLoaderOptionsFactory.RESOLVE_EXTERNAL_SYMBOLS_DEFAULT)) {
-			for (Program importedProgram : importedPrograms) {
-				ELFExternalSymbolResolver.fixUnresolvedExternalSymbols(importedProgram, true,
-					messageLog, monitor);
-			}
+		ProjectData projectData =
+			settings.project() != null ? settings.project().getProjectData() : null;
+		try (ExternalSymbolResolver esr =
+			new ExternalSymbolResolver(projectData, settings.monitor())) {
+			loadedPrograms.forEach(p -> esr.addProgramToFixup(p));
+			esr.fixUnresolvedExternalSymbols();
+			esr.logInfo(settings.log()::appendMsg, true);
 		}
 	}
 
 	@Override
 	public String getName() {
 		return ELF_NAME;
+	}
+
+	/**
+	 * Attempts to detect a more specific compiler from the ELF
+	 * 
+	 * @param elf The {@link ElfHeader}
+	 * @return The detected compiler name, or {@code null} if one couldn't be detected
+	 * @throws IOException if an IO-related error occurred
+	 */
+	private String detectCompilerName(ElfHeader elf) throws IOException {
+		elf.parseSectionHeaders();
+		List<String> sectionNames = Arrays.stream(elf.getSections())
+				.map(ElfSectionHeader::getNameAsString)
+				.toList();
+		if (SwiftUtils.isSwift(sectionNames)) {
+			return SwiftUtils.SWIFT_COMPILER;
+		}
+		if (GoRttiMapper.hasGolangSections(sectionNames)) {
+			return GoConstants.GOLANG_CSPEC_NAME;
+		}
+		return null;
 	}
 }

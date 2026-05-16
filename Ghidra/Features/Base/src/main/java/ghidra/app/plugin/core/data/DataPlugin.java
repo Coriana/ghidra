@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,22 +15,35 @@
  */
 package ghidra.app.plugin.core.data;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
 
-import docking.ActionContext;
+import javax.swing.tree.TreePath;
+
 import docking.action.DockingAction;
 import docking.action.MenuData;
+import docking.action.builder.ActionBuilder;
 import docking.widgets.OptionDialog;
+import docking.widgets.tree.GTree;
 import ghidra.app.CorePluginPackage;
 import ghidra.app.cmd.data.*;
 import ghidra.app.context.ListingActionContext;
+import ghidra.app.events.ProgramActivatedPluginEvent;
 import ghidra.app.plugin.PluginCategoryNames;
+import ghidra.app.plugin.core.compositeeditor.*;
+import ghidra.app.plugin.core.datamgr.DataTypesActionContext;
+import ghidra.app.plugin.core.datamgr.tree.DataTypeNode;
+import ghidra.app.plugin.core.datamgr.tree.DataTypeTreeNode;
+import ghidra.app.plugin.core.datamgr.util.DataTypeUtils;
 import ghidra.app.services.DataService;
 import ghidra.app.services.DataTypeManagerService;
+import ghidra.docking.settings.SettingsDefinition;
 import ghidra.framework.cmd.BackgroundCommand;
 import ghidra.framework.cmd.Command;
 import ghidra.framework.plugintool.*;
 import ghidra.framework.plugintool.util.PluginStatus;
+import ghidra.program.database.data.DataTypeManagerDB;
+import ghidra.program.database.data.ProgramDataTypeManager;
 import ghidra.program.model.address.*;
 import ghidra.program.model.data.*;
 import ghidra.program.model.listing.*;
@@ -60,7 +73,8 @@ import ghidra.util.task.SwingUpdateManager;
 	shortDescription = "Create Data in listing",
 	description = "Provides many actions for setting, changing and deleting data in the listing display.",
 	servicesRequired = { DataTypeManagerService.class },
-	servicesProvided = { DataService.class }
+	servicesProvided = { DataService.class },
+	eventsConsumed = { ProgramActivatedPluginEvent.class }
 )
 //@formatter:on
 public class DataPlugin extends Plugin implements DataService {
@@ -71,37 +85,31 @@ public class DataPlugin extends Plugin implements DataService {
 	private static final String BASIC_DATA_GROUP = "BasicData";
 	private static final String DATA_MENU_POPUP_PATH = "Data";
 	private static final String[] EDIT_DATA_TYPE_POPUP_PATH =
-		{ DATA_MENU_POPUP_PATH, "Edit Data Type..." };
+		{ DATA_MENU_POPUP_PATH, "Edit Data Type" };
 	private static final String[] DATA_SETTINGS_POPUP_PATH =
 		{ DATA_MENU_POPUP_PATH, "Settings..." };
-	private static final String[] DEFAULT_DATA_SETTINGS_POPUP_PATH =
+	private static final String[] DEFAULT_SETTINGS_POPUP_PATH =
 		{ DATA_MENU_POPUP_PATH, "Default Settings..." };
+	private static final String[] DATATYPE_SETTINGS_POPUP_PATH = { "Settings..." };
 	private static final String[] CHOOSE_DATA_TYPE_POPUP_PATH =
 		{ DATA_MENU_POPUP_PATH, "Choose Data Type..." };
 
 	private DataTypeManagerService dtmService;
-
-	private DockingAction settingsAction;
-	private DockingAction defaultSettingsAction;
-	private DataAction pointerAction;
-	private DataAction recentlyUsedAction;
-	private DockingAction editDataTypeAction; // Edit a data type action
-	private CreateStructureAction createStructureAction;
-	private CreateArrayAction createArrayAction;
-	private RenameDataFieldAction renameDataFieldAction;
-
-	private List<DataAction> favoriteActions = new ArrayList<>();
-
-	private ChooseDataTypeAction chooseDataTypeAction;
-
 	private DataTypeManagerChangeListenerAdapter adapter;
 
+	private DataAction pointerAction;
+	private DataAction recentlyUsedAction;
+	private DockingAction editDataTypeAction;
+	private CreateStructureAction createStructureAction;
+	private CreateArrayAction createArrayAction;
+	private ChooseDataTypeAction chooseDataTypeAction;
+	private List<DataAction> favoriteActions = new ArrayList<>();
 	private SwingUpdateManager favoritesUpdateManager;
 
 	public DataPlugin(PluginTool tool) {
 		super(tool);
 
-		addActions();
+		createActions();
 
 		favoritesUpdateManager = new SwingUpdateManager(1000, 30000, () -> updateFavoriteActions());
 	}
@@ -113,10 +121,17 @@ public class DataPlugin extends Plugin implements DataService {
 		updateFavoriteActions();
 	}
 
+	@Override
+	public void processEvent(PluginEvent event) {
+		if (event instanceof ProgramActivatedPluginEvent) {
+			favoritesUpdateManager.updateLater();
+		}
+	}
+
 	/**
 	 * Add actions
 	 */
-	private void addActions() {
+	private void createActions() {
 		recentlyUsedAction = new RecentlyUsedAction(this);
 		recentlyUsedAction.setEnabled(false);
 
@@ -128,92 +143,90 @@ public class DataPlugin extends Plugin implements DataService {
 		createArrayAction = new CreateArrayAction(this);
 		tool.addAction(createArrayAction);
 
-		renameDataFieldAction = new RenameDataFieldAction(this);
-		tool.addAction(renameDataFieldAction);
-
 		pointerAction = new PointerDataAction(this);
 		tool.addAction(pointerAction);
 
-		settingsAction = new DockingAction("Data Settings", getName()) {
-			@Override
-			public void actionPerformed(ActionContext context) {
-				dataSettingsCallback((ListingActionContext) context.getContextObject());
-			}
+		new ActionBuilder("Edit Field", getName())
+				.helpLocation(new HelpLocation("DataPlugin", "Quick_Edit_Field"))
+				.popupMenuPath("Data", "Edit Field...")
+				.popupMenuGroup("BasicData")
+				.keyBinding("ctrl shift E")
+				.sharedKeyBinding()
+				.withContext(ListingActionContext.class)
+				.enabledWhen(this::canEditField)
+				.onAction(this::editField)
+				.buildAndInstall(tool);
 
-			@Override
-			public boolean isEnabledForContext(ActionContext context) {
-				Object contextObject = context.getContextObject();
-				if (contextObject instanceof ListingActionContext) {
-					return isDataTypeSettingsAllowed((ListingActionContext) context, false);
-				}
-				return false;
-			}
-		};
+		// Data instance settings action based upon data selection in listing
+		new ActionBuilder("Data Settings", getName()).sharedKeyBinding()
+				.popupMenuPath(DATA_SETTINGS_POPUP_PATH)
+				.popupMenuGroup("Settings")
+				.withContext(ListingActionContext.class)
+				.enabledWhen(context -> isDataTypeSettingsAllowed(context, false))
+				.onAction(context -> dataSettingsCallback(context))
+				.buildAndInstall(tool);
 
-		settingsAction.setPopupMenuData(new MenuData(DATA_SETTINGS_POPUP_PATH, null, "Settings"));
+		// Default settings action based upon data selection in listing
+		new ActionBuilder("Default Settings", getName()).sharedKeyBinding()
+				.popupMenuPath(DEFAULT_SETTINGS_POPUP_PATH)
+				.popupMenuGroup("Settings")
+				.withContext(ListingActionContext.class)
+				.enabledWhen(context -> isDataTypeSettingsAllowed(context, true))
+				.onAction(context -> editDefaultDataSettings(context))
+				.buildAndInstall(tool);
 
-		settingsAction.setEnabled(true);
-		tool.addAction(settingsAction);
+		// Default settings action for selected datatypes from datatype manager
+		new ActionBuilder("Default Settings", getName()).sharedKeyBinding()
+				.popupMenuPath(DATATYPE_SETTINGS_POPUP_PATH)
+				.popupMenuGroup("Settings")
+				.withContext(DataTypesActionContext.class)
+				.enabledWhen(context -> isDefaultDataTypeSettingsAllowed(context))
+				.onAction(context -> editDefaultDataTypeSettings(context))
+				.buildAndInstall(tool);
 
-		defaultSettingsAction = new DockingAction("Default Data Settings", getName()) {
-			@Override
-			public void actionPerformed(ActionContext context) {
-				defaultDataSettingsCallback((ListingActionContext) context.getContextObject());
-			}
+		// Default settings action for composite editor components (Program-based)
+		new ActionBuilder("Default Settings", getName()).sharedKeyBinding()
+				.popupMenuPath(DATATYPE_SETTINGS_POPUP_PATH)
+				.popupMenuGroup("Settings")
+				.withContext(ComponentProgramActionContext.class)
+				.enabledWhen(context -> isDefaultComponentSettingsAllowed(context))
+				.onAction(context -> editDefaultComponentSettings(context))
+				.buildAndInstall(tool);
 
-			@Override
-			public boolean isEnabledForContext(ActionContext context) {
-				Object contextObject = context.getContextObject();
-				if (contextObject instanceof ListingActionContext) {
-					return isDataTypeSettingsAllowed((ListingActionContext) context, true);
-				}
-				return false;
-			}
-		};
+		// Default settings action for composite editor components (stand-alone archive)
+		new ActionBuilder("Default Settings", getName()).sharedKeyBinding()
+				.popupMenuPath(DATATYPE_SETTINGS_POPUP_PATH)
+				.popupMenuGroup("Settings")
+				.withContext(ComponentStandAloneActionContext.class)
+				.enabledWhen(context -> isDefaultComponentSettingsAllowed(context))
+				.onAction(context -> editDefaultComponentSettings(context))
+				.buildAndInstall(tool);
 
-		defaultSettingsAction.setPopupMenuData(
-			new MenuData(DEFAULT_DATA_SETTINGS_POPUP_PATH, null, "Settings"));
-
-		defaultSettingsAction.setEnabled(true);
-		tool.addAction(defaultSettingsAction);
-
-		editDataTypeAction = new DockingAction("Edit Data Type", getName()) {
-			@Override
-			public void actionPerformed(ActionContext context) {
-				editDataTypeCallback((ListingActionContext) context.getContextObject());
-			}
-
-			@Override
-			public boolean isEnabledForContext(ActionContext context) {
-				Object contextObject = context.getContextObject();
-				if (contextObject instanceof ListingActionContext) {
-					DataType editableDt =
-						getEditableDataTypeFromContext((ListingActionContext) contextObject);
-					if (editableDt != null) {
-						editDataTypeAction.setHelpLocation(
-							dtmService.getEditorHelpLocation(editableDt));
-						return true;
-					}
-				}
-				return false;
-			}
-		};
-
-		editDataTypeAction.setPopupMenuData(
-			new MenuData(EDIT_DATA_TYPE_POPUP_PATH, null, "BasicData"));
-
-		editDataTypeAction.setEnabled(true);
-		editDataTypeAction.setHelpLocation(new HelpLocation("DataTypeEditors", "Structure_Editor"));
-		tool.addAction(editDataTypeAction);
+		editDataTypeAction =
+			new ActionBuilder("Edit Data Type", getName()).popupMenuPath(EDIT_DATA_TYPE_POPUP_PATH)
+					.popupMenuGroup("BasicData")
+					.withContext(ListingActionContext.class)
+					.enabledWhen(c -> {
+						DataType editableDt = getEditableDataTypeFromContext(c);
+						if (editableDt != null) {
+							HelpLocation helps = dtmService.getEditorHelpLocation(editableDt);
+							editDataTypeAction.setHelpLocation(helps);
+							return true;
+						}
+						return false;
+					})
+					.onAction(c -> editDataTypeCallback(c))
+					.helpLocation(new HelpLocation("DataTypeEditors", "Structure_Editor"))
+					.buildAndInstall(tool);
 
 		chooseDataTypeAction = new ChooseDataTypeAction(this);
 		chooseDataTypeAction.setEnabled(false);
 
-		chooseDataTypeAction.setPopupMenuData(
-			new MenuData(CHOOSE_DATA_TYPE_POPUP_PATH, BASIC_DATA_GROUP));
+		chooseDataTypeAction
+				.setPopupMenuData(new MenuData(CHOOSE_DATA_TYPE_POPUP_PATH, BASIC_DATA_GROUP));
 		chooseDataTypeAction.setEnabled(true);
-		chooseDataTypeAction.setHelpLocation(
-			new HelpLocation("DataTypeEditors", "DataTypeSelectionDialog"));
+		chooseDataTypeAction
+				.setHelpLocation(new HelpLocation("DataTypeEditors", "DataTypeSelectionDialog"));
 		tool.addAction(chooseDataTypeAction);
 	}
 
@@ -238,31 +251,13 @@ public class DataPlugin extends Plugin implements DataService {
 		dtmService.addDataTypeManagerChangeListener(adapter);
 	}
 
-	boolean isEditDataTypeAllowed(ListingActionContext context) {
-		Data data = getDataUnit(context);
-		if (data == null || dtmService == null) {
-			return false;
-		}
-		if (dtmService.isEditable(data.getBaseDataType())) {
-			return true;
-		}
-		Data pdata = data.getParent();
-		if (pdata != null) {
-			if (dtmService.isEditable(pdata.getBaseDataType())) {
-				return true;
-			}
-		}
-		return false;
-	}
-
 	DataType getEditableDataTypeFromContext(ListingActionContext context) {
-		ProgramSelection currentSelection = context.getSelection();
-		Program currentProgram = context.getProgram();
-		DataType editableDataType = null;
+		ProgramSelection selection = context.getSelection();
+		Program program = context.getProgram();
 		Data data = null;
-		if (currentSelection != null && !currentSelection.isEmpty()) {
-			Listing listing = currentProgram.getListing();
-			boolean isDataOnly = !listing.getInstructions(currentSelection, true).hasNext();
+		if (selection != null && !selection.isEmpty()) {
+			Listing listing = program.getListing();
+			boolean isDataOnly = !listing.getInstructions(selection, true).hasNext();
 			if (isDataOnly) {
 				data = getDataUnit(context);
 			}
@@ -270,93 +265,93 @@ public class DataPlugin extends Plugin implements DataService {
 		else {
 			data = getDataUnit(context);
 		}
-		if (data != null) {
-			if (dtmService != null) {
-				DataType baseDt = data.getBaseDataType();
-				if (dtmService.isEditable(baseDt)) {
-					editableDataType = baseDt;
-				}
-				else {
-					Data pdata = data.getParent();
-					if (pdata != null) {
-						baseDt = pdata.getBaseDataType();
-						if (dtmService.isEditable(baseDt)) {
-							editableDataType = baseDt;
-						}
-					}
-				}
-			}
-		}
-		return editableDataType;
+
+		return getEditableDataType(data);
 	}
 
-	/**
-	 * @see ghidra.app.services.DataService#createData(ghidra.program.model.data.DataType,
-	 *      ghidra.app.context.ListingActionContext, boolean)
-	 */
+	private DataType getEditableDataType(Data data) {
+		if (data == null || dtmService == null) {
+			return null;
+		}
+
+		DataType baseDt = data.getBaseDataType();
+		if (dtmService.isEditable(baseDt)) {
+			return baseDt;
+		}
+
+		Data pdata = data.getParent();
+		if (pdata != null) {
+			baseDt = pdata.getBaseDataType();
+			if (dtmService.isEditable(baseDt)) {
+				return baseDt;
+			}
+		}
+		return null;
+	}
+
 	@Override
-	public boolean createData(DataType dt, ListingActionContext context,
+	public boolean createData(DataType dt, ListingActionContext context, boolean stackPointers,
 			boolean enableConflictHandling) {
-// TODO: conflict handler (i.e., removal of other conflicting data not yet supported)
 		ProgramLocation location = context.getLocation();
 		if (!(location instanceof CodeUnitLocation)) {
 			return false;
 		}
 
-		return doCreateData(context, dt);
+		return doCreateData(context, dt, stackPointers);
 	}
 
 	/*
-	 * This version uses the ProgramActionContext and does not depend on any
-	 * plugin's currentProgram
+	 * This version uses the ListingActionContext and does not depend on any plugin's currentProgram
 	 */
-	boolean doCreateData(ListingActionContext context, DataType dt) {
+	boolean doCreateData(ListingActionContext context, DataType dt, boolean stackPointers) {
 		ProgramSelection selection = context.getSelection();
 		ProgramLocation location = context.getLocation();
 		Program program = context.getProgram();
 
 		dt = dt.clone(program.getDataTypeManager());
-		boolean didCreateData = true;
+		boolean didCreateData = false;
 		if (selection != null && !selection.isEmpty()) {
-			didCreateData = createDataForSelection(program, dt, selection);
+			didCreateData = createDataForSelection(program, dt, stackPointers, selection);
 		}
 		else if (location != null) {
-			didCreateData = createDataAtLocation(program, dt, location);
+			didCreateData = createDataAtLocation(program, dt, stackPointers, location);
 		}
 
 		updateRecentlyUsed(dt);
 		return didCreateData;
 	}
 
-	private boolean createDataAtLocation(Program program, DataType dt, ProgramLocation location) {
+	private boolean createDataAtLocation(Program program, DataType dt, boolean stackPointers,
+			ProgramLocation location) {
 		Address start = location.getAddress();
 		int[] startPath = location.getComponentPath();
-		Command cmd;
+		Command<Program> cmd;
 		if (startPath != null && startPath.length != 0) {
-			cmd = new CreateDataInStructureCmd(start, startPath, dt, true);
+			cmd = new CreateDataInStructureCmd(start, startPath, dt, stackPointers);
 		}
 		else {
-			if (!checkEnoughSpace(program, start, dt, true)) {
+			if (!checkEnoughSpace(program, start, dt, stackPointers)) {
 				return false;
 			}
-			cmd = new CreateDataCmd(start, true, true, dt);
+			cmd = new CreateDataCmd(start, true, stackPointers, dt);
 		}
 		return getTool().execute(cmd, program);
 	}
 
-	private boolean createDataForSelection(Program program, DataType dt,
+	private boolean createDataForSelection(Program program, DataType dt, boolean stackPointers,
 			ProgramSelection selection) {
-		BackgroundCommand cmd;
+		BackgroundCommand<Program> cmd;
 		Address start = selection.getMinAddress();
 		InteriorSelection interSel = selection.getInteriorSelection();
 		if (interSel != null) {
 			int[] startPath = interSel.getFrom().getComponentPath();
 
 			int length = (int) selection.getNumAddresses(); // interior selections can't be that big
-			cmd = new CreateDataInStructureBackgroundCmd(start, startPath, length, dt, true);
+			cmd =
+				new CreateDataInStructureBackgroundCmd(start, startPath, length, dt, stackPointers);
 		}
 		else {
-			cmd = new CreateDataBackgroundCmd(selection, dt, true);
+			cmd = new CreateDataBackgroundCmd(selection, dt, stackPointers);
 		}
 
 		boolean didCreateData = false;
@@ -370,16 +365,16 @@ public class DataPlugin extends Plugin implements DataService {
 	}
 
 	private boolean checkEnoughSpace(Program program, Address start, DataType dataType,
-			boolean convertPointers) {
+			boolean stackingEnabled) {
 
 		Listing listing = program.getListing();
 		Data data = listing.getDataAt(start);
 		if (data == null) {
-			tool.setStatusInfo("Invalid data location");
+			tool.setStatusInfo("Invalid data location.  Cannot create data at " + start + '.');
 			return false;
 		}
 
-		if (canConvertPointer(dataType, data, convertPointers)) {
+		if (stackingEnabled && canConvertPointer(dataType, data)) {
 			return true;
 		}
 
@@ -388,15 +383,24 @@ public class DataPlugin extends Plugin implements DataService {
 			return true;
 		}
 
+		if (newSize <= 0) {
+			tool.setStatusInfo("Invalid data location.  Unable to resolve data length at " + start +
+				" for " + dataType.getName());
+			return false;
+		}
+
 		Address end = null;
 		try {
 			end = start.addNoWrap(newSize - 1);
 		}
 		catch (AddressOverflowException e) {
+			tool.setStatusInfo("Invalid data location.  Not enough space at " + start + " for " +
+				newSize + " bytes.");
 			return false;
 		}
 
-		if (intstrutionExists(listing, dataType, start, end)) {
+		if (instructionExists(listing, dataType, start, end)) {
+			tool.setStatusInfo("Invalid data location.  Instruction exists at " + start + '.');
 			return false;
 		}
 
@@ -415,18 +419,13 @@ public class DataPlugin extends Plugin implements DataService {
 		Data definedData =
 			DataUtilities.getNextNonUndefinedDataAfter(program, start, blockMaxAddress);
 		if (dataExists(program, dataType, definedData, start, end)) {
-			return false;
+			return false; // status updated in 'dataExists()' call
 		}
 
 		return true;
 	}
 
-	private boolean canConvertPointer(DataType dataType, Data existingData,
-			boolean convertPointers) {
-
-		if (!convertPointers) {
-			return false;
-		}
+	private boolean canConvertPointer(DataType dataType, Data existingData) {
 
 		if (!existingData.isDefined()) {
 			return false;
@@ -472,7 +471,7 @@ public class DataPlugin extends Plugin implements DataService {
 		return false; // OK to clear the existing data
 	}
 
-	private boolean intstrutionExists(Listing listing, DataType dataType, Address start,
+	private boolean instructionExists(Listing listing, DataType dataType, Address start,
 			Address end) {
 
 		Instruction instruction = listing.getInstructionAfter(start);
@@ -497,75 +496,14 @@ public class DataPlugin extends Plugin implements DataService {
 			return newSize;
 		}
 
-		if (dataType instanceof Dynamic || dataType instanceof FactoryDataType) {
-			MemoryBlock block = program.getMemory().getBlock(start);
-			if (block == null || !block.isInitialized()) {
-				tool.setStatusInfo(
-					dataType.getName() + " may only be applied on initialized memory");
-				return -1;
-			}
-		}
-
 		DataTypeInstance dataTypeInstance = DataTypeInstance.getDataTypeInstance(dataType,
-			new DumbMemBufferImpl(program.getMemory(), start));
+			new DumbMemBufferImpl(program.getMemory(), start), false);
 		if (dataTypeInstance == null) {
 			tool.setStatusInfo("Unallowed data type at " + start + ": " + dataType.getName());
 			return -1;
 		}
 
 		return dataTypeInstance.getLength();
-	}
-
-	boolean doCreateData(Program program, ProgramLocation loc, ProgramSelection sel, DataType dt) {
-		return doCreateData(program, loc, sel, dt, true);
-	}
-
-	boolean doCreateData(Program program, ProgramLocation loc, ProgramSelection sel, DataType dt,
-			boolean convertPointers) {
-
-		// Handle selection case
-		boolean rc = true;
-		if (sel != null && !sel.isEmpty()) {
-			BackgroundCommand cmd;
-			Address start = sel.getMinAddress();
-			InteriorSelection interSel = sel.getInteriorSelection();
-			if (interSel != null) {
-				int[] startPath = interSel.getFrom().getComponentPath();
-				int length = (int) sel.getNumAddresses(); // interior selections can't be that big
-				cmd = new CreateDataInStructureBackgroundCmd(start, startPath, length, dt,
-					convertPointers);
-			}
-			else {
-				cmd = new CreateDataBackgroundCmd(sel, dt, convertPointers);
-			}
-			if (sel.getNumAddresses() < DataPlugin.BACKGROUND_SELECTION_THRESHOLD) {
-				rc = tool.execute(cmd, program);
-			}
-			else {
-				getPluginTool().executeBackgroundCommand(cmd, program);
-			}
-		}
-
-		// Handle single location case
-		else if (loc != null) {
-
-			Address start = loc.getAddress();
-			int[] startPath = loc.getComponentPath();
-			Command cmd;
-			if (startPath != null && startPath.length != 0) {
-				cmd = new CreateDataInStructureCmd(start, startPath, dt, convertPointers);
-			}
-			else {
-				if (!checkEnoughSpace(program, start, dt, convertPointers)) {
-					return false;
-				}
-				cmd = new CreateDataCmd(start, dt, false, convertPointers);
-			}
-			rc = getPluginTool().execute(cmd, program);
-		}
-
-		updateRecentlyUsed(dt);
-		return rc;
 	}
 
 	PluginTool getPluginTool() {
@@ -576,9 +514,7 @@ public class DataPlugin extends Plugin implements DataService {
 	 * Get rid of the dynamically created list of data types
 	 */
 	private void clearActions(List<DataAction> actions) {
-		Iterator<DataAction> iter = actions.iterator();
-		while (iter.hasNext()) {
-			DockingAction action = iter.next();
+		for (DockingAction action : actions) {
 			tool.removeAction(action);
 			action.dispose();
 		}
@@ -667,10 +603,103 @@ public class DataPlugin extends Plugin implements DataService {
 			if (data == null) {
 				return;
 			}
-			dialog = new DataSettingsDialog(context.getProgram(), data);
+			dialog = new DataSettingsDialog(data);
 		}
 		tool.showDialog(dialog);
 		dialog.dispose();
+	}
+
+	DataType getSelectedDataType(DataTypesActionContext context) {
+		Object contextObject = context.getContextObject();
+		GTree gtree = (GTree) contextObject;
+		TreePath[] selectionPaths = gtree.getSelectionPaths();
+		if (selectionPaths == null || selectionPaths.length != 1) {
+			return null;
+		}
+		DataTypeTreeNode node = (DataTypeTreeNode) selectionPaths[0].getLastPathComponent();
+		if (!(node instanceof DataTypeNode)) {
+			return null;
+		}
+		DataTypeNode dataTypeNode = (DataTypeNode) node;
+		DataType dataType = dataTypeNode.getDataType();
+		if (dataType.getDataTypeManager() instanceof DataTypeManagerDB) {
+			return dataType;
+		}
+		return null;
+	}
+
+	protected void editDefaultDataTypeSettings(DataTypesActionContext context) {
+		DataType dataType = getSelectedDataType(context);
+		if (dataType == null) {
+			return;
+		}
+		DataTypeManager dtm = dataType.getDataTypeManager();
+		if (!(dtm instanceof DataTypeManagerDB)) {
+			return;
+		}
+
+		SettingsDefinition[] settingsDefinitions = dataType.getSettingsDefinitions();
+		if (!(dtm instanceof ProgramDataTypeManager)) {
+			// Non-Program use limited to TypeDefSettingsDefinition only
+			settingsDefinitions =
+				SettingsDefinition.filterSettingsDefinitions(settingsDefinitions, def -> {
+					return (def instanceof TypeDefSettingsDefinition);
+				});
+		}
+
+		DataTypeSettingsDialog dialog = new DataTypeSettingsDialog(dataType, settingsDefinitions);
+		tool.showDialog(dialog);
+		dialog.dispose();
+	}
+
+	private void editDefaultComponentSettings(ComponentContext context) {
+		DataTypeSettingsDialog dialog = new DataTypeSettingsDialog(context.getDataTypeComponent());
+		tool.showDialog(dialog);
+		dialog.dispose();
+		dialog = null;
+	}
+
+	protected boolean isDefaultDataTypeSettingsAllowed(DataTypesActionContext context) {
+		DataType dt = getSelectedDataType(context);
+		if (dt == null) {
+			return false;
+		}
+
+		DataTypeManager dtm = dt.getDataTypeManager();
+		if (dtm instanceof BuiltInDataTypeManager) {
+			return false; // no settings modifications are permitted
+		}
+		if ((dt instanceof BuiltIn) && !dtm.allowsDefaultBuiltInSettings()) {
+			// prevent BuiltIn settings modification when not allowed
+			return false;
+		}
+
+		SettingsDefinition[] settingsDefinitions = dt.getSettingsDefinitions();
+		if (dtm instanceof ProgramBasedDataTypeManager) {
+			// Any defined setting may be modified within a Program
+			return settingsDefinitions.length != 0;
+		}
+
+		// Non-Program use limited to TypeDefSettingsDefinition modification only
+		for (SettingsDefinition def : settingsDefinitions) {
+			if (def instanceof TypeDefSettingsDefinition) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	boolean isDefaultComponentSettingsAllowed(ComponentContext context) {
+		// Note: targetDtm should not be modified and reflects the ultimate target.
+		// This context is intended to be used by composite editors where the component
+		// parent datatype resides within a temporary datatype manager and not the targetDtm 
+		// until a subsequent save/apply is performed when the settings will get copied.
+		DataTypeManager targetDtm = context.getDataTypeManager();
+		if (targetDtm.allowsDefaultComponentSettings()) {
+			DataType dt = context.getDataTypeComponent().getDataType();
+			return dt.getSettingsDefinitions().length != 0;
+		}
+		return false;
 	}
 
 	boolean isDataTypeSettingsAllowed(ListingActionContext context, boolean editDefaults) {
@@ -683,10 +712,17 @@ public class DataPlugin extends Plugin implements DataService {
 		if (data == null) {
 			return false;
 		}
-		return data.getDataType().getSettingsDefinitions().length != 0;
+		DataType dt = data.getDataType();
+		if (dt.getSettingsDefinitions().length == 0) {
+			return false;
+		}
+		if (editDefaults) {
+			return !dt.getDefaultSettings().isImmutableSettings();
+		}
+		return true;
 	}
 
-	private void defaultDataSettingsCallback(ListingActionContext context) {
+	private void editDefaultDataSettings(ListingActionContext context) {
 
 		// get the structure dt we are over
 		Data data = getDataUnit(context);
@@ -694,23 +730,19 @@ public class DataPlugin extends Plugin implements DataService {
 			return;
 		}
 
-		DataSettingsDialog dialog = null;
-		Program program = context.getProgram();
+		DataTypeSettingsDialog dialog = null;
 		Data parent = data.getParent();
 		if (parent != null) {
 			DataType parentDT = parent.getDataType();
 			if (parentDT instanceof Composite) {
 				int[] path = context.getLocation().getComponentPath();
-
-				dialog = new DataSettingsDialog(program,
+				dialog = new DataTypeSettingsDialog(
 					((Composite) parentDT).getComponent(path[path.length - 1]));
 			}
-			else {
-				dialog = new DataSettingsDialog(program, data.getDataType());
-			}
 		}
-		else {
-			dialog = new DataSettingsDialog(program, data.getDataType());
+		if (dialog == null) {
+			DataType dt = data.getDataType();
+			dialog = new DataTypeSettingsDialog(dt, dt.getSettingsDefinitions());
 		}
 
 		tool.showDialog(dialog);
@@ -741,9 +773,6 @@ public class DataPlugin extends Plugin implements DataService {
 		}
 	}
 
-	/**
-	 * @see ghidra.framework.plugintool.Plugin#dispose()
-	 */
 	@Override
 	public void dispose() {
 		favoritesUpdateManager.dispose();
@@ -756,10 +785,6 @@ public class DataPlugin extends Plugin implements DataService {
 		createStructureAction.dispose();
 	}
 
-	/**
-	 * @see ghidra.app.plugin.ProgramPlugin#locationChanged(ghidra.program.util.ProgramLocation)
-	 * @see ghidra.app.plugin.ProgramPlugin#selectionChanged(ghidra.program.util.ProgramSelection)
-	 */
 	Data getDataUnit(ListingActionContext context) {
 		ProgramLocation location = context.getLocation();
 		ProgramSelection selection = context.getSelection();
@@ -815,6 +840,35 @@ public class DataPlugin extends Plugin implements DataService {
 			return false;
 		}
 		return true;
+	}
+
+	private boolean canEditField(ListingActionContext context) {
+		ProgramLocation location = context.getLocation();
+		int[] path = location.getComponentPath();
+		if (path == null || path.length == 0) {
+			return false;
+		}
+
+		Program program = context.getProgram();
+		Address address = location.getAddress();
+		DataTypeComponent dtc = DataTypeUtils.getDataTypeComponent(program, address, path);
+		return dtc != null;
+	}
+
+	private void editField(ListingActionContext context) {
+
+		Program program = context.getProgram();
+		ProgramLocation location = context.getLocation();
+		Address address = location.getAddress();
+		int[] path = location.getComponentPath();
+
+		DataTypeComponent dtc = DataTypeUtils.getDataTypeComponent(program, address, path);
+		DataType parent = dtc.getParent();
+		Composite composite = (Composite) parent;
+		int ordinal = dtc.getOrdinal();
+		EditDataFieldDialog dialog =
+			new EditDataFieldDialog(tool, dtmService, composite, program, address, ordinal);
+		tool.showDialog(dialog);
 	}
 
 }

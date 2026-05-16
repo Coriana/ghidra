@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -26,7 +26,6 @@ import ghidra.framework.main.*;
 import ghidra.program.database.OriginalProgramModifierListener;
 import ghidra.program.database.ProgramDB;
 import ghidra.program.model.data.*;
-import ghidra.util.task.TaskMonitorAdapter;
 
 /**
  * More data type merge tests.
@@ -46,9 +45,7 @@ public class DataTypeMerge8Test extends AbstractDataTypeMergeTest {
 		mtf.initialize("notepad2", new OriginalProgramModifierListener() {
 			@Override
 			public void modifyOriginal(ProgramDB program) throws Exception {
-				boolean commit = false;
 				DataTypeManager dtm = program.getDataTypeManager();
-				int transactionID = program.startTransaction("test");
 
 				Structure xyz = new StructureDataType("XYZ", 0);
 				xyz.add(new WordDataType());
@@ -72,77 +69,40 @@ public class DataTypeMerge8Test extends AbstractDataTypeMergeTest {
 				//     byte
 				// } (size=8)
 
-				try {
-					Category miscCategory = dtm.getCategory(miscPath);
-					miscCategory.addDataType(abc, null);
+				Category miscCategory = dtm.getCategory(miscPath);
+				miscCategory.addDataType(abc, null);
 
-					abc = (Structure) dtm.getDataType(miscPath, "ABC");
-					xyz = (Structure) dtm.getDataType(rootPath, "XYZ");
+				abc = (Structure) dtm.getDataType(miscPath, "ABC");
+				xyz = (Structure) dtm.getDataType(rootPath, "XYZ");
 
-					assertNotNull(abc);
-					assertNotNull(xyz);
-
-					commit = true;
-				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
+				assertNotNull(abc);
+				assertNotNull(xyz);
 			}
 
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				boolean commit = false;
 				DataTypeManager dtm = program.getDataTypeManager();
 				Structure abc = (Structure) dtm.getDataType(miscPath, "ABC");
 				Structure xyz = (Structure) dtm.getDataType(rootPath, "XYZ");
 
-				int transactionID = program.startTransaction("change ABC");
-				try {
-					// Change first byte in ABC to a char.
-					abc.replace(0, new CharDataType(), 1);
-					commit = true;
-				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
+				// Change first byte in ABC to a char.
+				abc.replace(0, new CharDataType(), 1);
 
-				transactionID = program.startTransaction("remove XYZ");
-				try {
-					// Remove the XYZ data type.
-					dtm.remove(xyz, TaskMonitorAdapter.DUMMY_MONITOR);
-					commit = true;
-				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
+				// Remove the XYZ data type.
+				dtm.remove(xyz);
 			}
 
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				boolean commit = false;
 				DataTypeManager dtm = program.getDataTypeManager();
 				Structure abc = (Structure) dtm.getDataType(miscPath, "ABC");
 				Structure xyz = (Structure) dtm.getDataType(rootPath, "XYZ");
 
-				int transactionID = program.startTransaction("change ABC");
-				try {
-					// Change second byte in ABC to a char.
-					abc.replace(1, new CharDataType(), 1);
-					commit = true;
-				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
+				// Change second byte in ABC to a char.
+				abc.replace(1, new CharDataType(), 1);
 
-				transactionID = program.startTransaction("expand XYZ");
-				try {
-					// Increase the size of XYZ data type so it won't fit in its component.
-					xyz.add(new FloatDataType());
-					commit = true;
-				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
+				// Increase the size of XYZ data type so it won't fit in its component.
+				xyz.add(new FloatDataType());
 			}
 		});
 
@@ -155,6 +115,8 @@ public class DataTypeMerge8Test extends AbstractDataTypeMergeTest {
 		// choose MY for Bar conflict
 		chooseOption(DataTypeMergeManager.OPTION_MY);
 
+		pressButtonByName(waitForWindow("Structure Update Failed"), "OK"); // expected dependency error on ABC
+
 		waitForCompletion();
 
 		FrontEndPlugin frontEndPlugin = getPlugin(frontEndTool, FrontEndPlugin.class);
@@ -162,8 +124,9 @@ public class DataTypeMerge8Test extends AbstractDataTypeMergeTest {
 		JLabel label = (JLabel) TestUtils.getInstanceField("label", logPanel);
 		String statusText = label.getText();
 		String expectedText =
-			"Structure Merge: Not enough undefined bytes to fit /XYZ in structure " +
-				"/MISC/ABC at offset 0x4.\nIt needs 3 more byte(s) to be able to fit.";
-		assertTrue(statusText.contains(expectedText));
+			"Structure Update Failed: Some of your changes to ABC cannot be merged. " +
+				"Problem: Not enough undefined bytes to fit /XYZ in structure /MISC/ABC at " +
+				"offset 0x4. It needs 3 more byte(s) to be  able to fit.";
+		assertTrue("Wrong status text: " + statusText, statusText.contains(expectedText));
 	}
 }

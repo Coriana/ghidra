@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,7 +20,7 @@ import ghidra.program.model.data.DataType;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.mem.Memory;
 import ghidra.program.model.symbol.*;
-import ghidra.util.task.TaskMonitorAdapter;
+import ghidra.util.task.TaskMonitor;
 
 /**
  * A special test 'program-like' class that allows clients to *easily* make changes one
@@ -113,7 +113,7 @@ public class MergeProgram {
 
 				try {
 					memory.createInitializedBlock(name, startAddress, size, (byte) 0,
-						TaskMonitorAdapter.DUMMY_MONITOR, false);
+						TaskMonitor.DUMMY, false);
 				}
 				catch (Exception e) {
 					throw new RuntimeException("Exception building memory", e);
@@ -388,7 +388,7 @@ public class MergeProgram {
 
 				}
 				catch (Exception e) {
-					throw new RuntimeException("Exception updating function function", e);
+					throw new RuntimeException("Exception updating function", e);
 				}
 			}
 		}

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -29,6 +29,8 @@ import docking.widgets.fieldpanel.support.FieldLocation;
 import ghidra.app.decompiler.ClangToken;
 import ghidra.app.decompiler.component.ClangTextField;
 import ghidra.app.decompiler.component.DecompilerPanel;
+import ghidra.program.model.listing.Function;
+import ghidra.program.model.pcode.HighFunction;
 import ghidra.test.AbstractProgramBasedTest;
 
 public abstract class AbstractDecompilerTest extends AbstractProgramBasedTest {
@@ -150,6 +152,11 @@ public abstract class AbstractDecompilerTest extends AbstractProgramBasedTest {
 	 * @return the token under the cursor
 	 */
 	protected ClangToken getToken() {
+		waitForDecompiler();
+		return getToken(provider);
+	}
+
+	protected ClangToken getCursorToken() {
 		return getToken(provider);
 	}
 
@@ -171,4 +178,39 @@ public abstract class AbstractDecompilerTest extends AbstractProgramBasedTest {
 			assertEquals(tokenText, text);
 		}
 	}
+
+	protected ClangTextField getLineStarting(String val) {
+		DecompilerPanel panel = provider.getDecompilerPanel();
+		List<Field> fields = panel.getFields();
+		for (Field field : fields) {
+			ClangTextField textField = (ClangTextField) field;
+			String text = textField.getText().trim();
+			if (text.startsWith(val)) {
+				return textField;
+			}
+		}
+		return null;
+	}
+
+	protected ClangTextField getLineContaining(String val) {
+		DecompilerPanel panel = provider.getDecompilerPanel();
+		List<Field> fields = panel.getFields();
+		for (Field field : fields) {
+			ClangTextField textField = (ClangTextField) field;
+			String text = textField.getText();
+			if (text.contains(val)) {
+				return textField;
+			}
+		}
+		return null;
+	}
+
+	protected HighFunction getHighFunction() {
+		return provider.getController().getHighFunction();
+	}
+
+	protected Function getCurrentFunction() {
+		return provider.getController().getFunction();
+	}
+
 }

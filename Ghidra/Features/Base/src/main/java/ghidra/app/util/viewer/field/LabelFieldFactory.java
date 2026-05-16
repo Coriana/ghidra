@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,37 +15,38 @@
  */
 package ghidra.app.util.viewer.field;
 
-import java.beans.PropertyEditor;
+import java.awt.Color;
+import java.awt.FontMetrics;
 import java.math.BigInteger;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
 
 import javax.swing.Icon;
 import javax.swing.event.ChangeListener;
 
 import docking.widgets.fieldpanel.field.*;
 import docking.widgets.fieldpanel.support.FieldLocation;
+import generic.theme.GIcon;
 import ghidra.app.util.*;
+import ghidra.app.util.viewer.field.LabelFieldSymbolLoader.Symbols;
 import ghidra.app.util.viewer.format.FieldFormatModel;
+import ghidra.app.util.viewer.options.OptionsGui;
 import ghidra.app.util.viewer.proxy.ProxyObj;
 import ghidra.framework.options.*;
 import ghidra.program.model.address.Address;
-import ghidra.program.model.address.AddressIterator;
-import ghidra.program.model.listing.*;
+import ghidra.program.model.listing.CodeUnit;
+import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.*;
 import ghidra.program.util.*;
 import ghidra.util.HelpLocation;
 import ghidra.util.exception.AssertException;
 import resources.MultiIcon;
-import resources.ResourceManager;
 import resources.icons.EmptyIcon;
-import resources.icons.TranslateIcon;
 
 /**
  *  Generates label Fields.
  */
 public class LabelFieldFactory extends FieldFactory {
-
-	private final static int MAX_OFFCUT_DISPLAY = 30; // arbitrary
 
 	public final static String FIELD_NAME = "Label";
 	public final static String OFFCUT_STYLE = "XRef Offcut Style";
@@ -55,13 +56,17 @@ public class LabelFieldFactory extends FieldFactory {
 	private final static String NAMESPACE_OPTIONS =
 		GROUP_TITLE + Options.DELIMITER + "Display Namespace";
 
+	private static final String MAX_LABELS_LABEL =
+		GROUP_TITLE + Options.DELIMITER + "Maximum Number of Labels to Display";
+
+	private static final int MAX_LABELS = 10;
+	private int maxLabels = MAX_LABELS;
+
 	// These icons would normally be static, but can't be because the class searcher loads this
 	// class and it triggers swing access which is not allowed in headless.
 	private Icon EMPTY_ICON = new EmptyIcon(12, 16);
-	private Icon ANCHOR_ICON = new MultiIcon(EMPTY_ICON,
-		new TranslateIcon(ResourceManager.loadImage("images/pin.png"), 0, 4));
-
-	private PropertyEditor namespaceOptionsEditor = new NamespacePropertyEditor();
+	private Icon ANCHOR_ICON =
+		new MultiIcon(EMPTY_ICON, new GIcon("icon.base.util.viewer.fieldfactory.label"));
 
 	private boolean displayFunctionLabel;
 	private boolean displayLocalNamespace;
@@ -75,7 +80,6 @@ public class LabelFieldFactory extends FieldFactory {
 
 	public LabelFieldFactory() {
 		super(FIELD_NAME);
-		initIcons();
 	}
 
 	/**
@@ -85,7 +89,7 @@ public class LabelFieldFactory extends FieldFactory {
 	 * @param displayOptions the Options for display properties.
 	 * @param fieldOptions the Options for field specific properties.
 	 */
-	private LabelFieldFactory(FieldFormatModel model, HighlightProvider hlProvider,
+	private LabelFieldFactory(FieldFormatModel model, ListingHighlightProvider hlProvider,
 			ToolOptions displayOptions, ToolOptions fieldOptions) {
 		super(FIELD_NAME, model, hlProvider, displayOptions, fieldOptions);
 
@@ -96,28 +100,25 @@ public class LabelFieldFactory extends FieldFactory {
 		fieldOptions.registerOption(DISPLAY_FUNCTION_LABEL, true, hl,
 			"Shows function names in a label field below the function header");
 
+		fieldOptions.registerOption(MAX_LABELS_LABEL, MAX_LABELS, hl,
+			"Sets the maximum number of labels to display.");
+
 		displayFunctionLabel = fieldOptions.getBoolean(DISPLAY_FUNCTION_LABEL, true);
 
 		setupNamespaceOptions(fieldOptions);
 
+		maxLabels = fieldOptions.getInt(MAX_LABELS_LABEL, MAX_LABELS);
+
 		// Create code unit format and associated options - listen for changes
 		codeUnitFormat = new LabelCodeUnitFormat(fieldOptions);
 		codeUnitFormat.addChangeListener(codeUnitFormatListener);
-		initIcons();
-	}
-
-	private void initIcons() {
-		EMPTY_ICON = new EmptyIcon(12, 16);
-		ANCHOR_ICON = new MultiIcon(EMPTY_ICON,
-			new TranslateIcon(ResourceManager.loadImage("images/pin.png"), 0, 4));
-
 	}
 
 	private void setupNamespaceOptions(Options fieldOptions) {
 		// we need to install a custom editor that allows us to edit a group of related options
 		fieldOptions.registerOption(NAMESPACE_OPTIONS, OptionType.CUSTOM_TYPE,
 			new NamespaceWrappedOption(), null, "Adjusts the Label Field namespace display",
-			namespaceOptionsEditor);
+			() -> new NamespacePropertyEditor());
 		CustomOption wrappedOption =
 			fieldOptions.getCustomOption(NAMESPACE_OPTIONS, new NamespaceWrappedOption());
 		if (!(wrappedOption instanceof NamespaceWrappedOption)) {
@@ -144,93 +145,148 @@ public class LabelFieldFactory extends FieldFactory {
 			setupNamespaceOptions(options);
 			model.update();
 		}
+		else if (optionName.equals(MAX_LABELS_LABEL)) {
+			setMaxSize(((Integer) newValue).intValue(), options);
+			model.update();
+		}
 	}
 
-	/**
-	 * @see ghidra.app.util.viewer.field.FieldFactory#getField(ProxyObj, int)
-	 */
+	private void setMaxSize(int n, Options options) {
+		if (n < 1) {
+			n = 1;
+			options.setInt(MAX_LABELS_LABEL, 1);
+		}
+		maxLabels = n;
+	}
+
 	@Override
 	public ListingField getField(ProxyObj<?> proxy, int varWidth) {
 		Object obj = proxy.getObject();
 		if (!enabled || !(obj instanceof CodeUnit)) {
 			return null;
 		}
-		int x = startX + varWidth;
+
 		CodeUnit cu = (CodeUnit) obj;
+		LabelFieldSymbolLoader loader =
+			new LabelFieldSymbolLoader(cu, maxLabels, displayFunctionLabel);
+		Symbols symbols = loader.getSymbols();
 
-		Address currAddr = cu.getMinAddress();
-
-		Program prog = cu.getProgram();
-		inspector.setProgram(prog);
-
-		Listing list = prog.getListing();
-		Function func = list.getFunctionAt(currAddr);
-
-		Symbol[] symbols = cu.getSymbols();
-
-		// check to see if there is an offcut reference to this code unit
-		// if there is, then create a "OFF" label
-		//
-		List<Address> offcuts = getOffcutReferenceAddress(cu);
-		boolean hasOffcuts = offcuts.size() > 0;
-
-		// if there is only a function symbol and we are not showing function symbols, get out.
-		if (!hasOffcuts && symbols.length == 1 && func != null && !displayFunctionLabel) {
+		int total = symbols.size();
+		if (total == 0) {
 			return null;
 		}
 
-		makePrimaryLastItem(symbols);
+		Address addr = cu.getMinAddress();
+		Program program = cu.getProgram();
 
-		int length = symbols.length;
-		if (!displayFunctionLabel && func != null) {
-			length = symbols.length - 1;
-		}
-
-		if (hasOffcuts) {
-			length += offcuts.size();
-		}
-
-		if (length == 0) {
-			return null;
-		}
-
-		FieldElement[] textElements = new FieldElement[length];
-		int nextPos = 0;
-
-		if (hasOffcuts) {
-			for (int i = 0; i < offcuts.size(); i++) {
-				AttributedString as = getAttributedOffsetText(obj, cu, currAddr, offcuts.get(i));
-				if (as == null) {
-					as = new AttributedString(EMPTY_ICON,
-						SymbolUtilities.getDynamicOffcutName(currAddr),
-						inspector.getOffcutSymbolColor(),
-						getMetrics(inspector.getOffcutSymbolStyle()), false, null);
-				}
-				textElements[nextPos++] = new TextFieldElement(as, nextPos, 0);
+		int x = startX + varWidth;
+		if (total == 1 && addr.isExternalAddress()) {
+			Symbol s = symbols.get(0);
+			TextFieldElement externalField = createExternalField(program, s);
+			if (externalField != null) {
+				return ListingTextField.createMultilineTextField(this, proxy,
+					List.of(externalField), x, width, hlProvider);
 			}
 		}
 
-		for (Symbol symbol : symbols) {
-			if (func != null && symbol.isPrimary() && !displayFunctionLabel) {
-				continue;
-			}
+		List<FieldElement> elements = new ArrayList<>();
 
-			Icon icon = symbol.isPinned() ? ANCHOR_ICON : EMPTY_ICON;
-			ColorAndStyle c = inspector.getColorAndStyle(symbol);
-			AttributedString as = new AttributedString(icon, checkLabelString(symbol, prog),
-				c.getColor(), getMetrics(c.getStyle()), false, null);
-			textElements[nextPos++] = new TextFieldElement(as, nextPos, 0);
+		List<Symbol> offcuts = symbols.getOffcuts();
+		createOffcutElements(obj, cu, addr, offcuts, elements);
+
+		// grab the remaining non-offcut symbols
+		for (int i = offcuts.size(); i < symbols.size(); i++) {
+			Symbol s = symbols.get(i);
+			AttributedString as = createSymbolString(s);
+			elements.add(new TextFieldElement(as, elements.size(), 0));
 		}
 
-		return ListingTextField.createMultilineTextField(this, proxy, textElements, x, width,
-			Integer.MAX_VALUE, hlProvider);
+		if (loader.hasMore()) {
+			Symbol nonPrimarySymbol = symbols.get(0);
+			int lastRow = elements.size();
+			AttributedString as = createMoreSymbolsString(nonPrimarySymbol);
+
+			// place this above primary symbol, as that seems to look the best
+			int primaryIndex = elements.size() - 1;
+			int index = primaryIndex;
+			elements.add(index, new TextFieldElement(as, lastRow, 0));
+		}
+
+		return ListingTextField.createMultilineTextField(this, proxy, elements, x, width,
+			hlProvider);
 	}
 
-	private String getOffsetText(CodeUnit cu, Address currAddr, Address offcutAddress) {
+	private AttributedString createSymbolString(Symbol s) {
+		Icon icon = s.isPinned() ? ANCHOR_ICON : EMPTY_ICON;
+		ColorAndStyle c = inspector.getColorAndStyle(s);
+		FontMetrics fm = getMetrics(c.getStyle());
+		Color color = c.getColor();
+		String text = getLabelString(s);
+		return new AttributedString(icon, text, color, fm, false, null);
+	}
 
-		SymbolTable symbolTable = cu.getProgram().getSymbolTable();
-		Symbol offcutSymbol = symbolTable.getPrimarySymbol(offcutAddress);
-		if (offcutSymbol == null) {
+	private AttributedString createMoreSymbolsString(Symbol prototype) {
+		ColorAndStyle c = inspector.getColorAndStyle(prototype);
+		FontMetrics fm = getMetrics(c.getStyle());
+		Color color = c.getColor();
+		String text = MoreLabelFieldLocation.MORE_LABELS_STRING;
+		return new AttributedString(EMPTY_ICON, text, color, fm, false, null);
+	}
+
+	private void createOffcutElements(Object obj, CodeUnit cu, Address addr, List<Symbol> offcuts,
+			List<FieldElement> elements) {
+
+		FontMetrics fm = getMetrics(inspector.getOffcutSymbolStyle());
+		Color color = inspector.getOffcutSymbolColor();
+		for (Symbol s : offcuts) {
+
+			Address offcut = s.getAddress();
+			String text = getOffcutText(cu, addr, offcut, s);
+			if (text == null) {
+				text = SymbolUtilities.getDynamicOffcutName(addr);
+			}
+
+			AttributedString as = new AttributedString(EMPTY_ICON, text, color, fm, false, null);
+			elements.add(new TextFieldElement(as, elements.size(), 0));
+		}
+	}
+
+	private TextFieldElement createExternalField(Program p, Symbol symbol) {
+
+		// Show external address and original imported name (not supported by field location)
+		ExternalLocation extLoc = p.getExternalManager().getExternalLocation(symbol);
+		if (extLoc == null) {
+			return null;
+		}
+
+		StringBuilder externalLocationDetails = new StringBuilder();
+		Address addr = extLoc.getAddress();
+		if (addr != null) {
+			externalLocationDetails.append(addr.toString());
+		}
+		String origImportedName = extLoc.getOriginalImportedName();
+		if (origImportedName != null) {
+			if (!externalLocationDetails.isEmpty()) {
+				externalLocationDetails.append(": ");
+			}
+			externalLocationDetails.append(origImportedName);
+		}
+
+		if (externalLocationDetails.isEmpty()) {
+			return null;
+		}
+
+		FontMetrics fm = getMetrics(OptionsGui.LABELS_NON_PRIMARY.getStyle());
+		String text = externalLocationDetails.toString();
+		Color color = OptionsGui.LABELS_NON_PRIMARY.getColor();
+		AttributedString as = new AttributedString(EMPTY_ICON, text, color, fm, false, null);
+		return new TextFieldElement(as, 0, 0);
+	}
+
+	private String getOffcutText(CodeUnit cu, Address currAddr, Address offcutAddress,
+			Symbol symbol) {
+
+		if (symbol == null) {
 			// While we should always have a primary symbol to a referenced
 			// address - invalid data could cause this rule to be violated,
 			// so lets play nice and return something
@@ -238,216 +294,131 @@ public class LabelFieldFactory extends FieldFactory {
 		}
 
 		String offcutSymbolText = null;
-		if (!offcutSymbol.isDynamic()) {
+		if (!symbol.isDynamic()) {
 			// the formatter doesn't change dynamic labels
-			offcutSymbolText = codeUnitFormat.getOffcutLabelString(offcutAddress, cu);
+			offcutSymbolText = codeUnitFormat.getOffcutLabelString(offcutAddress, cu, null, symbol);
 		}
 		else {
-			offcutSymbolText = offcutSymbol.getName();
+			offcutSymbolText = symbol.getName();
 		}
 
 		return offcutSymbolText;
 	}
 
-	private AttributedString getAttributedOffsetText(Object obj, CodeUnit cu, Address currAddr,
-			Address offcutAddress) {
-
-		return new AttributedString(EMPTY_ICON, getOffsetText(cu, currAddr, offcutAddress),
-			inspector.getOffcutSymbolColor(), getMetrics(inspector.getOffcutSymbolStyle()), false,
-			null);
-	}
-
-	private String checkLabelString(Symbol symbol, Program program) {
+	private String getLabelString(Symbol symbol) {
 
 		if (!displayLocalNamespace && !displayNonLocalNamespace) {
-			return symbol.getName(); // no namespaces being shown
+			return simplifyTemplates(symbol.getName()); // no namespaces being shown
 		}
 
+		Program program = symbol.getProgram();
 		Namespace addressNamespace = program.getSymbolTable().getNamespace(symbol.getAddress());
 		Namespace symbolNamespace = symbol.getParentNamespace();
 		boolean isLocal = symbolNamespace.equals(addressNamespace);
 		if (!isLocal) {
-			return symbol.getName(displayNonLocalNamespace);
+			return simplifyTemplates(symbol.getName(displayNonLocalNamespace));
 		}
 
 		// O.K., we ARE a local namespace, how to display it?
 		if (!displayLocalNamespace) {
-			return symbol.getName();
+			return simplifyTemplates(symbol.getName());
 		}
 
 		// use the namespace name or a custom, user-defined value
 		if (useLocalPrefixOverride) {
-			return localPrefixText + symbol.getName(false);
+			return simplifyTemplates(localPrefixText + symbol.getName(false));
 		}
-		return symbol.getName(true);
-
-	}
-
-	private List<Address> getOffcutReferenceAddress(CodeUnit cu) {
-
-		Program prog = cu.getProgram();
-		if (cu.getLength() == 1) {
-			return Collections.emptyList();
-		}
-		Address nextAddr = cu.getMinAddress().next();
-		if (nextAddr == null) {
-			return Collections.emptyList();
-		}
-
-		Address endAddress = cu.getMaxAddress();
-
-		List<Address> list = new ArrayList<>();
-		AddressIterator it =
-			prog.getReferenceManager().getReferenceDestinationIterator(nextAddr, true);
-		while (it.hasNext()) {
-			Address addr = it.next();
-			if (addr.compareTo(endAddress) > 0) {
-				break;
-			}
-
-// TODO: check for wrapping - temporary work-around
-			if (addr.compareTo(cu.getMinAddress()) > 0) {
-				list.remove(addr);
-				list.add(addr);
-				if (list.size() > MAX_OFFCUT_DISPLAY) {
-					return list; // short-circuit
-				}
-			}
-		}
-
-		SymbolIterator symIter = prog.getSymbolTable().getSymbolIterator(nextAddr, true);
-		while (symIter.hasNext()) {
-			Symbol s = symIter.next();
-			Address addr = s.getAddress();
-			if (addr.compareTo(endAddress) > 0) {
-				break;
-			}
-
-// TODO: check for wrapping - temporary work-around
-			if (addr.compareTo(cu.getMinAddress()) > 0) {
-				list.remove(addr);
-				list.add(addr);
-				if (list.size() > MAX_OFFCUT_DISPLAY) {
-					return list; // short-circuit
-				}
-			}
-		}
-
-		return list;
-	}
-
-	/**
-	 * Move primary symbol to last element in array ...
-	 */
-	private void makePrimaryLastItem(Symbol[] symbols) {
-		for (int i = 0; i < symbols.length - 1; ++i) {
-			if (symbols[i].isPrimary()) {
-				Symbol primary = symbols[i];
-				System.arraycopy(symbols, i + 1, symbols, i, symbols.length - i - 1);
-				symbols[symbols.length - 1] = primary;
-
-				break;
-			}
-		}
+		return simplifyTemplates(symbol.getName(true));
 	}
 
 	@Override
 	public ProgramLocation getProgramLocation(int row, int col, ListingField bf) {
 		Object obj = bf.getProxy().getObject();
-		if (!(obj instanceof CodeUnit)) {
+		if (!(obj instanceof CodeUnit cu)) {
 			return null;
 		}
-		CodeUnit cu = (CodeUnit) obj;
 
-		int[] cpath = null;
-		if (cu instanceof Data) {
-			cpath = ((Data) cu).getComponentPath();
+		LabelFieldSymbolLoader loader =
+			new LabelFieldSymbolLoader(cu, maxLabels, displayFunctionLabel);
+
+		MoreLabelFieldLocation moreLocation = createMoreLocation(cu, loader, row, col);
+		if (moreLocation != null) {
+			return moreLocation;
 		}
 
-		List<Address> offcuts = getOffcutReferenceAddress(cu);
-
-		// fictitious offcut labels are listed first, check if row is a fictitious offcut label
-		if (row < offcuts.size()) {
-			return getLocationForOffcuttLabel(row, col, cu, cpath, offcuts);
+		// If we have more, then the [more] row is added to the display, which pushes the last
+		// row down 1.
+		int symbolRow = row;
+		if (row >= maxLabels) {
+			symbolRow = row - 1;
 		}
 
-		int symbolIndex = row - offcuts.size();
-
-		Symbol s = getCodeOrFunctionSymbol(cu, symbolIndex);
-		if (s == null) {
-			return new CodeUnitLocation(cu.getProgram(), cu.getMinAddress(), cpath, 0, 0, 0);
-		}
-		return new LabelFieldLocation(s, row, col);
+		Symbols symbols = loader.getSymbols();
+		Symbol s = symbols.get(symbolRow);
+		return new LabelFieldLocation(s, symbolRow, col);
 	}
 
-	private Symbol getCodeOrFunctionSymbol(CodeUnit cu, int symbolIndex) {
-		Symbol[] symbols = cu.getSymbols();
-		if (symbols.length == 0) {
+	private MoreLabelFieldLocation createMoreLocation(CodeUnit cu, LabelFieldSymbolLoader loader,
+			int row, int col) {
+
+		if (!loader.hasMore()) {
 			return null;
 		}
 
-		makePrimaryLastItem(symbols);
-
-		if (symbolIndex >= symbols.length) {
-			symbolIndex = symbols.length - 1;
-		}
-		Symbol symbol = symbols[symbolIndex];
-		SymbolType symbolType = symbol.getSymbolType();
-		if (symbolType != SymbolType.LABEL && symbolType != SymbolType.FUNCTION) {
+		int moreRow = maxLabels - 1; // the [more] text is just above the last, primary symbol
+		if (row != moreRow) {
 			return null;
 		}
-		return symbol;
-	}
 
-	private ProgramLocation getLocationForOffcuttLabel(int row, int col, CodeUnit cu, int[] cpath,
-			List<Address> offcuts) {
+		Program p = cu.getProgram();
 		Address addr = cu.getMinAddress();
-		String text = getOffsetText(cu, addr, offcuts.get(row));
-		if (text == null) {
-			text = SymbolUtilities.getDynamicOffcutName(addr);
-		}
-		// since these labels are fictitious, they don't have a namespace.
-		return new LabelFieldLocation(cu.getProgram(), addr, cpath, text, null, row, col);
+		return new MoreLabelFieldLocation(p, addr, moreRow, col);
 	}
 
 	@Override
 	public FieldLocation getFieldLocation(ListingField bf, BigInteger index, int fieldNum,
-			ProgramLocation programLoc) {
+			ProgramLocation location) {
 
 		Object obj = bf.getProxy().getObject();
-		if (!(programLoc instanceof LabelFieldLocation)) {
-			return null;
-		}
-		LabelFieldLocation loc = (LabelFieldLocation) programLoc;
-
-		if (!(obj instanceof CodeUnit)) {
+		if (!(obj instanceof CodeUnit cu)) {
 			return null;
 		}
 
-		String lableName = loc.getName();
-
-		CodeUnit cu = (CodeUnit) obj;
-
-		List<Address> offcuts = getOffcutReferenceAddress(cu);
-		for (int i = 0; i < offcuts.size(); i++) {
-			String text = getOffsetText(cu, cu.getMinAddress(), offcuts.get(i));
-			if (text != null && text.equals(lableName)) {
-				return new FieldLocation(index, fieldNum, i, loc.getCharOffset());
-			}
-		}
-
-		Symbol[] symbols = cu.getSymbols();
-		makePrimaryLastItem(symbols);
-		if (symbols.length == 0) {
+		if (!(location instanceof LabelFieldLocation) &&
+			!(location instanceof MoreLabelFieldLocation)) {
 			return null;
 		}
 
-		for (int i = 0; i < symbols.length; i++) {
-			if (symbols[i].getName().equals(lableName)) {
-				return new FieldLocation(index, fieldNum, i + offcuts.size(), loc.getCharOffset());
-			}
+		/*
+		 	Handle the case where we have 2 tools with a different number of rows showing.
+		 		1) if the given location is a [more] location, then use the [more] field.    		 
+		 		2) If the given row is the primary symbol's row, then use that.  		 		
+		 		3) What's left is all rows above the [more].  
+		 */
+
+		LabelFieldSymbolLoader loader =
+			new LabelFieldSymbolLoader(cu, maxLabels, displayFunctionLabel);
+		if (loader.hasMore() && location instanceof MoreLabelFieldLocation moreLoc) {
+			// we have [more] showing and the location is a [more] location
+			int row = maxLabels - 1; // my more row
+			int col = moreLoc.getCharOffset();
+			return new FieldLocation(index, fieldNum, row, col);
 		}
-		return null;
+
+		LabelFieldLocation labelLocation = (LabelFieldLocation) location;
+		Symbol symbol = labelLocation.getSymbol();
+		Symbols symbols = loader.getSymbols();
+		if (symbol != null && symbol.isPrimary()) {
+			int row = loader.hasMore() ? symbols.size() : symbols.size() - 1;
+			return new FieldLocation(index, fieldNum, row, labelLocation.getCharOffset());
+		}
+
+		int symbolRow = labelLocation.getRow();
+		symbolRow = Math.min(symbolRow, maxLabels - 1);
+
+		// We already handle the primary case and the case when we have a more location.  For all 
+		// other locations, just use the given row, capping at our max display.
+		return new FieldLocation(index, fieldNum, symbolRow, labelLocation.getCharOffset());
 	}
 
 	@Override
@@ -460,7 +431,7 @@ public class LabelFieldFactory extends FieldFactory {
 	}
 
 	@Override
-	public FieldFactory newInstance(FieldFormatModel formatModel, HighlightProvider provider,
+	public FieldFactory newInstance(FieldFormatModel formatModel, ListingHighlightProvider provider,
 			ToolOptions pDisplayOptions, ToolOptions fieldOptions) {
 		return new LabelFieldFactory(formatModel, provider, pDisplayOptions, fieldOptions);
 	}

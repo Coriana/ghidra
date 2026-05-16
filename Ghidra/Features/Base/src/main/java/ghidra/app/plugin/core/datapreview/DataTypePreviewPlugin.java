@@ -48,7 +48,7 @@ import ghidra.util.data.DataTypeParser.AllowedDataTypes;
 import ghidra.util.table.GhidraTable;
 import ghidra.util.task.SwingUpdateManager;
 import ghidra.util.task.TaskMonitor;
-import resources.ResourceManager;
+import resources.Icons;
 import util.CollectionUtils;
 
 //@formatter:off
@@ -63,6 +63,8 @@ import util.CollectionUtils;
 //@formatter:on
 public class DataTypePreviewPlugin extends ProgramPlugin {
 
+	private static final String ROOT_NAME = "DataTypePreviewer";
+
 	private DTPPComponentProvider provider;
 	private DTPPTableModel model;
 	private DTPPTable table;
@@ -71,13 +73,13 @@ public class DataTypePreviewPlugin extends ProgramPlugin {
 	private GoToService goToService;
 	private DockingAction addAction;
 	private DockingAction deleteAction;
-	private LayeredDataTypeManager dataTypeManager;
+	private DataTypeManager dataTypeManager;
 	private Program activeProgram;
 
 	private SwingUpdateManager updateManager = new SwingUpdateManager(650, () -> updatePreview());
 
 	public DataTypePreviewPlugin(PluginTool tool) {
-		super(tool, true, true);
+		super(tool);
 	}
 
 	DTPPTableModel getTableModel() {
@@ -101,7 +103,7 @@ public class DataTypePreviewPlugin extends ProgramPlugin {
 		model = new DTPPTableModel();
 		table = new DTPPTable(model);
 		component = new DTPPScrollPane(table);
-		dataTypeManager = new LayeredDataTypeManager();
+		dataTypeManager = createLayeredDataTypeManager();
 
 		addDataType(new ByteDataType());
 		addDataType(new WordDataType());
@@ -115,8 +117,9 @@ public class DataTypePreviewPlugin extends ProgramPlugin {
 
 		provider = new DTPPComponentProvider();
 		tool.addComponentProvider(provider, false);
-
 		createActions();
+
+		table.setAccessibleNamePrefix("Data Type Preview");
 	}
 
 	@Override
@@ -177,27 +180,29 @@ public class DataTypePreviewPlugin extends ProgramPlugin {
 
 	private void updateModel() {
 
+		DataTypeManager newDtm = createLayeredDataTypeManager();
+
+		int transactionId = newDtm.startTransaction("Add Datatypes");
+		try {
+			Iterator<DataType> allDataTypes = dataTypeManager.getAllDataTypes();
+			while (allDataTypes.hasNext()) {
+				newDtm.resolve(allDataTypes.next(), null);
+			}
+		}
+		finally {
+			newDtm.endTransaction(transactionId, true);
+		}
+
 		// NOTE: data types do not respond to switching the data organization object
 		// since this is cached internal to the data type at time of construction.
 		// We must purge old datatypes and have them re-instantiated by the 
 		// datatype manager
 		List<DataTypePath> dtPaths = getModelDataTypePaths();
 		model.removeAll();
-		dataTypeManager.invalidate();
 
-		int transactionId = dataTypeManager.startTransaction("realign");
-		try {
-			Iterator<Composite> allComposites = dataTypeManager.getAllComposites();
-			while (allComposites.hasNext()) {
-				Composite composite = allComposites.next();
-				if (composite.isInternallyAligned()) {
-					composite.realign();
-				}
-			}
-		}
-		finally {
-			dataTypeManager.endTransaction(transactionId, true);
-		}
+		DataTypeManager oldDtm = dataTypeManager;
+		dataTypeManager = newDtm;
+		oldDtm.close();
 
 		for (DataTypePath dtPath : dtPaths) {
 			DataType dataType = dataTypeManager.getDataType(dtPath);
@@ -297,7 +302,7 @@ public class DataTypePreviewPlugin extends ProgramPlugin {
 			}
 		};
 		addAction.setPopupMenuData(new MenuData(new String[] { "Add" }));
-		addAction.setToolBarData(new ToolBarData(ResourceManager.loadImage("images/Plus.png")));
+		addAction.setToolBarData(new ToolBarData(Icons.ADD_ICON));
 		addAction.setKeyBindingData(new KeyBindingData(KeyEvent.VK_PLUS, 0));
 
 		addAction.setDescription("Add Datatypes");
@@ -312,8 +317,7 @@ public class DataTypePreviewPlugin extends ProgramPlugin {
 			}
 		};
 		deleteAction.setPopupMenuData(new MenuData(new String[] { "Delete" }));
-		deleteAction.setToolBarData(
-			new ToolBarData(ResourceManager.loadImage("images/edit-delete.png")));
+		deleteAction.setToolBarData(new ToolBarData(Icons.DELETE_ICON));
 		deleteAction.setKeyBindingData(new KeyBindingData(KeyEvent.VK_DELETE, 0));
 
 		deleteAction.setDescription("Delete Selected Datatypes");
@@ -339,7 +343,7 @@ public class DataTypePreviewPlugin extends ProgramPlugin {
 			return;
 		}
 
-		int transactionID = dataTypeManager.startTransaction("Add dataType");
+		int transactionID = dataTypeManager.startTransaction("Add " + dt.getName());
 		try {
 			DataType resolvedDt = dataTypeManager.resolve(dt, null);
 			model.add(resolvedDt);
@@ -350,7 +354,7 @@ public class DataTypePreviewPlugin extends ProgramPlugin {
 	}
 
 	private void removeDataType(DataType dt) {
-		int transactionID = dataTypeManager.startTransaction("Remove dataType");
+		int transactionID = dataTypeManager.startTransaction("Remove " + dt.getName());
 		try {
 			model.removeAll(dt);
 
@@ -416,16 +420,6 @@ public class DataTypePreviewPlugin extends ProgramPlugin {
 		@Override
 		public boolean isDropOk(DropTargetDragEvent e) {
 			return true;
-		}
-
-		@Override
-		public void dragUnderFeedback(boolean ok, DropTargetDragEvent e) {
-			// don't care
-		}
-
-		@Override
-		public void undoDragUnderFeedback() {
-			// don't care
 		}
 
 		@Override
@@ -538,14 +532,11 @@ public class DataTypePreviewPlugin extends ProgramPlugin {
 		}
 
 		private void add(Composite c, DataTypeComponentPreview parent) {
-			DataTypeComponent[] comps = c.getComponents();
+			DataTypeComponent[] comps = c.getDefinedComponents();
 			for (DataTypeComponent element : comps) {
 				DataTypeComponentPreview preview = new DataTypeComponentPreview(c, element);
 				preview.setParent(parent);
 				DataType dataType = element.getDataType();
-				if (dataType == DataType.DEFAULT) {
-					continue;
-				}
 				if (dataType instanceof Composite) {
 					add((Composite) element.getDataType(), preview);
 				}
@@ -607,9 +598,7 @@ public class DataTypePreviewPlugin extends ProgramPlugin {
 		}
 
 		private boolean contains(DataType dt) {
-			Iterator<Preview> iter = data.iterator();
-			while (iter.hasNext()) {
-				Preview p = iter.next();
+			for (Preview p : data) {
 				if (p.getDataType().equals(dt) || p.getDataType().isEquivalent(dt)) {
 					return true;
 				}
@@ -712,23 +701,11 @@ public class DataTypePreviewPlugin extends ProgramPlugin {
 		}
 	}
 
-	private class LayeredDataTypeManager extends StandAloneDataTypeManager {
-
-		public LayeredDataTypeManager() {
-			super("DataTypePreviewer");
-		}
-
-		@Override
-		public DataOrganization getDataOrganization() {
-			if (currentProgram != null) {
-				return currentProgram.getDataTypeManager().getDataOrganization();
-			}
-			return super.getDataOrganization();
-		}
-
-		void invalidate() {
-			invalidateCache();
-		}
-
+	private DataTypeManager createLayeredDataTypeManager() {
+		DataOrganization dataOrg =
+			(activeProgram != null) ? activeProgram.getCompilerSpec().getDataOrganization()
+					: DataOrganizationImpl.getDefaultOrganization();
+		return new StandAloneDataTypeManager(ROOT_NAME, dataOrg);
 	}
+
 }

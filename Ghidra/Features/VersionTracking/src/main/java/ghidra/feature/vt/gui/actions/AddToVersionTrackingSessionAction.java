@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,18 +15,17 @@
  */
 package ghidra.feature.vt.gui.actions;
 
-import ghidra.feature.vt.gui.plugin.VTController;
-import ghidra.feature.vt.gui.plugin.VTPlugin;
-import ghidra.feature.vt.gui.wizard.VTAddToSessionWizardManager;
-import ghidra.util.HelpLocation;
-
 import javax.swing.Icon;
 
-import resources.ResourceManager;
 import docking.ActionContext;
 import docking.action.*;
 import docking.tool.ToolConstants;
-import docking.wizard.WizardManager;
+import docking.wizard.WizardDialog;
+import generic.theme.GIcon;
+import ghidra.feature.vt.gui.plugin.VTController;
+import ghidra.feature.vt.gui.plugin.VTPlugin;
+import ghidra.feature.vt.gui.wizard.add.VTAddToSessionWizardModel;
+import ghidra.util.HelpLocation;
 
 public class AddToVersionTrackingSessionAction extends DockingAction {
 
@@ -37,13 +36,8 @@ public class AddToVersionTrackingSessionAction extends DockingAction {
 		super("Add To Session", VTPlugin.OWNER);
 		this.controller = controller;
 		String[] menuPath = { ToolConstants.MENU_FILE, "Add to Session..." };
-		Icon plusIcon = ResourceManager.loadImage("images/Plus.png");
-
+		Icon plusIcon = new GIcon("icon.version.tracking.action.add.to.session");
 		setMenuBarData(new MenuData(menuPath, plusIcon, "AAA"));
-
-//		Icon baseNewIcon = ResourceManager.loadImage("images/start-here_16.png");		
-//		MultiIcon addToIcon = new MultiIcon(baseNewIcon, false);
-//		addToIcon.addIcon(plusIcon);
 		setToolBarData(new ToolBarData(plusIcon, "View"));
 		setDescription("Add additional correlations to the current version tracking session");
 		setHelpLocation(new HelpLocation("VersionTrackingPlugin", "Add_To_Session"));
@@ -52,10 +46,9 @@ public class AddToVersionTrackingSessionAction extends DockingAction {
 
 	@Override
 	public void actionPerformed(ActionContext context) {
-		VTAddToSessionWizardManager vtWizardManager = new VTAddToSessionWizardManager(controller);
-		WizardManager wizardManager =
-			new WizardManager("Version Tracking Wizard", true, vtWizardManager);
-		wizardManager.showWizard(controller.getParentComponent());
+		VTAddToSessionWizardModel model = new VTAddToSessionWizardModel(controller);
+		WizardDialog wizardDialog = new WizardDialog(model);
+		wizardDialog.show(controller.getParentComponent());
 	}
 
 	@Override

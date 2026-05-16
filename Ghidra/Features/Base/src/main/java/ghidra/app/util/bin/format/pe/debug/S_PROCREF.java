@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,30 +15,16 @@
  */
 package ghidra.app.util.bin.format.pe.debug;
 
-import ghidra.app.util.bin.*;
-import ghidra.app.util.bin.format.*;
-import ghidra.util.*;
+import java.io.IOException;
 
-import java.io.*;
+import ghidra.app.util.bin.BinaryReader;
 
 class S_PROCREF extends DebugSymbol {
     private int module;
 	private int checksum;
 	private int paddingLen;
 
-    static S_PROCREF createS_PROCREF(short length, short type,
-            FactoryBundledWithBinaryReader reader, int ptr) throws IOException {
-        S_PROCREF s_procref = (S_PROCREF) reader.getFactory().create(S_PROCREF.class);
-        s_procref.initS_PROCREF(length, type, reader, ptr);
-        return s_procref;
-    }
-
-    /**
-     * DO NOT USE THIS CONSTRUCTOR, USE create*(GenericFactory ...) FACTORY METHODS INSTEAD.
-     */
-    public S_PROCREF() {}
-
-	private void initS_PROCREF(short length, short type, FactoryBundledWithBinaryReader reader, int ptr) throws IOException {
+	S_PROCREF(short length, short type, BinaryReader reader, int ptr) throws IOException {
 		processDebugSymbol(length, type);
 
 //		if (type != DebugCodeViewConstants.S_PROCREF) {
@@ -53,9 +38,9 @@ class S_PROCREF extends DebugSymbol {
 		if (checksum == 0) {
 			byte nameLen = reader.readByte (ptr); ptr += BinaryReader.SIZEOF_BYTE;
 
-			name = reader.readAsciiString(ptr, Conv.byteToInt(nameLen));
+			name = reader.readAsciiString(ptr, Byte.toUnsignedInt(nameLen));
 
-			ptr += Conv.byteToInt(nameLen);
+			ptr += Byte.toUnsignedInt(nameLen);
 
 			int val = ptr & 0xf; 
 

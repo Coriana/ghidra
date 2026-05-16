@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,13 +15,14 @@
  */
 package ghidra.program.util;
 
+import java.io.IOException;
 import java.util.*;
 
 import ghidra.program.model.address.*;
 import ghidra.program.model.data.DataOrganization;
-import ghidra.program.model.data.GenericCallingConvention;
 import ghidra.program.model.lang.*;
 import ghidra.program.model.listing.*;
+import ghidra.program.model.pcode.Encoder;
 import ghidra.util.Msg;
 import ghidra.util.datastruct.RangeMap;
 import ghidra.util.exception.CancelledException;
@@ -53,7 +54,7 @@ public abstract class LanguageTranslatorAdapter implements LanguageTranslator {
 	 * @param oldLanguage
 	 * @param newLanguage
 	 */
-	private LanguageTranslatorAdapter(Language oldLanguage, Language newLanguage) {
+	protected LanguageTranslatorAdapter(Language oldLanguage, Language newLanguage) {
 		this.oldLanguage = oldLanguage;
 		this.newLanguage = newLanguage;
 		oldLanguageID = oldLanguage.getLanguageID();
@@ -215,8 +216,8 @@ public abstract class LanguageTranslatorAdapter implements LanguageTranslator {
 
 		if (!oldSpaces.isEmpty()) {
 //			spaceMap = null;
-			throw new IncompatibleLanguageException("Failed to map one or more address spaces: " +
-				oldSpaces);
+			throw new IncompatibleLanguageException(
+				"Failed to map one or more address spaces: " + oldSpaces);
 		}
 
 	}
@@ -224,9 +225,7 @@ public abstract class LanguageTranslatorAdapter implements LanguageTranslator {
 	protected static AddressSpace findSpaceSameName(AddressSpace oldSpace,
 			ArrayList<AddressSpace> newSpaces) throws IncompatibleLanguageException {
 
-		Iterator<AddressSpace> it = newSpaces.iterator();
-		while (it.hasNext()) {
-			AddressSpace space = it.next();
+		for (AddressSpace space : newSpaces) {
 			if (space.getName().equals(oldSpace.getName())) {
 				if (oldSpace.getSize() > space.getSize()) {
 					throw new IncompatibleLanguageException("Old language space (" +
@@ -333,7 +332,8 @@ public abstract class LanguageTranslatorAdapter implements LanguageTranslator {
 	}
 
 	protected boolean isSameRegisterConstruction(Register oldReg, Register newReg) {
-		if (oldReg.getLeastSignificatBitInBaseRegister() != newReg.getLeastSignificatBitInBaseRegister() ||
+		if (oldReg.getLeastSignificantBitInBaseRegister() != newReg
+				.getLeastSignificantBitInBaseRegister() ||
 			oldReg.getBitLength() != newReg.getBitLength()) {
 			return false;
 		}
@@ -424,9 +424,9 @@ public abstract class LanguageTranslatorAdapter implements LanguageTranslator {
 					return false;
 				}
 				Register newContextReg = getNewLanguage().getContextBaseRegister();
-				if (newContextReg != null) {
+				if (newContextReg != Register.NO_CONTEXT) {
 					Register oldContextReg = getOldLanguage().getContextBaseRegister();
-					if (oldContextReg == null ||
+					if (oldContextReg == Register.NO_CONTEXT ||
 						!isSameRegisterConstruction(oldContextReg, newContextReg)) {
 						Msg.error(this, "Translator can not map context register: " + this);
 						return false;
@@ -480,7 +480,7 @@ public abstract class LanguageTranslatorAdapter implements LanguageTranslator {
 	 * @param newLanguage
 	 * @return default translator or null if reasonable mappings can not be determined.
 	 */
-	static LanguageTranslator getDefaultLanguageTranslator(Language oldLanguage,
+	public static LanguageTranslator getDefaultLanguageTranslator(Language oldLanguage,
 			Language newLanguage) {
 
 		DefaultLanguageTranslator translator =
@@ -522,12 +522,10 @@ class TemporaryCompilerSpec implements CompilerSpec {
 			throws CompilerSpecNotFoundException {
 		this.translator = translator;
 		this.oldCompilerSpecID = oldCompilerSpecID;
-		newCompilerSpec =
-			translator.getNewLanguage().getCompilerSpecByID(
-				translator.getNewCompilerSpecID(oldCompilerSpecID));
-		description =
-			new BasicCompilerSpecDescription(oldCompilerSpecID,
-				newCompilerSpec.getCompilerSpecDescription().getCompilerSpecName());
+		newCompilerSpec = translator.getNewLanguage()
+				.getCompilerSpecByID(translator.getNewCompilerSpecID(oldCompilerSpecID));
+		description = new BasicCompilerSpecDescription(oldCompilerSpecID,
+			newCompilerSpec.getCompilerSpecDescription().getCompilerSpecName());
 	}
 
 	@Override
@@ -550,6 +548,11 @@ class TemporaryCompilerSpec implements CompilerSpec {
 	}
 
 	@Override
+	public PrototypeModel[] getAllModels() {
+		return new PrototypeModel[0];
+	}
+
+	@Override
 	public CompilerSpecDescription getCompilerSpecDescription() {
 		return description;
 	}
@@ -565,13 +568,18 @@ class TemporaryCompilerSpec implements CompilerSpec {
 	}
 
 	@Override
-	public Language getLanguage() {
-		return translator.getOldLanguage();
+	public DecompilerLanguage getDecompilerOutputLanguage() {
+		return DecompilerLanguage.C_LANGUAGE;
 	}
 
 	@Override
-	public PrototypeModel[] getNamedCallingConventions() {
-		return new PrototypeModel[0];
+	public PrototypeModel getPrototypeEvaluationModel(EvaluationModelType modelType) {
+		return newCompilerSpec.getPrototypeEvaluationModel(modelType);
+	}
+
+	@Override
+	public Language getLanguage() {
+		return translator.getOldLanguage();
 	}
 
 	@Override
@@ -615,17 +623,7 @@ class TemporaryCompilerSpec implements CompilerSpec {
 	}
 
 	@Override
-	public Object getPrototypeEvaluationModel(Program program) {
-		throw new UnsupportedOperationException(
-			"Language for upgrade use only (getPrototypeEvaluationModel)");
-	}
-
-	@Override
-	public void registerProgramOptions(Program program) {
-	}
-
-	@Override
-	public PrototypeModel matchConvention(GenericCallingConvention genericCallingConvention) {
+	public PrototypeModel matchConvention(String callingConvention) {
 		throw new UnsupportedOperationException("Language for upgrade use only (matchConvention)");
 	}
 
@@ -682,7 +680,12 @@ class TemporaryCompilerSpec implements CompilerSpec {
 	}
 
 	@Override
-	public DecompilerLanguage getDecompilerOutputLanguage(Program program) {
-		return newCompilerSpec.getDecompilerOutputLanguage(program);
+	public void encode(Encoder encoder) throws IOException {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public boolean isEquivalent(CompilerSpec obj) {
+		return (this == obj);
 	}
 }

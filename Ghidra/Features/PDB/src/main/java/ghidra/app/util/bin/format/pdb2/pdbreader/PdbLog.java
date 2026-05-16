@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -30,32 +30,22 @@ import ghidra.util.Msg;
  */
 public class PdbLog {
 
-	private static File logFile;
-	private static Writer nullWriter = new NullWriter();
+	private static Writer nullWriter;
 	private static Writer fileWriter;
-	private static Writer writer = nullWriter;
-	private static boolean enabled;
+	private static final boolean SYSTEM_LOGGING_ENABLED = Boolean.getBoolean("ghidra.pdb.logging");
+	private static boolean enabled = SYSTEM_LOGGING_ENABLED;
 
 	/**
 	 * Enable or disable future messages to be output to the appropriate log resource.  This
 	 * method gives control to the client to be able to turn on/off the messaging output without
 	 * having to do conditional checks at each point that one of the messaging methods is called.
 	 * @param enable {@code true} to enable logging; {@code false} to disable logging.  Initial
-	 * state is {@code false}.
-	 * @throws IOException upon problem creating a {@link FileWriter}.
+	 * state is {@code false}
+	 * @throws IOException upon problem creating a {@link FileWriter}
 	 * @see #message(String)
 	 * @see #message(String, Supplier...)
 	 */
 	public static void setEnabled(boolean enable) throws IOException {
-		if (fileWriter == null) {
-			fileWriter = createFileWriter();
-		}
-		if (nullWriter == null) {
-			// Doing this here, even though statically assigned above, just in case dispose() was
-			// called prematurely.
-			nullWriter = new NullWriter();
-		}
-		writer = enable ? fileWriter : nullWriter;
 		enabled = enable;
 	}
 
@@ -63,11 +53,11 @@ public class PdbLog {
 	 * Outputs a message to the PDB log if messaging has been enable, else ignored.  This method
 	 * uses a format string and a variable arguments list of lambdas to allow for deferred
 	 * processing of the message to output.  Thus, when message output is disabled, the client
-	 * does not endure as much cost in supplying a message string that is not used.  
+	 * does not endure as much cost in supplying a message string that is not used
 	 * @param format a {@link String} format list as would be used to a printf() function, but
 	 *  which must only specify {@code %s} {@link String} outputs.
 	 * @param suppliers variable number of {@link Supplier}&lt;{@link String}&gt; arguments.  The
-	 *  number must match the number of {@code %s} outputs in the format string. 
+	 *  number must match the number of {@code %s} outputs in the format string
 	 * @see #setEnabled(boolean)
 	 */
 	// We know this is @SafeVarags (or SuppressWarnings("unchecked")) on potential
@@ -85,6 +75,7 @@ public class PdbLog {
 			varArgs[i] = var;
 		}
 		try {
+			Writer writer = getWriter();
 			writer.append(String.format(format, varArgs));
 			writer.append("\n");
 			writer.flush();
@@ -98,9 +89,9 @@ public class PdbLog {
 	 * Outputs a message to the PDB log if messaging has been enable, else ignored.  This method
 	 * uses a {@link Supplier}&lt;{@link String}&gt; to allow for deferred processing of the message
 	 * to output.  Thus, when message output is disabled, the client does not endure as much cost
-	 * in supplying a message string that is not used.  
+	 * in supplying a message string that is not used
 	 * @param supplier a {@link Supplier}&lt;{@link String}&gt; that supplies a {@link String}
-	 * message to be output.
+	 * message to be output
 	 * @see #setEnabled(boolean)
 	 */
 	public static void message(Supplier<String> supplier) {
@@ -109,6 +100,7 @@ public class PdbLog {
 		}
 
 		try {
+			Writer writer = getWriter();
 			writer.append(supplier.get());
 			writer.append("\n");
 			writer.flush();
@@ -119,12 +111,13 @@ public class PdbLog {
 	}
 
 	/**
-	 * Outputs a {@link String} message to the PDB log if messaging has been enable, else ignored.
-	 * @param message a {@link String} message to be output.
+	 * Outputs a {@link String} message to the PDB log if messaging has been enable, else ignored
+	 * @param message a {@link String} message to be output
 	 * @see #setEnabled(boolean)
 	 */
 	public static void message(String message) {
 		try {
+			Writer writer = getWriter();
 			writer.append(message);
 			writer.append("\n");
 			writer.flush();
@@ -152,17 +145,17 @@ public class PdbLog {
 	//  might not have been read, depending on the order of how record sets are read.
 	// TODO: is using PdbLog here.  Is that what we intend?
 	/**
-	 * Logs fact of record index out of range (detection is performed by caller).
-	 * @param tpi the TypeProgramInterface involved.
-	 * @param recordNumber the record number to report.
+	 * Logs fact of record index out of range (detection is performed by caller)
+	 * @param tpi the TypeProgramInterface involved
+	 * @param recordNumber the record number to report
 	 */
-	public static void logBadTypeRecordIndex(AbstractTypeProgramInterface tpi, int recordNumber) {
+	public static void logBadTypeRecordIndex(TypeProgramInterface tpi, int recordNumber) {
 		message("Bad requested type record " + recordNumber + ", min: " + tpi.getTypeIndexMin() +
 			", max: " + tpi.getTypeIndexMaxExclusive());
 	}
 
 	/**
-	 * Logs fact of record index out of range (detection is performed by caller).
+	 * Logs fact of record index out of range (detection is performed by caller)
 	 * @param type {@link AbstractMsType} found
 	 * @param itemRequiredClass class expected
 	 */
@@ -172,7 +165,7 @@ public class PdbLog {
 	}
 
 	/**
-	 * Cleans up the class by closing resources.
+	 * Cleans up the class by closing resources
 	 */
 	public static void dispose() {
 		try {
@@ -187,22 +180,44 @@ public class PdbLog {
 	}
 
 	/**
-	 * Creates a {@link FileWriter} for the log file to which we are planning to write, and
-	 *  deletes existing contents of the log file.
-	 * @return a {@link FileWriter} for the log file.
+	 * Returns the {@link Writer} for logging
+	 * @return a {@link Writer} for logging
 	 */
-	private static Writer createFileWriter() throws IOException {
+	private static Writer getWriter() throws IOException {
+		return enabled ? getFileWriter() : getNullWriter();
+	}
 
-		/*
-		 * Since we want this logging to be used sparingly and on a case-by-case basis, we
-		 * delete the log at the start of each JVM session.  New log writing always uses the
-		 * same log file name with not date or process ID attributes.
-		 */
-		logFile = new File(Application.getUserSettingsDirectory(), "pdb.analyzer.log");
-		if (logFile.exists()) {
-			logFile.delete();
+	/**
+	 * Returns the {@link FileWriter} for the log file.  If the file is already open, it is
+	 * returned.  If not already open, it is opened and previous contents are deleted
+	 * @return a {@link FileWriter} for the log file
+	 */
+	private static Writer getFileWriter() throws IOException {
+		if (fileWriter == null) {
+			/*
+			 * Since we want this logging to be used sparingly and on a case-by-case basis, we
+			 * delete the log contents upon initial opening.  New log writing always uses the
+			 * same log file name with not date or process ID attributes.
+			 */
+			File logFile = new File(Application.getUserSettingsDirectory(), "pdb.analyzer.log");
+			if (logFile.exists()) {
+				logFile.delete();
+			}
+			fileWriter = new FileWriter(logFile);
 		}
-		return new FileWriter(logFile);
+		return fileWriter;
+	}
+
+	/**
+	 * Returns a {@link NullWriter} for the log file when chosen instead of a FileWriter.  If
+	 * one already exists, it is returned.  Otherwise a new one is created
+	 * @return a {@link NullWriter} for the log file
+	 */
+	private static Writer getNullWriter() {
+		if (nullWriter == null) {
+			nullWriter = new NullWriter();
+		}
+		return nullWriter;
 	}
 
 	private static void handleIOException(IOException exception) {
@@ -215,7 +230,6 @@ public class PdbLog {
 			// squash
 		}
 		Msg.error(PdbLog.class, "IOException encountered; disabling writer", exception);
-		writer = nullWriter;
 		enabled = false;
 	}
 

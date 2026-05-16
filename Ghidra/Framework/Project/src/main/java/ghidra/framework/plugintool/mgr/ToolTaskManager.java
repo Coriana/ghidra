@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,15 +17,19 @@ package ghidra.framework.plugintool.mgr;
 
 import java.awt.Dimension;
 import java.rmi.ConnectException;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.function.Function;
 
 import javax.swing.JComponent;
 import javax.swing.SwingUtilities;
 
 import ghidra.framework.cmd.*;
-import ghidra.framework.model.*;
+import ghidra.framework.model.DomainObject;
+import ghidra.framework.model.DomainObjectException;
 import ghidra.framework.plugintool.PluginTool;
-import ghidra.util.Msg;
+import ghidra.util.*;
 import ghidra.util.datastruct.PriorityQueue;
 import ghidra.util.exception.RollbackException;
 import ghidra.util.task.*;
@@ -34,23 +38,28 @@ import ghidra.util.task.*;
  * Manages a queue of background tasks that execute commands.
  */
 public class ToolTaskManager implements Runnable {
+
+	private static final String TIME_FORMAT_STRING = "yyyy-MM-dd HH:mm:ss";
+	private static final DateTimeFormatter TIME_FORMATTER =
+		DateTimeFormatter.ofPattern(TIME_FORMAT_STRING);
+
 	private volatile PluginTool tool;
 	private volatile boolean isExecuting;
 
-	private LinkedList<BackgroundCommandTask> tasks = new LinkedList<>();
-	private Map<UndoableDomainObject, PriorityQueue<BackgroundCommand>> queuedCommandsMap =
+	private LinkedList<BackgroundCommandTask<?>> tasks = new LinkedList<>();
+	private Map<DomainObject, PriorityQueue<BackgroundCommand<?>>> queuedCommandsMap =
 		new HashMap<>();
-	private Map<UndoableDomainObject, Integer> openForgroundTransactionIDs = new HashMap<>();
-	private long start_time = 0;
+	private long startQueueTime = 0;
+	private long startTaskTime = 0;
 	private Thread taskThread;
 	private ThreadGroup taskThreadGroup;
 	private ToolTaskMonitor toolTaskMonitor;
-	private BackgroundCommandTask currentTask;
+	private BackgroundCommandTask<?> currentTask;
 	private TaskDialog modalTaskDialog;
 
 	/**
 	 * Construct a new ToolTaskManager.
-	 * 
+	 *
 	 * @param tool tool associated with this ToolTaskManager
 	 */
 	public ToolTaskManager(PluginTool tool) {
@@ -64,7 +73,7 @@ public class ToolTaskManager implements Runnable {
 	/**
 	 * Returns the thread group associated with all background tasks run by this
 	 * manager and their instantiated threads.
-	 * 
+	 *
 	 * @return task thread group
 	 */
 	public ThreadGroup getTaskThreadGroup() {
@@ -73,7 +82,7 @@ public class ToolTaskManager implements Runnable {
 
 	/**
 	 * Get the monitor component that shows progress and has a cancel button.
-	 * 
+	 *
 	 * @return the monitor component
 	 */
 	public JComponent getMonitorComponent() {
@@ -82,7 +91,7 @@ public class ToolTaskManager implements Runnable {
 
 	/**
 	 * Return true if a task is executing
-	 * 
+	 *
 	 * @return true if a task is executing
 	 */
 	public synchronized boolean isBusy() {
@@ -90,15 +99,33 @@ public class ToolTaskManager implements Runnable {
 	}
 
 	/**
-	 * Execute the given command in the foreground
+	 * Execute the given command in the foreground.  Required domain object transaction will be
+	 * started with delayed end to ensure that any follow-on analysis starts prior to transaction 
+	 * end.
 	 * 
+	 * @param <T> {@link DomainObject} implementation interface
+	 * @param commandName command name to be associated with transaction
+	 * @param domainObject domain object to be modified
+	 * @param f command function callback which should return true on success or false on failure.
+	 * @return result from command function callback
+	 */
+	public <T extends DomainObject> boolean execute(String commandName, T domainObject,
+			Function<T, Boolean> f) {
+		return execute(new SimpleCommand<T>(commandName, f), domainObject);
+	}
+
+	/**
+	 * Execute the given command in the foreground.  Required domain object transaction will be
+	 * started with delayed end to ensure that any follow-on analysis starts prior to transaction 
+	 * end.
+	 *
 	 * @param cmd command to execute
 	 * @param obj domain object to which the command will be applied
 	 * @return the completion status of the command
-	 * 
+	 *
 	 * @see Command#applyTo(DomainObject)
 	 */
-	public boolean execute(Command cmd, DomainObject obj) {
+	public <T extends DomainObject> boolean execute(Command<T> cmd, T obj) {
 		if (tool == null) {
 			return false; // disposed
 		}
@@ -107,13 +134,7 @@ public class ToolTaskManager implements Runnable {
 		boolean success = false;
 		isExecuting = true;
 		try {
-			if (obj instanceof UndoableDomainObject) {
-				UndoableDomainObject undoObj = (UndoableDomainObject) obj;
-				success = applyCommand(cmd, undoObj);
-			}
-			else {
-				success = cmd.applyTo(obj);
-			}
+			success = applyCommand(cmd, obj);
 		}
 		finally {
 			isExecuting = false;
@@ -131,20 +152,20 @@ public class ToolTaskManager implements Runnable {
 		return success;
 	}
 
-	private boolean applyCommand(Command cmd, UndoableDomainObject domainObject) {
+	private <T extends DomainObject> boolean applyCommand(Command<T> cmd, T domainObject) {
 
 		boolean success = false;
 		boolean error = false;
 		String cmdName = cmd.getName();
-		int id = domainObject.startTransaction(cmdName);
+		int txId = domainObject.startTransaction(cmdName);
 		try {
 			try {
 				success = cmd.applyTo(domainObject);
 
-				// TODO Ok, this seems bad--why track the success of the given command, but 
-				// not any of the queued commands?  (Are they considered unrelated follow-up
-				// commands?)
-				executeQueueCommands(domainObject, cmdName);
+				// Schedule empty background task to trigger flushEvents and processing of 
+				// resulting queued commands.  This is standard behavior when any
+				// BackgroundCommand completes its execution (see taskCompleted method).
+				executeCommand(new EmptyBackgroundCommand<T>(cmdName), domainObject);
 			}
 			catch (Throwable t) {
 				error = true;
@@ -166,7 +187,7 @@ public class ToolTaskManager implements Runnable {
 			}
 		}
 		finally {
-			domainObject.endTransaction(id, !error);
+			domainObject.endTransaction(txId, !error);
 		}
 
 		return success;
@@ -174,18 +195,19 @@ public class ToolTaskManager implements Runnable {
 
 	/**
 	 * Execute the given command in the background
-	 * 
+	 *
 	 * @param cmd background command
 	 * @param obj domain object that supports undo/redo
 	 */
-	public synchronized void executeCommand(BackgroundCommand cmd, UndoableDomainObject obj) {
+	public synchronized <T extends DomainObject> void executeCommand(BackgroundCommand<T> cmd,
+			T obj) {
 		if (tool == null) {
 			return;
 		}
 
-		BackgroundCommandTask task = new BackgroundCommandTask(this, obj, cmd);
+		BackgroundCommandTask<T> task = new BackgroundCommandTask<>(this, obj, cmd);
 		tasks.addLast(task);
-		start_time = System.currentTimeMillis();
+
 		if (taskThread != null && taskThread.isAlive()) {
 			return;
 		}
@@ -194,9 +216,9 @@ public class ToolTaskManager implements Runnable {
 		taskThread.setPriority(Thread.MIN_PRIORITY + 1);
 		taskThread.start();
 		try {
-			// We will get notified by the task, after it has started the transaction
-
-			// TODO: why do we need to wait until the transaction is started?!?
+			// Wait for background command task to start its transaction and notify us.
+			// This is done to ensure any preceding foreground Command transaction
+			// becomes entangled with the task execution.
 			wait(1000);
 		}
 		catch (InterruptedException e) {
@@ -207,15 +229,16 @@ public class ToolTaskManager implements Runnable {
 
 	/**
 	 * Schedule the given background command when the current command completes.
-	 * 
+	 *
 	 * @param cmd background command to be scheduled
 	 * @param obj domain object that supports undo/redo
 	 */
-	public synchronized void scheduleFollowOnCommand(BackgroundCommand cmd,
-			UndoableDomainObject obj) {
+	public synchronized <T extends DomainObject> void scheduleFollowOnCommand(
+			BackgroundCommand<T> cmd, T obj) {
+
 		if (isProcessingDomainObject(obj)) {
 
-			PriorityQueue<BackgroundCommand> queue = queuedCommandsMap.get(obj);
+			PriorityQueue<BackgroundCommand<?>> queue = queuedCommandsMap.get(obj);
 			if (queue == null) {
 				queue = new PriorityQueue<>();
 				queuedCommandsMap.put(obj, queue);
@@ -231,7 +254,7 @@ public class ToolTaskManager implements Runnable {
 		}
 	}
 
-	private boolean isProcessingDomainObject(UndoableDomainObject obj) {
+	private boolean isProcessingDomainObject(DomainObject obj) {
 		if (taskThread == null) {
 			return false;
 		}
@@ -239,14 +262,15 @@ public class ToolTaskManager implements Runnable {
 			// any queued task will process queued follow-on commands
 			return true;
 		}
-		// NOTE: while current task may not have completed (not null) it may be 
+		// NOTE: while current task may not have completed (not null) it may be
 		// done processing queued commands
 		return currentTask != null && !currentTask.isDoneQueueProcessing();
 	}
 
-	private boolean mergeMergeableBackgroundCommands(BackgroundCommand newCommand,
-			PriorityQueue<BackgroundCommand> queue) {
-		BackgroundCommand lastCommand = queue.getLast();
+	private <T extends DomainObject> boolean mergeMergeableBackgroundCommands(
+			BackgroundCommand<T> newCommand, PriorityQueue<BackgroundCommand<?>> queue) {
+		@SuppressWarnings("unchecked")
+		BackgroundCommand<T> lastCommand = (BackgroundCommand<T>) queue.getLast();
 		if (!(lastCommand instanceof MergeableBackgroundCommand) ||
 			!(newCommand instanceof MergeableBackgroundCommand)) {
 			return false;
@@ -254,52 +278,64 @@ public class ToolTaskManager implements Runnable {
 
 		// merge the two into the original command, as it is still in the queue in the correct
 		// place
-		MergeableBackgroundCommand mergeableBackgroundCommand =
-			(MergeableBackgroundCommand) lastCommand;
-		MergeableBackgroundCommand newMergeableBackgroundCommand =
-			(MergeableBackgroundCommand) newCommand;
+		MergeableBackgroundCommand<T> mergeableBackgroundCommand =
+			(MergeableBackgroundCommand<T>) lastCommand;
+		MergeableBackgroundCommand<T> newMergeableBackgroundCommand =
+			(MergeableBackgroundCommand<T>) newCommand;
 		mergeableBackgroundCommand.mergeCommands(newMergeableBackgroundCommand);
 		return true;
 	}
 
 	/**
-	 * Cancel the currently running task and clear all commands that are
-	 * scheduled to run. Block until the currently running task ends.
-	 * 
-	 * @param wait if true wait for current task to cancel cleanly
+	 * Cancel the currently running task and clear all commands that are scheduled to run. Block
+	 * until the currently running task ends.
+	 *
+	 * @param monitor a monitor to cancel waiting for the task to finish
 	 */
-	public void stop(boolean wait) {
+	public void stop(TaskMonitor monitor) {
 
-		Thread oldTaskThread = null;
 		synchronized (this) {
 			if (isBusy()) {
 				toolTaskMonitor.cancel();
-				oldTaskThread = taskThread;
 			}
 			if (currentTask != null) {
 				clearQueuedCommands(currentTask.getDomainObject());
 			}
 		}
 
-		if (oldTaskThread != null && wait) {
+		while (taskThread != null && !monitor.isCancelled()) {
 			try {
-				oldTaskThread.join();
+				Thread.sleep(100);
 			}
 			catch (InterruptedException e) {
-				// guess we don't care?
+				// try again
 			}
 		}
 	}
 
-	/**
-	 * @see java.lang.Runnable#run()
-	 */
+	private String time() {
+		if (!SystemUtilities.isInDevelopmentMode()) {
+			// The dev console log appender does not show date info for log messages.  This method
+			// allows us to show the time in the dev console, which is useful for debugging.  The
+			// application log files always contain a date for each message.
+			return "";
+		}
+
+		LocalDateTime localDate = DateUtils.toLocalDate(new Date());
+		return TIME_FORMATTER.format(localDate) + " ";
+	}
+
 	@Override
 	public void run() {
 		try {
-			for (BackgroundCommandTask task = getNextTask(); task != null; task = getNextTask()) {
 
-				Msg.debug(this, "Exec Task " + task.getTaskTitle());
+			Msg.debug(this, time() + "Background processing started...");
+			startQueueTime = System.currentTimeMillis();
+			for (BackgroundCommandTask<?> task = getNextTask(); task != null; task =
+				getNextTask()) {
+
+				Msg.debug(this, time() + "Task Start: " + task.getTaskTitle());
+				startTaskTime = System.currentTimeMillis();
 
 				synchronized (this) {
 					currentTask = task;
@@ -315,6 +351,9 @@ public class ToolTaskManager implements Runnable {
 					task.run(toolTaskMonitor);
 				}
 			}
+
+			double totalTime = (System.currentTimeMillis() - startQueueTime) / 1000.00;
+			Msg.debug(this, time() + "Background processing complete (" + totalTime + " secs)");
 		}
 		finally {
 			synchronized (this) {
@@ -323,7 +362,7 @@ public class ToolTaskManager implements Runnable {
 		}
 	}
 
-	private synchronized BackgroundCommandTask getNextTask() {
+	private synchronized BackgroundCommandTask<?> getNextTask() {
 		if (tasks.isEmpty()) {
 			taskThread = null;
 			return null;
@@ -331,12 +370,13 @@ public class ToolTaskManager implements Runnable {
 		return tasks.removeFirst();
 	}
 
-	private synchronized BackgroundCommand getNextCommand(UndoableDomainObject obj) {
-		PriorityQueue<BackgroundCommand> queue = queuedCommandsMap.get(obj);
+	private synchronized <T extends DomainObject> BackgroundCommand<T> getNextCommand(T obj) {
+		PriorityQueue<BackgroundCommand<?>> queue = queuedCommandsMap.get(obj);
 		if (queue == null) {
 			return null;
 		}
-		BackgroundCommand cmd = queue.removeFirst();
+		@SuppressWarnings("unchecked")
+		BackgroundCommand<T> cmd = (BackgroundCommand<T>) queue.removeFirst();
 		if (queue.isEmpty()) {
 			queuedCommandsMap.remove(obj);
 		}
@@ -346,19 +386,19 @@ public class ToolTaskManager implements Runnable {
 	/**
 	 * Notification from the BackgroundCommandTask that it has completed; queued
 	 * or scheduled commands are executed.
-	 * 
+	 *
 	 * @param obj domain object that supports undo/redo
 	 * @param task background command task that has completed
 	 * @param monitor task monitor
 	 */
-	public void taskCompleted(UndoableDomainObject obj, BackgroundCommandTask task,
+	public <T extends DomainObject> void taskCompleted(T obj, BackgroundCommandTask<T> task,
 			TaskMonitor monitor) {
-		double taskTime = (System.currentTimeMillis() - start_time) / 1000.00;
-		Msg.debug(this, "  task finish (" + taskTime + " secs)");
+
 		obj.flushEvents();
+
 		try {
 			while (!monitor.isCancelled()) {
-				BackgroundCommand cmd;
+				BackgroundCommand<T> cmd;
 				synchronized (this) {
 					cmd = getNextCommand(obj);
 					if (cmd == null) {
@@ -367,13 +407,14 @@ public class ToolTaskManager implements Runnable {
 						break;
 					}
 				}
-				Msg.debug(this, "    Queue - " + cmd.getName());
+				Msg.debug(this, time() + "Start: " + cmd.getName());
 				toolTaskMonitor.updateTaskCmd(cmd);
 				long localStart = System.currentTimeMillis();
 				cmd.applyTo(obj, monitor);
 				cmd.taskCompleted();
 				double totalTime = (System.currentTimeMillis() - localStart) / 1000.00;
-				Msg.debug(this, "   (" + totalTime + " secs)");
+				Msg.debug(this,
+					time() + "Completed: " + cmd.getName() + " (" + totalTime + " secs)");
 				obj.flushEvents();
 			}
 		}
@@ -383,12 +424,6 @@ public class ToolTaskManager implements Runnable {
 					clearQueuedCommands(obj);
 					if (tool != null) {
 						tool.setStatusInfo(task.getCommand().getName() + " cancelled");
-					}
-				}
-				synchronized (this) {
-					Integer openForgroundTransactionID = openForgroundTransactionIDs.remove(obj);
-					if (openForgroundTransactionID != null) {
-						obj.endTransaction(openForgroundTransactionID, true);
 					}
 				}
 			}
@@ -403,20 +438,22 @@ public class ToolTaskManager implements Runnable {
 			}
 		}
 		task.getCommand().taskCompleted();
-		double totalTime = (System.currentTimeMillis() - start_time) / 1000.00;
-		Msg.debug(this, "  task complete (" + totalTime + " secs)");
+		double totalTime = (System.currentTimeMillis() - startTaskTime) / 1000.00;
+		Msg.debug(this,
+			time() + "Task Completed: " + task.getTaskTitle() + " (" + totalTime + " secs)");
 	}
 
 	/**
 	 * Clear the queue of scheduled commands.
+	 * @param obj domain object
 	 */
-	public synchronized void clearQueuedCommands(UndoableDomainObject obj) {
-		PriorityQueue<BackgroundCommand> queue = queuedCommandsMap.get(obj);
+	public synchronized void clearQueuedCommands(DomainObject obj) {
+		PriorityQueue<BackgroundCommand<?>> queue = queuedCommandsMap.get(obj);
 		if (queue == null) {
 			return;
 		}
 		while (!queue.isEmpty()) {
-			BackgroundCommand cmd = queue.removeFirst();
+			BackgroundCommand<?> cmd = queue.removeFirst();
 			cmd.dispose();
 		}
 		queuedCommandsMap.remove(obj);
@@ -424,13 +461,13 @@ public class ToolTaskManager implements Runnable {
 
 	/**
 	 * Clear all tasks associated with specified domain object.
-	 * 
+	 *
 	 * @param obj domain object
 	 */
-	public synchronized void clearTasks(UndoableDomainObject obj) {
-		Iterator<BackgroundCommandTask> iter = tasks.iterator();
+	public synchronized void clearTasks(DomainObject obj) {
+		Iterator<BackgroundCommandTask<?>> iter = tasks.iterator();
 		while (iter.hasNext()) {
-			BackgroundCommandTask task = iter.next();
+			BackgroundCommandTask<?> task = iter.next();
 			if (task.getDomainObject() == obj) {
 				iter.remove();
 			}
@@ -440,12 +477,12 @@ public class ToolTaskManager implements Runnable {
 	/**
 	 * Notification from the BackgroundCommandTask that the given command
 	 * failed. Any scheduled commands are cleared from the queue.
-	 * 
+	 *
 	 * @param obj domain object that supports undo/redo
 	 * @param taskCmd background command that failed
 	 * @param monitor task monitor for the background task
 	 */
-	public void taskFailed(UndoableDomainObject obj, BackgroundCommand taskCmd,
+	public <T extends DomainObject> void taskFailed(T obj, BackgroundCommand<T> taskCmd,
 			TaskMonitor monitor) {
 		try {
 			obj.flushEvents();
@@ -475,41 +512,20 @@ public class ToolTaskManager implements Runnable {
 		}
 	}
 
-	private void executeQueueCommands(UndoableDomainObject obj, String title) {
-		obj.flushEvents();
-		synchronized (this) {
-			PriorityQueue<BackgroundCommand> queue = queuedCommandsMap.get(obj);
-			if (queue == null) {
-				return; // nothing is queued
-			}
-			if (!openForgroundTransactionIDs.containsKey(obj)) {
-				// persist transaction to include follow-on changes
-				openForgroundTransactionIDs.put(obj, obj.startTransaction(title));
-			}
-		}
-		// schedule task to process command queue
-		BackgroundCommand cmd = new EmptyBackgroundCommand();
-		executeCommand(cmd, obj);
-	}
-
 	/**
 	 * Clear list of tasks and queue of scheduled commands.
 	 */
 	public synchronized void dispose() {
+
 		clearTasks();
-		List<UndoableDomainObject> list = new ArrayList<>(queuedCommandsMap.keySet());
-		for (UndoableDomainObject obj : list) {
+		List<DomainObject> list = new ArrayList<>(queuedCommandsMap.keySet());
+		for (DomainObject obj : list) {
 			clearQueuedCommands(obj);
-			Integer txId = openForgroundTransactionIDs.get(obj);
-			if (txId != null) {
-				obj.endTransaction(txId, true);
-			}
 		}
 		queuedCommandsMap = new HashMap<>();
 
 		toolTaskMonitor.dispose();
 		if (modalTaskDialog != null) {
-			modalTaskDialog.cancel();
 			modalTaskDialog.dispose();
 		}
 
@@ -543,9 +559,7 @@ public class ToolTaskManager implements Runnable {
 	}
 
 	private synchronized boolean hasQueuedTasksForDomainObject(DomainObject domainObject) {
-		Iterator<BackgroundCommandTask> iter = tasks.iterator();
-		while (iter.hasNext()) {
-			BackgroundCommandTask task = iter.next();
+		for (BackgroundCommandTask<?> task : tasks) {
 			if (task.getDomainObject() == domainObject) {
 				return true;
 			}
@@ -553,21 +567,49 @@ public class ToolTaskManager implements Runnable {
 		return false;
 	}
 
-}
+	private static class EmptyBackgroundCommand<T extends DomainObject>
+			extends BackgroundCommand<T> {
 
-class EmptyBackgroundCommand extends BackgroundCommand {
+		public EmptyBackgroundCommand(String name) {
+			super(name, false, true, false);
+		}
 
-	public EmptyBackgroundCommand() {
-		super("Empty Background Command", false, true, false);
+		@Override
+		public boolean applyTo(T obj, TaskMonitor monitor) {
+			return true;
+		}
 	}
 
 	/**
-	 * @see ghidra.framework.cmd.BackgroundCommand#applyTo(ghidra.framework.model.DomainObject,
-	 *      ghidra.util.task.TaskMonitor)
+	 * {@link SimpleCommand} provides a convenience command for wrapping a lambda function
+	 * into a foreground {@link Command} for execution by the task manager.
+	 *
+	 * @param <T> {@link DomainObject} implementation class
 	 */
-	@Override
-	public boolean applyTo(DomainObject obj, TaskMonitor monitor) {
-		return true;
+	private static class SimpleCommand<T extends DomainObject> implements Command<T> {
+
+		private String commandName;
+		private Function<T, Boolean> f;
+
+		SimpleCommand(String commandName, Function<T, Boolean> f) {
+			this.commandName = commandName;
+			this.f = f;
+		}
+
+		@Override
+		public boolean applyTo(T domainObject) {
+			return f.apply(domainObject);
+		}
+
+		@Override
+		public String getStatusMsg() {
+			return null;
+		}
+
+		@Override
+		public String getName() {
+			return commandName;
+		}
 	}
 }
 
@@ -590,7 +632,7 @@ class ToolTaskMonitor extends TaskMonitorComponent implements TaskListener {
 		};
 	}
 
-	public void updateTaskCmd(BackgroundCommand cmd) {
+	public void updateTaskCmd(BackgroundCommand<?> cmd) {
 		showProgress(cmd.hasProgress());
 		setTaskName(cmd.getName());
 	}
@@ -627,8 +669,8 @@ class ToolTaskMonitor extends TaskMonitorComponent implements TaskListener {
 	public Dimension getPreferredSize() {
 		Dimension preferredSize = super.getPreferredSize();
 
-		// Somewhat arbitrary value, but the default is too small to read most messages. So, 
-		// give some extra width, but not so much as to too badly push off the status area of 
+		// Somewhat arbitrary value, but the default is too small to read most messages. So,
+		// give some extra width, but not so much as to too badly push off the status area of
 		// the tool window.  This value is based upon some of the longer messages that we use.
 		preferredSize.width += 200;
 		return preferredSize;

@@ -20,16 +20,15 @@ import java.awt.event.*;
 
 import javax.swing.*;
 
-import docking.DialogComponentProvider;
+import docking.ReusableDialogComponentProvider;
 import docking.widgets.button.GRadioButton;
 import docking.widgets.checkbox.GCheckBox;
+import generic.theme.Gui;
 import ghidra.util.HelpLocation;
 
-public class PrintOptionsDialog extends DialogComponentProvider {
+public class PrintOptionsDialog extends ReusableDialogComponentProvider {
 
-	private final Font HEADER_FONT = new Font("SansSerif", Font.PLAIN, 10);
-	private final FontMetrics HEADER_METRICS = rootPanel.getFontMetrics(HEADER_FONT);
-
+	private static final String FONT_ID = "font.print";
 	private boolean selectionEnabled;
 	private boolean cancelled = false;
 
@@ -73,6 +72,7 @@ public class PrintOptionsDialog extends DialogComponentProvider {
 		JPanel rangePanel = new JPanel();
 		rangePanel.setLayout(new BoxLayout(rangePanel, BoxLayout.Y_AXIS));
 		rangePanel.setBorder(BorderFactory.createTitledBorder("Print Range"));
+		rangePanel.getAccessibleContext().setAccessibleName("Print Range");
 
 		KeyListener key = new KeyAdapter() {
 			@Override
@@ -88,41 +88,50 @@ public class PrintOptionsDialog extends DialogComponentProvider {
 
 		selection = new GRadioButton("Selected area(s)");
 		selection.addKeyListener(key);
+		selection.getAccessibleContext().setAccessibleName("Selected Area");
 		rangePanel.add(selection);
 		group.add(selection);
 		selection.setEnabled(selectionEnabled);
 		visible = new GRadioButton("Code visible on screen");
 		visible.addKeyListener(key);
+		visible.getAccessibleContext().setAccessibleName("Visible Code");
 		rangePanel.add(visible);
 		group.add(visible);
 		view = new GRadioButton("Current view");
 		view.addKeyListener(key);
+		view.getAccessibleContext().setAccessibleName("Current View");
 		rangePanel.add(view);
 		group.add(view);
 
 		JPanel headerPanel = new JPanel();
 		headerPanel.setLayout(new BoxLayout(headerPanel, BoxLayout.X_AXIS));
 		headerPanel.setBorder(BorderFactory.createTitledBorder("Header and Footer"));
+		headerPanel.getAccessibleContext().setAccessibleName("Info");
 
 		title = new GCheckBox("Title");
 		title.setSelected(true);
 		title.addKeyListener(key);
+		title.getAccessibleContext().setAccessibleName("Title");
 		headerPanel.add(title);
 		date = new GCheckBox("Date/Time");
 		date.setSelected(true);
 		date.addKeyListener(key);
+		date.getAccessibleContext().setAccessibleName("Date/Time");
 		headerPanel.add(date);
 		pageNum = new GCheckBox("Page Numbers");
 		pageNum.setSelected(true);
 		pageNum.addKeyListener(key);
+		pageNum.getAccessibleContext().setAccessibleName("Page Numbers");
 		headerPanel.add(pageNum);
 
 		JPanel optionsPanel = new JPanel();
 		optionsPanel.setLayout(new FlowLayout(FlowLayout.LEFT));
 		optionsPanel.setBorder(BorderFactory.createTitledBorder("Other Print Options"));
+		optionsPanel.getAccessibleContext().setAccessibleName("Other Options");
 
 		monochrome = new GCheckBox("Use Monochrome", true);
 		monochrome.addKeyListener(key);
+		monochrome.getAccessibleContext().setAccessibleName("Monochrome");
 		optionsPanel.add(monochrome);
 
 		outerPanel.add(rangePanel, BorderLayout.NORTH);
@@ -130,7 +139,7 @@ public class PrintOptionsDialog extends DialogComponentProvider {
 		outerPanel.add(optionsPanel, BorderLayout.SOUTH);
 
 		setFocusComponent();
-
+		outerPanel.getAccessibleContext().setAccessibleName("Print Options");
 		return outerPanel;
 	}
 
@@ -163,11 +172,11 @@ public class PrintOptionsDialog extends DialogComponentProvider {
 	}
 
 	public Font getHeaderFont() {
-		return HEADER_FONT;
+		return Gui.getFont(FONT_ID);
 	}
 
 	public FontMetrics getHeaderMetrics() {
-		return HEADER_METRICS;
+		return rootPanel.getFontMetrics(getHeaderFont());
 	}
 
 	public boolean showHeader() {
@@ -183,7 +192,8 @@ public class PrintOptionsDialog extends DialogComponentProvider {
 	}
 
 	public int getHeaderHeight() {
-		return HEADER_METRICS.getMaxAscent() + HEADER_METRICS.getMaxDescent();
+		FontMetrics metrics = getHeaderMetrics();
+		return metrics.getMaxAscent() + metrics.getMaxDescent();
 	}
 
 	public void setSelectionEnabled(boolean selectionEnabled) {

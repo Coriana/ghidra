@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,7 +17,9 @@ package ghidra.app.plugin.core.decompile.actions;
 
 import docking.ActionContext;
 import docking.action.DockingAction;
+import docking.action.KeyBindingType;
 import ghidra.app.decompiler.*;
+import ghidra.app.decompiler.component.DecompilerUtils;
 import ghidra.app.plugin.core.decompile.DecompilePlugin;
 import ghidra.app.plugin.core.decompile.DecompilerActionContext;
 import ghidra.app.util.datatype.DataTypeSelectionDialog;
@@ -26,15 +28,17 @@ import ghidra.program.model.address.Address;
 import ghidra.program.model.data.*;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.pcode.*;
+import ghidra.program.model.symbol.*;
+import ghidra.util.UndefinedFunction;
 import ghidra.util.data.DataTypeParser.AllowedDataTypes;
 
 /**
- * A base class for {@link DecompilePlugin} actions that handles checking whether the 
- * decompiler is busy.   Each action is responsible for deciding its enablement via 
+ * A base class for {@link DecompilePlugin} actions that handles checking whether the
+ * decompiler is busy.   Each action is responsible for deciding its enablement via
  * {@link #isEnabledForDecompilerContext(DecompilerActionContext)}.  Each action must implement
  * {@link #decompilerActionPerformed(DecompilerActionContext)} to complete its work.
  * 
- * <p>This parent class uses the {@link DecompilerActionContext} to check for the decompiler's 
+ * <p>This parent class uses the {@link DecompilerActionContext} to check for the decompiler's
  * busy status.  If the decompiler is busy, then the action will report that it is enabled.  We
  * do this so that any keybindings registered for this action will get consumed and not passed up
  * to the global context.   Then, if the action is executed, this class does not call the child
@@ -42,8 +46,12 @@ import ghidra.util.data.DataTypeParser.AllowedDataTypes;
  */
 public abstract class AbstractDecompilerAction extends DockingAction {
 
-	AbstractDecompilerAction(String name) {
+	protected AbstractDecompilerAction(String name) {
 		super(name, DecompilePlugin.class.getSimpleName());
+	}
+
+	protected AbstractDecompilerAction(String name, KeyBindingType kbType) {
+		super(name, DecompilePlugin.class.getSimpleName(), kbType);
 	}
 
 	@Override
@@ -54,99 +62,24 @@ public abstract class AbstractDecompilerAction extends DockingAction {
 	@Override
 	public boolean isEnabledForContext(ActionContext context) {
 		DecompilerActionContext decompilerContext = (DecompilerActionContext) context;
-		return decompilerContext.checkActionEnablement(() -> {
-			return isEnabledForDecompilerContext(decompilerContext);
-		});
+		if (decompilerContext.isDecompiling()) {
+			return false;
+		}
+		return isEnabledForDecompilerContext(decompilerContext);
 	}
 
 	@Override
 	public void actionPerformed(ActionContext context) {
 		DecompilerActionContext decompilerContext = (DecompilerActionContext) context;
-		decompilerContext.performAction(() -> {
-			decompilerActionPerformed(decompilerContext);
-		});
+		decompilerActionPerformed(decompilerContext);
 	}
 
 	/**
-	 * Find the HighSymbol the decompiler associates with a specific address.
-	 * @param addr is the specific address
-	 * @param highFunction is the decompiler results in which to search for the symbol
-	 * @return the matching symbol or null if no symbol exists
-	 */
-	private static HighSymbol findHighSymbol(Address addr, HighFunction highFunction) {
-		HighSymbol highSymbol = null;
-		if (addr.isStackAddress()) {
-			LocalSymbolMap lsym = highFunction.getLocalSymbolMap();
-			highSymbol = lsym.findLocal(addr, null);
-		}
-		else {
-			GlobalSymbolMap gsym = highFunction.getGlobalSymbolMap();
-			highSymbol = gsym.getSymbol(addr);
-		}
-		return highSymbol;
-	}
-
-	/**
-	 * Track down the HighSymbol associated with a particular token.  The token may be directly attached to
-	 * the symbol, or it may be a reference that needs to be looked up.
-	 * @param token is the given token
-	 * @param highFunction is the decompiler model of the function
-	 * @return the associated HighSymbol or null if one can't be found
-	 */
-	public static HighSymbol findHighSymbolFromToken(ClangToken token, HighFunction highFunction) {
-		if (highFunction == null) {
-			return null;
-		}
-		HighVariable variable = token.getHighVariable();
-		HighSymbol highSymbol = null;
-		if (variable == null) {
-			if (highFunction == null) {
-				return null;
-			}
-			// Token may be from a variable reference, in which case we have to dig to find the actual symbol
-			Function function = highFunction.getFunction();
-			if (function == null) {
-				return null;
-			}
-			Address storageAddress = getStorageAddress(token, function.getProgram());
-			if (storageAddress == null) {
-				return null;
-			}
-			highSymbol = findHighSymbol(storageAddress, highFunction);
-		}
-		else {
-			highSymbol = variable.getSymbol();
-		}
-		return highSymbol;
-	}
-
-	/**
-	 * Get the storage address of the variable attached to the given token, if any.
-	 * The variable may be directly referenced by the token, or indirectly referenced as a point.
-	 * @param tokenAtCursor is the given token
-	 * @param program is the Program
-	 * @return the storage Address or null if there is no variable attached
-	 */
-	private static Address getStorageAddress(ClangToken tokenAtCursor, Program program) {
-		Varnode vnode = tokenAtCursor.getVarnode();
-		Address storageAddress = null;
-		if (vnode != null) {
-			storageAddress = vnode.getAddress();
-		}
-		// op could be a PTRSUB, need to dig it out...
-		else if (tokenAtCursor instanceof ClangVariableToken) {
-			PcodeOp op = ((ClangVariableToken) tokenAtCursor).getPcodeOp();
-			storageAddress = HighFunctionDBUtil.getSpacebaseReferenceAddress(program, op);
-		}
-		return storageAddress;
-	}
-
-	/**
-	 * Get the structure associated with a field token
+	 * Get the structure/union associated with a field token
 	 * @param tok is the token representing a field
-	 * @return the structure which contains this field
+	 * @return the structure/union which contains this field
 	 */
-	public static Structure getStructDataType(ClangToken tok) {
+	public static Composite getCompositeDataType(ClangToken tok) {
 		// We already know tok is a ClangFieldToken
 		ClangFieldToken fieldtok = (ClangFieldToken) tok;
 		DataType dt = fieldtok.getDataType();
@@ -156,8 +89,8 @@ public abstract class AbstractDecompilerAction extends DockingAction {
 		if (dt instanceof TypeDef) {
 			dt = ((TypeDef) dt).getBaseDataType();
 		}
-		if (dt instanceof Structure) {
-			return (Structure) dt;
+		if (dt instanceof Composite) {
+			return (Composite) dt;
 		}
 		return null;
 	}
@@ -197,13 +130,56 @@ public abstract class AbstractDecompilerAction extends DockingAction {
 		return false;
 	}
 
-	public DataType chooseDataType(PluginTool tool, Program program, DataType currentDataType) {
+	protected static DataType chooseDataType(PluginTool tool, Program program,
+			DataType currentDataType) {
 		DataTypeManager dataTypeManager = program.getDataTypeManager();
 		DataTypeSelectionDialog chooserDialog = new DataTypeSelectionDialog(tool, dataTypeManager,
 			Integer.MAX_VALUE, AllowedDataTypes.FIXED_LENGTH);
 		chooserDialog.setInitialDataType(currentDataType);
 		tool.showDialog(chooserDialog);
 		return chooserDialog.getUserChosenDataType();
+	}
+
+	protected Symbol getSymbol(DecompilerActionContext context) {
+
+		// prefer the decompiler's function reference over the program location's address
+		Function function = getFunction(context);
+		if (function != null && !(function instanceof UndefinedFunction)) {
+			return function.getSymbol();
+		}
+
+		Program program = context.getProgram();
+		SymbolTable symbolTable = program.getSymbolTable();
+		Address address = context.getAddress();
+		if (address == null) {
+			return null;
+		}
+		return symbolTable.getPrimarySymbol(address);
+	}
+
+	/**
+	 * Get the function corresponding to the specified decompiler context token.
+	 * 
+	 * @param context decompiler action context
+	 * @return the function associated with the current context token or null if none identified.
+	 */
+	protected Function getFunction(DecompilerActionContext context) {
+		ClangToken token = context.getTokenAtCursor();
+
+		Function f = null;
+		if (token instanceof ClangFuncNameToken funcNameToken) {
+			f = DecompilerUtils.getFunction(context.getProgram(), funcNameToken);
+		}
+		else if (token != null) {
+			HighSymbol highSymbol = token.getHighSymbol(context.getHighFunction());
+			if (highSymbol instanceof HighFunctionShellSymbol) {
+				f = (Function) highSymbol.getSymbol().getObject();
+			}
+		}
+		while (f != null && f.isThunk() && f.getSymbol().getSource() == SourceType.DEFAULT) {
+			f = f.getThunkedFunction(false);
+		}
+		return f;
 	}
 
 	/**

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,10 +20,8 @@ import java.math.BigInteger;
 import java.util.*;
 
 import ghidra.app.cmd.register.SetRegisterCmd;
-import ghidra.app.util.Option;
 import ghidra.app.util.bin.BinaryReader;
 import ghidra.app.util.bin.ByteProvider;
-import ghidra.app.util.importer.MessageLog;
 import ghidra.framework.store.LockException;
 import ghidra.javaclass.format.*;
 import ghidra.javaclass.format.attributes.CodeAttribute;
@@ -39,7 +37,7 @@ import ghidra.util.exception.CancelledException;
 import ghidra.util.exception.DuplicateNameException;
 import ghidra.util.task.TaskMonitor;
 
-public class JavaLoader extends AbstractLibrarySupportLoader {
+public class JavaLoader extends AbstractProgramWrapperLoader {
 
 	private static final String JAVA_NAME = "Java Class File";
 	private Register alignmentReg;
@@ -89,10 +87,9 @@ public class JavaLoader extends AbstractLibrarySupportLoader {
 	}
 
 	@Override
-	public void load(ByteProvider provider, LoadSpec loadSpec, List<Option> options,
-			Program program, TaskMonitor monitor, MessageLog log) throws IOException {
+	public void load(Program program, ImporterSettings settings) throws IOException {
 		try {
-			doLoad(provider, program, monitor);
+			doLoad(settings.provider(), program, settings.monitor());
 		}
 		catch (LockException e) {
 			e.printStackTrace();
@@ -109,11 +106,6 @@ public class JavaLoader extends AbstractLibrarySupportLoader {
 		catch (DuplicateNameException e) {
 			e.printStackTrace();
 		}
-	}
-
-	public void load(ByteProvider provider, Program program, TaskMonitor monitor)
-			throws IOException {
-		load(provider, null, null, program, monitor, null);
 	}
 
 	private void doLoad(ByteProvider provider, Program program, TaskMonitor monitor)
@@ -145,16 +137,15 @@ public class JavaLoader extends AbstractLibrarySupportLoader {
 		try {
 			block = memory.createInitializedBlock("method_lookup", address,
 				JavaClassUtil.METHOD_INDEX_SIZE, (byte) 0xff, monitor, false);
+			block.setRead(true);
+			block.setWrite(false);
+			block.setExecute(false);
 		}
-		catch (LockException | DuplicateNameException | MemoryConflictException
+		catch (LockException | MemoryConflictException
 				| AddressOverflowException | CancelledException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
-		block.setRead(true);
-		block.setWrite(false);
-		block.setExecute(false);
-
 	}
 
 	private void createMethodMemoryBlocks(Program program, ByteProvider provider,

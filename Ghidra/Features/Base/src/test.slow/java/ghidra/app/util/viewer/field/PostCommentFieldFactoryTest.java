@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -58,7 +58,7 @@ public class PostCommentFieldFactoryTest extends AbstractGhidraHeadedIntegration
 	}
 
 	private ProgramDB buildProgram() throws Exception {
-		ToyProgramBuilder builder = new ToyProgramBuilder("notepad", true);
+		ToyProgramBuilder builder = new ToyProgramBuilder();
 
 		builder.createMemory(".text", "0x1001000", 0x10000);
 		builder.createEmptyFunction(null, "1001000", 1000, null);
@@ -166,7 +166,6 @@ public class PostCommentFieldFactoryTest extends AbstractGhidraHeadedIntegration
 		builder.disassemble("100e000", 2);
 		builder.createReturnInstruction("100e002");
 		builder.createEmptyFunction("call_dest_12", "0x100e020", 10, null);
-
 
 		return builder.getProgram();
 	}
@@ -280,13 +279,13 @@ public class PostCommentFieldFactoryTest extends AbstractGhidraHeadedIntegration
 
 		int transactionID = program.startTransaction("test");
 		try {
-			cu.setComment(CodeUnit.POST_COMMENT, "My post comment");
+			cu.setComment(CommentType.POST, "My post comment");
 		}
 		finally {
 			program.endTransaction(transactionID, true);
 		}
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		cb.updateNow();
 
 		setBooleanOption(PostCommentFieldFactory.FLAG_FUNCTION_EXIT_OPTION, true);
@@ -1008,8 +1007,7 @@ public class PostCommentFieldFactoryTest extends AbstractGhidraHeadedIntegration
 		assertTrue(cb.goToField(addr("100d000"), PostCommentFieldFactory.FIELD_NAME, 0, 1));
 		ListingField tf = cb.getCurrentField();
 		//old way of overriding (With RefType.UNCONDITIONAL CALL) does not yield a post comment
-		assertEquals(
-			"-- CALLOTHER(pcodeop_three) Call Override: call_dest_10 (0100d020)",
+		assertEquals("-- CALLOTHER(pcodeop_three) Call Override: call_dest_10 (0100d020)",
 			tf.getText());
 	}
 
@@ -1068,7 +1066,7 @@ public class PostCommentFieldFactoryTest extends AbstractGhidraHeadedIntegration
 		CodeUnit cu = program.getListing().getCodeUnitAt(function.getEntryPoint());
 		int transactionID = program.startTransaction("test");
 		try {
-			cu.setComment(CodeUnit.POST_COMMENT, comment);
+			cu.setComment(CommentType.POST, comment);
 		}
 		finally {
 			program.endTransaction(transactionID, true);
@@ -1101,19 +1099,19 @@ public class PostCommentFieldFactoryTest extends AbstractGhidraHeadedIntegration
 
 	private void setFieldWidth(final FieldFactory fieldFactory, final int width) throws Exception {
 		SwingUtilities.invokeAndWait(() -> fieldFactory.setWidth(width));
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		cb.updateNow();
 	}
 
 	private void setBooleanOption(final String name, final boolean value) throws Exception {
 		SwingUtilities.invokeAndWait(() -> fieldOptions.setBoolean(name, value));
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		cb.updateNow();
 	}
 
 	private void setIntOption(final String name, final int value) throws Exception {
 		SwingUtilities.invokeAndWait(() -> fieldOptions.setInt(name, value));
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		cb.updateNow();
 	}
 

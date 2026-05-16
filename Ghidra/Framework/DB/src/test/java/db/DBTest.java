@@ -19,7 +19,7 @@ import static org.junit.Assert.*;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.Arrays;
+import java.util.*;
 
 import org.junit.*;
 
@@ -46,12 +46,15 @@ public class DBTest extends AbstractGenericTest {
 	private BufferFileManager fileMgr;
 	private DBHandle dbh;
 	private BufferFile bfile;
+	private MyDbListener listener;
 
 	@Before
 	public void setUp() throws Exception {
 
 		testDir = createTempDirectory(getClass().getSimpleName());
 		dbh = new DBHandle(BUFFER_SIZE, CACHE_SIZE);
+		listener = new MyDbListener();
+		dbh.addListener(listener);
 	}
 
 	@After
@@ -163,7 +166,8 @@ public class DBTest extends AbstractGenericTest {
 	@Test
 	public void testCreateLongKeyTable() throws IOException {
 		long txId = dbh.startTransaction();
-		Table table = DBTestUtils.createLongKeyTable(dbh, "TABLE1", DBTestUtils.ALL_TYPES, false);
+		Table table =
+			DBTestUtils.createLongKeyTable(dbh, "TABLE1", DBTestUtils.ALL_TYPES, false, false);
 		dbh.endTransaction(txId, true);
 		String[] names = table.getSchema().getFieldNames();
 		assertTrue(Arrays.equals(DBTestUtils.getFieldNames(DBTestUtils.ALL_TYPES), names));
@@ -181,7 +185,7 @@ public class DBTest extends AbstractGenericTest {
 	@Test
 	public void testStoredCreateLongKeyTable() throws IOException {
 		long txId = dbh.startTransaction();
-		DBTestUtils.createLongKeyTable(dbh, "TABLE1", DBTestUtils.ALL_TYPES, false);
+		DBTestUtils.createLongKeyTable(dbh, "TABLE1", DBTestUtils.ALL_TYPES, false, false);
 		dbh.endTransaction(txId, true);
 		saveAsAndReopen(dbName);
 		Table table = dbh.getTable("TABLE1");
@@ -209,7 +213,7 @@ public class DBTest extends AbstractGenericTest {
 		long txId = dbh.startTransaction();
 		for (int i = 0; i < cnt; i++) {
 			DBTestUtils.createLongKeyTable(dbh, "TABLE" + i, i % (DBTestUtils.MAX_SCHEMA_TYPE + 1),
-				false);
+				false, false);
 		}
 		dbh.endTransaction(txId, true);
 		assertEquals(cnt, dbh.getTableCount());
@@ -247,7 +251,7 @@ public class DBTest extends AbstractGenericTest {
 		// All schema fields are indexed
 		long txId = dbh.startTransaction();
 		for (int i = 0; i <= DBTestUtils.MAX_SCHEMA_TYPE; i++) {
-			DBTestUtils.createLongKeyTable(dbh, "TABLE" + i, i, true);
+			DBTestUtils.createLongKeyTable(dbh, "TABLE" + i, i, true, false);
 		}
 		assertEquals(DBTestUtils.MAX_SCHEMA_TYPE + 1, dbh.getTableCount());
 		dbh.endTransaction(txId, true);
@@ -265,8 +269,7 @@ public class DBTest extends AbstractGenericTest {
 		for (TableRecord tableRecord : tableRecords) {
 			if (tableRecord.getIndexedColumn() < 0) {
 				if (tableCnt > 0) {
-					Schema schema = lastTable.getSchema();
-					assertEquals(schema.getFieldClasses().length, indexCnt);
+					assertEquals(DBTestUtils.getIndexedColumnCount(tableCnt - 1), indexCnt);
 				}
 				String name = "TABLE" + tableCnt;
 				lastTable = dbh.getTable(name);
@@ -281,7 +284,9 @@ public class DBTest extends AbstractGenericTest {
 				if (lastTable == null) {
 					Assert.fail();
 				}
-				assertEquals(indexCnt, tableRecord.getIndexedColumn());
+				int[] indexedColumns = DBTestUtils.getIndexedColumns(tableCnt - 1);
+				assertTrue(indexCnt < indexedColumns.length);
+				assertEquals(indexedColumns[indexCnt], tableRecord.getIndexedColumn());
 				assertEquals(lastTable.getName(), tableRecord.getName());
 				assertEquals(Long.MIN_VALUE, tableRecord.getMaxKey());
 				assertEquals(0, tableRecord.getRecordCount());
@@ -290,8 +295,7 @@ public class DBTest extends AbstractGenericTest {
 			}
 
 		}
-		Schema schema = lastTable.getSchema();
-		assertEquals(schema.getFieldClasses().length, indexCnt);
+		assertEquals(DBTestUtils.getIndexedColumnCount(tableCnt - 1), indexCnt);
 		assertEquals(DBTestUtils.MAX_SCHEMA_TYPE + 1, tableCnt);
 
 	}
@@ -387,8 +391,7 @@ public class DBTest extends AbstractGenericTest {
 		for (TableRecord tableRecord : tableRecords) {
 			if (tableRecord.getIndexedColumn() < 0) {
 				if (tableCnt > 0) {
-					Schema schema = lastTable.getSchema();
-					assertEquals(schema.getFieldClasses().length, indexCnt);
+					assertEquals(DBTestUtils.getIndexedColumnCount(2 * (tableCnt - 1)), indexCnt);
 				}
 				String name = "TABLE" + (2 * tableCnt);
 				lastTable = dbh.getTable(name);
@@ -403,7 +406,9 @@ public class DBTest extends AbstractGenericTest {
 				if (lastTable == null) {
 					Assert.fail();
 				}
-				assertEquals(indexCnt, tableRecord.getIndexedColumn());
+				int[] indexedColumns = DBTestUtils.getIndexedColumns(2 * (tableCnt - 1));
+				assertTrue(indexCnt < indexedColumns.length);
+				assertEquals(indexedColumns[indexCnt], tableRecord.getIndexedColumn());
 				assertEquals(lastTable.getName(), tableRecord.getName());
 				assertEquals(Long.MIN_VALUE, tableRecord.getMaxKey());
 				assertEquals(0, tableRecord.getRecordCount());
@@ -413,7 +418,7 @@ public class DBTest extends AbstractGenericTest {
 
 		}
 		Schema schema = lastTable.getSchema();
-		assertEquals(schema.getFieldClasses().length, indexCnt);
+		assertEquals(schema.getFields().length - 2, indexCnt); // ByteField and BooleanField do not support indexing
 		assertEquals(totalTableCnt, tableCnt);
 
 	}
@@ -462,7 +467,7 @@ public class DBTest extends AbstractGenericTest {
 		}
 
 		Schema s = tables[1].getSchema();
-		Record rec = s.createRecord(1);
+		DBRecord rec = s.createRecord(1);
 
 		txId = dbh.startTransaction();
 		try {
@@ -544,6 +549,110 @@ public class DBTest extends AbstractGenericTest {
 		}
 
 		assertNotNull(t1prime.getRecord(1));
+
+	}
+
+	@Test
+	public void testEvents() throws IOException {
+
+		createIndexedTables(false);
+
+		// Verify table added events
+		Table[] tables = dbh.getTables();
+		assertEquals(11, tables.length);
+		assertEquals(tables.length, listener.events.size());
+		int ix = 0;
+		for (DbEvent evt : listener.events) {
+			assertEquals(DbNotifyType.TABLE_ADDED, evt.type);
+			assertEquals("TABLE" + ix, evt.table.getName());
+			++ix;
+		}
+
+		listener.events.clear();
+
+		// Verify table deleted event
+		long txId = dbh.startTransaction();
+		Table t = dbh.getTable("TABLE5");
+		dbh.deleteTable("TABLE5");
+		dbh.endTransaction(txId, true);
+		assertEquals(1, listener.events.size());
+		DbEvent evt = listener.events.get(0);
+		assertEquals(DbNotifyType.TABLE_DELETED, evt.type);
+		assertTrue(t == evt.table);
+
+		listener.events.clear();
+
+		dbh.undo();
+
+		assertEquals(1, listener.events.size());
+		evt = listener.events.get(0);
+		assertEquals(DbNotifyType.RESTORED, evt.type);
+
+		listener.events.clear();
+
+		dbh.redo();
+
+		assertEquals(1, listener.events.size());
+		evt = listener.events.get(0);
+		assertEquals(DbNotifyType.RESTORED, evt.type);
+
+		listener.events.clear();
+
+		dbh.close();
+		dbh = null;
+
+		assertEquals(1, listener.events.size());
+		evt = listener.events.get(0);
+		assertEquals(DbNotifyType.CLOSED, evt.type);
+
+	}
+
+	private enum DbNotifyType {
+		RESTORED, CLOSED, TABLE_DELETED, TABLE_ADDED;
+	}
+
+	private static class DbEvent {
+
+		final DbNotifyType type;
+		final Table table;
+
+		DbEvent(DbNotifyType type, Table table) {
+			this.type = type;
+			this.table = table;
+		}
+
+		@Override
+		public String toString() {
+			if (type != DbNotifyType.TABLE_ADDED) {
+				return type.toString();
+			}
+			return type + ": " + table.getName();
+		}
+	}
+
+	private static class MyDbListener implements DBListener {
+
+		private List<DbEvent> events = new ArrayList<>();
+
+		@Override
+		public void dbRestored(DBHandle dbh) {
+			events.add(new DbEvent(DbNotifyType.RESTORED, null));
+		}
+
+		@Override
+		public void dbClosed(DBHandle dbh) {
+			events.add(new DbEvent(DbNotifyType.CLOSED, null));
+		}
+
+		@Override
+		public void tableDeleted(DBHandle dbh, Table table) {
+			events.add(new DbEvent(DbNotifyType.TABLE_DELETED, table));
+		}
+
+		@Override
+		public void tableAdded(DBHandle dbh, Table table) {
+			events.add(new DbEvent(DbNotifyType.TABLE_ADDED, table));
+		}
 
 	}
 }

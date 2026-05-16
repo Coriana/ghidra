@@ -4,18 +4,14 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- */
-/*
- * Created on Jan 26, 2005
- *
  */
 package ghidra.app.plugin.processors.sleigh;
 
@@ -23,44 +19,43 @@ import java.util.*;
 
 import ghidra.app.plugin.processors.sleigh.symbol.OperandSymbol;
 import ghidra.app.plugin.processors.sleigh.symbol.TripleSymbol;
+import ghidra.app.util.PseudoInstruction;
 import ghidra.program.model.address.*;
 import ghidra.program.model.lang.*;
-import ghidra.program.model.mem.MemBuffer;
-import ghidra.program.model.mem.MemoryAccessException;
+import ghidra.program.model.mem.*;
+import ghidra.util.Msg;
 
 /**
- * 
- *
  * All the recovered context for a single instruction
+ * <p>
  * The main data structure is the tree of constructors and operands
  */
 
 public class SleighParserContext implements ParserContext {
-//	private WeakReference<MemBuffer> memBufferRef;
 	private MemBuffer memBuffer;
-	private Address addr; // Address of start of instruction
-	private Address nextInstrAddr; // Address of next instruction
+	private Address addr; // Address of start of instruction (inst_start)
+	private Address nextInstrAddr; // Address of next instruction (inst_next)
+	private Address next2InstAddr; // Address of instruction after next instruction (inst_next2)
 	private Address refAddr; // corresponds to inst_ref for call-fixup use
 	private Address destAddr; // corresponds to inst_dest for call-fixup use
 	private SleighInstructionPrototype prototype;
 	private AddressSpace constantSpace;
-	private HashMap<ConstructState, FixedHandle> handleMap =
-		new HashMap<ConstructState, FixedHandle>();
+	private HashMap<ConstructState, FixedHandle> handleMap;
 	private ArrayList<ContextSet> contextcommit; // Pending changes to context
 	private int[] context; // packed context bits
 
 	public SleighParserContext(MemBuffer memBuf, SleighInstructionPrototype prototype,
 			ProcessorContextView processorContext) {
+		this.handleMap = new HashMap<>();
 		this.prototype = prototype;
 		this.constantSpace = prototype.getLanguage().getAddressFactory().getConstantSpace();
-//		this.memBufferRef = new WeakReference<MemBuffer>(memBuf);
 		this.memBuffer = memBuf;
 		this.addr = memBuf.getAddress();
 
 		int contextSize = prototype.getContextCache().getContextSize();
 		context = new int[contextSize];
 
-		contextcommit = new ArrayList<ContextSet>();
+		contextcommit = new ArrayList<>();
 		try {
 			nextInstrAddr = addr.add(prototype.getLength());
 		}
@@ -69,7 +64,6 @@ public class SleighParserContext implements ParserContext {
 			nextInstrAddr = null;
 		}
 		prototype.getContextCache().getContext(processorContext, context);
-
 	}
 
 	@Override
@@ -78,11 +72,13 @@ public class SleighParserContext implements ParserContext {
 	}
 
 	/**
-	 * Constructor for building precompiled templates
-	 * @param aAddr  = address to which 'inst_start' resolves 
-	 * @param nAddr  = address to which 'inst_next' resolves
-	 * @param rAddr  = special address associated with original call
-	 * @param dAddr  = destination address of original call being replaced
+	 * Constructor for building precompiled templates. NOTE: This form does not support use of
+	 * {@code inst_next2}.
+	 * 
+	 * @param aAddr = address to which 'inst_start' resolves
+	 * @param nAddr = address to which 'inst_next' resolves
+	 * @param rAddr = special address associated with original call
+	 * @param dAddr = destination address of original call being replaced
 	 */
 	public SleighParserContext(Address aAddr, Address nAddr, Address rAddr, Address dAddr) {
 		memBuffer = null;
@@ -93,6 +89,35 @@ public class SleighParserContext implements ParserContext {
 		nextInstrAddr = nAddr;
 		refAddr = rAddr;
 		destAddr = dAddr;
+		handleMap = new HashMap<>();
+	}
+
+	/**
+	 * Generate context specifically for an instruction that has a delayslot. When generating p-code
+	 * SLEIGH has an alternate interpretation of the "inst_next" symbol that takes into account the
+	 * instruction in the delay slot. This context is generated at the point when specific
+	 * instruction(s) in the delay slot are known.
+	 * 
+	 * @param origContext is the original context (for the instruction in isolation)
+	 * @param delayByteCount is the number of bytes in instruction stream occupied by the delay slot
+	 */
+	public SleighParserContext(SleighParserContext origContext, int delayByteCount) {
+		memBuffer = origContext.memBuffer;
+		prototype = origContext.prototype;
+		context = origContext.context;
+		contextcommit = origContext.contextcommit;
+		addr = origContext.addr;
+		refAddr = origContext.refAddr;
+		destAddr = origContext.destAddr;
+		constantSpace = origContext.constantSpace;
+		handleMap = origContext.handleMap;
+		try {
+			nextInstrAddr = addr.add(prototype.getLength() + delayByteCount);
+		}
+		catch (AddressOutOfBoundsException exc) {
+			// no next instruction, last instruction in memory.
+			nextInstrAddr = null;
+		}
 	}
 
 	/**
@@ -113,13 +138,13 @@ public class SleighParserContext implements ParserContext {
 	}
 
 	public void applyCommits(ProcessorContext ctx) throws MemoryAccessException {
-		if (contextcommit.size() == 0)
+		if (contextcommit.size() == 0) {
 			return;
+		}
 		ContextCache contextCache = prototype.getContextCache();
 		ParserWalker walker = new ParserWalker(this);
 		walker.baseState();
-		for (int i = 0; i < contextcommit.size(); ++i) {
-			ContextSet set = contextcommit.get(i);
+		for (ContextSet set : contextcommit) {
 			FixedHandle hand;
 			if (set.sym instanceof OperandSymbol) {		// value of OperandSymbol is already calculated, find right node
 				int ind = ((OperandSymbol) set.sym).getIndex();
@@ -151,45 +176,129 @@ public class SleighParserContext implements ParserContext {
 		return handle;
 	}
 
+	/**
+	 * get address of current instruction
+	 * 
+	 * @return address of current instruction
+	 */
 	public Address getAddr() {
 		return addr;
 	}
 
+	/**
+	 * Get address of instruction after current instruction. This may return null if this context
+	 * instance does not support use of {@code inst_next} or next address falls beyond end of
+	 * address space.
+	 * 
+	 * @return address of next instruction or null
+	 */
 	public Address getNaddr() {
 		return nextInstrAddr;
 	}
 
-	public void setDelaySlotLength(int delayByteLength) {
-		try {
-			nextInstrAddr = addr.add(prototype.getLength() + delayByteLength);
+	/**
+	 * {@return the address of the instruction after the next instruction or
+	 * {@link Address#NO_ADDRESS}, if the next instruction cannot be parsed or if {@code inst_next2}
+	 * is not supported in this context.}
+	 * 
+	 * @implNote If this is returning {@link Address#NO_ADDRESS} unexpectedly in emulation, refer to
+	 *           {@link PseudoInstruction} and its logic for choosing how many bytes to cache.
+	 */
+	public Address getN2addr() {
+		if (next2InstAddr != null) {
+			return next2InstAddr;
 		}
-		catch (AddressOutOfBoundsException exc) {
-			// no next instruction, last instruction in memory.
-			nextInstrAddr = null;
+		next2InstAddr = computeNext2Address();
+		return next2InstAddr;
+	}
+
+	/**
+	 * Return the address after the next instruction (inst_next2). The length of next instruction
+	 * based on attempted parse of next instruction and does not consider any delayslot use. The
+	 * current instructions context is used during the parse.
+	 * 
+	 * @return address after the next instruction or null if unable/failed to determine
+	 */
+	private Address computeNext2Address() {
+		if (memBuffer == null || nextInstrAddr == null) {
+			return Address.NO_ADDRESS; // not supported without memBuffer for parse
+		}
+		try {
+			Address nextAddr = nextInstrAddr;
+			Language language = prototype.getLanguage();
+
+			// limitation: assumes same context as current instruction
+			ProcessorContextImpl ctx = new ProcessorContextImpl(language);
+			RegisterValue ctxVal = getContextRegisterValue();
+			if (ctxVal != null) {
+				ctx.setRegisterValue(ctxVal);
+			}
+
+			int offset = (int) nextAddr.subtract(addr);
+			MemBuffer nearbymem = new WrappedMemBuffer(memBuffer, offset);
+
+			SleighInstructionPrototype proto =
+				(SleighInstructionPrototype) language.parse(nearbymem, ctx, true);
+
+			return nextAddr.addNoWrap(proto.getLength());
+		}
+		catch (Exception e) {
+			Msg.error(this, "Could not compute inst_next2: " + e);
+			/**
+			 * Unsupported use of inst_next2 or parse failure on next instruction. IMPORTANT!: This
+			 * CANNOT fall back to inst_next. While it may be tempting, it's likely that a jump to
+			 * inst_next2 intends to *skip* that instruction. Falling back to inst_next will
+			 * definitely *execute* that instruction leading to VERY unexpected behavior, especially
+			 * in the emulator.
+			 * 
+			 * We'll return Address.NO_ADDRESS, even though that doesn't actually make it into the
+			 * p-code. PcodeEmit#generateLocation and ConstTpl#fix work on offsets, so they re-write
+			 * it to "ram:00000000". Still, at least that is more likely to cause a crash (the
+			 * desired behavior) vs. stumbling along and executing an instruction that was likely
+			 * meant to be skipped.
+			 */
+			return Address.NO_ADDRESS;
 		}
 	}
 
+	/**
+	 * Get address space containing current instruction
+	 * 
+	 * @return address space containing current instruction
+	 */
 	public AddressSpace getCurSpace() {
 		return addr.getAddressSpace();
 	}
 
+	/**
+	 * Get constant address space
+	 * 
+	 * @return constant address space
+	 */
 	public AddressSpace getConstSpace() {
 		return constantSpace;
 	}
 
+	/**
+	 * Get memory buffer for current instruction which may also be used to parse next instruction or
+	 * delay slot instructions.
+	 * 
+	 * @return memory buffer for current instruction
+	 */
 	public MemBuffer getMemBuffer() {
 		return memBuffer;
 	}
 
 	/**
-	 * Get bytes from the instruction stream into an int
-	 * (packed in big endian format).  Uninitialized or 
-	 * undefined memory will return zero byte values.
+	 * Get bytes from the instruction stream into an int (packed in big endian format).
+	 * Uninitialized or undefined memory will return zero byte values.
+	 * 
 	 * @param offset offset relative start of this context
-	 * @param bytestart pattern byte offset relative to specified context offset 
-	 * @param size
+	 * @param bytestart pattern byte offset relative to specified context offset
+	 * @param size is the number of bytes to fetch
 	 * @return requested byte-range value
-	 * @throws MemoryAccessException if no bytes are available at first byte when (offset+bytestart==0).
+	 * @throws MemoryAccessException if no bytes are available at first byte when
+	 *             (offset+bytestart==0).
 	 */
 	public int getInstructionBytes(int offset, int bytestart, int size)
 			throws MemoryAccessException {
@@ -208,14 +317,15 @@ public class SleighParserContext implements ParserContext {
 	}
 
 	/**
-	 * Get bits from the instruction stream into an int
-	 * (packed in big endian format).  Uninitialized or 
-	 * undefined memory will return zero bit values.
+	 * Get bits from the instruction stream into an int (packed in big endian format). Uninitialized
+	 * or undefined memory will return zero bit values.
+	 * 
 	 * @param offset offset relative start of this context
-	 * @param startbit
-	 * @param size
+	 * @param startbit is the index of the first bit to fetch
+	 * @param size is the number of bits to fetch
 	 * @return requested bit-range value
-	 * @throws MemoryAccessException if no bytes are available at first byte when (offset+bytestart/8==0).
+	 * @throws MemoryAccessException if no bytes are available at first byte when
+	 *             (offset+bytestart/8==0).
 	 */
 	public int getInstructionBits(int offset, int startbit, int size) throws MemoryAccessException {
 
@@ -241,10 +351,50 @@ public class SleighParserContext implements ParserContext {
 	}
 
 	/**
+	 * Get the processor context value as a RegisterValue
+	 * 
+	 * @return processor context value
+	 */
+	public RegisterValue getContextRegisterValue() {
+
+		Register baseContextRegister = prototype.getLanguage().getContextBaseRegister();
+		if (baseContextRegister == null) {
+			return null;
+		}
+
+		// convert context int words to byte array for RegisterValue use
+		int ctxByteLen = baseContextRegister.getMinimumByteSize();
+		byte[] ctxValueBytes = new byte[ctxByteLen];
+
+		for (int i = 0; i < context.length; i++) {
+			int word = context[i];
+			for (int n = 3; n >= 0; --n) {
+				int byteIndex = (i * 4) + n;
+				setByte(ctxValueBytes, byteIndex, (byte) word);
+				word >>= 8;
+			}
+		}
+
+		// append mask to value array for RegisterValue use
+		byte[] ctxValueMaskBytes = new byte[2 * ctxByteLen];
+		Arrays.fill(ctxValueMaskBytes, 0, ctxByteLen, (byte) 0xff);
+		System.arraycopy(ctxValueBytes, 0, ctxValueMaskBytes, ctxByteLen, ctxByteLen);
+
+		return new RegisterValue(baseContextRegister, ctxValueMaskBytes);
+	}
+
+	private void setByte(byte[] bytes, int index, byte b) {
+		if (index < bytes.length) {
+			bytes[index] = b;
+		}
+	}
+
+	/**
 	 * Get bytes from context into an int
-	 * @param bytestart 
+	 * 
+	 * @param bytestart is the index of the first byte to fetch
 	 * @param bytesize number of bytes (range: 1 - 4)
-	 * @return
+	 * @return the packed bytes from context
 	 */
 	public int getContextBytes(int bytestart, int bytesize) {
 		int intstart = bytestart / 4;
@@ -264,9 +414,10 @@ public class SleighParserContext implements ParserContext {
 	}
 
 	/**
-	 * Get full set of context bytes.  Sleigh only supports context
-	 * which is a multiple of 4-bytes (i.e., size of int)
-	 * @return
+	 * Get full set of context bytes. Sleigh only supports context which is a multiple of 4-bytes
+	 * (i.e., size of int)
+	 * 
+	 * @return the array of context data
 	 */
 	public int[] getContextBytes() {
 		return context;
@@ -274,9 +425,10 @@ public class SleighParserContext implements ParserContext {
 
 	/**
 	 * Get bits from context into an int
-	 * @param startbit 
+	 * 
+	 * @param startbit is the index of the first bit to fetch
 	 * @param bitsize number of bits (range: 1 - 32)
-	 * @return
+	 * @return the packed bits
 	 */
 	public int getContextBits(int startbit, int bitsize) {
 		int intstart = startbit / 32;

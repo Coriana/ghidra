@@ -167,7 +167,7 @@ public class RegisterBuilder {
 	}
 
 	/**
-	 * Rename a register.  This allows generic register names declared within the langauge 
+	 * Rename a register.  This allows generic register names declared within the language 
 	 * specification (*.slaspec) to be renamed for a processor variant specification (*.pspec).
 	 * @param oldName original register name
 	 * @param newName new register name
@@ -184,6 +184,25 @@ public class RegisterBuilder {
 		register.rename(newName);
 		removeRegisterFromNameMap(oldName);
 		addRegisterToNameMap(newName, register);
+		return true;
+	}
+
+	/**
+	 * Add an alias to a previously defined register.
+	 * @param registerName defined register
+	 * @param alias alias to be added to defined register
+	 * @return true if alias addition was successful, else false
+	 */
+	public boolean addAlias(String registerName, String alias) {
+		Register register = registerMap.get(registerName);
+		if (register == null) {
+			return false;
+		}
+		if (registerMap.containsKey(alias)) {
+			return false;
+		}
+		register.addAlias(alias);
+		addRegisterToNameMap(alias, register);
 		return true;
 	}
 

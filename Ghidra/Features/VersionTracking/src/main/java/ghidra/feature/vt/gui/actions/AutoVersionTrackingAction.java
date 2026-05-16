@@ -18,20 +18,26 @@ package ghidra.feature.vt.gui.actions;
 import javax.swing.Icon;
 
 import docking.ActionContext;
-import docking.action.*;
+import docking.action.DockingAction;
+import docking.action.MenuData;
+import docking.action.ToolBarData;
 import docking.tool.ToolConstants;
+import generic.theme.GIcon;
 import ghidra.feature.vt.api.main.VTSession;
 import ghidra.feature.vt.gui.plugin.VTController;
 import ghidra.feature.vt.gui.plugin.VTPlugin;
+import ghidra.framework.options.ToolOptions;
 import ghidra.util.HTMLUtilities;
 import ghidra.util.HelpLocation;
-import resources.ResourceManager;
+import ghidra.util.task.Task;
+import ghidra.util.task.TaskLauncher;
+import ghidra.util.task.TaskListener;
 
 /**
- *  This action runs the {@link AutoVersionTrackingCommand}
+ *  This action runs the {@link AutoVersionTrackingTask}
  */
 public class AutoVersionTrackingAction extends DockingAction {
-	public static Icon AUTO_VT_ICON = ResourceManager.loadImage("images/wizard.png");
+	public static Icon AUTO_VT_ICON = new GIcon("icon.version.tracking.auto");
 	private final VTController controller;
 
 	public AutoVersionTrackingAction(VTController controller) {
@@ -58,19 +64,31 @@ public class AutoVersionTrackingAction extends DockingAction {
 	public void actionPerformed(ActionContext context) {
 
 		VTSession session = controller.getSession();
+		ToolOptions options = controller.getOptions();
 
-		// In the future we might want to make these user options so the user can change them 
-		// I don't want to make this change until the confidence option in the reference
-		// correlators is changed to make more sense to the user - currently the confidence has 
-		// to be entered as the value before the log 10 is computed but the table shows log 10 value
 
-		// The current passed values for score and confidence (1.0 and 10.0)
-		// get you accepted matches with similarity scores >= 1.0 and
-		// confidence (log 10) scores 2.0 and up
-		AutoVersionTrackingCommand command =
-			new AutoVersionTrackingCommand(controller, session, 1.0, 10.0);
+		AutoVersionTrackingTask task = new AutoVersionTrackingTask(session, options);
+		task.addTaskListener(new TaskListener() {
 
-		controller.getTool().executeBackgroundCommand(command, session);
+			@Override
+			public void taskCompleted(Task t) {
+				String message = task.getStatusMsg();
+				if (message != null) {
+					controller.getTool().setStatusInfo(message);
+				}
+			}
+
+			@Override
+			public void taskCancelled(Task t) {
+				String message = task.getStatusMsg();
+				if (message != null) {
+					controller.getTool().setStatusInfo(message);
+				}
+			}
+		});
+		TaskLauncher.launch(task);
 	}
+
+
 
 }

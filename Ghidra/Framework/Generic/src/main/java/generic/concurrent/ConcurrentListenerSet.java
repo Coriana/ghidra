@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,17 +15,18 @@
  */
 package generic.concurrent;
 
-import java.util.Iterator;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * A listener set that is weakly consistent.  This allows for iteration of the set while other
  * threads modify the set.
+ * @param <T> the type
  */
 public class ConcurrentListenerSet<T> implements Iterable<T> {
 
 	// we use a ConcurrentHashMap because Java has no ConcurrentHashSet
-	private ConcurrentHashMap<T, T> storage = new ConcurrentHashMap<T, T>();
+	private ConcurrentHashMap<T, T> storage = new ConcurrentHashMap<>();
 
 	public void add(T t) {
 		storage.put(t, t);
@@ -43,5 +43,14 @@ public class ConcurrentListenerSet<T> implements Iterable<T> {
 	@Override
 	public Iterator<T> iterator() {
 		return storage.keySet().iterator();
+	}
+
+	public List<T> asList() {
+		return new ArrayList<>(storage.keySet());
+	}
+
+	@Override
+	public String toString() {
+		return asList().toString();
 	}
 }

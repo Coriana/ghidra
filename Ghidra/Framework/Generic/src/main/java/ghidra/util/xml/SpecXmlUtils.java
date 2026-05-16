@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -39,7 +39,7 @@ import org.xml.sax.*;
  */
 public class SpecXmlUtils {
 
-	static public boolean decodeBoolean(String val) {
+	static public Boolean decodeNullableBoolean(String val) {
 		if (val!=null && val.length()!=0) {
 			switch(val.charAt(0)) {
 			case 'y':
@@ -53,9 +53,25 @@ public class SpecXmlUtils {
 			default:
 			}
 		}
-		return false;		// Should we throw an exception for bad encodings?
+		return null;		// Should we throw an exception for bad encodings?
 	}
 	
+	static public boolean decodeBoolean(String val) {
+		Boolean returnValue = decodeNullableBoolean(val);
+		if (returnValue != null) {
+			return returnValue;
+		}
+		return false;
+	}
+	
+	static public boolean decodeBoolean(String val, boolean defaultValue) {
+		Boolean returnValue = decodeNullableBoolean(val);
+		if (returnValue != null) {
+			return returnValue;
+		}
+		return defaultValue;
+	}
+
 	static public String encodeBoolean(boolean val) {
 		return val ? "true" : "false";
 	}
@@ -215,14 +231,17 @@ public class SpecXmlUtils {
 	
 	public static ErrorHandler getXmlHandler() {
 		return new ErrorHandler() {
+			@Override
 			public void error(SAXParseException exception) throws SAXException {
 				throw new SAXException("Error: "+exception);
 			}
 
+			@Override
 			public void fatalError(SAXParseException exception) throws SAXException {
 				throw new SAXException("Fatal error: "+exception);
 			}
 
+			@Override
 			public void warning(SAXParseException exception) throws SAXException {
 				throw new SAXException("Warning: "+exception);
 			}

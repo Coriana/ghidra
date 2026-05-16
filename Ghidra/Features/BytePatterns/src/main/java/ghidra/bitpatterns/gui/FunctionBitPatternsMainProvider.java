@@ -24,10 +24,12 @@ import javax.swing.*;
 import javax.swing.tree.TreePath;
 
 import docking.ActionContext;
+import docking.DefaultActionContext;
 import docking.action.DockingAction;
 import docking.action.MenuData;
 import docking.tool.ToolConstants;
 import docking.widgets.filechooser.GhidraFileChooser;
+import docking.widgets.filechooser.GhidraFileChooserMode;
 import docking.widgets.label.GLabel;
 import ghidra.bitpatterns.info.*;
 import ghidra.framework.options.OptionsChangeListener;
@@ -227,13 +229,17 @@ public class FunctionBitPatternsMainProvider extends ComponentProviderAdapter
 			@Override
 			public void actionPerformed(ActionEvent e) {
 				GhidraFileChooser fileChooser = new GhidraFileChooser(component);
-				fileChooser.setFileSelectionMode(GhidraFileChooser.DIRECTORIES_ONLY);
+				fileChooser.setFileSelectionMode(GhidraFileChooserMode.DIRECTORIES_ONLY);
 				fileChooser.setTitle("Select Directory Containing XML Files");
 				String baseDir = Preferences.getProperty(PATTERN_INFO_DIR);
 				if (baseDir != null) {
-					fileChooser.setCurrentDirectory(new File(baseDir));
+					File dir = new File(baseDir);
+					if (dir.isDirectory()) {
+						fileChooser.setCurrentDirectory(dir);
+					}
 				}
 				File xmlDir = fileChooser.getSelectedFile();
+				fileChooser.dispose();
 				if (xmlDir == null) {
 					return;
 				}
@@ -451,6 +457,8 @@ public class FunctionBitPatternsMainProvider extends ComponentProviderAdapter
 	 * Removes the action from the tool.
 	 */
 	public void dispose() {
+		firstBytesPanel.dispose();
+		clipboard.dispose();
 		tool.removeAction(gatherDataFromProgramAction);
 	}
 
@@ -484,7 +492,7 @@ public class FunctionBitPatternsMainProvider extends ComponentProviderAdapter
 		return super.getActionContext(event);
 	}
 
-	class EvaluateContext extends ActionContext {
+	class EvaluateContext extends DefaultActionContext {
 		List<PatternInfoRowObject> selectedRows;
 
 		public EvaluateContext(List<PatternInfoRowObject> selectedRowObjects) {
@@ -506,7 +514,7 @@ public class FunctionBitPatternsMainProvider extends ComponentProviderAdapter
 		}
 	}
 
-	class ByteSequenceContext extends ActionContext {
+	class ByteSequenceContext extends DefaultActionContext {
 		ByteSequencePanelBuilder builder;
 		List<ByteSequenceRowObject> selectedRows;
 
@@ -528,7 +536,7 @@ public class FunctionBitPatternsMainProvider extends ComponentProviderAdapter
 		}
 	}
 
-	class InstructionTreeContext extends ActionContext {
+	class InstructionTreeContext extends DefaultActionContext {
 		private FunctionBitPatternsGTree tree;
 		private TreePath path;
 

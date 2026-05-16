@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,22 +19,27 @@ import java.awt.BorderLayout;
 import java.awt.FlowLayout;
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 import javax.swing.*;
 import javax.swing.border.BevelBorder;
 
 import docking.DialogComponentProvider;
-import docking.help.Help;
-import docking.help.HelpService;
 import docking.widgets.OptionDialog;
+import docking.widgets.button.GButton;
 import docking.widgets.label.GDLabel;
 import docking.widgets.label.GLabel;
-import docking.wizard.WizardManager;
+import docking.widgets.textfield.ElidingFilePathTextField;
+import docking.wizard.WizardDialog;
 import ghidra.app.util.GenericHelpTopics;
 import ghidra.framework.client.*;
 import ghidra.framework.data.ConvertFileSystem;
+import ghidra.framework.data.TransientDataManager;
+import ghidra.framework.main.wizard.project.ProjectChooseRepositoryWizardModel;
 import ghidra.framework.model.*;
 import ghidra.framework.plugintool.PluginTool;
+import ghidra.framework.plugintool.PluginToolAccessUtils;
 import ghidra.framework.remote.User;
 import ghidra.framework.store.local.*;
 import ghidra.util.*;
@@ -42,7 +47,8 @@ import ghidra.util.exception.CancelledException;
 import ghidra.util.layout.PairLayout;
 import ghidra.util.layout.VerticalLayout;
 import ghidra.util.task.*;
-import resources.ResourceManager;
+import help.Help;
+import help.HelpService;
 
 /**
  * Dialog to show project information. Allows the user to convert a local project to a shared project,
@@ -51,7 +57,6 @@ import resources.ResourceManager;
  */
 public class ProjectInfoDialog extends DialogComponentProvider {
 
-	private final static Icon CONVERT_ICON = ResourceManager.loadImage("images/wand.png");
 	public final static String CHANGE = "Change Shared Project Info...";
 	final static String CONVERT = "Convert to Shared...";
 
@@ -62,7 +67,7 @@ public class ProjectInfoDialog extends DialogComponentProvider {
 	private JLabel userAccessLabel;
 	private JButton changeConvertButton;
 	private JButton convertStorageButton;
-	private JLabel projectDirLabel;
+	private JTextField projectDirField;
 	private JLabel serverLabel;
 	private JLabel portLabel;
 	private JLabel repNameLabel;
@@ -91,9 +96,9 @@ public class ProjectInfoDialog extends DialogComponentProvider {
 
 		connectionButton.setContentAreaFilled(false);
 		connectionButton.setSelected(isConnected);
-		connectionButton.setBorder(
-			isConnected ? BorderFactory.createBevelBorder(BevelBorder.LOWERED)
-					: BorderFactory.createBevelBorder(BevelBorder.RAISED));
+		connectionButton
+				.setBorder(isConnected ? BorderFactory.createBevelBorder(BevelBorder.LOWERED)
+						: BorderFactory.createBevelBorder(BevelBorder.RAISED));
 		updateConnectButtonToolTip();
 		if (isConnected) {
 			try {
@@ -113,7 +118,7 @@ public class ProjectInfoDialog extends DialogComponentProvider {
 		mainPanel.add(buildInfoPanel());
 		mainPanel.add(buildRepositoryInfoPanel());
 		mainPanel.add(buildButtonPanel());
-
+		mainPanel.getAccessibleContext().setAccessibleName("Project Info");
 		return mainPanel;
 	}
 
@@ -129,9 +134,12 @@ public class ProjectInfoDialog extends DialogComponentProvider {
 
 		JLabel dirLabel = new GLabel("Directory Location:", SwingConstants.RIGHT);
 		dirLabel.setToolTipText("Directory where your project files reside.");
+		dirLabel.getAccessibleContext().setAccessibleName("Directory");
 		infoPanel.add(dirLabel);
-		projectDirLabel = new GDLabel(dir.getAbsolutePath());
-		infoPanel.add(projectDirLabel);
+		projectDirField = new ElidingFilePathTextField(dir.getAbsolutePath());
+		projectDirField.setEditable(false);
+		projectDirField.getAccessibleContext().setAccessibleName("Project Directory");
+		infoPanel.add(projectDirField);
 
 		infoPanel.add(new GLabel("Project Storage Type:", SwingConstants.RIGHT));
 		Class<? extends LocalFileSystem> fsClass = project.getProjectData().getLocalStorageClass();
@@ -148,20 +156,24 @@ public class ProjectInfoDialog extends DialogComponentProvider {
 
 		JLabel label = new GLabel(fsClassName);
 		label.setName("Project Storage Type");
+		label.getAccessibleContext().setAccessibleName("Info");
 		infoPanel.add(label);
 		infoPanel.add(new GLabel("Project Name:", SwingConstants.RIGHT));
 		label = new GLabel(project.getName());
 		label.setName("Project Name");
 		infoPanel.add(label);
+		infoPanel.getAccessibleContext().setAccessibleName("Info");
 
 		outerPanel.add(infoPanel);
+		outerPanel.getAccessibleContext().setAccessibleName("Info");
 		return outerPanel;
 	}
 
 	private JPanel buildButtonPanel() {
 		JPanel buttonPanel = new JPanel(new BorderLayout());
-
+		buttonPanel.getAccessibleContext().setAccessibleName("Buttons");
 		changeConvertButton = new JButton(repository != null ? CHANGE : CONVERT);
+		changeConvertButton.getAccessibleContext().setAccessibleName("Change Convert");
 		changeConvertButton.addActionListener(e -> {
 			if (changeConvertButton.getText().equals(CONVERT)) {
 				convertToShared();
@@ -177,8 +189,8 @@ public class ProjectInfoDialog extends DialogComponentProvider {
 
 		String toolTipForChange = "Change server information or specify another repository.";
 		String toolTipForConvert = "Convert project to be a shared project.";
-		changeConvertButton.setToolTipText(
-			repository != null ? toolTipForChange : toolTipForConvert);
+		changeConvertButton
+				.setToolTipText(repository != null ? toolTipForChange : toolTipForConvert);
 
 		Class<? extends LocalFileSystem> fsClass = project.getProjectData().getLocalStorageClass();
 		String convertStorageButtonLabel = null;
@@ -194,11 +206,13 @@ public class ProjectInfoDialog extends DialogComponentProvider {
 			convertStorageButton.addActionListener(e -> convertToIndexedFilesystem());
 			help.registerHelp(changeConvertButton,
 				new HelpLocation(GenericHelpTopics.FRONT_END, "Convert_Project_Storage"));
-			convertStorageButton.setToolTipText(
-				"Convert/Upgrade project storage to latest Indexed Filesystem");
+			convertStorageButton
+					.setToolTipText("Convert/Upgrade project storage to latest Indexed Filesystem");
+			convertStorageButton.getAccessibleContext().setAccessibleName("Convert Storage");
 		}
 
 		JPanel p = new JPanel(new FlowLayout());
+		p.getAccessibleContext().setAccessibleName("Convert Storage");
 		p.add(changeConvertButton);
 		if (convertStorageButton != null) {
 			p.add(convertStorageButton);
@@ -228,37 +242,46 @@ public class ProjectInfoDialog extends DialogComponentProvider {
 
 		JPanel panel = new JPanel(new PairLayout(5, 10));
 		panel.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
+		panel.getAccessibleContext().setAccessibleName("Repository Info");
 
 		JLabel sLabel = new GDLabel("Server Name:", SwingConstants.RIGHT);
+		sLabel.getAccessibleContext().setAccessibleName("Server Name");
 		panel.add(sLabel);
 		serverLabel = new GDLabel(serverName);
 		serverLabel.setName("Server Name");
+		serverLabel.getAccessibleContext().setAccessibleName("Server Name");
 		panel.add(serverLabel);
 
 		JLabel pLabel = new GDLabel("Port Number:", SwingConstants.RIGHT);
+		pLabel.getAccessibleContext().setAccessibleName("Port Number");
 		panel.add(pLabel);
 		portLabel = new GDLabel(portNumberStr);
 		portLabel.setName("Port Number");
+		portLabel.getAccessibleContext().setAccessibleName("Port Number");
 		panel.add(portLabel);
 
 		JLabel repLabel = new GDLabel("Repository Name:", SwingConstants.RIGHT);
+		repLabel.getAccessibleContext().setAccessibleName("Repository Name");
 		panel.add(repLabel);
 		repNameLabel = new GDLabel(repositoryName);
 		repNameLabel.setName("Repository Name");
+		repNameLabel.getAccessibleContext().setAccessibleName("Repository Name");
 		panel.add(repNameLabel);
 
 		JLabel connectLabel = new GDLabel("Connection Status:", SwingConstants.RIGHT);
+		connectLabel.getAccessibleContext().setAccessibleName("Connection Status");
 		panel.add(connectLabel);
 
-		connectionButton = new JButton(
+		connectionButton = new GButton(
 			isConnected ? FrontEndPlugin.CONNECTED_ICON : FrontEndPlugin.DISCONNECTED_ICON);
 		connectionButton.addActionListener(e -> connect());
 		connectionButton.setName("Connect Button");
+		connectionButton.getAccessibleContext().setAccessibleName("Connect");
 		connectionButton.setContentAreaFilled(false);
 		connectionButton.setSelected(isConnected);
-		connectionButton.setBorder(
-			isConnected ? BorderFactory.createBevelBorder(BevelBorder.LOWERED)
-					: BorderFactory.createBevelBorder(BevelBorder.RAISED));
+		connectionButton
+				.setBorder(isConnected ? BorderFactory.createBevelBorder(BevelBorder.LOWERED)
+						: BorderFactory.createBevelBorder(BevelBorder.RAISED));
 		updateConnectButtonToolTip();
 		HelpService help = Help.getHelpService();
 		help.registerHelp(connectionButton,
@@ -267,10 +290,12 @@ public class ProjectInfoDialog extends DialogComponentProvider {
 		JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
 		buttonPanel.setBorder(BorderFactory.createEmptyBorder());
 		buttonPanel.add(connectionButton);
+		buttonPanel.getAccessibleContext().setAccessibleName("Button");
 		panel.add(buttonPanel);
 
 		JLabel userLabel = new GDLabel("User Access Level:", SwingConstants.RIGHT);
 		userLabel.setToolTipText("Indicates your privileges in the shared repository");
+		userLabel.getAccessibleContext().setAccessibleName("User Access Level");
 		panel.add(userLabel);
 		User user = null;
 		if (isConnected) {
@@ -283,6 +308,7 @@ public class ProjectInfoDialog extends DialogComponentProvider {
 		}
 		userAccessLabel = new GDLabel(getAccessString(user));
 		userAccessLabel.setName("User Access Level");
+		userAccessLabel.getAccessibleContext().setAccessibleName("User Access Level");
 		panel.add(userLabel);
 		panel.add(userAccessLabel);
 
@@ -296,6 +322,7 @@ public class ProjectInfoDialog extends DialogComponentProvider {
 			connectionButton.setEnabled(false);
 			userLabel.setEnabled(false);
 		}
+		outerPanel.getAccessibleContext().setAccessibleName("Repository Info");
 		return outerPanel;
 	}
 
@@ -337,27 +364,36 @@ public class ProjectInfoDialog extends DialogComponentProvider {
 	}
 
 	private void updateSharedProjectInfo() {
-		if (filesAreOpen()) {
+		int openCount = getOpenFileCount();
+		if (openCount != 0) {
 			Msg.showInfo(getClass(), getComponent(), "Cannot Change Project Info with Open Files",
-				"Before your project info can be updated, you must close\n" +
-					"files in running tools and make sure you have no files\n" + "checked out.");
+				"Found " + openCount + " open project file(s).\n" +
+					"Before your project info can be updated, you must\n" +
+					"close all open project files and tools.");
 			return;
 		}
 
-		SetupProjectPanelManager panelManager =
-			new SetupProjectPanelManager(plugin.getTool(), project.getRepository().getServerInfo());
-		WizardManager wm = new WizardManager("Change Shared Project Information", true,
-			panelManager, CONVERT_ICON);
-		wm.showWizard(getComponent());
-		RepositoryAdapter rep = panelManager.getProjectRepository();
+		if (!checkToolsClose()) {
+			return;
+		}
+		RepositoryAdapter currentRepository = project.getRepository();
+		ServerInfo serverInfo = currentRepository.getServerInfo();
+		ProjectChooseRepositoryWizardModel model =
+			new ProjectChooseRepositoryWizardModel(plugin.getTool(),
+				"Change Shared Project Information", serverInfo);
+		WizardDialog dialog = new WizardDialog(model);
+		dialog.show(getComponent());
+		RepositoryAdapter rep = model.getRepository();
+
 		if (rep != null) {
-			RepositoryAdapter currentRepository = project.getRepository();
 			if (currentRepository.getServerInfo().equals(rep.getServerInfo()) &&
 				currentRepository.getName().equals(rep.getName())) {
 				Msg.showInfo(getClass(), getComponent(), "No Changes Made",
 					"No changes were made to the shared project information.");
+				return;
 			}
-			else if (OptionDialog.showOptionDialog(getComponent(), "Update Shared Project Info",
+
+			if (OptionDialog.showOptionDialog(getComponent(), "Update Shared Project Info",
 				"Are you sure you want to update your shared project information?", "Update",
 				OptionDialog.QUESTION_MESSAGE) == OptionDialog.OPTION_ONE) {
 
@@ -376,12 +412,29 @@ public class ProjectInfoDialog extends DialogComponentProvider {
 
 	}
 
+	private boolean checkToolsClose() {
+		PluginTool[] runningTools = project.getToolManager().getRunningTools();
+		for (PluginTool runningTool : runningTools) {
+			if (!PluginToolAccessUtils.canClose(runningTool)) {
+				return false;
+			}
+			runningTool.close();
+		}
+		return true;
+	}
+
 	private void convertToIndexedFilesystem() {
-		if (filesAreOpen()) {
+		int openCount = getOpenFileCount();
+		if (openCount != 0) {
 			Msg.showInfo(getClass(), getComponent(),
 				"Cannot Convert/Upgrade Project Storage with Open Files",
-				"Before your project can be converted, you must close\n" +
-					"files in running tools.");
+				"Found " + openCount + " open project file(s).\n" +
+					"Before your project can be converted, you must close\n" +
+					"all open project files and tools.");
+			return;
+		}
+
+		if (!checkToolsClose()) {
 			return;
 		}
 
@@ -415,22 +468,29 @@ public class ProjectInfoDialog extends DialogComponentProvider {
 	}
 
 	private void convertToShared() {
-		if (filesAreOpen()) {
+
+		int openCount = getOpenFileCount();
+		if (openCount != 0) {
 			Msg.showInfo(getClass(), getComponent(), "Cannot Convert Project with Open Files",
-				"Before your project can be converted, you must close\n" +
-					"files in running tools and make sure you have no files\n" + "checked out.");
+				"Found " + openCount + " open project file(s).\n" +
+					"Before your project can be converted, you must close\n" +
+					"all open project files and tools.");
 			return;
 		}
 
-		SetupProjectPanelManager panelManager =
-			new SetupProjectPanelManager(plugin.getTool(), null);
-		WizardManager wm = new WizardManager("Convert Project", true, panelManager, CONVERT_ICON);
-		wm.showWizard(getComponent());
-		RepositoryAdapter rep = panelManager.getProjectRepository();
+		if (!checkToolsClose()) {
+			return;
+		}
+		ProjectChooseRepositoryWizardModel model =
+			new ProjectChooseRepositoryWizardModel(plugin.getTool(), "Convert Project");
+		WizardDialog dialog = new WizardDialog(model);
+		dialog.show(getComponent());
+
+		RepositoryAdapter rep = model.getRepository();
 		if (rep != null) {
 			StringBuffer confirmMsg = new StringBuffer();
 			confirmMsg.append("All version history on your files will be\n" +
-				"lost after your project is converted.\n" +
+				"lost after your project is converted and checkouts terminated.\n" +
 				"Do you want to convert your project?\n");
 			confirmMsg.append(" \n");
 			confirmMsg.append("WARNING: Convert CANNOT be undone!");
@@ -442,11 +502,12 @@ public class ProjectInfoDialog extends DialogComponentProvider {
 				ConvertProjectTask task = new ConvertProjectTask(rep);
 				new TaskLauncher(task, getComponent(), 500);
 				// block until task completes
+				ProjectLocator projectLocator = project.getProjectLocator();
 				if (task.getStatus()) {
 					close();
 					FileActionManager actionMgr = plugin.getFileActionManager();
 					actionMgr.closeProject(false);
-					actionMgr.openProject(project.getProjectLocator());
+					actionMgr.openProject(projectLocator);
 					plugin.getProjectActionManager().showProjectInfo();
 				}
 				else {
@@ -456,36 +517,27 @@ public class ProjectInfoDialog extends DialogComponentProvider {
 		}
 	}
 
-	private boolean filesAreOpen() {
-		PluginTool[] tools = project.getToolManager().getRunningTools();
-
-		if (tools.length > 0) {
-			for (PluginTool tool : tools) {
-				if (tool.getDomainFiles().length > 0) {
-					return true;
-				}
-			}
-		}
-
-		return false;
+	private int getOpenFileCount() {
+		List<DomainFile> openFiles = new ArrayList<>();
+		project.getProjectData().findOpenFiles(openFiles);
+		TransientDataManager.getTransients(openFiles);
+		return openFiles.size();
 	}
 
 	private class ConvertProjectTask extends Task {
-		private RepositoryAdapter taskRepository;
+		private RepositoryAdapter newRepository;
 		private boolean status;
 
 		ConvertProjectTask(RepositoryAdapter repository) {
 			super("Convert Project to Shared", true, false, true);
-			this.taskRepository = repository;
+			this.newRepository = repository;
 		}
 
-		/* (non-Javadoc)
-		 * @see ghidra.util.task.Task#run(ghidra.util.task.TaskMonitor)
-		 */
 		@Override
 		public void run(TaskMonitor monitor) {
 			try {
-				project.getProjectData().convertProjectToShared(taskRepository, monitor);
+				newRepository.connect();
+				project.getProjectData().convertProjectToShared(newRepository, monitor);
 				status = true;
 			}
 			catch (IOException e) {
@@ -515,9 +567,6 @@ public class ProjectInfoDialog extends DialogComponentProvider {
 			this.projectLocator = projectLocator;
 		}
 
-		/* (non-Javadoc)
-		 * @see ghidra.util.task.Task#run(ghidra.util.task.TaskMonitor)
-		 */
 		@Override
 		public void run(TaskMonitor monitor) {
 			try {
@@ -544,22 +593,20 @@ public class ProjectInfoDialog extends DialogComponentProvider {
 	}
 
 	private class UpdateInfoTask extends Task {
-		private RepositoryAdapter taskRepository;
+		private RepositoryAdapter newRepository;
 		private boolean status;
 
 		UpdateInfoTask(RepositoryAdapter repository) {
 			super("Update Shared Project Info", true, false, true);
-			this.taskRepository = repository;
+			this.newRepository = repository;
 		}
 
-		/* (non-Javadoc)
-		 * @see ghidra.util.task.Task#run(ghidra.util.task.TaskMonitor)
-		 */
 		@Override
 		public void run(TaskMonitor monitor) {
 			try {
-				// NOTE: conversion of non-shared project will lose version history
-				project.getProjectData().updateRepositoryInfo(taskRepository, monitor);
+				newRepository.connect();
+				boolean force = useForcedCheckoutTransition(monitor);
+				project.getProjectData().updateRepositoryInfo(newRepository, force, monitor);
 				status = true;
 			}
 			catch (IOException e) {
@@ -573,6 +620,37 @@ public class ProjectInfoDialog extends DialogComponentProvider {
 			catch (CancelledException e) {
 				Msg.info(this, "Convert project was canceled.");
 			}
+		}
+
+		private boolean useForcedCheckoutTransition(TaskMonitor monitor)
+				throws CancelledException, IOException {
+			if (repository == null) {
+				return false;
+			}
+
+			ProjectData projectData = project.getProjectData();
+			List<DomainFile> checkoutFiles = projectData.findCheckedOutFiles(monitor);
+			if (checkoutFiles.isEmpty() ||
+				!projectData.hasInvalidCheckouts(checkoutFiles, newRepository, monitor)) {
+				return false;
+			}
+
+			if (OptionDialog.showOptionDialog(getComponent(), "Terminate Unrecognized Checkouts",
+				"One or more project file checkouts are not recognized by the selected repository.\n" +
+					"These checkouts will be terminated and a local .keep file created." +
+					(repository.isConnected() ? ""
+							: "  Doing this\n" +
+								"will abandon such checkouts on the old repository since you are not connected.") +
+					"\n\n" +
+					"Are you sure you want to continue changing your shared project information?",
+				"Terminate Checkouts and Continue",
+				OptionDialog.QUESTION_MESSAGE) != OptionDialog.OPTION_ONE) {
+
+				throw new CancelledException();
+			}
+
+			// Must force termination if not connected to current repository
+			return !repository.isConnected();
 		}
 
 		boolean getStatus() {

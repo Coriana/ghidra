@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,7 +17,7 @@ package ghidra.app.util.bin.format.macho.commands;
 
 import java.io.IOException;
 
-import ghidra.app.util.bin.format.FactoryBundledWithBinaryReader;
+import ghidra.app.util.bin.BinaryReader;
 import ghidra.app.util.bin.format.macho.MachException;
 
 /**
@@ -26,31 +26,18 @@ import ghidra.app.util.bin.format.macho.MachException;
  * @see <a href="https://opensource.apple.com/source/xnu/xnu-4570.71.2/EXTERNAL_HEADERS/mach-o/loader.h.auto.html">mach-o/loader.h</a> 
  */
 public class SymbolCommand extends ObsoleteCommand {
-    private int offset;
-	private int size;
+	private long offset;
+	private long size;
 
-    static SymbolCommand createSymbolCommand(
-            FactoryBundledWithBinaryReader reader) throws IOException,
-            MachException {
-        SymbolCommand symbolCommand = (SymbolCommand) reader.getFactory().create(SymbolCommand.class);
-        symbolCommand.initSymbolCommand(reader);
-        return symbolCommand;
+	SymbolCommand(BinaryReader reader) throws IOException, MachException {
+		super(reader);
     }
 
-    /**
-     * DO NOT USE THIS CONSTRUCTOR, USE create*(GenericFactory ...) FACTORY METHODS INSTEAD.
-     */
-    public SymbolCommand() {}
-
-	private void initSymbolCommand(FactoryBundledWithBinaryReader reader) throws IOException, MachException {
-		initObsoleteCommand(reader);
-	}
-
-	public int getOffset() {
+	public long getOffset() {
 		return offset;
 	}
 
-	public int getSize() {
+	public long getSize() {
 		return size;
 	}
 

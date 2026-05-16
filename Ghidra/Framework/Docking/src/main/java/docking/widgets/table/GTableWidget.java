@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -89,7 +89,6 @@ public class GTableWidget<T> extends JPanel {
 	 * in sizes that you did not set.  So, the best way to use this method is to set the
 	 * actual preferred size for your small columns and then set a very large size (400 or so)
 	 * for your columns that can be any size.
-	 * <p>
 	 *
 	 * @param widths the widths to apply
 	 */
@@ -114,6 +113,10 @@ public class GTableWidget<T> extends JPanel {
 
 	public void setSortColumn(int column) {
 		myModel.setTableSortState(TableSortState.createDefaultSortState(column));
+	}
+
+	public void setSortColumn(int column, boolean ascending) {
+		myModel.setTableSortState(TableSortState.createDefaultSortState(column, ascending));
 	}
 
 	protected void processMouseClicked(MouseEvent e) {
@@ -160,6 +163,24 @@ public class GTableWidget<T> extends JPanel {
 		return gFilterTable.getSelectedRowObjects();
 	}
 
+	public int getSelectedRowCount() {
+		return table.getSelectedRowCount();
+	}
+
+	/**
+	 * Sets the selection mode of this table.
+	 *
+	 * @param mode the mode
+	 * @see ListSelectionModel#setSelectionMode(int)
+	 */
+	public void setSelectionMode(int mode) {
+		table.getSelectionModel().setSelectionMode(mode);
+	}
+
+	public int getSelectionMode() {
+		return table.getSelectionModel().getSelectionMode();
+	}
+
 	public void addSelectionListener(ObjectSelectedListener<T> l) {
 		gFilterTable.addSelectionListener(l);
 	}
@@ -192,6 +213,10 @@ public class GTableWidget<T> extends JPanel {
 		return gFilterTable.getRowObject(row);
 	}
 
+	public int getRow(T rowObject) {
+		return gFilterTable.getRow(rowObject);
+	}
+
 	public void selectRow(int row) {
 		table.selectRow(row);
 	}
@@ -222,5 +247,9 @@ public class GTableWidget<T> extends JPanel {
 
 	public void setFilterText(String text) {
 		gFilterTable.setFiterText(text);
+	}
+
+	public void dispose() {
+		gFilterTable.dispose();
 	}
 }

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,8 +15,7 @@
  */
 package ghidra.program.database.symbol;
 
-import db.Record;
-import ghidra.program.database.DBObjectCache;
+import db.DBRecord;
 import ghidra.program.database.external.ExternalManagerDB;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.CodeUnit;
@@ -24,53 +23,31 @@ import ghidra.program.model.listing.Data;
 import ghidra.program.model.symbol.*;
 import ghidra.program.util.LabelFieldLocation;
 import ghidra.program.util.ProgramLocation;
+import ghidra.util.Lock.Closeable;
 
 /**
- * Symbols that represent "labels"
- *
- * Symbol data usage:
- *   EXTERNAL:
- *   	long data1 - external data type
- *   	String data3 - external memory address
- *   NON-EXTERNAL:
- *      int  data2 - primary flag
+ * Symbols that represent "labels" or external data locations
  */
-
-public class CodeSymbol extends SymbolDB {
+public class CodeSymbol extends MemorySymbol {
 
 	/**
 	 * Constructs a new CodeSymbol
 	 * @param mgr the symbol manager
-	 * @param cache symbol object cache
 	 * @param addr the address associated with the symbol
 	 * @param record the record for this symbol
+	 * @param key the database id to use as the object's database key
 	 */
-	public CodeSymbol(SymbolManager mgr, DBObjectCache<SymbolDB> cache, Address addr,
-			Record record) {
-		super(mgr, cache, addr, record);
+	CodeSymbol(SymbolManager mgr, Address addr, DBRecord record, long key) {
+		super(mgr, addr, record, key);
 	}
 
-	/**
-	 * Constructs a new CodeSymbol for a default/dynamic label.
-	 * @param mgr the symbol manager
-	 * @param cache symbol object cache
-	 * @param addr the address associated with the symbol
-	 * @param key this must be the absolute encoding of addr
-	 */
-	public CodeSymbol(SymbolManager mgr, DBObjectCache<SymbolDB> cache, Address addr, long key) {
-		super(mgr, cache, addr, key);
-	}
-
-	/**
-	 * @see ghidra.program.model.symbol.Symbol#getSymbolType()
-	 */
 	@Override
 	public SymbolType getSymbolType() {
 		return SymbolType.LABEL;
 	}
 
 	@Override
-	protected boolean refresh(Record rec) {
+	protected boolean refresh(DBRecord rec) {
 		if (!isDynamic()) {
 			return super.refresh(rec);
 		}
@@ -82,55 +59,31 @@ public class CodeSymbol extends SymbolDB {
 	}
 
 	@Override
-	public boolean isExternal() {
-		return address.isExternalAddress();
-	}
-
-	@Override
 	public boolean delete() {
-		if (isExternal()) {
-			return delete(false);
-		}
-		return super.delete();
-	}
-
-	public boolean delete(boolean keepReferences) {
-		lock.acquire();
-		try {
-			if (!keepReferences) {
-				// remove external references
-				removeAllReferencesTo();
-			}
-			return super.delete();
-		}
-		finally {
-			lock.release();
-		}
-	}
-
-	@Override
-	public boolean isPinned() {
-		if (!isExternal()) {
-			return doIsPinned();
-		}
-		return false;
-	}
-
-	@Override
-	public void setPinned(boolean pinned) {
-		if (!isExternal()) {
-			doSetPinned(pinned);
-		}
+		boolean keepReferences = !isExternal();
+		return delete(keepReferences);
 	}
 
 	/**
-	 * @see ghidra.program.model.symbol.Symbol#getObject()
+	 * Delete code/label symbol
+	 * @param keepReferences if false all references to this symbols address will be removed,
+	 * otherwise associated references will simply be disassociated following symbol removal
+	 * (see {@link SymbolManager#doRemoveSymbol(SymbolDB)}.
+	 * @return true if symbol successfully removed
 	 */
+	public boolean delete(boolean keepReferences) {
+		try (Closeable c = lock.write()) {
+			if (!keepReferences) {
+				symbolMgr.getReferenceManager().removeAllReferencesTo(getAddress());
+			}
+			return super.delete();
+		}
+	}
+
 	@Override
 	public Object getObject() {
-		lock.acquire();
-		try {
-			if (!checkIsValid()) {
+		try (Closeable c = lock.read()) {
+			if (!refreshIfNeeded()) {
 				return null;
 			}
 			if (isExternal()) {
@@ -147,31 +100,21 @@ public class CodeSymbol extends SymbolDB {
 					return data != null ? data : cu;
 				}
 			}
+			return null;
 		}
-		finally {
-			lock.release();
-		}
-		return null;
 	}
 
-	/**
-	 * @see ghidra.program.model.symbol.Symbol#isPrimary()
-	 */
 	@Override
 	public boolean isPrimary() {
 		if (getSource() == SourceType.DEFAULT || isExternal()) {
 			return true;
 		}
-		return getSymbolData2() == 1;
+		return doCheckIsPrimary();
 	}
 
-	/**
-	 * @see ghidra.program.model.symbol.Symbol#setPrimary()
-	 */
 	@Override
 	public boolean setPrimary() {
-		lock.acquire();
-		try {
+		try (Closeable c = lock.write()) {
 			if (address.isExternalAddress()) { // can't set primary on external locations
 				return false;
 			}
@@ -195,51 +138,21 @@ public class CodeSymbol extends SymbolDB {
 			symbolMgr.primarySymbolSet(this, oldPrimarySymbol);
 			return true;
 		}
-		finally {
-			lock.release();
-		}
 	}
 
 	void setPrimary(boolean primary) {
-		setSymbolData2(primary ? 1 : 0);
+		doSetPrimary(primary);
 	}
 
-	/**
-	 * @see ghidra.program.model.symbol.Symbol#getProgramLocation()
-	 */
 	@Override
 	public ProgramLocation getProgramLocation() {
 		return new LabelFieldLocation(this);
 	}
 
-	/**
-	 * @see ghidra.program.model.symbol.Symbol#isValidParent(ghidra.program.model.symbol.Namespace)
-	 */
 	@Override
 	public boolean isValidParent(Namespace parent) {
-		return SymbolType.LABEL.isValidParent(symbolMgr.getProgram(), parent, address,
-			isExternal());
-
-//		if (isExternal() != parent.isExternal()) {
-//			return false;
-//		}
-//		Symbol newParentSym = parent.getSymbol();
-//		if (symbolMgr.getProgram() != newParentSym.getProgram()) {
-//			return false;
-//		}
-//		SymbolDB functionSymbol = symbolMgr.getFunctionSymbol(parent);
-//		if (functionSymbol != null) {
-//			if (isExternal()) {
-//				return false;
-//			}
-//			CodeUnit cu = (CodeUnit) getObject();
-//			if (cu != null) {
-//				Function function = (Function) functionSymbol.getObject();
-//				return function.getBody().contains(cu.getMinAddress());
-//			}
-//			return false;
-//		}
-//		return true;
+		return super.isValidParent(parent) &&
+			SymbolType.LABEL.isValidParent(symbolMgr.getProgram(), parent, address, isExternal());
 	}
 
 	@Override
@@ -258,10 +171,14 @@ public class CodeSymbol extends SymbolDB {
 			}
 			return source;
 		}
-		if (newName == null || newName.length() == 0 || SymbolUtilities.isReservedDynamicLabelName(
-			newName, symbolMgr.getProgram().getAddressFactory())) {
+		if (newName == null || newName.length() == 0 || SymbolUtilities
+				.isReservedDynamicLabelName(newName, symbolMgr.getProgram().getAddressFactory())) {
 			return SourceType.DEFAULT;
 		}
 		return source;
+	}
+
+	void setIsValid() {
+		super.setValid();
 	}
 }

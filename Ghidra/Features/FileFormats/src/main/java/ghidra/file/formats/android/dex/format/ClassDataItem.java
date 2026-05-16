@@ -15,14 +15,13 @@
  */
 package ghidra.file.formats.android.dex.format;
 
-import ghidra.app.util.bin.BinaryReader;
-import ghidra.app.util.bin.StructConverter;
-import ghidra.file.formats.android.dex.util.Leb128;
-import ghidra.program.model.data.*;
-import ghidra.util.exception.DuplicateNameException;
+import java.util.*;
 
 import java.io.IOException;
-import java.util.*;
+
+import ghidra.app.util.bin.*;
+import ghidra.program.model.data.*;
+import ghidra.util.exception.DuplicateNameException;
 
 public class ClassDataItem implements StructConverter {
 
@@ -36,92 +35,92 @@ public class ClassDataItem implements StructConverter {
 	private int directMethodsSizeLength;// in bytes
 	private int virtualMethodsSizeLength;// in bytes
 
-	private List< EncodedField > staticFields = new ArrayList< EncodedField >( );
-	private List< EncodedField > instancesFields = new ArrayList< EncodedField >( );
-	private List< EncodedMethod > directMethods = new ArrayList< EncodedMethod >( );
-	private List< EncodedMethod > virtualMethods = new ArrayList< EncodedMethod >( );
+	private List<EncodedField> staticFields = new ArrayList<>();
+	private List<EncodedField> instancesFields = new ArrayList<>();
+	private List<EncodedMethod> directMethods = new ArrayList<>();
+	private List<EncodedMethod> virtualMethods = new ArrayList<>();
 
-	public ClassDataItem( BinaryReader reader ) throws IOException {
-		staticFieldsSize = Leb128.readUnsignedLeb128( reader.readByteArray( reader.getPointerIndex( ), 5 ) );
-		staticFieldsSizeLength = Leb128.unsignedLeb128Size( staticFieldsSize );
-		reader.readNextByteArray( staticFieldsSizeLength );// consume leb...
+	public ClassDataItem(BinaryReader reader, DexHeader dexHeader) throws IOException {
+		LEB128Info leb128 = reader.readNext(LEB128Info::unsigned);
+		staticFieldsSize = leb128.asUInt32();
+		staticFieldsSizeLength = leb128.getLength();
 
-		instanceFieldsSize = Leb128.readUnsignedLeb128( reader.readByteArray( reader.getPointerIndex( ), 5 ) );
-		instanceFieldsSizeLength = Leb128.unsignedLeb128Size( instanceFieldsSize );
-		reader.readNextByteArray( instanceFieldsSizeLength );// consume leb...
+		leb128 = reader.readNext(LEB128Info::unsigned);
+		instanceFieldsSize = leb128.asUInt32();
+		instanceFieldsSizeLength = leb128.getLength();
 
-		directMethodsSize = Leb128.readUnsignedLeb128( reader.readByteArray( reader.getPointerIndex( ), 5 ) );
-		directMethodsSizeLength = Leb128.unsignedLeb128Size( directMethodsSize );
-		reader.readNextByteArray( directMethodsSizeLength );// consume leb...
+		leb128 = reader.readNext(LEB128Info::unsigned);
+		directMethodsSize = leb128.asUInt32();
+		directMethodsSizeLength = leb128.getLength();
 
-		virtualMethodsSize = Leb128.readUnsignedLeb128( reader.readByteArray( reader.getPointerIndex( ), 5 ) );
-		virtualMethodsSizeLength = Leb128.unsignedLeb128Size( virtualMethodsSize );
-		reader.readNextByteArray( virtualMethodsSizeLength );// consume leb...
+		leb128 = reader.readNext(LEB128Info::unsigned);
+		virtualMethodsSize = leb128.asUInt32();
+		virtualMethodsSizeLength = leb128.getLength();
 
-		for ( int i = 0 ; i < staticFieldsSize ; ++i ) {
-			staticFields.add( new EncodedField( reader ) );
+		for (int i = 0; i < staticFieldsSize; ++i) {
+			staticFields.add(new EncodedField(reader));
 		}
-		for ( int i = 0 ; i < instanceFieldsSize ; ++i ) {
-			instancesFields.add( new EncodedField( reader ) );
+		for (int i = 0; i < instanceFieldsSize; ++i) {
+			instancesFields.add(new EncodedField(reader));
 		}
 		int methodIndex = 0;
-		for ( int i = 0 ; i < directMethodsSize ; ++i ) {
-			EncodedMethod encodedMethod = new EncodedMethod( reader );
-			directMethods.add( encodedMethod );
-			methodIndex += encodedMethod.getMethodIndexDifference( );
-			encodedMethod.setMethodIndex( methodIndex );
+		for (int i = 0; i < directMethodsSize; ++i) {
+			EncodedMethod encodedMethod = new EncodedMethod(reader, dexHeader);
+			directMethods.add(encodedMethod);
+			methodIndex += encodedMethod.getMethodIndexDifference();
+			encodedMethod.setMethodIndex(methodIndex);
 		}
 		methodIndex = 0;
-		for ( int i = 0 ; i < virtualMethodsSize ; ++i ) {
-			EncodedMethod encodedMethod = new EncodedMethod( reader );
-			virtualMethods.add( encodedMethod );
-			methodIndex += encodedMethod.getMethodIndexDifference( );
-			encodedMethod.setMethodIndex( methodIndex );
+		for (int i = 0; i < virtualMethodsSize; ++i) {
+			EncodedMethod encodedMethod = new EncodedMethod(reader, dexHeader);
+			virtualMethods.add(encodedMethod);
+			methodIndex += encodedMethod.getMethodIndexDifference();
+			encodedMethod.setMethodIndex(methodIndex);
 		}
 	}
 
-	public List< EncodedField > getInstancesFields( ) {
-		return Collections.unmodifiableList( instancesFields );
+	public List<EncodedField> getInstancesFields() {
+		return Collections.unmodifiableList(instancesFields);
 	}
 
-	public List< EncodedField > getStaticFields( ) {
-		return Collections.unmodifiableList( staticFields );
+	public List<EncodedField> getStaticFields() {
+		return Collections.unmodifiableList(staticFields);
 	}
 
-	public List< EncodedMethod > getDirectMethods( ) {
-		return Collections.unmodifiableList( directMethods );
+	public List<EncodedMethod> getDirectMethods() {
+		return Collections.unmodifiableList(directMethods);
 	}
 
-	public List< EncodedMethod > getVirtualMethods( ) {
-		return Collections.unmodifiableList( virtualMethods );
+	public List<EncodedMethod> getVirtualMethods() {
+		return Collections.unmodifiableList(virtualMethods);
 	}
 
-	public int getStaticFieldsSize( ) {
+	public int getStaticFieldsSize() {
 		return staticFieldsSize;
 	}
 
-	public int getInstanceFieldsSize( ) {
+	public int getInstanceFieldsSize() {
 		return instanceFieldsSize;
 	}
 
-	public int getDirectMethodsSize( ) {
+	public int getDirectMethodsSize() {
 		return directMethodsSize;
 	}
 
-	public int getVirtualMethodsSize( ) {
+	public int getVirtualMethodsSize() {
 		return virtualMethodsSize;
 	}
 
-	public EncodedMethod getMethodByIndex( int index ) {
-		for ( int i = 0 ; i < directMethods.size() ; ++i ) {
-			EncodedMethod encodedMethod = directMethods.get( i );
-			if ( encodedMethod.getMethodIndex( ) == index ) {
+	public EncodedMethod getMethodByIndex(int index) {
+		for (int i = 0; i < directMethods.size(); ++i) {
+			EncodedMethod encodedMethod = directMethods.get(i);
+			if (encodedMethod.getMethodIndex() == index) {
 				return encodedMethod;
 			}
 		}
-		for ( int i = 0 ; i < virtualMethods.size() ; ++i ) {
-			EncodedMethod encodedMethod = virtualMethods.get( i );
-			if ( encodedMethod.getMethodIndex( ) == index ) {
+		for (int i = 0; i < virtualMethods.size(); ++i) {
+			EncodedMethod encodedMethod = virtualMethods.get(i);
+			if (encodedMethod.getMethodIndex() == index) {
 				return encodedMethod;
 			}
 		}
@@ -129,14 +128,15 @@ public class ClassDataItem implements StructConverter {
 	}
 
 	@Override
-	public DataType toDataType( ) throws DuplicateNameException, IOException {
+	public DataType toDataType() throws DuplicateNameException, IOException {
 //		int unique = 0;
-		String name = "class_data_item" + "_" + staticFieldsSizeLength + "_" + instanceFieldsSizeLength + "_" + directMethodsSizeLength + "_" + virtualMethodsSizeLength;
-		Structure structure = new StructureDataType( name, 0 );
-		structure.add( new ArrayDataType( BYTE, staticFieldsSizeLength, BYTE.getLength( ) ), "static_fields", null );
-		structure.add( new ArrayDataType( BYTE, instanceFieldsSizeLength, BYTE.getLength( ) ), "instance_fields", null );
-		structure.add( new ArrayDataType( BYTE, directMethodsSizeLength, BYTE.getLength( ) ), "direct_methods", null );
-		structure.add( new ArrayDataType( BYTE, virtualMethodsSizeLength, BYTE.getLength( ) ), "virtual_methods", null );
+		String name = "class_data_item_%d_%d_%d_%d".formatted(staticFieldsSizeLength,
+			instanceFieldsSizeLength, directMethodsSizeLength, virtualMethodsSizeLength);
+		Structure structure = new StructureDataType(name, 0);
+		structure.add(ULEB128, staticFieldsSizeLength, "static_fields", null);
+		structure.add(ULEB128, instanceFieldsSizeLength, "instance_fields", null);
+		structure.add(ULEB128, directMethodsSizeLength, "direct_methods", null);
+		structure.add(ULEB128, virtualMethodsSizeLength, "virtual_methods", null);
 //		int index = 0;
 //		for ( EncodedField field : staticFields ) {
 //			DataType dataType = field.toDataType( );
@@ -161,7 +161,7 @@ public class ClassDataItem implements StructConverter {
 //			structure.add( dataType, "virtualMethod" + index, null );
 //			++index;
 //		}
-		structure.setCategoryPath( new CategoryPath( "/dex/class_data_item" ) );
+		structure.setCategoryPath(new CategoryPath("/dex/class_data_item"));
 //		try {
 //			structure.setName( name + "_" + Integer.toHexString( unique ) );
 //		}

@@ -31,7 +31,6 @@ public abstract class AbstractCompositeMsType extends AbstractComplexMsType {
 	protected RecordNumber vShapeTableRecordNumber; // Not used by union.
 	//TODO: has more... guessing below
 	protected BigInteger size;
-	protected String mangledName; // Used by MsType (not used by 16MsType or StMsType?)
 
 	/**
 	 * Constructor for this type.
@@ -70,14 +69,6 @@ public abstract class AbstractCompositeMsType extends AbstractComplexMsType {
 	}
 
 	/**
-	 * Returns the mangled name within this composite.
-	 * @return Mangled name.
-	 */
-	public String getMangledName() {
-		return mangledName;
-	}
-
-	/**
 	 * Returns the record number of the derived-from list of types.
 	 * @return Record number of the derived-from list of types.
 	 */
@@ -110,8 +101,10 @@ public abstract class AbstractCompositeMsType extends AbstractComplexMsType {
 		myBuilder.append(" ");
 		myBuilder.append(name);
 		myBuilder.append("<");
-		myBuilder.append(count);
-		myBuilder.append(",");
+		if (count != -1) {
+			myBuilder.append(count);
+			myBuilder.append(",");
+		}
 		myBuilder.append(property);
 		myBuilder.append(">");
 		AbstractMsType fieldType = getFieldDescriptorListType();

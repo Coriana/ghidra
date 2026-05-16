@@ -30,9 +30,30 @@ import util.CollectionUtils;
  */
 
 public interface AddressIterator extends Iterator<Address>, Iterable<Address> {
+
+	public static final AddressIterator EMPTY_ITERATOR = new AddressIterator() {
+
+		@Override
+		public boolean hasNext() {
+			return false;
+		}
+
+		@Override
+		public Address next() {
+			return null;
+		}
+
+		@Override
+		public Iterator<Address> iterator() {
+			return this;
+		}
+
+	};
+
 	/**
 	 * Get the next address.
-	 * 
+	 * <P>NOTE: This deviates from the standard {@link Iterator} interface
+	 * by returning null instead of throwing an exception.
 	 * @return the next address in the iteration.
 	 */
 	@Override
@@ -45,5 +66,10 @@ public interface AddressIterator extends Iterator<Address>, Iterable<Address> {
 	 */
 	@Override
 	public boolean hasNext();
+
+	@Override
+	default Iterator<Address> iterator() {
+		return this;
+	}
 
 }

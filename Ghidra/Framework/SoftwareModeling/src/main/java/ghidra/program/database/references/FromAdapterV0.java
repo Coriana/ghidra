@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,7 +19,6 @@ import java.io.IOException;
 
 import db.*;
 import db.util.ErrorHandler;
-import ghidra.program.database.DBObjectCache;
 import ghidra.program.database.ProgramDB;
 import ghidra.program.database.map.*;
 import ghidra.program.model.address.*;
@@ -50,17 +49,19 @@ class FromAdapterV0 extends FromAdapter {
 	}
 
 	@Override
-	public RefList createRefList(ProgramDB program, DBObjectCache<RefList> cache, Address from)
+	public RefList createRefList(ProgramDB program, Address from)
 			throws IOException {
-		return new RefListV0(from, this, addrMap, program, cache, true);
+		return RefListV0.createNew(from, this, addrMap, program, true);
 	}
 
 	@Override
-	public RefList getRefList(ProgramDB program, DBObjectCache<RefList> cache, Address from,
-			long fromAddr) throws IOException {
-		Record rec = table.getRecord(fromAddr);
+	public RefList getRefList(ProgramDB program, Address from, long fromAddr) throws IOException {
+		DBRecord rec = table.getRecord(fromAddr);
 		if (rec != null) {
-			return new RefListV0(rec, this, addrMap, program, cache, true);
+			if (rec.getBinaryData(REF_DATA_COL) == null) {
+				return BigRefListV0.createExisting(rec, this, addrMap, program, true);
+			}
+			return RefListV0.instantiateExisting(rec, this, addrMap, program, true);
 		}
 		return null;
 	}
@@ -71,9 +72,9 @@ class FromAdapterV0 extends FromAdapter {
 	}
 
 	@Override
-	public Record createRecord(long key, int numRefs, byte refLevel, byte[] refData)
+	public DBRecord createRecord(long key, int numRefs, byte refLevel, byte[] refData)
 			throws IOException {
-		Record rec = FROM_REFS_SCHEMA.createRecord(key);
+		DBRecord rec = FROM_REFS_SCHEMA.createRecord(key);
 		rec.setIntValue(REF_COUNT_COL, numRefs);
 		rec.setBinaryData(REF_DATA_COL, refData);
 		table.putRecord(rec);
@@ -81,12 +82,12 @@ class FromAdapterV0 extends FromAdapter {
 	}
 
 	@Override
-	public Record getRecord(long key) throws IOException {
+	public DBRecord getRecord(long key) throws IOException {
 		return table.getRecord(key);
 	}
 
 	@Override
-	public void putRecord(Record record) throws IOException {
+	public void putRecord(DBRecord record) throws IOException {
 		table.putRecord(record);
 	}
 

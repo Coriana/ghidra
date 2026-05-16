@@ -30,10 +30,7 @@ import ghidra.program.model.listing.StackFrame;
 import ghidra.program.model.listing.Variable;
 
 public class StackEditorActions2Test extends AbstractStackEditorTest {
-	/**
-	 * Constructor for StackEditorActionsTest.
-	 * @param name the testcase name.
-	 */
+
 	public StackEditorActions2Test() {
 		super(false);
 	}
@@ -186,8 +183,9 @@ public class StackEditorActions2Test extends AbstractStackEditorTest {
 
 		sv = stack.getVariableContaining(0xc);
 		assertNotNull(sv);
-		assertTrue(sv.getDataType().isEquivalent(
-			PointerDataType.getPointer(StringDataType.dataType, program.getDataTypeManager())));
+		assertTrue(sv.getDataType()
+				.isEquivalent(PointerDataType.getPointer(StringDataType.dataType,
+					program.getDataTypeManager())));
 	}
 
 	@Test
@@ -365,12 +363,12 @@ public class StackEditorActions2Test extends AbstractStackEditorTest {
 		assertEquals(1, model.getComponent(1).getLength());
 
 		assertEquals("", model.getStatus());
-		invoke(arrayAction);
-		dialog = env.waitForDialogComponent(NumberInputDialog.class, 1000);
+		invoke(arrayAction, false);
+		dialog = waitForDialogComponent(NumberInputDialog.class);
 		assertNotNull(dialog);
 		assertEquals("Enter Number", dialog.getTitle());
 		badInput(dialog, 5);
-		dialog = env.waitForDialogComponent(NumberInputDialog.class, 1000);
+		dialog = waitForDialogComponent(NumberInputDialog.class);
 		assertNotNull(dialog);
 		assertEquals("Enter Number", dialog.getTitle());
 		okInput(dialog, 4);
@@ -395,13 +393,13 @@ public class StackEditorActions2Test extends AbstractStackEditorTest {
 		checkSelection(new int[] { 0 });
 
 		assertEquals("", model.getStatus());
-		invoke(arrayAction);
+		invoke(arrayAction, false);
 		waitForSwing();
-		dialog = env.waitForDialogComponent(NumberInputDialog.class, 2000);
+		dialog = waitForDialogComponent(NumberInputDialog.class);
 		assertNotNull(dialog);
 		assertEquals("Enter Number", dialog.getTitle());
 		badInput(dialog, 2);
-		dialog = env.waitForDialogComponent(NumberInputDialog.class, 2000);
+		dialog = waitForDialogComponent(NumberInputDialog.class);
 		assertNotNull(dialog);
 		assertEquals("Value must be between 1 and 1", dialog.getStatusText());
 		assertEquals("Enter Number", dialog.getTitle());
@@ -428,8 +426,8 @@ public class StackEditorActions2Test extends AbstractStackEditorTest {
 
 		// Cancel the array dialog
 		assertEquals("", model.getStatus());
-		invoke(arrayAction);
-		dialog = env.waitForDialogComponent(NumberInputDialog.class, 1000);
+		invoke(arrayAction, false);
+		dialog = waitForDialogComponent(NumberInputDialog.class);
 		assertNotNull(dialog);
 		cancelInput(dialog);
 		assertEquals("", model.getStatus());
@@ -518,7 +516,7 @@ public class StackEditorActions2Test extends AbstractStackEditorTest {
 		assertEquals("", model.getStatus());
 		assertEquals(num, model.getNumComponents());
 		assertCellString("pointer32 *", ordinal, model.getDataTypeColumn());
-		assertEquals("pointer32 *", getDataType(ordinal).getName());
+		assertEquals("pointer32 *32", getDataType(ordinal).getName());
 		assertTrue(((Pointer) getDataType(ordinal)).getDataType().isEquivalent(dt));
 		assertEquals(4, getDataType(ordinal).getLength());
 		assertEquals(4, model.getComponent(ordinal).getLength());

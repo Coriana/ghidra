@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -42,6 +41,7 @@ public abstract class ConvertedRecordIterator implements RecordIterator {
 	/**
 	 * @see db.RecordIterator#delete()
 	 */
+	@Override
 	public boolean delete() throws IOException {
 		if (!deleteAllowed) {
 			throw new UnsupportedOperationException("record delete not allowed");
@@ -52,6 +52,7 @@ public abstract class ConvertedRecordIterator implements RecordIterator {
 	/**
 	 * @see db.RecordIterator#hasNext()
 	 */
+	@Override
 	public boolean hasNext() throws IOException {
 		return originalIterator.hasNext();
 	}
@@ -59,6 +60,7 @@ public abstract class ConvertedRecordIterator implements RecordIterator {
 	/**
 	 * @see db.RecordIterator#hasPrevious()
 	 */
+	@Override
 	public boolean hasPrevious() throws IOException {
 		return originalIterator.hasPrevious();
 	}
@@ -66,14 +68,16 @@ public abstract class ConvertedRecordIterator implements RecordIterator {
 	/**
 	 * @see db.RecordIterator#next()
 	 */
-	public Record next() throws IOException {
+	@Override
+	public DBRecord next() throws IOException {
 		return convertRecord(originalIterator.next());
 	}
 
 	/**
 	 * @see db.RecordIterator#previous()
 	 */
-	public Record previous() throws IOException {
+	@Override
+	public DBRecord previous() throws IOException {
 		return convertRecord(originalIterator.previous());
 	}
 	
@@ -82,6 +86,6 @@ public abstract class ConvertedRecordIterator implements RecordIterator {
 	 * @param record
 	 * @return converted record
 	 */
-	protected abstract Record convertRecord(Record record);
+	protected abstract DBRecord convertRecord(DBRecord record);
 	
 }

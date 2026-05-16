@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -29,7 +29,7 @@ import ghidra.util.datastruct.Accumulator;
 import ghidra.util.datastruct.ListAccumulator;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
-import ghidra.util.task.TaskMonitorAdapter;
+import utility.function.TerminatingConsumer;
 
 /**
  * <CODE>ProgramMemoryUtil</CODE> contains some static methods for 
@@ -132,7 +132,7 @@ public class ProgramMemoryUtil {
 		// Copy each range.
 		AddressRangeIterator iter = addrSet.getAddressRanges();
 		while (iter.hasNext()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			AddressRange range = iter.next();
 			copyByteRange(toMem, fromMem, range);
 		}
@@ -150,14 +150,26 @@ public class ProgramMemoryUtil {
 	 */
 	private static void copyByteRange(Memory toMem, Memory fromMem, AddressRange range)
 			throws MemoryAccessException {
+
+// TODO: Addresses from one program cannot be used with another program (e.g., overlays)
+// TODO: Should be using AddressTranslator (see DiffUtility.getCompatibleAddressRange)
+// TODO: Method relies too heavily on caller limiting range to valid initialized memory in both programs
+
 		// Copy the bytes for this range
 		int length = 0;
 		Address writeAddress = range.getMinAddress();
 		for (long len = range.getLength(); len > 0; len -= length) {
 			length = (int) Math.min(len, Integer.MAX_VALUE);
-			byte[] bytes = new byte[length];
-			fromMem.getBytes(writeAddress, bytes);
-			toMem.setBytes(writeAddress, bytes);
+			byte[] srcBytes = new byte[length];
+
+			// NOTE: problems will arise if srcLen != length
+			int srcLen = fromMem.getBytes(writeAddress, srcBytes);
+			byte[] destBytes = new byte[srcLen];
+			if (toMem.getBytes(writeAddress, destBytes) != srcLen ||
+				!Arrays.equals(destBytes, 0, srcLen, srcBytes, 0, srcLen)) {
+				// only copy bytes if they differ
+				toMem.setBytes(writeAddress, srcBytes, 0, srcLen);
+			}
 			if (len > length) {
 				writeAddress = writeAddress.add(length);
 			}
@@ -252,7 +264,7 @@ public class ProgramMemoryUtil {
 	public static void loadDirectReferenceList(Program program, int alignment, Address toAddress,
 			AddressSetView toAddressSet, List<ReferenceAddressPair> directReferenceList,
 			TaskMonitor monitor) throws CancelledException {
-		Accumulator<ReferenceAddressPair> accumulator = new ListAccumulator<>();
+		ListAccumulator<ReferenceAddressPair> accumulator = new ListAccumulator<>();
 		loadDirectReferenceList(program, alignment, toAddress, toAddressSet, accumulator, monitor);
 		directReferenceList.addAll(accumulator.get());
 	}
@@ -277,7 +289,7 @@ public class ProgramMemoryUtil {
 			TaskMonitor monitor) throws CancelledException {
 
 		if (monitor == null) {
-			monitor = TaskMonitorAdapter.DUMMY_MONITOR;
+			monitor = TaskMonitor.DUMMY;
 		}
 
 		Memory memory = program.getMemory();
@@ -306,7 +318,7 @@ public class ProgramMemoryUtil {
 		monitor.initialize(memory.getNumAddresses());
 		int count = 0;
 		while (addrIt.hasNext()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			Address a = addrIt.next();
 			++count;
 			monitor.setProgress(count);
@@ -412,7 +424,7 @@ public class ProgramMemoryUtil {
 	 * Direct references are only found at addresses that match the indicated alignment. 
 	 * @param program the program whose memory is to be checked.
 	 * @param alignment direct references are to only be found at the indicated alignment in memory.
-	 * @param codeUnit the code unit to to search for references to.
+	 * @param codeUnit the code unit to search for references.
 	 * @param monitor a task monitor for progress or to allow canceling.
 	 * @return list of addresses referring directly to the toAddress.
 	 */
@@ -420,7 +432,7 @@ public class ProgramMemoryUtil {
 			CodeUnit codeUnit, TaskMonitor monitor) {
 
 		if (monitor == null) {
-			monitor = TaskMonitorAdapter.DUMMY_MONITOR;
+			monitor = TaskMonitor.DUMMY;
 		}
 
 		AddressSet toAddressSet =
@@ -489,7 +501,7 @@ public class ProgramMemoryUtil {
 			int alignment, Address toAddress, TaskMonitor monitor) throws CancelledException {
 
 		if (monitor == null) {
-			monitor = TaskMonitorAdapter.DUMMY_MONITOR;
+			monitor = TaskMonitor.DUMMY;
 		}
 
 		byte[] addressBytes = getDirectAddressBytes(program, toAddress);
@@ -633,7 +645,7 @@ public class ProgramMemoryUtil {
 			Address toAddress, TaskMonitor monitor) throws CancelledException {
 
 		if (monitor == null) {
-			monitor = TaskMonitorAdapter.DUMMY_MONITOR;
+			monitor = TaskMonitor.DUMMY;
 		}
 
 		Memory memory = program.getMemory();
@@ -676,7 +688,7 @@ public class ProgramMemoryUtil {
 			Address end = block.getEnd();
 			Address found = null;
 			while (true) {
-				monitor.checkCanceled();
+				monitor.checkCancelled();
 
 				found = memory.findBytes(start, end, bytePattern, maskBytes, true, monitor);
 				if (found == null) {
@@ -711,7 +723,7 @@ public class ProgramMemoryUtil {
 			Address start = memBlock.getStart();
 			Address end = memBlock.getEnd();
 			while (true) {
-				monitor.checkCanceled();
+				monitor.checkCancelled();
 
 				Address found = memory.findBytes(start, end, bytePattern, maskBytes, true, monitor);
 				if (found == null) {
@@ -741,13 +753,41 @@ public class ProgramMemoryUtil {
 			List<MemoryBlock> blocks, AddressSetView set, TaskMonitor monitor)
 			throws CancelledException {
 
-		monitor.setMessage("Finding \"" + searchString + "\".");
 		List<Address> addresses = new ArrayList<>();
+
+		// just add each found location to the list, no termination of search
+		TerminatingConsumer<Address> collector = (i) -> addresses.add(i);
+
+		locateString(searchString, collector, program, blocks, set, monitor);
+
+		return addresses;
+	}
+
+	/**
+	 * Finds the string in memory indicated by the searchString limited to the indicated 
+	 * memory blocks and address set.  Each found location calls the foundLocationConsumer.consume(addr)
+	 * method.  If the search should terminate, (ie. enough results found), then terminateRequested() should
+	 * return true.  Requesting termination is different than a cancellation from the task monitor.
+	 * 
+	 * @param searchString the string to find
+	 * @param foundLocationConsumer location consumer with consumer.accept(Address addr) routine defined
+	 * @param program the program to search
+	 * @param blocks the only blocks to search
+	 * @param set a set of the addresses to limit the results
+	 * @param monitor a task monitor to allow 
+	 * @throws CancelledException if the user cancels
+	 */
+	public static void locateString(String searchString,
+			TerminatingConsumer<Address> foundLocationConsumer, Program program,
+			List<MemoryBlock> blocks, AddressSetView set, TaskMonitor monitor)
+			throws CancelledException {
+
+		monitor.setMessage("Finding \"" + searchString + "\".");
 		int length = searchString.length();
 		byte[] bytes = searchString.getBytes();
 		Memory memory = program.getMemory();
 		for (MemoryBlock memoryBlock : blocks) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			Address startAddress = memoryBlock.getStart();
 			Address endAddress = memoryBlock.getEnd();
 			Address foundAddress;
@@ -759,7 +799,10 @@ public class ProgramMemoryUtil {
 					break; // no more found in block.
 				}
 				if (set.contains(foundAddress)) {
-					addresses.add(foundAddress);
+					foundLocationConsumer.accept(foundAddress);
+					if (foundLocationConsumer.terminationRequested()) {
+						return; // termination of search requested
+					}
 				}
 				try {
 					startAddress = foundAddress.add(length);
@@ -770,7 +813,6 @@ public class ProgramMemoryUtil {
 			}
 			while (startAddress.compareTo(endAddress) <= 0);
 		}
-		return addresses;
 	}
 
 	/**
@@ -790,7 +832,7 @@ public class ProgramMemoryUtil {
 		Memory memory = program.getMemory();
 
 		for (MemoryBlock memoryBlock : memory.getBlocks()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 
 			AddressSet blockSet = new AddressSet(memoryBlock.getStart(), memoryBlock.getEnd());
 			AddressSet intersection = blockSet.intersect(set);

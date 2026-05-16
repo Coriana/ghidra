@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,13 +22,13 @@ import java.util.ArrayList;
 import org.junit.Assert;
 import org.junit.Test;
 
-import ghidra.program.database.ProgramDB;
-import ghidra.program.database.ProgramModifierListener;
+import ghidra.docking.settings.Settings;
+import ghidra.program.database.*;
+import ghidra.program.database.data.DataTypeUtilities;
 import ghidra.program.model.data.*;
 import ghidra.program.model.data.Enum;
 import ghidra.util.InvalidNameException;
 import ghidra.util.exception.DuplicateNameException;
-import ghidra.util.task.TaskMonitorAdapter;
 
 /**
  *
@@ -39,70 +39,40 @@ import ghidra.util.task.TaskMonitorAdapter;
 public class DataTypeMerge5Test extends AbstractDataTypeMergeTest {
 
 	@Test
-    public void testTypeDefUndefined() throws Exception {
+	public void testTypeDefUndefined() throws Exception {
 
 		mtf.initialize("notepad", new ProgramModifierListener() {
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
+
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				boolean commit = false;
 				DataTypeManager dtm = program.getDataTypeManager();
-				int transactionID = program.startTransaction("test");
-
-				try {
-					Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
-					dtm.remove(s, TaskMonitorAdapter.DUMMY_MONITOR);
-					DataType dt =
-						dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
-					dtm.remove(dt, TaskMonitorAdapter.DUMMY_MONITOR);
-					commit = true;
-				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
+				Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
+				dtm.remove(s);
+				DataType dt =
+					dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
+				dtm.remove(dt);
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				boolean commit = false;
 				DataTypeManager dtm = program.getDataTypeManager();
-				int transactionID = program.startTransaction("test");
 				Union union =
 					(Union) dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
 
-				try {
-					DataTypeComponent dtc = union.add(new FloatDataType());
-					dtc.setComment("my comments");
-					dtc.setFieldName("Float Field");
+				union.add(new FloatDataType(), "Float Field", "my comments");
 
-					TypeDef td = new TypedefDataType(new CategoryPath("/Category1"), "TD_Default",
-						DataType.DEFAULT);
+				TypeDef td = new TypedefDataType(new CategoryPath("/Category1"), "TD_Default",
+					DataType.DEFAULT);
 
-					dtc = union.add(td);
-					dtc.setComment("a typedef");
-					dtc.setFieldName("typedef field name TD_Default");
-					Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
-					s.add(new WordDataType());
+				union.add(td, "typedef field name TD_Default", "a typedef");
 
-					union =
-						new UnionDataType(new CategoryPath("/Category1/Category2"), "AnotherUnion");
-					union.add(s);
-					union.add(new ByteDataType());
-					dtm.addDataType(union, DataTypeConflictHandler.DEFAULT_HANDLER);
+				Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
+				s.add(new WordDataType());
 
-					commit = true;
-				}
-				catch (DuplicateNameException e) {
-					Assert.fail("Got Duplicate name exception!");
-				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
+				union = new UnionDataType(new CategoryPath("/Category1/Category2"), "AnotherUnion");
+				union.add(s);
+				union.add(new ByteDataType());
+				dtm.addDataType(union, DataTypeConflictHandler.DEFAULT_HANDLER);
 			}
 		});
 		executeMerge();
@@ -138,82 +108,53 @@ public class DataTypeMerge5Test extends AbstractDataTypeMergeTest {
 	}
 
 	@Test
-    public void testTypeDefs() throws Exception {
+	public void testTypeDefs() throws Exception {
 
 		mtf.initialize("notepad", new ProgramModifierListener() {
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
+
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				boolean commit = false;
 				DataTypeManager dtm = program.getDataTypeManager();
-				int transactionID = program.startTransaction("test");
-
-				try {
-					Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
-					dtm.remove(s, TaskMonitorAdapter.DUMMY_MONITOR);
-					DataType dt =
-						dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
-					dtm.remove(dt, TaskMonitorAdapter.DUMMY_MONITOR);
-					commit = true;
-				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
+				Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
+				dtm.remove(s);
+				DataType dt =
+					dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
+				dtm.remove(dt);
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				boolean commit = false;
 				DataTypeManager dtm = program.getDataTypeManager();
-				int transactionID = program.startTransaction("test");
 				Union union =
 					(Union) dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
 
-				try {
-					DataTypeComponent dtc = union.add(new FloatDataType());
-					dtc.setComment("my comments");
-					dtc.setFieldName("Float Field");
-					Enum enumm = new EnumDataType(new CategoryPath("/Category1"), "MyEnum", 1);
-					enumm.add("one", 1);
-					enumm.add("two", 2);
-					enumm.add("three", 3);
-					Pointer p = PointerDataType.getPointer(enumm, 4);// MyEnum *
-					p = PointerDataType.getPointer(p, 4);// MyEnum * *
-					p = PointerDataType.getPointer(p, 4);// MyEnum * * *
-					p = PointerDataType.getPointer(p, 4);// MyEnum * * * *
-					p = PointerDataType.getPointer(p, 4);// MyEnum * * * * *
+				union.add(new FloatDataType(), "Float Field", "my comments");
 
-					// create an array of MyEnum * * * * *
-					Array array = new ArrayDataType(p, 5, p.getLength());
+				Enum enumm = new EnumDataType(new CategoryPath("/Category1"), "MyEnum", 1);
+				enumm.add("one", 1);
+				enumm.add("two", 2);
+				enumm.add("three", 3);
+				Pointer p = PointerDataType.getPointer(enumm, 4);// MyEnum *
+				p = PointerDataType.getPointer(p, 4);// MyEnum * *
+				p = PointerDataType.getPointer(p, 4);// MyEnum * * *
+				p = PointerDataType.getPointer(p, 4);// MyEnum * * * *
+				p = PointerDataType.getPointer(p, 4);// MyEnum * * * * *
 
-					TypeDef td = new TypedefDataType(new CategoryPath("/Category1"),
-						"TD_MyEnumPointer", array);
+				// create an array of MyEnum * * * * *
+				Array array = new ArrayDataType(p, 5, p.getLength());
 
-					dtc = union.add(td);
-					dtc.setComment("a typedef");
-					dtc.setFieldName("typedef field name TD_MyEnumPointer");
-					Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
-					s.add(new WordDataType());
+				TypeDef td =
+					new TypedefDataType(new CategoryPath("/Category1"), "TD_MyEnumPointer", array);
 
-					union =
-						new UnionDataType(new CategoryPath("/Category1/Category2"), "AnotherUnion");
-					union.add(s);
-					union.add(new ByteDataType());
-					dtm.addDataType(union, DataTypeConflictHandler.DEFAULT_HANDLER);
+				union.add(td, "typedef field name TD_MyEnumPointer", "a typedef");
 
-					commit = true;
-				}
-				catch (DuplicateNameException e) {
-					Assert.fail("Got Duplicate name exception!");
-				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
+				Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
+				s.add(new WordDataType());
+
+				union = new UnionDataType(new CategoryPath("/Category1/Category2"), "AnotherUnion");
+				union.add(s);
+				union.add(new ByteDataType());
+				dtm.addDataType(union, DataTypeConflictHandler.DEFAULT_HANDLER);
 			}
 		});
 		executeMerge();
@@ -259,86 +200,57 @@ public class DataTypeMerge5Test extends AbstractDataTypeMergeTest {
 	}
 
 	@Test
-    public void testTypeDefs2() throws Exception {
+	public void testTypeDefs2() throws Exception {
 
 		mtf.initialize("notepad", new ProgramModifierListener() {
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
+
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				boolean commit = false;
 				DataTypeManager dtm = program.getDataTypeManager();
-				int transactionID = program.startTransaction("test");
-
-				try {
-					Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
-					dtm.remove(s, TaskMonitorAdapter.DUMMY_MONITOR);
-					DataType dt =
-						dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
-					dtm.remove(dt, TaskMonitorAdapter.DUMMY_MONITOR);
-					commit = true;
-				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
+				Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
+				dtm.remove(s);
+				DataType dt =
+					dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
+				dtm.remove(dt);
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				boolean commit = false;
 				DataTypeManager dtm = program.getDataTypeManager();
-				int transactionID = program.startTransaction("test");
 				Union union =
 					(Union) dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
 
-				try {
-					DataTypeComponent dtc = union.add(new FloatDataType());
-					dtc.setComment("my comments");
-					dtc.setFieldName("Float Field");
-					Enum enumm = new EnumDataType(new CategoryPath("/Category1"), "MyEnum", 1);
-					enumm.add("one", 1);
-					enumm.add("two", 2);
-					enumm.add("three", 3);
+				union.add(new FloatDataType(), "Float Field", "my comments");
 
-					// create TypeDef on pointer to an Array of pointers
+				Enum enumm = new EnumDataType(new CategoryPath("/Category1"), "MyEnum", 1);
+				enumm.add("one", 1);
+				enumm.add("two", 2);
+				enumm.add("three", 3);
 
-					Pointer p = PointerDataType.getPointer(enumm, 4);// MyEnum *
-					p = PointerDataType.getPointer(p, 4);// MyEnum * *
-					p = PointerDataType.getPointer(p, 4);// MyEnum * * *
-					p = PointerDataType.getPointer(p, 4);// MyEnum * * * *
-					p = PointerDataType.getPointer(p, 4);// MyEnum * * * * *
+				// create TypeDef on pointer to an Array of pointers
 
-					// create an array of MyEnum * * * * *
-					Array array = new ArrayDataType(p, 5, p.getLength());
-					p = PointerDataType.getPointer(array, 4);// MyEnum * * * * *[5] *
+				Pointer p = PointerDataType.getPointer(enumm, 4);// MyEnum *
+				p = PointerDataType.getPointer(p, 4);// MyEnum * *
+				p = PointerDataType.getPointer(p, 4);// MyEnum * * *
+				p = PointerDataType.getPointer(p, 4);// MyEnum * * * *
+				p = PointerDataType.getPointer(p, 4);// MyEnum * * * * *
 
-					TypeDef td =
-						new TypedefDataType(new CategoryPath("/Category1"), "TD_MyEnumPointer", p);
+				// create an array of MyEnum * * * * *
+				Array array = new ArrayDataType(p, 5, p.getLength());
+				p = PointerDataType.getPointer(array, 4);// MyEnum * * * * *[5] *
 
-					dtc = union.add(td);
-					dtc.setComment("a typedef");
-					dtc.setFieldName("typedef field name TD_MyEnumPointer");
-					Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
-					s.add(new WordDataType());
+				TypeDef td =
+					new TypedefDataType(new CategoryPath("/Category1"), "TD_MyEnumPointer", p);
 
-					union =
-						new UnionDataType(new CategoryPath("/Category1/Category2"), "AnotherUnion");
-					union.add(s);
-					union.add(new ByteDataType());
-					dtm.addDataType(union, DataTypeConflictHandler.DEFAULT_HANDLER);
+				union.add(td, "typedef field name TD_MyEnumPointer", "a typedef");
 
-					commit = true;
-				}
-				catch (DuplicateNameException e) {
-					Assert.fail("Got Duplicate name exception!");
-				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
+				Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
+				s.add(new WordDataType());
+
+				union = new UnionDataType(new CategoryPath("/Category1/Category2"), "AnotherUnion");
+				union.add(s);
+				union.add(new ByteDataType());
+				dtm.addDataType(union, DataTypeConflictHandler.DEFAULT_HANDLER);
 			}
 		});
 		executeMerge();
@@ -361,7 +273,7 @@ public class DataTypeMerge5Test extends AbstractDataTypeMergeTest {
 
 		DataTypeComponent[] dtcs = union.getComponents();
 		assertEquals(7, dtcs.length);
-		assertEquals("typedef field name TD_MyEnumPointer", dtcs[6].getFieldName());
+		assertEquals("typedef_field_name_TD_MyEnumPointer", dtcs[6].getFieldName());
 		assertEquals("a typedef", dtcs[6].getComment());
 
 		Enum enumm = (Enum) dtm.getDataType(new CategoryPath("/Category1"), "MyEnum");
@@ -389,94 +301,63 @@ public class DataTypeMerge5Test extends AbstractDataTypeMergeTest {
 	}
 
 	@Test
-    public void testTypeDefs3() throws Exception {
+	public void testTypeDefs3() throws Exception {
 
 		mtf.initialize("notepad2", new ProgramModifierListener() {
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
+
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				boolean commit = false;
 				DataTypeManager dtm = program.getDataTypeManager();
-				int transactionID = program.startTransaction("test");
+				Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
+				dtm.remove(s);
+				DataType dt =
+					dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
+				dtm.remove(dt);
 
-				try {
-					Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
-					dtm.remove(s, TaskMonitorAdapter.DUMMY_MONITOR);
-					DataType dt =
-						dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
-					dtm.remove(dt, TaskMonitorAdapter.DUMMY_MONITOR);
-
-					// edit FavoriteColors
-					Enum enumm =
-						(Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
-					enumm.remove("Red");
-					enumm.remove("Black");
-					enumm.add("Crimson", 6);
-					commit = true;
-				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
+				// edit FavoriteColors
+				Enum enumm = (Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
+				enumm.remove("Red");
+				enumm.remove("Black");
+				enumm.add("Crimson", 6);
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				boolean commit = false;
 				DataTypeManager dtm = program.getDataTypeManager();
-				int transactionID = program.startTransaction("test");
 				Union union =
 					(Union) dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
 
-				try {
-					DataTypeComponent dtc = union.add(new FloatDataType());
-					dtc.setComment("my comments");
-					dtc.setFieldName("Float Field");
-					// edit FavoriteColors
-					Enum enumm =
-						(Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
-					enumm.add("Cyan", 5);
-					enumm.add("Gold", 8);
+				union.add(new FloatDataType(), "Float Field", "my comments");
 
-					// create TypeDef on pointer to an Array of pointers
+				// edit FavoriteColors
+				Enum enumm = (Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
+				enumm.add("Cyan", 5);
+				enumm.add("Gold", 8);
 
-					Pointer p = PointerDataType.getPointer(enumm, 4);// FavoriteColors *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * * *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * * *
+				// create TypeDef on pointer to an Array of pointers
 
-					// create an array of FavoriteColors * * * * *
-					Array array = new ArrayDataType(p, 5, p.getLength());
-					p = PointerDataType.getPointer(array, 4);// FavoriteColors * * * * *[5] *
+				Pointer p = PointerDataType.getPointer(enumm, 4);// FavoriteColors *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * * *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * * *
 
-					TypeDef td =
-						new TypedefDataType(new CategoryPath("/Category1"), "TD_MyEnumPointer", p);
+				// create an array of FavoriteColors * * * * *
+				Array array = new ArrayDataType(p, 5, p.getLength());
+				p = PointerDataType.getPointer(array, 4);// FavoriteColors * * * * *[5] *
 
-					dtc = union.add(td);
-					dtc.setComment("a typedef");
-					dtc.setFieldName("typedef field name TD_MyEnumPointer");
-					Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
-					s.add(new WordDataType());
+				TypeDef td =
+					new TypedefDataType(new CategoryPath("/Category1"), "TD_MyEnumPointer", p);
 
-					union =
-						new UnionDataType(new CategoryPath("/Category1/Category2"), "AnotherUnion");
-					union.add(s);
-					union.add(new ByteDataType());
-					dtm.addDataType(union, DataTypeConflictHandler.DEFAULT_HANDLER);
+				union.add(td, "typedef field name TD_MyEnumPointer", "a typedef");
 
-					commit = true;
-				}
-				catch (DuplicateNameException e) {
-					Assert.fail("Got Duplicate name exception!");
-				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
+				Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
+				s.add(new WordDataType());
+
+				union = new UnionDataType(new CategoryPath("/Category1/Category2"), "AnotherUnion");
+				union.add(s);
+				union.add(new ByteDataType());
+				dtm.addDataType(union, DataTypeConflictHandler.DEFAULT_HANDLER);
 			}
 		});
 		executeMerge();
@@ -501,7 +382,7 @@ public class DataTypeMerge5Test extends AbstractDataTypeMergeTest {
 
 		DataTypeComponent[] dtcs = union.getComponents();
 		assertEquals(7, dtcs.length);
-		assertEquals("typedef field name TD_MyEnumPointer", dtcs[6].getFieldName());
+		assertEquals("typedef_field_name_TD_MyEnumPointer", dtcs[6].getFieldName());
 		assertEquals("a typedef", dtcs[6].getComment());
 
 		Enum enumm = (Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
@@ -532,92 +413,62 @@ public class DataTypeMerge5Test extends AbstractDataTypeMergeTest {
 	}
 
 	@Test
-    public void testTypeDefs4() throws Exception {
+	public void testTypeDefs4() throws Exception {
 
 		mtf.initialize("notepad2", new ProgramModifierListener() {
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
+
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				boolean commit = false;
 				DataTypeManager dtm = program.getDataTypeManager();
-				int transactionID = program.startTransaction("test");
 
-				try {
-					Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
-					dtm.remove(s, TaskMonitorAdapter.DUMMY_MONITOR);
-					DataType dt =
-						dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
-					dtm.remove(dt, TaskMonitorAdapter.DUMMY_MONITOR);
+				Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
+				dtm.remove(s);
+				DataType dt =
+					dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
+				dtm.remove(dt);
 
-					// delete FavoriteColors
-					Enum enumm =
-						(Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
-					dtm.remove(enumm, TaskMonitorAdapter.DUMMY_MONITOR);
-					commit = true;
-				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
+				// delete FavoriteColors
+				Enum enumm = (Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
+				dtm.remove(enumm);
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				boolean commit = false;
 				DataTypeManager dtm = program.getDataTypeManager();
-				int transactionID = program.startTransaction("test");
 				Union union =
 					(Union) dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
 
-				try {
-					DataTypeComponent dtc = union.add(new FloatDataType());
-					dtc.setComment("my comments");
-					dtc.setFieldName("Float Field");
-					// edit FavoriteColors
-					Enum enumm =
-						(Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
-					enumm.add("Cyan", 5);
-					enumm.add("Gold", 8);
+				union.add(new FloatDataType(), "Float Field", "my comments");
 
-					// create TypeDef on pointer to an Array of pointers
+				// edit FavoriteColors
+				Enum enumm = (Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
+				enumm.add("Cyan", 5);
+				enumm.add("Gold", 8);
 
-					Pointer p = PointerDataType.getPointer(enumm, 4);// FavoriteColors *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * * *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * * *
+				// create TypeDef on pointer to an Array of pointers
 
-					// create an array of FavoriteColors * * * * *
-					Array array = new ArrayDataType(p, 5, p.getLength());
-					p = PointerDataType.getPointer(array, 4);// FavoriteColors * * * * *[5] *
+				Pointer p = PointerDataType.getPointer(enumm, 4);// FavoriteColors *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * * *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * * *
 
-					TypeDef td =
-						new TypedefDataType(new CategoryPath("/Category1"), "TD_MyEnumPointer", p);
+				// create an array of FavoriteColors * * * * *
+				Array array = new ArrayDataType(p, 5, p.getLength());
+				p = PointerDataType.getPointer(array, 4);// FavoriteColors * * * * *[5] *
 
-					dtc = union.add(td);
-					dtc.setComment("a typedef");
-					dtc.setFieldName("typedef field name TD_MyEnumPointer");
-					Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
-					s.add(new WordDataType());
+				TypeDef td =
+					new TypedefDataType(new CategoryPath("/Category1"), "TD_MyEnumPointer", p);
 
-					union =
-						new UnionDataType(new CategoryPath("/Category1/Category2"), "AnotherUnion");
-					union.add(s);
-					union.add(new ByteDataType());
-					dtm.addDataType(union, DataTypeConflictHandler.DEFAULT_HANDLER);
+				union.add(td, "typedef field name TD_MyEnumPointer", "a typedef");
 
-					commit = true;
-				}
-				catch (DuplicateNameException e) {
-					Assert.fail("Got Duplicate name exception!");
-				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
+				Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
+				s.add(new WordDataType());
+
+				union = new UnionDataType(new CategoryPath("/Category1/Category2"), "AnotherUnion");
+				union.add(s);
+				union.add(new ByteDataType());
+				dtm.addDataType(union, DataTypeConflictHandler.DEFAULT_HANDLER);
 			}
 		});
 		executeMerge();
@@ -642,7 +493,7 @@ public class DataTypeMerge5Test extends AbstractDataTypeMergeTest {
 
 		DataTypeComponent[] dtcs = union.getComponents();
 		assertEquals(7, dtcs.length);
-		assertEquals("typedef field name TD_MyEnumPointer", dtcs[6].getFieldName());
+		assertEquals("typedef_field_name_TD_MyEnumPointer", dtcs[6].getFieldName());
 		assertEquals("a typedef", dtcs[6].getComment());
 
 		Enum enumm = (Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
@@ -673,92 +524,62 @@ public class DataTypeMerge5Test extends AbstractDataTypeMergeTest {
 	}
 
 	@Test
-    public void testTypeDefs5() throws Exception {
+	public void testTypeDefs5() throws Exception {
 
 		mtf.initialize("notepad2", new ProgramModifierListener() {
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
+
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				boolean commit = false;
 				DataTypeManager dtm = program.getDataTypeManager();
-				int transactionID = program.startTransaction("test");
 
-				try {
-					Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
-					dtm.remove(s, TaskMonitorAdapter.DUMMY_MONITOR);
-					DataType dt =
-						dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
-					dtm.remove(dt, TaskMonitorAdapter.DUMMY_MONITOR);
+				Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
+				dtm.remove(s);
+				DataType dt =
+					dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
+				dtm.remove(dt);
 
-					// delete FavoriteColors
-					Enum enumm =
-						(Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
-					dtm.remove(enumm, TaskMonitorAdapter.DUMMY_MONITOR);
-					commit = true;
-				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
+				// delete FavoriteColors
+				Enum enumm = (Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
+				dtm.remove(enumm);
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				boolean commit = false;
 				DataTypeManager dtm = program.getDataTypeManager();
-				int transactionID = program.startTransaction("test");
 				Union union =
 					(Union) dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
 
-				try {
-					DataTypeComponent dtc = union.add(new FloatDataType());
-					dtc.setComment("my comments");
-					dtc.setFieldName("Float Field");
-					// edit FavoriteColors
-					Enum enumm =
-						(Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
-					enumm.add("Cyan", 5);
-					enumm.add("Gold", 8);
+				union.add(new FloatDataType(), "Float Field", "my comments");
 
-					// create TypeDef on pointer to an Array of pointers
+				// edit FavoriteColors
+				Enum enumm = (Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
+				enumm.add("Cyan", 5);
+				enumm.add("Gold", 8);
 
-					Pointer p = PointerDataType.getPointer(enumm, 4);// FavoriteColors *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * * *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * * *
+				// create TypeDef on pointer to an Array of pointers
 
-					// create an array of FavoriteColors * * * * *
-					Array array = new ArrayDataType(p, 5, p.getLength());
-					p = PointerDataType.getPointer(array, 4);// FavoriteColors * * * * *[5] *
+				Pointer p = PointerDataType.getPointer(enumm, 4);// FavoriteColors *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * * *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * * *
 
-					TypeDef td =
-						new TypedefDataType(new CategoryPath("/Category1"), "TD_MyEnumPointer", p);
+				// create an array of FavoriteColors * * * * *
+				Array array = new ArrayDataType(p, 5, p.getLength());
+				p = PointerDataType.getPointer(array, 4);// FavoriteColors * * * * *[5] *
 
-					dtc = union.add(td);
-					dtc.setComment("a typedef");
-					dtc.setFieldName("typedef field name TD_MyEnumPointer");
-					Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
-					s.add(new WordDataType());
+				TypeDef td =
+					new TypedefDataType(new CategoryPath("/Category1"), "TD_MyEnumPointer", p);
 
-					union =
-						new UnionDataType(new CategoryPath("/Category1/Category2"), "AnotherUnion");
-					union.add(s);
-					union.add(new ByteDataType());
-					dtm.addDataType(union, DataTypeConflictHandler.DEFAULT_HANDLER);
+				union.add(td, "typedef field name TD_MyEnumPointer", "a typedef");
 
-					commit = true;
-				}
-				catch (DuplicateNameException e) {
-					Assert.fail("Got Duplicate name exception!");
-				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
+				Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
+				s.add(new WordDataType());
+
+				union = new UnionDataType(new CategoryPath("/Category1/Category2"), "AnotherUnion");
+				union.add(s);
+				union.add(new ByteDataType());
+				dtm.addDataType(union, DataTypeConflictHandler.DEFAULT_HANDLER);
 			}
 		});
 		executeMerge();
@@ -776,24 +597,47 @@ public class DataTypeMerge5Test extends AbstractDataTypeMergeTest {
 		Union union =
 			(Union) dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
 		assertNotNull(union);
+		//@formatter:off
+		assertEquals("/Category1/Category2/CoolUnion\n" + 
+			"pack(disabled)\n" + 
+			"Union CoolUnion {\n" + 
+			"   0   qword   8      \"\"\n" + 
+			"   0   word   2      \"\"\n" + 
+			"   0   undefined * * * * *   4      \"\"\n" + 
+			"   0   DLL_Table   96      \"\"\n" + 
+			"   0   DLL_Table *32   4      \"\"\n" + 
+			"   0   float   4   Float_Field   \"my comments\"\n" + 
+			"   0   -BAD-   4   typedef_field_name_TD_MyEnumPointer   \"Type 'TD_MyEnumPointer' was deleted; a typedef\"\n" + 
+			"}\n" + 
+			"Length: 96 Alignment: 1\n", union.toString());
+		//@formatter:on
 
 		// DLL_Table should not be null
 		Structure dll = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
 		assertNotNull(dll);
+		//@formatter:off
+		assertEquals("/DLL_Table\n" + 
+			"pack(disabled)\n" + 
+			"Structure DLL_Table {\n" + 
+			"   0   string   13   COMDLG32   \"\"\n" + 
+			"   13   string   12   SHELL32   \"\"\n" + 
+			"   25   string   11   MSVCRT   \"\"\n" + 
+			"   36   string   13   ADVAPI32   \"\"\n" + 
+			"   49   string   13   KERNEL32   \"\"\n" + 
+			"   62   string   10   GDI32   \"\"\n" + 
+			"   72   string   11   USER32   \"\"\n" + 
+			"   83   string   13   WINSPOOL32   \"\"\n" + 
+			"}\n" + 
+			"Length: 96 Alignment: 1\n", dll.toString());
+		//@formatter:on
 
 		// Typedef should not have been created because we chose to 
 		// delete FavoriteColors (deleted in LATEST)
 		Enum enumm = (Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
 		assertNull(enumm);
 
-		DataTypeComponent[] dtcs = union.getComponents();
-		assertEquals(6, dtcs.length);
-		assertEquals("Float Field", dtcs[5].getFieldName());
-		assertEquals("my comments", dtcs[5].getComment());
-
 		TypeDef td = (TypeDef) dtm.getDataType(new CategoryPath("/Category1"), "TD_MyEnumPointer");
 		assertNull(td);
-		assertEquals(dll, dtcs[3].getDataType());
 
 		ArrayList<DataType> list = new ArrayList<DataType>();
 		dtm.findDataTypes("FavoriteColors*", list, false, null);
@@ -802,94 +646,64 @@ public class DataTypeMerge5Test extends AbstractDataTypeMergeTest {
 	}
 
 	@Test
-    public void testTypeDefs6() throws Exception {
+	public void testTypeDefs6() throws Exception {
 
 		mtf.initialize("notepad2", new ProgramModifierListener() {
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
+
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				boolean commit = false;
 				DataTypeManager dtm = program.getDataTypeManager();
-				int transactionID = program.startTransaction("test");
 
-				try {
-					Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
-					dtm.remove(s, TaskMonitorAdapter.DUMMY_MONITOR);
-					DataType dt =
-						dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
-					dtm.remove(dt, TaskMonitorAdapter.DUMMY_MONITOR);
+				Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
+				dtm.remove(s);
+				DataType dt =
+					dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
+				dtm.remove(dt);
 
-					// edit FavoriteColors
-					Enum enumm =
-						(Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
-					enumm.remove("Red");
-					enumm.remove("Black");
-					enumm.add("Crimson", 6);
-					commit = true;
-				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
+				// edit FavoriteColors
+				Enum enumm = (Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
+				enumm.remove("Red");
+				enumm.remove("Black");
+				enumm.add("Crimson", 6);
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				boolean commit = false;
 				DataTypeManager dtm = program.getDataTypeManager();
-				int transactionID = program.startTransaction("test");
 				Union union =
 					(Union) dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
 
-				try {
-					DataTypeComponent dtc = union.add(new FloatDataType());
-					dtc.setComment("my comments");
-					dtc.setFieldName("Float Field");
-					// edit FavoriteColors
-					Enum enumm =
-						(Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
-					enumm.add("Cyan", 5);
-					enumm.add("Gold", 8);
+				union.add(new FloatDataType(), "Float Field", "my comments");
 
-					// create TypeDef on pointer to an Array of pointers
+				// edit FavoriteColors
+				Enum enumm = (Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
+				enumm.add("Cyan", 5);
+				enumm.add("Gold", 8);
 
-					Pointer p = PointerDataType.getPointer(enumm, 4);// FavoriteColors *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * * *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * * *
+				// create TypeDef on pointer to an Array of pointers
 
-					// create an array of FavoriteColors * * * * *
-					Array array = new ArrayDataType(p, 5, p.getLength());
-					p = PointerDataType.getPointer(array, 4);// FavoriteColors * * * * *[5] *
+				Pointer p = PointerDataType.getPointer(enumm, 4);// FavoriteColors *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * * *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * * *
 
-					TypeDef td =
-						new TypedefDataType(new CategoryPath("/Category1"), "TD_MyEnumPointer", p);
-					p = PointerDataType.getPointer(td, 4);//TD_MyEnumPointer *
-					dtc = union.add(p);
-					dtc.setComment("a pointer to a typedef");
-					dtc.setFieldName("typedef field name TD_MyEnumPointer *");
-					Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
-					s.add(new WordDataType());
+				// create an array of FavoriteColors * * * * *
+				Array array = new ArrayDataType(p, 5, p.getLength());
+				p = PointerDataType.getPointer(array, 4);// FavoriteColors * * * * *[5] *
 
-					union =
-						new UnionDataType(new CategoryPath("/Category1/Category2"), "AnotherUnion");
-					union.add(s);
-					union.add(new ByteDataType());
-					dtm.addDataType(union, DataTypeConflictHandler.DEFAULT_HANDLER);
+				TypeDef td =
+					new TypedefDataType(new CategoryPath("/Category1"), "TD_MyEnumPointer", p);
+				p = PointerDataType.getPointer(td, 4);//TD_MyEnumPointer *
+				union.add(p, "typedef field name TD_MyEnumPointer *", "a pointer to a typedef");
 
-					commit = true;
-				}
-				catch (DuplicateNameException e) {
-					Assert.fail("Got Duplicate name exception!");
-				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
+				Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
+				s.add(new WordDataType());
+
+				union = new UnionDataType(new CategoryPath("/Category1/Category2"), "AnotherUnion");
+				union.add(s);
+				union.add(new ByteDataType());
+				dtm.addDataType(union, DataTypeConflictHandler.DEFAULT_HANDLER);
 			}
 		});
 		executeMerge();
@@ -914,7 +728,7 @@ public class DataTypeMerge5Test extends AbstractDataTypeMergeTest {
 
 		DataTypeComponent[] dtcs = union.getComponents();
 		assertEquals(7, dtcs.length);
-		assertEquals("typedef field name TD_MyEnumPointer *", dtcs[6].getFieldName());
+		assertEquals("typedef_field_name_TD_MyEnumPointer_*", dtcs[6].getFieldName());
 		assertEquals("a pointer to a typedef", dtcs[6].getComment());
 
 		Enum enumm = (Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
@@ -947,97 +761,67 @@ public class DataTypeMerge5Test extends AbstractDataTypeMergeTest {
 	}
 
 	@Test
-    public void testTypeDefs7() throws Exception {
+	public void testTypeDefs7() throws Exception {
 
 		mtf.initialize("notepad2", new ProgramModifierListener() {
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
+
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				boolean commit = false;
 				DataTypeManager dtm = program.getDataTypeManager();
-				int transactionID = program.startTransaction("test");
 
-				try {
-					Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
-					dtm.remove(s, TaskMonitorAdapter.DUMMY_MONITOR);
-					DataType dt =
-						dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
-					dtm.remove(dt, TaskMonitorAdapter.DUMMY_MONITOR);
+				Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
+				dtm.remove(s);
+				DataType dt =
+					dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
+				dtm.remove(dt);
 
-					// edit FavoriteColors
-					Enum enumm =
-						(Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
-					enumm.remove("Red");
-					enumm.remove("Black");
-					enumm.add("Crimson", 6);
-					commit = true;
-				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
+				// edit FavoriteColors
+				Enum enumm = (Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
+				enumm.remove("Red");
+				enumm.remove("Black");
+				enumm.add("Crimson", 6);
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				boolean commit = false;
 				DataTypeManager dtm = program.getDataTypeManager();
-				int transactionID = program.startTransaction("test");
 				Union union =
 					(Union) dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
 
-				try {
-					DataTypeComponent dtc = union.add(new FloatDataType());
-					dtc.setComment("my comments");
-					dtc.setFieldName("Float Field");
-					// edit FavoriteColors
-					Enum enumm =
-						(Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
-					enumm.add("Cyan", 5);
-					enumm.add("Gold", 8);
+				union.add(new FloatDataType(), "Float Field", "my comments");
 
-					// create TypeDef on pointer to an Array of pointers
+				// edit FavoriteColors
+				Enum enumm = (Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
+				enumm.add("Cyan", 5);
+				enumm.add("Gold", 8);
 
-					Pointer p = PointerDataType.getPointer(enumm, 4);// FavoriteColors *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * * *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * * *
+				// create TypeDef on pointer to an Array of pointers
 
-					// create an array of FavoriteColors * * * * *
-					Array array = new ArrayDataType(p, 5, p.getLength());
-					p = PointerDataType.getPointer(array, 4);// FavoriteColors * * * * *[5] *
+				Pointer p = PointerDataType.getPointer(enumm, 4);// FavoriteColors *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * * *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * * *
 
-					TypeDef td =
-						new TypedefDataType(new CategoryPath("/Category1"), "TD_MyEnumPointer", p);
-					p = PointerDataType.getPointer(td, 4);//TD_MyEnumPointer *
+				// create an array of FavoriteColors * * * * *
+				Array array = new ArrayDataType(p, 5, p.getLength());
+				p = PointerDataType.getPointer(array, 4);// FavoriteColors * * * * *[5] *
 
-					// create a TypeDef on p
-					td = new TypedefDataType(new CategoryPath("/Category1"), "TD_on_Pointer", p);
-					dtc = union.add(td);
-					dtc.setFieldName("typedef field name");
-					dtc.setComment("a typedef on a pointer to a typedef");
-					Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
-					s.add(new WordDataType());
+				TypeDef td =
+					new TypedefDataType(new CategoryPath("/Category1"), "TD_MyEnumPointer", p);
+				p = PointerDataType.getPointer(td, 4);//TD_MyEnumPointer *
 
-					union =
-						new UnionDataType(new CategoryPath("/Category1/Category2"), "AnotherUnion");
-					union.add(s);
-					union.add(new ByteDataType());
-					dtm.addDataType(union, DataTypeConflictHandler.DEFAULT_HANDLER);
+				// create a TypeDef on p
+				td = new TypedefDataType(new CategoryPath("/Category1"), "TD_on_Pointer", p);
+				union.add(td, "typedef field name", "a typedef on a pointer to a typedef");
 
-					commit = true;
-				}
-				catch (DuplicateNameException e) {
-					Assert.fail("Got Duplicate name exception!");
-				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
+				Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
+				s.add(new WordDataType());
+
+				union = new UnionDataType(new CategoryPath("/Category1/Category2"), "AnotherUnion");
+				union.add(s);
+				union.add(new ByteDataType());
+				dtm.addDataType(union, DataTypeConflictHandler.DEFAULT_HANDLER);
 			}
 		});
 		executeMerge();
@@ -1062,7 +846,7 @@ public class DataTypeMerge5Test extends AbstractDataTypeMergeTest {
 
 		DataTypeComponent[] dtcs = union.getComponents();
 		assertEquals(7, dtcs.length);
-		assertEquals("typedef field name", dtcs[6].getFieldName());
+		assertEquals("typedef_field_name", dtcs[6].getFieldName());
 		assertEquals("a typedef on a pointer to a typedef", dtcs[6].getComment());
 
 		Enum enumm = (Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
@@ -1102,100 +886,71 @@ public class DataTypeMerge5Test extends AbstractDataTypeMergeTest {
 	}
 
 	@Test
-    public void testTypeDefs8() throws Exception {
+	public void testTypeDefs8() throws Exception {
 
 		mtf.initialize("notepad2", new ProgramModifierListener() {
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
+
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				boolean commit = false;
 				DataTypeManager dtm = program.getDataTypeManager();
-				int transactionID = program.startTransaction("test");
 
-				try {
-					Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
-					dtm.remove(s, TaskMonitorAdapter.DUMMY_MONITOR);
-					DataType dt =
-						dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
-					dtm.remove(dt, TaskMonitorAdapter.DUMMY_MONITOR);
+				Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
+				dtm.remove(s);
+				DataType dt =
+					dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
+				dtm.remove(dt);
 
-					// edit FavoriteColors
-					Enum enumm =
-						(Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
-					enumm.remove("Red");
-					enumm.remove("Black");
-					enumm.add("Crimson", 6);
-					commit = true;
-				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
+				// edit FavoriteColors
+				Enum enumm = (Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
+				enumm.remove("Red");
+				enumm.remove("Black");
+				enumm.add("Crimson", 6);
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				boolean commit = false;
 				DataTypeManager dtm = program.getDataTypeManager();
-				int transactionID = program.startTransaction("test");
 				Union union =
 					(Union) dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
 
-				try {
-					DataTypeComponent dtc = union.add(new FloatDataType());
-					dtc.setComment("my comments");
-					dtc.setFieldName("Float Field");
-					// edit FavoriteColors
-					Enum enumm =
-						(Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
-					enumm.add("Cyan", 5);
-					enumm.add("Gold", 8);
+				union.add(new FloatDataType(), "Float Field", "my comments");
 
-					// create TypeDef on pointer to an Array of pointers
+				// edit FavoriteColors
+				Enum enumm = (Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
+				enumm.add("Cyan", 5);
+				enumm.add("Gold", 8);
 
-					Pointer p = PointerDataType.getPointer(enumm, 4);// FavoriteColors *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * * *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * * *
+				// create TypeDef on pointer to an Array of pointers
 
-					// create an array of FavoriteColors * * * * *
-					Array array = new ArrayDataType(p, 5, p.getLength());
-					p = PointerDataType.getPointer(array, 4);// FavoriteColors * * * * *[5] *
+				Pointer p = PointerDataType.getPointer(enumm, 4);// FavoriteColors *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * * *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * * *
 
-					TypeDef td =
-						new TypedefDataType(new CategoryPath("/Category1"), "TD_MyEnumPointer", p);
-					p = PointerDataType.getPointer(td, 4);//TD_MyEnumPointer *
+				// create an array of FavoriteColors * * * * *
+				Array array = new ArrayDataType(p, 5, p.getLength());
+				p = PointerDataType.getPointer(array, 4);// FavoriteColors * * * * *[5] *
 
-					// create a TypeDef on p
-					td = new TypedefDataType(new CategoryPath("/Category1"), "TD_on_Pointer", p);
+				TypeDef td =
+					new TypedefDataType(new CategoryPath("/Category1"), "TD_MyEnumPointer", p);
+				p = PointerDataType.getPointer(td, 4);//TD_MyEnumPointer *
 
-					// create an Array of TD_on_Pointer
-					array = new ArrayDataType(td, 7, td.getLength());
-					dtc = union.add(array);
-					dtc.setFieldName("array of typedef field name");
-					dtc.setComment("an array of typedefs on a pointer to a typedef");
-					Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
-					s.add(new WordDataType());
+				// create a TypeDef on p
+				td = new TypedefDataType(new CategoryPath("/Category1"), "TD_on_Pointer", p);
 
-					union =
-						new UnionDataType(new CategoryPath("/Category1/Category2"), "AnotherUnion");
-					union.add(s);
-					union.add(new ByteDataType());
-					dtm.addDataType(union, DataTypeConflictHandler.DEFAULT_HANDLER);
+				// create an Array of TD_on_Pointer
+				array = new ArrayDataType(td, 7, td.getLength());
+				union.add(array, "array of typedef field name",
+					"an array of typedefs on a pointer to a typedef");
 
-					commit = true;
-				}
-				catch (DuplicateNameException e) {
-					Assert.fail("Got Duplicate name exception!");
-				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
+				Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
+				s.add(new WordDataType());
+
+				union = new UnionDataType(new CategoryPath("/Category1/Category2"), "AnotherUnion");
+				union.add(s);
+				union.add(new ByteDataType());
+				dtm.addDataType(union, DataTypeConflictHandler.DEFAULT_HANDLER);
 			}
 		});
 		executeMerge();
@@ -1220,7 +975,7 @@ public class DataTypeMerge5Test extends AbstractDataTypeMergeTest {
 
 		DataTypeComponent[] dtcs = union.getComponents();
 		assertEquals(7, dtcs.length);
-		assertEquals("array of typedef field name", dtcs[6].getFieldName());
+		assertEquals("array_of_typedef_field_name", dtcs[6].getFieldName());
 		assertEquals("an array of typedefs on a pointer to a typedef", dtcs[6].getComment());
 
 		Enum enumm = (Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
@@ -1264,17 +1019,13 @@ public class DataTypeMerge5Test extends AbstractDataTypeMergeTest {
 	}
 
 	@Test
-    public void testTypeDefs9() throws Exception {
+	public void testTypeDefs9() throws Exception {
 
 		mtf.initialize("notepad2", new ProgramModifierListener() {
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
+
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				boolean commit = false;
 				DataTypeManager dtm = program.getDataTypeManager();
-				int transactionID = program.startTransaction("test");
 
 				try {
 					// rename FooTypedef
@@ -1284,7 +1035,6 @@ public class DataTypeMerge5Test extends AbstractDataTypeMergeTest {
 					Category c =
 						dtm.getCategory(new CategoryPath("/Category1/Category2/Category5"));
 					c.moveDataType(td, DataTypeConflictHandler.DEFAULT_HANDLER);
-					commit = true;
 				}
 				catch (InvalidNameException e) {
 					Assert.fail("Got InvalidNameException!");
@@ -1295,61 +1045,46 @@ public class DataTypeMerge5Test extends AbstractDataTypeMergeTest {
 				catch (DataTypeDependencyException e) {
 					Assert.fail("Got DataTypeDependencyException!");
 				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				boolean commit = false;
 				DataTypeManager dtm = program.getDataTypeManager();
-				int transactionID = program.startTransaction("test");
 
-				try {
-					// Edit Foo
-					Structure foo = (Structure) dtm.getDataType(new CategoryPath("/MISC"), "Foo");
-					Enum enumm = new EnumDataType(new CategoryPath("/Category1"), "MyEnum", 1);
-					enumm.add("one", 1);
-					enumm.add("two", 2);
-					enumm.add("three", 3);
-					// create TypeDef on pointer to an Array of pointers
+				// Edit Foo
+				Structure foo = (Structure) dtm.getDataType(new CategoryPath("/MISC"), "Foo");
+				Enum enumm = new EnumDataType(new CategoryPath("/Category1"), "MyEnum", 1);
+				enumm.add("one", 1);
+				enumm.add("two", 2);
+				enumm.add("three", 3);
+				// create TypeDef on pointer to an Array of pointers
 
-					Pointer p = PointerDataType.getPointer(enumm, 4);// MyEnum *
-					p = PointerDataType.getPointer(p, 4);// MyEnum * *
-					p = PointerDataType.getPointer(p, 4);// MyEnum * * *
-					p = PointerDataType.getPointer(p, 4);// MyEnum * * * *
-					p = PointerDataType.getPointer(p, 4);// MyEnum * * * * *
+				Pointer p = PointerDataType.getPointer(enumm, 4);// MyEnum *
+				p = PointerDataType.getPointer(p, 4);// MyEnum * *
+				p = PointerDataType.getPointer(p, 4);// MyEnum * * *
+				p = PointerDataType.getPointer(p, 4);// MyEnum * * * *
+				p = PointerDataType.getPointer(p, 4);// MyEnum * * * * *
 
-					// create an array of MyEnum * * * * *
-					Array array = new ArrayDataType(p, 5, p.getLength());
-					p = PointerDataType.getPointer(array, 4);// MyEnum * * * * *[5] *
+				// create an array of MyEnum * * * * *
+				Array array = new ArrayDataType(p, 5, p.getLength());
+				p = PointerDataType.getPointer(array, 4);// MyEnum * * * * *[5] *
 
-					TypeDef td =
-						new TypedefDataType(new CategoryPath("/Category1"), "TD_MyEnumPointer", p);
-					p = PointerDataType.getPointer(td, 4);//TD_MyEnumPointer *
+				TypeDef td =
+					new TypedefDataType(new CategoryPath("/Category1"), "TD_MyEnumPointer", p);
+				p = PointerDataType.getPointer(td, 4);//TD_MyEnumPointer *
 
-					// create a TypeDef on p
-					td = new TypedefDataType(new CategoryPath("/Category1"), "TD_on_Pointer", p);
+				// create a TypeDef on p
+				td = new TypedefDataType(new CategoryPath("/Category1"), "TD_on_Pointer", p);
 
-					// create an Array of TD_on_Pointer
-					array = new ArrayDataType(td, 7, td.getLength());
-					foo.add(array);
+				// create an Array of TD_on_Pointer
+				array = new ArrayDataType(td, 7, td.getLength());
+				foo.add(array);
 
-					// create a pointer to an Array of IntStruct's
-					DataType intStruct = dtm.getDataType(
-						new CategoryPath("/Category1/Category2/Category3"), "IntStruct");
-					array = new ArrayDataType(intStruct, 5, intStruct.getLength());
-					foo.add(array);
-
-					commit = true;
-				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
+				// create a pointer to an Array of IntStruct's
+				DataType intStruct = dtm.getDataType(
+					new CategoryPath("/Category1/Category2/Category3"), "IntStruct");
+				array = new ArrayDataType(intStruct, 5, intStruct.getLength());
+				foo.add(array);
 			}
 		});
 		executeMerge(true);
@@ -1413,107 +1148,320 @@ public class DataTypeMerge5Test extends AbstractDataTypeMergeTest {
 	}
 
 	@Test
-    public void testArrays() throws Exception {
+	public void testTypeDefs10() throws Exception {
 
-		mtf.initialize("notepad2", new ProgramModifierListener() {
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
+		// Exercise pointer-typedef setting changes
+
+		mtf.initialize("notepad2", new OriginalProgramModifierListener() {
+
+			@Override
+			public void modifyOriginal(ProgramDB program) throws Exception {
+				DataTypeManager dtm = program.getDataTypeManager();
+
+				// must specify datatype manager when constructing to allow for settings to be made
+				Pointer p = dtm.getPointer(CharDataType.dataType);
+				TypeDef td = new TypedefDataType(new CategoryPath("/MISC"), "PtrTypeDef", p, dtm);
+
+				// NOTE: these are not viable settings but are intended to exercise all of them
+				Settings settings = td.getDefaultSettings();
+				PointerTypeSettingsDefinition.DEF.setType(settings,
+					PointerType.IMAGE_BASE_RELATIVE);
+				AddressSpaceSettingsDefinition.DEF.setValue(settings, "ROM");
+				ComponentOffsetSettingsDefinition.DEF.setValue(settings, 0x10);
+				OffsetMaskSettingsDefinition.DEF.setValue(settings, 0x1234);
+				OffsetShiftSettingsDefinition.DEF.setValue(settings, 2);
+
+				dtm.resolve(td, DataTypeConflictHandler.DEFAULT_HANDLER);
+			}
+
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				boolean commit = false;
 				DataTypeManager dtm = program.getDataTypeManager();
-				int transactionID = program.startTransaction("test");
+
+				TypeDef td = (TypeDef) dtm.getDataType(new CategoryPath("/MISC"), "PtrTypeDef");
+
+				Settings settings = td.getDefaultSettings();
+				PointerTypeSettingsDefinition.DEF.setType(settings, PointerType.RELATIVE);
+				AddressSpaceSettingsDefinition.DEF.clear(settings);
+				OffsetMaskSettingsDefinition.DEF.clear(settings);
+				OffsetShiftSettingsDefinition.DEF.setValue(settings, 3);
+			}
+
+			@Override
+			public void modifyPrivate(ProgramDB program) {
+				DataTypeManager dtm = program.getDataTypeManager();
+
+				TypeDef td = (TypeDef) dtm.getDataType(new CategoryPath("/MISC"), "PtrTypeDef");
+
+				Settings settings = td.getDefaultSettings();
+				PointerTypeSettingsDefinition.DEF.clear(settings);
+				AddressSpaceSettingsDefinition.DEF.clear(settings);
+				OffsetMaskSettingsDefinition.DEF.setValue(settings, 0x5678);
+				OffsetShiftSettingsDefinition.DEF.setValue(settings, 4);
+			}
+		});
+		executeMerge();
+
+		chooseOption(DataTypeMergeManager.OPTION_MY);
+
+		waitForCompletion();
+
+		DataTypeManager dtm = resultProgram.getDataTypeManager();
+		TypeDef td = (TypeDef) dtm.getDataType(new CategoryPath("/MISC"), "PtrTypeDef");
+
+		Settings settings = td.getDefaultSettings();
+		assertFalse(
+			"Unexpected Pointer Type setting: " +
+				PointerTypeSettingsDefinition.DEF.getValueString(settings),
+			PointerTypeSettingsDefinition.DEF.hasValue(settings));
+		assertFalse(
+			"Unexpected Address Space setting: " +
+				AddressSpaceSettingsDefinition.DEF.getValueString(settings),
+			AddressSpaceSettingsDefinition.DEF.hasValue(settings));
+		assertEquals(0x10, ComponentOffsetSettingsDefinition.DEF.getValue(settings));
+		assertEquals(0x5678, OffsetMaskSettingsDefinition.DEF.getValue(settings));
+		assertEquals(4, OffsetShiftSettingsDefinition.DEF.getValue(settings));
+
+		checkConflictCount(0);
+	}
+
+	private static String formatAttributes(String attrs) {
+		StringBuilder buf = new StringBuilder(DataType.TYPEDEF_ATTRIBUTE_PREFIX);
+		buf.append(attrs);
+		buf.append(DataType.TYPEDEF_ATTRIBUTE_SUFFIX);
+		return buf.toString();
+	}
+
+	@Test
+	public void testTypeDefs11() throws Exception {
+
+		// Exercise pointer-typedef auto-naming with setting changes
+
+		mtf.initialize("notepad2", new OriginalProgramModifierListener() {
+
+			@Override
+			public void modifyOriginal(ProgramDB program) throws Exception {
+				DataTypeManager dtm = program.getDataTypeManager();
+
+				// must specify datatype manager when constructing to allow for settings to be made
+				Structure foo = (Structure) dtm.getDataType(new CategoryPath("/MISC"), "Foo");
+				PointerTypedef td =
+					new PointerTypedef(null, foo, -1, dtm, PointerType.IMAGE_BASE_RELATIVE);
+				DataType dt = dtm.resolve(td, DataTypeConflictHandler.DEFAULT_HANDLER);
+				assertEquals("Foo * " + formatAttributes("image-base-relative"), dt.getName());
+			}
+
+			@Override
+			public void modifyLatest(ProgramDB program) {
+				DataTypeManager dtm = program.getDataTypeManager();
 
 				try {
-					Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
-					dtm.remove(s, TaskMonitorAdapter.DUMMY_MONITOR);
-					DataType dt =
-						dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
-					dtm.remove(dt, TaskMonitorAdapter.DUMMY_MONITOR);
+					TypeDef td = (TypeDef) dtm.getDataType(new CategoryPath("/MISC"),
+						"Foo * " + formatAttributes("image-base-relative"));
+					assertNotNull(td);
+					td.setName("Bob_Ptr_Td");
 
-					// edit FavoriteColors
-					Enum enumm =
-						(Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
-					enumm.remove("Red");
-					enumm.remove("Black");
-					enumm.add("Crimson", 6);
-					commit = true;
+					Settings settings = td.getDefaultSettings();
+					PointerTypeSettingsDefinition.DEF.setType(settings, PointerType.RELATIVE);
+
+					Structure st = (Structure) dtm.getDataType(new CategoryPath("/MISC"), "Foo");
+					st.setName("Bob");
 				}
-				finally {
-					program.endTransaction(transactionID, commit);
+				catch (InvalidNameException | DuplicateNameException e) {
+					failWithException("unexpected", e);
 				}
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				boolean commit = false;
 				DataTypeManager dtm = program.getDataTypeManager();
-				int transactionID = program.startTransaction("test");
+
+				try {
+					TypeDef td = (TypeDef) dtm.getDataType(new CategoryPath("/MISC"),
+						"Foo * " + formatAttributes("image-base-relative"));
+					assertNotNull(td);
+
+					Settings settings = td.getDefaultSettings();
+					ComponentOffsetSettingsDefinition.DEF.setValue(settings, 0x123);
+
+					Structure st = (Structure) dtm.getDataType(new CategoryPath("/MISC"), "Foo");
+					st.setName("Bill");
+				}
+				catch (InvalidNameException | DuplicateNameException e) {
+					failWithException("unexpected", e);
+				}
+			}
+		});
+		executeMerge();
+
+		chooseOption(DataTypeMergeManager.OPTION_MY); // choose Bill rename of Foo
+		chooseOption(DataTypeMergeManager.OPTION_LATEST); // choose RELATIVE setting and Bob_Ptr_Td rename
+
+		waitForCompletion();
+
+		DataTypeManager dtm = resultProgram.getDataTypeManager();
+		TypeDef td = (TypeDef) dtm.getDataType(new CategoryPath("/MISC"), "Bob_Ptr_Td");
+		assertNotNull(td);
+
+		DataType dt = DataTypeUtilities.getBaseDataType(td.getDataType());
+		assertTrue(dt instanceof Structure);
+		assertEquals("Bill", dt.getName());
+
+		Settings settings = td.getDefaultSettings();
+		assertEquals("Expected pointer-typedef type: relative", PointerType.RELATIVE,
+			PointerTypeSettingsDefinition.DEF.getType(settings));
+		assertFalse(
+			"Unexpected setting: " +
+				ComponentOffsetSettingsDefinition.DEF.getAttributeSpecification(settings),
+			ComponentOffsetSettingsDefinition.DEF.hasValue(settings));
+
+		checkConflictCount(0);
+	}
+
+	@Test
+	public void testTypeDefs12() throws Exception {
+
+		// Exercise pointer-typedef auto-naming with setting changes
+
+		mtf.initialize("notepad2", new OriginalProgramModifierListener() {
+
+			@Override
+			public void modifyOriginal(ProgramDB program) throws Exception {
+				DataTypeManager dtm = program.getDataTypeManager();
+
+				// must specify datatype manager when constructing to allow for settings to be made
+				Structure foo = (Structure) dtm.getDataType(new CategoryPath("/MISC"), "Foo");
+				PointerTypedef td =
+					new PointerTypedef(null, foo, -1, dtm, PointerType.IMAGE_BASE_RELATIVE);
+				DataType dt = dtm.resolve(td, DataTypeConflictHandler.DEFAULT_HANDLER);
+				assertEquals("Foo * " + formatAttributes("image-base-relative"), dt.getName());
+			}
+
+			@Override
+			public void modifyLatest(ProgramDB program) {
+				DataTypeManager dtm = program.getDataTypeManager();
+
+				try {
+					TypeDef td = (TypeDef) dtm.getDataType(new CategoryPath("/MISC"),
+						"Foo * " + formatAttributes("image-base-relative"));
+					assertNotNull(td);
+					td.setName("Bob_Ptr_Td");
+
+					Settings settings = td.getDefaultSettings();
+					PointerTypeSettingsDefinition.DEF.setType(settings, PointerType.RELATIVE);
+				}
+				catch (InvalidNameException | DuplicateNameException e) {
+					failWithException("unexpected", e);
+				}
+			}
+
+			@Override
+			public void modifyPrivate(ProgramDB program) {
+				DataTypeManager dtm = program.getDataTypeManager();
+				try {
+					Structure st = (Structure) dtm.getDataType(new CategoryPath("/MISC"), "Foo");
+					st.setName("Bill");
+				}
+				catch (InvalidNameException | DuplicateNameException e) {
+					failWithException("unexpected", e);
+				}
+			}
+		});
+		executeMerge(true);
+
+		DataTypeManager dtm = resultProgram.getDataTypeManager();
+		TypeDef td = (TypeDef) dtm.getDataType(new CategoryPath("/MISC"), "Bob_Ptr_Td");
+		assertNotNull(td);
+
+		DataType dt = DataTypeUtilities.getBaseDataType(td.getDataType());
+		assertTrue(dt instanceof Structure);
+		assertEquals("Bill", dt.getName());
+
+		Settings settings = td.getDefaultSettings();
+		assertEquals("Expected pointer-typedef type: relative", PointerType.RELATIVE,
+			PointerTypeSettingsDefinition.DEF.getType(settings));
+		assertFalse(
+			"Unexpected setting: " +
+				ComponentOffsetSettingsDefinition.DEF.getAttributeSpecification(settings),
+			ComponentOffsetSettingsDefinition.DEF.hasValue(settings));
+
+		checkConflictCount(0);
+	}
+
+	@Test
+	public void testArrays() throws Exception {
+
+		mtf.initialize("notepad2", new ProgramModifierListener() {
+
+			@Override
+			public void modifyLatest(ProgramDB program) {
+				DataTypeManager dtm = program.getDataTypeManager();
+
+				Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
+				dtm.remove(s);
+				DataType dt =
+					dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
+				dtm.remove(dt);
+
+				// edit FavoriteColors
+				Enum enumm = (Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
+				enumm.remove("Red");
+				enumm.remove("Black");
+				enumm.add("Crimson", 6);
+			}
+
+			@Override
+			public void modifyPrivate(ProgramDB program) {
+				DataTypeManager dtm = program.getDataTypeManager();
 				Union union =
 					(Union) dtm.getDataType(new CategoryPath("/Category1/Category2"), "CoolUnion");
 
-				try {
-					DataTypeComponent dtc = union.add(new FloatDataType());
-					dtc.setComment("my comments");
-					dtc.setFieldName("Float Field");
-					// edit FavoriteColors
-					Enum enumm =
-						(Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
-					enumm.add("Cyan", 5);
-					enumm.add("Gold", 8);
+				union.add(new FloatDataType(), "Float Field", "my comments");
 
-					// create TypeDef on pointer to an Array of pointers
+				// edit FavoriteColors
+				Enum enumm = (Enum) dtm.getDataType(new CategoryPath("/MISC"), "FavoriteColors");
+				enumm.add("Cyan", 5);
+				enumm.add("Gold", 8);
 
-					Pointer p = PointerDataType.getPointer(enumm, 4);// FavoriteColors *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * * *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * *
-					p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * * *
+				// create TypeDef on pointer to an Array of pointers
 
-					// create an array of FavoriteColors * * * * *
-					Array array = new ArrayDataType(p, 5, p.getLength());
-					p = PointerDataType.getPointer(array, 4);// FavoriteColors * * * * *[5] *
+				Pointer p = PointerDataType.getPointer(enumm, 4);// FavoriteColors *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * * *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * *
+				p = PointerDataType.getPointer(p, 4);// FavoriteColors * * * * *
 
-					TypeDef td =
-						new TypedefDataType(new CategoryPath("/Category1"), "TD_MyEnumPointer", p);
-					p = PointerDataType.getPointer(td, 4);//TD_MyEnumPointer *
+				// create an array of FavoriteColors * * * * *
+				Array array = new ArrayDataType(p, 5, p.getLength());
+				p = PointerDataType.getPointer(array, 4);// FavoriteColors * * * * *[5] *
 
-					// create a TypeDef on p
-					td = new TypedefDataType(new CategoryPath("/Category1"), "TD_on_Pointer", p);
+				TypeDef td =
+					new TypedefDataType(new CategoryPath("/Category1"), "TD_MyEnumPointer", p);
+				p = PointerDataType.getPointer(td, 4);//TD_MyEnumPointer *
 
-					// create an Array of TD_on_Pointer
-					array = new ArrayDataType(td, 11, td.getLength());
-					array = new ArrayDataType(array, 10, array.getLength());
-					array = new ArrayDataType(array, 9, array.getLength());
-					array = new ArrayDataType(array, 8, array.getLength());
-					array = new ArrayDataType(array, 7, array.getLength());
-					array = new ArrayDataType(array, 6, array.getLength());
-					array = new ArrayDataType(array, 5, array.getLength());
+				// create a TypeDef on p
+				td = new TypedefDataType(new CategoryPath("/Category1"), "TD_on_Pointer", p);
 
-					// create a pointer to array
-					p = PointerDataType.getPointer(array, 4);//TD_on_Pointer[5][6][7][8][9][10][11] *
-					dtc = union.add(p);
-					Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
-					s.add(new WordDataType());
+				// create an Array of TD_on_Pointer
+				array = new ArrayDataType(td, 11, td.getLength());
+				array = new ArrayDataType(array, 10, array.getLength());
+				array = new ArrayDataType(array, 9, array.getLength());
+				array = new ArrayDataType(array, 8, array.getLength());
+				array = new ArrayDataType(array, 7, array.getLength());
+				array = new ArrayDataType(array, 6, array.getLength());
+				array = new ArrayDataType(array, 5, array.getLength());
 
-					union =
-						new UnionDataType(new CategoryPath("/Category1/Category2"), "AnotherUnion");
-					union.add(s);
-					union.add(new ByteDataType());
-					dtm.addDataType(union, DataTypeConflictHandler.DEFAULT_HANDLER);
+				// create a pointer to array
+				p = PointerDataType.getPointer(array, 4);//TD_on_Pointer[5][6][7][8][9][10][11] *
+				union.add(p);
 
-					commit = true;
-				}
-				catch (DuplicateNameException e) {
-					Assert.fail("Got Duplicate name exception!");
-				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
+				Structure s = (Structure) dtm.getDataType(CategoryPath.ROOT, "DLL_Table");
+				s.add(new WordDataType());
+
+				union = new UnionDataType(new CategoryPath("/Category1/Category2"), "AnotherUnion");
+				union.add(s);
+				union.add(new ByteDataType());
+				dtm.addDataType(union, DataTypeConflictHandler.DEFAULT_HANDLER);
 			}
 		});
 		executeMerge();

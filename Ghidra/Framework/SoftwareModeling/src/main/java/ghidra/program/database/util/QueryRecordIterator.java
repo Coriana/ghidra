@@ -1,31 +1,26 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/*
- *
- */
 package ghidra.program.database.util;
-
-import ghidra.util.Msg;
-import ghidra.util.exception.ClosedException;
 
 import java.io.IOException;
 
-import db.Record;
+import db.DBRecord;
 import db.RecordIterator;
+import ghidra.util.Msg;
+import ghidra.util.exception.ClosedException;
 
 /**
  * Iterator that only returns records from another iterator that match the given query.
@@ -34,7 +29,7 @@ public class QueryRecordIterator implements RecordIterator {
 
 	private RecordIterator iter;
 	private Query query;
-	private Record record;
+	private DBRecord record;
 	private boolean forward;
 
 	/**
@@ -62,6 +57,7 @@ public class QueryRecordIterator implements RecordIterator {
 	/** 
 	 * @see db.RecordIterator#hasNext()
 	 */
+	@Override
 	public boolean hasNext() throws IOException {
 		if (record == null) {
 			if (forward) {
@@ -77,9 +73,10 @@ public class QueryRecordIterator implements RecordIterator {
 	/**
 	 * @see db.RecordIterator#next()
 	 */
-	public Record next() throws IOException {
+	@Override
+	public DBRecord next() throws IOException {
 		if (hasNext()) {
-			Record rec = record;
+			DBRecord rec = record;
 			record = null;
 			return rec;
 		}
@@ -89,6 +86,7 @@ public class QueryRecordIterator implements RecordIterator {
 	/**
 	 * @see db.RecordIterator#hasPrevious()
 	 */
+	@Override
 	public boolean hasPrevious() throws IOException {
 		if (record == null) {
 			findPrevious();
@@ -99,9 +97,10 @@ public class QueryRecordIterator implements RecordIterator {
 	/**
 	 * @see db.RecordIterator#previous()
 	 */
-	public Record previous() throws IOException {
+	@Override
+	public DBRecord previous() throws IOException {
 		if (hasPrevious()) {
-			Record rec = record;
+			DBRecord rec = record;
 			record = null;
 			return rec;
 		}
@@ -111,6 +110,7 @@ public class QueryRecordIterator implements RecordIterator {
 	/**
 	 * @see db.RecordIterator#delete()
 	 */
+	@Override
 	public boolean delete() throws IOException {
 		return iter.delete();
 	}
@@ -118,7 +118,7 @@ public class QueryRecordIterator implements RecordIterator {
 	private void findNext() {
 		try {
 			while (iter.hasNext()) {
-				Record rec = iter.next();
+				DBRecord rec = iter.next();
 				if (query.matches(rec)) {
 					record = rec;
 					return;
@@ -136,7 +136,7 @@ public class QueryRecordIterator implements RecordIterator {
 	private void findPrevious() {
 		try {
 			while (iter.hasPrevious()) {
-				Record rec = iter.previous();
+				DBRecord rec = iter.previous();
 				if (query.matches(rec)) {
 					record = rec;
 					return;

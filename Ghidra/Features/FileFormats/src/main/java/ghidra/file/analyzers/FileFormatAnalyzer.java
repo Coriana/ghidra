@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,7 +21,8 @@ import ghidra.app.cmd.data.CreateStringCmd;
 import ghidra.app.cmd.function.CreateFunctionCmd;
 import ghidra.app.services.*;
 import ghidra.app.util.importer.MessageLog;
-import ghidra.docking.settings.*;
+import ghidra.docking.settings.FormatSettingsDefinition;
+import ghidra.docking.settings.SettingsDefinition;
 import ghidra.framework.options.Options;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSetView;
@@ -29,8 +30,8 @@ import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.StringDataType;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.mem.MemoryAccessException;
-import ghidra.util.exception.CancelledException;
-import ghidra.util.exception.NotEmptyException;
+import ghidra.program.model.util.CodeUnitInsertionException;
+import ghidra.util.exception.*;
 import ghidra.util.task.TaskMonitor;
 
 public abstract class FileFormatAnalyzer implements Analyzer {
@@ -46,7 +47,7 @@ public abstract class FileFormatAnalyzer implements Analyzer {
 	}
 
 	@Override
-	final public boolean added(Program program, AddressSetView set, TaskMonitor monitor,
+	public final boolean added(Program program, AddressSetView set, TaskMonitor monitor,
 			MessageLog log) throws CancelledException {
 		try {
 			return analyze(program, set, monitor, log);
@@ -58,28 +59,28 @@ public abstract class FileFormatAnalyzer implements Analyzer {
 	}
 
 	@Override
-	final public void analysisEnded(Program program) {
+	public void analysisEnded(Program program) {
 		// do nothing
 	}
 
 	@Override
-	final public void registerOptions(Options options, Program program) {
+	public void registerOptions(Options options, Program program) {
 		// do nothing
 	}
 
 	@Override
-	final public void optionsChanged(Options options, Program program) {
+	public void optionsChanged(Options options, Program program) {
 		// do nothing
 	}
 
 	@Override
-	final public boolean removed(Program program, AddressSetView set, TaskMonitor monitor,
-			MessageLog log) throws CancelledException {
+	public boolean removed(Program program, AddressSetView set, TaskMonitor monitor, MessageLog log)
+			throws CancelledException {
 		return false;
 	}
 
 	@Override
-	final public boolean supportsOneTimeAnalysis() {
+	public boolean supportsOneTimeAnalysis() {
 		return false;
 	}
 
@@ -121,15 +122,6 @@ public abstract class FileFormatAnalyzer implements Analyzer {
 				if (isAscii && bytes.length > 1) {
 					changeFormatToString(component);
 				}
-/*
-				if (component.getFieldName().equals("magic") ||
-					component.getFieldName().equals("identifier") ||
-					component.getFieldName().equals("compression") ||
-					component.getFieldName().equals("format") ||
-					component.getFieldName().equals("type")) {
-					changeFormatToString(component);
-				}
-*/
 			}
 			address = address.add(data.getLength());
 		}
@@ -149,8 +141,6 @@ public abstract class FileFormatAnalyzer implements Analyzer {
 	}
 
 	protected void changeFormatToString(Data data) {
-		SettingsImpl settings = new SettingsImpl(data);
-		settings.setDefaultSettings(settings);
 		SettingsDefinition[] settingsDefinitions = data.getDataType().getSettingsDefinitions();
 		for (SettingsDefinition settingsDefinition : settingsDefinitions) {
 			if (settingsDefinition instanceof FormatSettingsDefinition) {
@@ -161,7 +151,7 @@ public abstract class FileFormatAnalyzer implements Analyzer {
 	}
 
 	protected ProgramFragment createFragment(Program program, String fragmentName, Address start,
-			Address end) throws Exception {
+			Address end) throws DuplicateNameException, NotFoundException {
 		ProgramModule module = program.getListing().getDefaultRootModule();
 		ProgramFragment fragment = getFragment(module, fragmentName);
 		if (fragment == null) {
@@ -198,24 +188,24 @@ public abstract class FileFormatAnalyzer implements Analyzer {
 	}
 
 	protected Data createData(Program program, Address address, DataType datatype)
-			throws Exception {
+			throws CodeUnitInsertionException {
 		if (datatype instanceof StringDataType) {
 			CreateStringCmd cmd = new CreateStringCmd(address);
 			if (!cmd.applyTo(program)) {
-				throw new RuntimeException(cmd.getStatusMsg());
+				throw new CodeUnitInsertionException(cmd.getStatusMsg());
 			}
 		}
 		else {
 			CreateDataCmd cmd = new CreateDataCmd(address, datatype);
 			if (!cmd.applyTo(program)) {
-				throw new RuntimeException(cmd.getStatusMsg());
+				throw new CodeUnitInsertionException(cmd.getStatusMsg());
 			}
 		}
 		return program.getListing().getDefinedDataAt(address);
 	}
 
 	protected boolean setPlateComment(Program program, Address address, String comment) {
-		SetCommentCmd cmd = new SetCommentCmd(address, CodeUnit.PLATE_COMMENT, comment);
+		SetCommentCmd cmd = new SetCommentCmd(address, CommentType.PLATE, comment);
 		return cmd.applyTo(program);
 	}
 
@@ -228,4 +218,5 @@ public abstract class FileFormatAnalyzer implements Analyzer {
 	protected Address find(Program program, Address start, byte[] values, TaskMonitor monitor) {
 		return program.getMemory().findBytes(start, values, null, true, monitor);
 	}
+
 }

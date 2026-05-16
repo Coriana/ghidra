@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,11 +16,10 @@
 package ghidra.program.model.data;
 
 import ghidra.app.plugin.core.datamgr.archive.BuiltInSourceArchive;
+import ghidra.docking.settings.Settings;
 import ghidra.docking.settings.SettingsDefinition;
 import ghidra.program.model.lang.DecompilerLanguage;
-import ghidra.util.InvalidNameException;
 import ghidra.util.UniversalID;
-import ghidra.util.exception.DuplicateNameException;
 
 /**
  * NOTE:  ALL DATATYPE CLASSES MUST END IN "DataType".  If not,
@@ -29,6 +28,8 @@ import ghidra.util.exception.DuplicateNameException;
  * Base class for built-in Datatypes.  A built-in data type is
  * searched for in the classpath and added automatically to the available
  * data types in the data type manager.
+ * 
+ * NOTE: Settings are immutable when a DataTypeManager has not been specified (i.e., null).
  */
 public abstract class BuiltIn extends DataTypeImpl implements BuiltInDataType {
 
@@ -74,6 +75,11 @@ public abstract class BuiltIn extends DataTypeImpl implements BuiltInDataType {
 	}
 
 	@Override
+	public void setDefaultSettings(Settings settings) {
+		defaultSettings = settings;
+	}
+
+	@Override
 	public boolean isEquivalent(DataType dt) {
 		if (dt == this) {
 			return true;
@@ -85,27 +91,6 @@ public abstract class BuiltIn extends DataTypeImpl implements BuiltInDataType {
 	}
 
 	@Override
-	public void dataTypeSizeChanged(DataType dt) {
-		// Default implementation does nothing.
-	}
-
-	@Override
-	public final void setCategoryPath(CategoryPath path) throws DuplicateNameException {
-		// Default implementation does nothing.
-	}
-
-	@Override
-	public final void setName(String name) throws InvalidNameException {
-		// Default implementation does nothing.
-	}
-
-	@Override
-	public final void setNameAndCategory(CategoryPath path, String name)
-			throws InvalidNameException, DuplicateNameException {
-		// Default implementation does nothing.
-	}
-
-	@Override
 	public final void addParent(DataType dt) {
 		// Default implementation does nothing.
 	}
@@ -113,35 +98,6 @@ public abstract class BuiltIn extends DataTypeImpl implements BuiltInDataType {
 	@Override
 	public final void removeParent(DataType dt) {
 		// Default implementation does nothing.
-	}
-
-	@Override
-	public void dataTypeNameChanged(DataType dt, String oldName) {
-		// Default implementation does nothing.
-	}
-
-	@Override
-	public void dataTypeReplaced(DataType oldDt, DataType newDt) {
-		// Default implementation does nothing.
-	}
-
-	@Override
-	public void dataTypeDeleted(DataType dt) {
-		// Default implementation does nothing.
-	}
-
-//	/* (non-Javadoc)
-//	 * @see ghidra.program.model.data.BuiltInDataType#clone(ghidra.program.model.data.DataTypeManager)
-//	 */
-//	public BuiltInDataType clone(DataTypeManager dataManager) {
-//		BuiltIn dt = (BuiltIn)copy(false);
-//		dt.dataMgr = dataManager;
-//		return dt;
-//	}
-
-	@Override
-	public boolean dependsOn(DataType dt) {
-		return false;
 	}
 
 	@Override

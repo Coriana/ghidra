@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -26,11 +26,9 @@ import ghidra.program.model.mem.MemoryAccessException;
 /**
  * Provides a definition of an Ascii byte in a program.
  */
-public class BooleanDataType extends AbstractIntegerDataType {
+public class BooleanDataType extends AbstractUnsignedIntegerDataType {
 
-	private final static long serialVersionUID = 1;
-
-	private static SettingsDefinition[] SETTINGS_DEFS = {};
+	private static SettingsDefinition[] BOOLEAN_SETTINGS_DEFS = {};
 
 	public static final BooleanDataType dataType = new BooleanDataType();
 
@@ -42,7 +40,7 @@ public class BooleanDataType extends AbstractIntegerDataType {
 	}
 
 	public BooleanDataType(DataTypeManager dtm) {
-		super("bool", false, dtm);
+		super("bool", dtm);
 	}
 
 	@Override
@@ -52,8 +50,9 @@ public class BooleanDataType extends AbstractIntegerDataType {
 
 	@Override
 	public String getDecompilerDisplayName(DecompilerLanguage language) {
-		if (language == DecompilerLanguage.JAVA_LANGUAGE)
+		if (language == DecompilerLanguage.JAVA_LANGUAGE) {
 			return "boolean";
+		}
 		return name;
 	}
 
@@ -65,11 +64,6 @@ public class BooleanDataType extends AbstractIntegerDataType {
 	@Override
 	public int getLength() {
 		return 1; // TODO: Size should probably be based upon data organization
-	}
-
-	@Override
-	public boolean isDynamicallySized() {
-		return false;
 	}
 
 	@Override
@@ -101,14 +95,13 @@ public class BooleanDataType extends AbstractIntegerDataType {
 		return b.booleanValue() ? "TRUE" : "FALSE";
 	}
 
-	@Override
 	public String getRepresentation(BigInteger bigInt, Settings settings, int bitLength) {
 		return BigInteger.ZERO.equals(bigInt) ? "FALSE" : "TRUE";
 	}
 
 	@Override
 	protected SettingsDefinition[] getBuiltInSettingsDefinitions() {
-		return SETTINGS_DEFS;
+		return BOOLEAN_SETTINGS_DEFS;
 	}
 
 	@Override

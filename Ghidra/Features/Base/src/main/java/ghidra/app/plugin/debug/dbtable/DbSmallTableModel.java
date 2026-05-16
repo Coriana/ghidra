@@ -16,38 +16,40 @@
 package ghidra.app.plugin.debug.dbtable;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
 
 import db.*;
-import docking.widgets.table.AbstractSortedTableModel;
+import docking.widgets.table.TableColumnDescriptor;
+import docking.widgets.table.threaded.ThreadedTableModel;
+import ghidra.framework.plugintool.ServiceProvider;
 import ghidra.util.Msg;
+import ghidra.util.datastruct.Accumulator;
 import ghidra.util.exception.AssertException;
+import ghidra.util.exception.CancelledException;
+import ghidra.util.task.TaskMonitor;
 
-public class DbSmallTableModel extends AbstractSortedTableModel<Record> {
+public class DbSmallTableModel extends ThreadedTableModel<DBRecord, Object> {
 	private Table table;
 	private Schema schema;
-	private List<AbstractColumnAdapter> columns = new ArrayList<>();
-	private List<Record> records;
 
-	public DbSmallTableModel(Table table) {
+	public DbSmallTableModel(ServiceProvider serviceProvider, Table table) {
+		super("DB Records Model", serviceProvider);
 		this.table = table;
 		schema = table.getSchema();
 
-		records = new ArrayList<>(table.getRecordCount());
+		reloadColumns(); // we must do this after 'schema' has been set
+	}
 
-		columns.add(getColumn(schema.getKeyFieldClass()));
+	@Override
+	protected void doLoad(Accumulator<DBRecord> accumulator, TaskMonitor monitor)
+			throws CancelledException {
 
-		Class<?>[] classes = schema.getFieldClasses();
-		int fieldCount = schema.getFieldCount();
-		for (int i = 0; i < fieldCount; i++) {
-			columns.add(getColumn(classes[i]));
-		}
+		monitor.initialize(table.getRecordCount());
 
 		try {
 			RecordIterator it = table.iterator();
 			while (it.hasNext()) {
-				records.add(it.next());
+				monitor.checkCancelled();
+				accumulator.add(it.next());
 			}
 		}
 		catch (IOException e) {
@@ -55,49 +57,35 @@ public class DbSmallTableModel extends AbstractSortedTableModel<Record> {
 		}
 	}
 
-	private AbstractColumnAdapter getColumn(Class<?> c) {
-		if (c == ByteField.class) {
-			return new ByteColumnAdapter();
+	private AbstractColumnAdapter getColumn(Field field, int column) {
+
+		String columnName = loadColumnName(column);
+		if (field instanceof ByteField) {
+			return new ByteColumnAdapter(columnName, column);
 		}
-		else if (c == BooleanField.class) {
-			return new BooleanColumnAdapter();
+		else if (field instanceof BooleanField) {
+			return new BooleanColumnAdapter(columnName, column);
 		}
-		else if (c == ShortField.class) {
-			return new ShortColumnAdapter();
+		else if (field instanceof ShortField) {
+			return new ShortColumnAdapter(columnName, column);
 		}
-		else if (c == IntField.class) {
-			return new IntegerColumnAdapter();
+		else if (field instanceof IntField) {
+			return new IntegerColumnAdapter(columnName, column);
 		}
-		else if (c == LongField.class) {
-			return new LongColumnAdapter();
+		else if (field instanceof LongField) {
+			return new LongColumnAdapter(columnName, column);
 		}
-		else if (c == StringField.class) {
-			return new StringColumnAdapter();
+		else if (field instanceof StringField) {
+			return new StringColumnAdapter(columnName, column);
 		}
-		else if (c == BinaryField.class) {
-			return new BinaryColumnAdapter();
+		else if (field instanceof BinaryField) {
+			return new BinaryColumnAdapter(columnName, column);
 		}
-		throw new AssertException("New, unexpected DB column class type: " + c);
+		throw new AssertException(
+			"New, unexpected DB column type: " + field.getClass().getSimpleName());
 	}
 
-	@Override
-	public String getName() {
-		return "DB Small Table";
-	}
-
-	@Override
-	public Class<?> getColumnClass(int columnIndex) {
-		return columns.get(columnIndex).getValueClass();
-
-	}
-
-	@Override
-	public int getColumnCount() {
-		return schema.getFieldCount() + 1;
-	}
-
-	@Override
-	public String getColumnName(int columnIndex) {
+	private String loadColumnName(int columnIndex) {
 		if (columnIndex == 0) {
 			return schema.getKeyName();
 		}
@@ -114,8 +102,23 @@ public class DbSmallTableModel extends AbstractSortedTableModel<Record> {
 	}
 
 	@Override
-	public int getRowCount() {
-		return table.getRecordCount();
+	protected TableColumnDescriptor<DBRecord> createTableColumnDescriptor() {
+
+		TableColumnDescriptor<DBRecord> descriptor = new TableColumnDescriptor<>();
+		if (schema == null) {
+			return descriptor;
+		}
+
+		// 0 is the key
+		descriptor.addVisibleColumn(getColumn(schema.getKeyFieldType(), 0));
+
+		Field[] fields = schema.getFields();
+		int offset = 1;
+		for (Field field : fields) {
+			descriptor.addVisibleColumn(getColumn(field, offset++));
+		}
+
+		return descriptor;
 	}
 
 	@Override
@@ -124,22 +127,7 @@ public class DbSmallTableModel extends AbstractSortedTableModel<Record> {
 	}
 
 	@Override
-	public Object getColumnValueForRow(Record rec, int columnIndex) {
-		if (columnIndex == 0) { // key column
-			return columns.get(columnIndex).getKeyValue(rec);
-		}
-
-		int dbColumn = columnIndex - 1; // -1, since the DB indices do not have the key column included
-		return columns.get(columnIndex).getValue(rec, dbColumn);
-	}
-
-	@Override
-	public List<Record> getModelData() {
-		return records;
-	}
-
-	@Override
-	public boolean isSortable(int columnIndex) {
-		return true;
+	public Object getDataSource() {
+		return null;
 	}
 }

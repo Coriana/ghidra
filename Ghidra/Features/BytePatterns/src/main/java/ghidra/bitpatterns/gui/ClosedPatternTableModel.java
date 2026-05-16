@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,15 +15,13 @@
  */
 package ghidra.bitpatterns.gui;
 
-import java.awt.Font;
+import java.awt.Component;
 import java.util.List;
-
-import javax.swing.JTable;
-import javax.swing.table.TableModel;
 
 import docking.widgets.table.AbstractDynamicTableColumn;
 import docking.widgets.table.TableColumnDescriptor;
 import docking.widgets.table.threaded.ThreadedTableModelStub;
+import generic.theme.Gui;
 import ghidra.docking.settings.Settings;
 import ghidra.framework.plugintool.ServiceProvider;
 import ghidra.util.datastruct.Accumulator;
@@ -42,12 +40,13 @@ public class ClosedPatternTableModel extends ThreadedTableModelStub<ClosedPatter
 	private List<ClosedPatternRowObject> rowObjects;
 
 	private static final String MODEL_NAME = "Closed Patterns";
-	private static final int MONOSPACE_FONT_SIZE = 16;
+
+	protected static final String FONT_ID = "font.bytepatterns.table";
 
 	/**
 	 * Creates a table model for closed patterns mined from byte sequences
-	 * @param rowObjects
-	 * @param serviceProvider
+	 * @param rowObjects the row objects
+	 * @param serviceProvider the service provider
 	 */
 	public ClosedPatternTableModel(List<ClosedPatternRowObject> rowObjects,
 			ServiceProvider serviceProvider) {
@@ -58,9 +57,11 @@ public class ClosedPatternTableModel extends ThreadedTableModelStub<ClosedPatter
 
 	protected GColumnRenderer<String> monospacedRenderer = new AbstractGColumnRenderer<String>() {
 		@Override
-		protected void configureFont(JTable table, TableModel model, int column) {
-			Font f = new Font("monospaced", getFixedWidthFont().getStyle(), MONOSPACE_FONT_SIZE);
-			setFont(f);
+		public java.awt.Component getTableCellRendererComponent(
+				docking.widgets.table.GTableCellRenderingData data) {
+			Component component = super.getTableCellRendererComponent(data);
+			component.setFont(Gui.getFont(FONT_ID));
+			return component;
 		}
 
 		@Override

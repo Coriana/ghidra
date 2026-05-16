@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,15 +22,23 @@ import java.util.List;
 
 import javax.swing.*;
 
+import org.apache.commons.lang3.StringUtils;
+
 import docking.action.DockingAction;
 import docking.action.DockingActionIf;
-import ghidra.util.Swing;
+import generic.timer.ExpiringSwingTimer;
 import ghidra.util.exception.AssertException;
 
 /**
  * Class to hold information about a dockable component with respect to its position within the
  * windowing system.  It also holds identification information about the provider so that its
  * location can be reused when the provider is re-opened.
+ * <p>
+ * The placeholder will be used to link previously saved position information.  The tool will
+ * initially construct plugins and their component providers with default position information.
+ * Then, any existing xml data will be restored, which may have provider position information.
+ * The restoring of the xml will create placeholders with this saved information.  Finally, the
+ * restored placeholders will be linked with existing component providers.
  */
 public class ComponentPlaceholder {
 	private String name;
@@ -55,8 +63,7 @@ public class ComponentPlaceholder {
 		this.componentProvider = provider;
 		updateInfo(provider);
 		this.actions = new ArrayList<>();
-
-		instanceID = provider.getInstanceID();
+		this.instanceID = provider.getInstanceID();
 	}
 
 	/**
@@ -65,7 +72,7 @@ public class ComponentPlaceholder {
 	 * @param name the name of the component
 	 * @param owner the owner of the component
 	 * @param group the window group
-	 * @param title the title 
+	 * @param title the title
 	 * @param show whether or not the component is showing
 	 * @param node componentNode that has this placeholder
 	 * @param instanceID the instance ID
@@ -117,10 +124,21 @@ public class ComponentPlaceholder {
 	}
 
 	/**
-	 * Returns true if the component is not hidden
+	 * Returns true if the component is showing and visible to the user.
 	 * @return true if showing
+	 * @see #isActive()
 	 */
 	boolean isShowing() {
+		return isShowing && comp != null && comp.isShowing();
+	}
+
+	/**
+	 * Returns true if this provider wants to be showing and has a component provider, regardless 
+	 * of whether the provider is showing to the user.
+	 * @return true if active
+	 * @see #isShowing()
+	 */
+	boolean isActive() {
 		return isShowing && componentProvider != null;
 	}
 
@@ -146,11 +164,22 @@ public class ComponentPlaceholder {
 		return group;
 	}
 
-	DetachedWindowNode getWindowNode() {
+	DetachedWindowNode getDetachedWindowNode() {
 		Node node = compNode.parent;
 		while (node != null) {
 			if (node instanceof DetachedWindowNode) {
 				return (DetachedWindowNode) node;
+			}
+			node = node.parent;
+		}
+		return null;
+	}
+
+	WindowNode getWindowNode() {
+		Node node = compNode.parent;
+		while (node != null) {
+			if (node instanceof WindowNode) {
+				return (WindowNode) node;
 			}
 			node = node.parent;
 		}
@@ -201,7 +230,12 @@ public class ComponentPlaceholder {
 		}
 	}
 
+	public boolean isDisposed() {
+		return disposed;
+	}
+
 	void dispose() {
+
 		disposed = true;
 
 		if (comp != null) {
@@ -219,6 +253,7 @@ public class ComponentPlaceholder {
 		}
 
 		compNode.remove(this);
+		compNode = null;
 	}
 
 	private void disposeComponent() {
@@ -230,18 +265,25 @@ public class ComponentPlaceholder {
 		comp = null;
 	}
 
+	/**
+	 * {@return true if this placeholder has a component that can take focus.  This placeholder 
+	 * cannot take focus if it does not yet have a DockableComponent.}
+	 */
+	boolean canTakeFocus() {
+		return comp != null;
+	}
+
 	void toFront() {
 		if (comp != null) {
 			compNode.makeSelectedTab(this);
 		}
-
 	}
 
 	/**
 	 * Requests focus for the component associated with this placeholder.
 	 */
-	void requestFocus() {
-		Component tmp = comp;// put in temp variable in case another thread deletes it
+	void requestFocusWhenReady() {
+		DockableComponent tmp = comp;// put in temp variable in case another thread deletes it
 		if (tmp == null) {
 			return;
 		}
@@ -250,19 +292,27 @@ public class ComponentPlaceholder {
 		activateWindow();
 
 		// make sure the tab has time to become active before trying to request focus
-		tmp.requestFocus();
-
-		Swing.runLater(() -> {
-			tmp.requestFocus();
-			contextChanged();
+		ExpiringSwingTimer.runWhen(this::isShowing, () -> {
+			doRequestFocus(tmp);
 		});
+	}
+
+	private void doRequestFocus(DockableComponent dockableComponent) {
+		KeyboardFocusManager kfm = KeyboardFocusManager.getCurrentKeyboardFocusManager();
+		Window activeWindow = kfm.getActiveWindow();
+		if (activeWindow == null) {
+			return; // our application isn't focused--don't do anything
+		}
+
+		dockableComponent.requestFocus();
+		contextChanged();
 	}
 
 	// makes sure that the given window is not in an iconified state
 	private void activateWindow() {
-		DetachedWindowNode windowNode = getWindowNode();
+		DetachedWindowNode windowNode = getDetachedWindowNode();
 		if (windowNode != null) {
-			Window window = getWindowNode().getWindow();
+			Window window = getDetachedWindowNode().getWindow();
 			if (window instanceof Frame) {
 				Frame frame = (Frame) window;
 				frame.setState(Frame.NORMAL);
@@ -288,8 +338,9 @@ public class ComponentPlaceholder {
 	public DockableComponent getComponent() {
 		if (disposed) {
 			throw new AssertException(
-				"Attempted to get a component for a disposed component placeholder");
+				"Attempted to get a component for a disposed placeholder - " + this);
 		}
+
 		boolean isDocking = true;
 		if (compNode != null) {
 			isDocking = compNode.winMgr.isDocking();
@@ -362,7 +413,7 @@ public class ComponentPlaceholder {
 	 */
 	JComponent getProviderComponent() {
 		if (componentProvider != null) {
-			return componentProvider.getComponent();
+			return componentProvider.doGetComponent();
 		}
 		return new JPanel();
 	}
@@ -392,6 +443,7 @@ public class ComponentPlaceholder {
 	 * @param newProvider the new provider
 	 */
 	void setProvider(ComponentProvider newProvider) {
+
 		this.componentProvider = newProvider;
 		actions.clear();
 		if (newProvider != null) {
@@ -492,13 +544,16 @@ public class ComponentPlaceholder {
 			return; // disposed
 		}
 
-		ActionContext actionContext = componentProvider.getActionContext(null);
-		if (actionContext == null) {
-			actionContext = new ActionContext(componentProvider, null);
+		ActionContext context = componentProvider.getActionContext(null);
+		if (context == null) {
+			context = new DefaultActionContext(componentProvider, null);
 		}
-		for (DockingActionIf action : actions) {
-			action.setEnabled(
-				action.isValidContext(actionContext) && action.isEnabledForContext(actionContext));
+
+		context.setContextProvider(componentProvider);
+
+		for (DockingActionIf a : actions) {
+			boolean enabled = a.isValidContext(context) && a.isEnabledForContext(context);
+			a.setEnabled(enabled);
 		}
 	}
 
@@ -553,7 +608,7 @@ public class ComponentPlaceholder {
 	 */
 	public String getFullTitle() {
 		String text = title;
-		if (subTitle != null && !subTitle.isEmpty()) {
+		if (!StringUtils.isBlank(subTitle)) {
 			text += " - " + subTitle;
 		}
 		return text;

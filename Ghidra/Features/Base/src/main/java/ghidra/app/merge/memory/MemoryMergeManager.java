@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +15,11 @@
  */
 package ghidra.app.merge.memory;
 
+import java.lang.reflect.InvocationTargetException;
+import java.util.ArrayList;
+
+import javax.swing.SwingUtilities;
+
 import ghidra.app.merge.*;
 import ghidra.app.util.HelpTopics;
 import ghidra.framework.store.LockException;
@@ -24,13 +28,9 @@ import ghidra.program.model.mem.Memory;
 import ghidra.program.model.mem.MemoryBlock;
 import ghidra.util.HelpLocation;
 import ghidra.util.Msg;
-import ghidra.util.exception.*;
+import ghidra.util.exception.AssertException;
+import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
-
-import java.lang.reflect.InvocationTargetException;
-import java.util.ArrayList;
-
-import javax.swing.SwingUtilities;
 
 /**
  * Merge memory blocks that have changes to the name, permissions or comments.
@@ -96,6 +96,7 @@ public class MemoryMergeManager implements MergeResolver {
 	/* (non-Javadoc)
 	 * @see ghidra.app.merge.MergeResolver#getName()
 	 */
+	@Override
 	public String getName() {
 		return "Memory Block Merger";
 	}
@@ -103,6 +104,7 @@ public class MemoryMergeManager implements MergeResolver {
 	/* (non-Javadoc)
 	 * @see ghidra.app.merge.MergeResolver#getDescription()
 	 */
+	@Override
 	public String getDescription() {
 		return "Merge Memory Blocks";
 	}
@@ -110,6 +112,7 @@ public class MemoryMergeManager implements MergeResolver {
 	/* (non-Javadoc)
 	 * @see ghidra.app.merge.MergeResolver#apply()
 	 */
+	@Override
 	public void apply() {
 		conflictOption = mergePanel.getSelectedOption();
 
@@ -123,6 +126,7 @@ public class MemoryMergeManager implements MergeResolver {
 	/* (non-Javadoc)
 	 * @see ghidra.app.merge.MergeResolver#cancel()
 	 */
+	@Override
 	public void cancel() {
 		conflictOption = CANCELED;
 	}
@@ -130,6 +134,7 @@ public class MemoryMergeManager implements MergeResolver {
 	/* (non-Javadoc)
 	 * @see ghidra.app.merge.MergeResolver#merge(ghidra.util.task.TaskMonitor)
 	 */
+	@Override
 	public void merge(TaskMonitor monitor) {
 
 		mergeManager.setInProgress(MEMORY_PHASE);
@@ -191,7 +196,7 @@ public class MemoryMergeManager implements MergeResolver {
 			if (isNameConflict(i)) {
 				conflictList.add(new ConflictInfo(i, true, false, false));
 			}
-			if (isPermissionConflict(i)) {
+			if (isFlagsConflict(i)) {
 				conflictList.add(new ConflictInfo(i, false, true, false));
 			}
 			if (isCommentConflict(i)) {
@@ -228,7 +233,8 @@ public class MemoryMergeManager implements MergeResolver {
 		String myName = myBlocks[index].getName();
 		String origName = origBlocks[index].getName();
 
-		if (!myName.equals(origName) && !latestName.equals(origName) && !myName.equals(latestName)) {
+		if (!myName.equals(origName) && !latestName.equals(origName) &&
+			!myName.equals(latestName)) {
 			return true;
 		}
 		return false;
@@ -239,13 +245,12 @@ public class MemoryMergeManager implements MergeResolver {
 	 * LATEST and MY programs.
 	 * @param index block index
 	 */
-	private boolean isPermissionConflict(int index) {
-		int latestPermissions = latestBlocks[index].getPermissions();
-		int myPermissions = myBlocks[index].getPermissions();
-		int origPermissions = origBlocks[index].getPermissions();
+	private boolean isFlagsConflict(int index) {
+		int latestFlags = latestBlocks[index].getFlags();
+		int myFlags = myBlocks[index].getFlags();
+		int origFlags = origBlocks[index].getFlags();
 
-		if (myPermissions != origPermissions && latestPermissions != origPermissions &&
-			myPermissions != latestPermissions) {
+		if (myFlags != origFlags && latestFlags != origFlags && myFlags != latestFlags) {
 			return true;
 		}
 		return false;
@@ -325,12 +330,11 @@ public class MemoryMergeManager implements MergeResolver {
 	private void processConflicts() throws CancelledException {
 		int currentBlockIndex = -1;
 
-		for (int i = 0; i < conflictList.size(); i++) {
+		for (ConflictInfo info : conflictList) {
 			if (currentMonitor.isCancelled()) {
 				throw new CancelledException();
 			}
 
-			ConflictInfo info = conflictList.get(i);
 			if (currentBlockIndex != info.index) {
 				currentMonitor.setProgress(++progressIndex);
 			}
@@ -359,27 +363,21 @@ public class MemoryMergeManager implements MergeResolver {
 
 		if (info.nameConflict) {
 			title = "Resolve Name Conflict";
-			latestStr =
-				"Use Block name '" + latestBlocks[info.index].getName() + "'  (" +
-					MergeConstants.LATEST_TITLE + ")";
-			myStr =
-				"Use Block name '" + getUniqueBlockName(myBlocks[info.index].getName()) + "'  (" +
-					MergeConstants.MY_TITLE + ")";
-			origStr =
-				"Use Block name '" + origBlocks[info.index].getName() + "'  (" +
-					MergeConstants.ORIGINAL_TITLE + ")";
+			latestStr = "Use Block name '" + latestBlocks[info.index].getName() + "'  (" +
+				MergeConstants.LATEST_TITLE + ")";
+			myStr = "Use Block name '" + getUniqueBlockName(myBlocks[info.index].getName()) +
+				"'  (" + MergeConstants.MY_TITLE + ")";
+			origStr = "Use Block name '" + origBlocks[info.index].getName() + "'  (" +
+				MergeConstants.ORIGINAL_TITLE + ")";
 		}
 		else if (info.permissionConflict) {
-			title = "Resolve Permissions Conflict";
-			latestStr =
-				"Use '" + getPermissionString(latestBlocks[info.index]) + "'  (" +
-					MergeConstants.LATEST_TITLE + ")";
-			myStr =
-				"Use '" + getPermissionString(myBlocks[info.index]) + "'  (" +
-					MergeConstants.MY_TITLE + ")";
-			origStr =
-				"Use '" + getPermissionString(origBlocks[info.index]) + "'  (" +
-					MergeConstants.ORIGINAL_TITLE + ")";
+			title = "Resolve Flags Conflict";
+			latestStr = "Use '" + getFlagsString(latestBlocks[info.index]) + "'  (" +
+				MergeConstants.LATEST_TITLE + ")";
+			myStr = "Use '" + getFlagsString(myBlocks[info.index]) + "'  (" +
+				MergeConstants.MY_TITLE + ")";
+			origStr = "Use '" + getFlagsString(origBlocks[info.index]) + "'  (" +
+				MergeConstants.ORIGINAL_TITLE + ")";
 		}
 		else {
 			// comment conflict
@@ -389,7 +387,8 @@ public class MemoryMergeManager implements MergeResolver {
 			myStr = myBlocks[info.index].getComment();
 			origStr = origBlocks[info.index].getComment();
 		}
-		if ((memoryDetailChoice == ASK_USER) && conflictOption == ASK_USER && mergeManager != null) {
+		if ((memoryDetailChoice == ASK_USER) && conflictOption == ASK_USER &&
+			mergeManager != null) {
 			title = title + " (Block index " + info.index + ")";
 			showMergePanel(panelID, title, latestStr, myStr, origStr);
 		}
@@ -414,10 +413,6 @@ public class MemoryMergeManager implements MergeResolver {
 			try {
 				resultBlocks[info.index].setName(getUniqueBlockName(sourceBlock.getName()));
 			}
-			catch (DuplicateNameException e) {
-				// should not happen since we created a unique name
-				throw new AssertException();
-			}
 			catch (LockException e) {
 				// should not happen since overlay name change should not happen during merge
 				throw new AssertException();
@@ -428,6 +423,7 @@ public class MemoryMergeManager implements MergeResolver {
 			resultBlocks[info.index].setWrite(sourceBlock.isWrite());
 			resultBlocks[info.index].setExecute(sourceBlock.isExecute());
 			resultBlocks[info.index].setVolatile(sourceBlock.isVolatile());
+			resultBlocks[info.index].setArtificial(sourceBlock.isArtificial());
 		}
 		else {
 			resultBlocks[info.index].setComment(sourceBlock.getComment());
@@ -439,6 +435,7 @@ public class MemoryMergeManager implements MergeResolver {
 			final String myStr, final String origStr) {
 		try {
 			SwingUtilities.invokeAndWait(new Runnable() {
+				@Override
 				public void run() {
 					if (mergePanel == null) {
 						mergePanel = new MemoryMergePanel(mergeManager, conflictCount);
@@ -455,8 +452,8 @@ public class MemoryMergeManager implements MergeResolver {
 			Msg.error(this, "Unexpected Exception: " + e.getMessage(), e);
 		}
 		mergeManager.setApplyEnabled(false);
-		mergeManager.showComponent(mergePanel, "MemoryMerge", new HelpLocation(
-			HelpTopics.REPOSITORY, "MemoryConflict"));
+		mergeManager.showComponent(mergePanel, "MemoryMerge",
+			new HelpLocation(HelpTopics.REPOSITORY, "MemoryConflict"));
 		// block until the user either cancels or hits the "Apply" button
 		// on the merge dialog...
 		// when the "Apply" button is hit, get the user's selection
@@ -464,7 +461,7 @@ public class MemoryMergeManager implements MergeResolver {
 
 	}
 
-	private String getPermissionString(MemoryBlock block) {
+	private String getFlagsString(MemoryBlock block) {
 		StringBuffer sb = new StringBuffer();
 		sb.append("Read = ");
 		sb.append(block.isExecute());
@@ -477,6 +474,9 @@ public class MemoryMergeManager implements MergeResolver {
 		sb.append(", ");
 		sb.append("Volatile = ");
 		sb.append(block.isVolatile());
+		sb.append(", ");
+		sb.append("Artificial = ");
+		sb.append(block.isArtificial());
 		return sb.toString();
 	}
 
@@ -494,17 +494,13 @@ public class MemoryMergeManager implements MergeResolver {
 				try {
 					resultBlocks[index].setName(getUniqueBlockName(myName));
 				}
-				catch (DuplicateNameException e) {
-					// should not happen since we created a unique name
-					throw new AssertException();
-				}
 				catch (LockException e) {
 					// should not happen since overlay name change should not happen during merge
 					throw new AssertException();
 				}
 			}
 		}
-		if (!isPermissionConflict(index)) {
+		if (!isFlagsConflict(index)) {
 			boolean permission = myBlocks[index].isRead();
 			if (permission != origBlocks[index].isRead()) {
 				resultBlocks[index].setRead(permission);
@@ -537,6 +533,14 @@ public class MemoryMergeManager implements MergeResolver {
 					progressUpdated = true;
 				}
 			}
+			permission = myBlocks[index].isArtificial();
+			if (permission != origBlocks[index].isArtificial()) {
+				resultBlocks[index].setArtificial(permission);
+				if (!progressUpdated) {
+					currentMonitor.setProgress(++progressIndex);
+					progressUpdated = true;
+				}
+			}
 		}
 		if (!isCommentConflict(index)) {
 			String myComment = myBlocks[index].getComment();
@@ -555,8 +559,7 @@ public class MemoryMergeManager implements MergeResolver {
 	}
 
 	private boolean hasConflict(int index) {
-		for (int i = 0; i < conflictList.size(); i++) {
-			ConflictInfo info = conflictList.get(i);
+		for (ConflictInfo info : conflictList) {
 			if (index == info.index) {
 				return true;
 			}
@@ -564,6 +567,7 @@ public class MemoryMergeManager implements MergeResolver {
 		return false;
 	}
 
+	@Override
 	public String[][] getPhases() {
 		return new String[][] { MEMORY_PHASE };
 	}

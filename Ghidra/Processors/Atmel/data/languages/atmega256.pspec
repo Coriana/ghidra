@@ -9,12 +9,22 @@
      - NOTE: The settings within this file may be specific to a particular 
      - processor variant and will likely need to be changed to reflect 
      - the specific target processor.
+     The RAMPx, EIND, SREG registers are not marked volatile, even though they could be changed
+     indirectly with memory references.  If they are made volatile, then the addressing
+     won't work in decompiler or reference recovery.
+	 Some registers only appear in newer avr8's, or with large memory spaces
     --> 
     
   <volatile outputop="write_volatile" inputop="read_volatile">
-    <range space="mem" first="0x20" last="0x5b"/>
-    <range space="mem" first="0x5f" last="0xff"/>
+    <range space="mem" first="0x20" last="0x57"/>
+    <range space="mem" first="0x60" last="0xff"/>
   </volatile>
+  
+  <context_data>
+    <tracked_set space="code">
+      <set name="R1" val="0"/>
+    </tracked_set>
+  </context_data>
   
   <default_symbols>
   
@@ -137,7 +147,7 @@
     <symbol name="EIND" address="mem:0x5c"/>
     <symbol name="_SPL" address="mem:0x5d"/>
     <symbol name="_SPH" address="mem:0x5e"/>
-    <symbol name="SREG" address="mem:0x5f"/>
+
     <symbol name="WDTCSR" address="mem:0x60"/>
     <symbol name="CLKPR" address="mem:0x61"/>
 
@@ -290,7 +300,7 @@
     <symbol name="SCTSTRHL" address="mem:0xfb"/>
     <symbol name="SCTSTRHH" address="mem:0xfc"/>
 
-    <symbol name="MAFCR0" address="mem:0x100c"/>
+    <symbol name="MAFCR0" address="mem:0x10c"/>
     <symbol name="MAFCR1" address="mem:0x10d"/>
     <symbol name="MAFSA0L" address="mem:0x10e"/>
     <symbol name="MAFSA0H" address="mem:0x10f"/>
@@ -302,7 +312,7 @@
     <symbol name="MAFPA1H" address="mem:0x115"/>
     <symbol name="MAFSA2L" address="mem:0x116"/>
     <symbol name="MAFSA2H" address="mem:0x117"/>
-    <symbol name="MAFPA2L" address="mem:0x1018"/>
+    <symbol name="MAFPA2L" address="mem:0x118"/>
     <symbol name="MAFPA2H" address="mem:0x119"/>
     <symbol name="MAFSA3L" address="mem:0x11a"/>
     <symbol name="MAFSA3H" address="mem:0x11b"/>
@@ -404,7 +414,8 @@
   <default_memory_blocks>
     <memory_block name="regalias" start_address="mem:0x00" length="0x20" initialized="false"/>
     <memory_block name="iospace" start_address="mem:0x20" length="0x1e0" initialized="false"/>
-    <memory_block name="data" start_address="mem:0x200" length="0x2000" initialized="false"/>
+    <memory_block name="sram" start_address="mem:0x200" length="0x4000" initialized="false"/>
+    <memory_block name="codebyte" start_address="codebyte:0x0" length="0x40000" byte_mapped_address="code:0x0"/>
   </default_memory_blocks>
 
 

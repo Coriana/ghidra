@@ -15,7 +15,6 @@
  */
 package ghidra.app.services;
 
-import java.awt.Component;
 import java.net.URL;
 
 import ghidra.framework.model.DomainFile;
@@ -23,8 +22,8 @@ import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Program;
 
 /**
- * A stub of the {@link ProgramManager} interface.  This can be used to supply a test program 
- * manager or to spy on system internals by overriding methods as needed.
+ * A stub of the {@link ProgramManager} interface. This can be used to supply a test program manager
+ * or to spy on system internals by overriding methods as needed.
  */
 public class TestDummyProgramManager implements ProgramManager {
 
@@ -53,13 +52,19 @@ public class TestDummyProgramManager implements ProgramManager {
 	}
 
 	@Override
+	public Program openCachedProgram(URL ghidraURL, Object consumer) {
+		// stub
+		return null;
+	}
+
+	@Override
 	public Program openProgram(DomainFile domainFile) {
 		// stub
 		return null;
 	}
 
 	@Override
-	public Program openProgram(DomainFile domainFile, Component dialogParent) {
+	public Program openCachedProgram(DomainFile domainFile, Object consumer) {
 		// stub
 		return null;
 	}
@@ -82,12 +87,27 @@ public class TestDummyProgramManager implements ProgramManager {
 	}
 
 	@Override
-	public void openProgram(Program program, boolean current) {
+	public void openProgram(Program program, int state) {
 		// stub
 	}
 
 	@Override
-	public void openProgram(Program program, int state) {
+	public void saveProgram() {
+		// stub
+	}
+
+	@Override
+	public void saveProgram(Program program) {
+		// stub
+	}
+
+	@Override
+	public void saveProgramAs() {
+		// stub
+	}
+
+	@Override
+	public void saveProgramAs(Program program) {
 		// stub
 	}
 
@@ -136,16 +156,4 @@ public class TestDummyProgramManager implements ProgramManager {
 		// stub
 		return null;
 	}
-
-	@Override
-	public void lockDown(boolean state) {
-		// stub
-	}
-
-	@Override
-	public boolean isLocked() {
-		// stub
-		return false;
-	}
-
 }

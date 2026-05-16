@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,8 +21,10 @@ import ghidra.app.actions.AbstractFindReferencesToAddressAction;
 import ghidra.app.context.NavigatableActionContext;
 import ghidra.app.plugin.core.decompile.DecompilerActionContext;
 import ghidra.app.plugin.core.navigation.locationreferences.LocationReferencesService;
+import ghidra.app.util.HelpTopics;
 import ghidra.framework.plugintool.PluginTool;
-import ghidra.program.util.ProgramLocation;
+import ghidra.program.model.address.Address;
+import ghidra.util.HelpLocation;
 
 /**
  * An action to show all references to the given address
@@ -32,34 +34,33 @@ public class FindReferencesToAddressAction extends AbstractFindReferencesToAddre
 	public FindReferencesToAddressAction(PluginTool tool, String owner) {
 		super(tool, owner);
 
+		setHelpLocation(new HelpLocation(HelpTopics.DECOMPILER, "ActionShowReferences"));
 		setPopupMenuData(new MenuData(new String[] { LocationReferencesService.MENU_GROUP, NAME }));
 	}
 
 	@Override
-	protected ProgramLocation getLocation(NavigatableActionContext context) {
-		if (!(context instanceof DecompilerActionContext)) {
-			return null;
-		}
-		return context.getLocation();
+	protected boolean isMyNavigatable(NavigatableActionContext context) {
+		return context instanceof DecompilerActionContext;
 	}
 
 	@Override
 	public boolean isEnabledForContext(ActionContext context) {
-		if (!(context instanceof DecompilerActionContext)) {
+		if (!(context instanceof DecompilerActionContext dac)) {
 			return false;
 		}
 
-		DecompilerActionContext decompilerContext = (DecompilerActionContext) context;
-		return decompilerContext.checkActionEnablement(() -> {
-			return super.isEnabledForContext(context);
-		});
+		Address address = dac.getAddress();
+		if (address == null) {
+			return false;
+		}
+		updateMenuName(address);
+		return super.isEnabledForContext(context);
 	}
 
-	@Override
-	public void actionPerformed(ActionContext context) {
-		DecompilerActionContext decompilerContext = (DecompilerActionContext) context;
-		decompilerContext.performAction(() -> {
-			super.actionPerformed(context);
-		});
+	private void updateMenuName(Address addr) {
+		String menuName = "Find References to " + addr.toString();
+		MenuData data = getPopupMenuData().cloneData();
+		data.setMenuPath(new String[] { LocationReferencesService.MENU_GROUP, menuName });
+		setPopupMenuData(data);
 	}
 }

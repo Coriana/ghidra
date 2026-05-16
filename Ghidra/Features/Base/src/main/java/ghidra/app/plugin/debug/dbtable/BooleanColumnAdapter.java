@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,9 +16,23 @@
 package ghidra.app.plugin.debug.dbtable;
 
 import db.BooleanField;
-import db.Record;
+import db.DBRecord;
+import docking.widgets.table.GBooleanCellRenderer;
+import ghidra.docking.settings.Settings;
+import ghidra.util.table.column.GColumnRenderer;
 
 public class BooleanColumnAdapter extends AbstractColumnAdapter {
+
+	private BooleanRenderer renderer = new BooleanRenderer();
+
+	BooleanColumnAdapter(String columnName, int column) {
+		super(columnName, column);
+	}
+
+	@Override
+	public int getColumnPreferredWidth() {
+		return 75;
+	}
 
 	@Override
 	Class<?> getValueClass() {
@@ -27,13 +40,28 @@ public class BooleanColumnAdapter extends AbstractColumnAdapter {
 	}
 
 	@Override
-	Object getKeyValue(Record rec) {
-		return new Boolean(((BooleanField) rec.getKeyField()).getBooleanValue());
+	Object getKeyValue(DBRecord rec) {
+		return Boolean.valueOf(((BooleanField) rec.getKeyField()).getBooleanValue());
 	}
 
 	@Override
-	Object getValue(Record rec, int col) {
-		return Boolean.valueOf(rec.getBooleanValue(col));
+	Object getValue(DBRecord rec, int dbColumn) {
+		return Boolean.valueOf(rec.getBooleanValue(dbColumn));
 	}
 
+	@Override
+	public BooleanRenderer getColumnRenderer() {
+		return renderer;
+	}
+
+	private class BooleanRenderer extends GBooleanCellRenderer implements GColumnRenderer<Object> {
+		@Override
+		public String getFilterString(Object t, Settings settings) {
+			Boolean b = (Boolean) t;
+			if (b == null) {
+				return Boolean.FALSE.toString();
+			}
+			return b.toString();
+		}
+	}
 }

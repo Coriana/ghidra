@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -25,6 +25,7 @@ import ghidra.app.context.ListingContextAction;
 import ghidra.app.util.HelpTopics;
 import ghidra.framework.cmd.BackgroundCommand;
 import ghidra.framework.options.Options;
+import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.lang.GhidraLanguagePropertyKeys;
 import ghidra.program.model.listing.Function;
@@ -102,14 +103,9 @@ class AnalyzeStackRefsAction extends ListingContextAction {
 
 		doParameterAnalysis = options.getBoolean("Create Param Variables", doParameterAnalysis);
 
-		BackgroundCommand cmd = null;
-		if (doNewStackAnalysis) {
-			cmd = new NewFunctionStackAnalysisCmd(funcSet, doParameterAnalysis, doLocalAnalysis,
+		BackgroundCommand<Program> cmd = null;
+		cmd = new NewFunctionStackAnalysisCmd(funcSet, doParameterAnalysis, doLocalAnalysis,
 				true);
-		}
-		else {
-			cmd = new FunctionStackAnalysisCmd(funcSet, doParameterAnalysis, doLocalAnalysis, true);
-		}
 		funcPlugin.execute(program, cmd);
 	}
 
@@ -118,10 +114,11 @@ class AnalyzeStackRefsAction extends ListingContextAction {
 		if (context.hasSelection()) {
 			return true;
 		}
-		Function func = funcPlugin.getFunction(context);
-		if (func != null) {
-			return !func.isExternal();
+		Program program = context.getProgram();
+		Address addr = context.getAddress();
+		if (program == null || addr == null) {
+			return false;
 		}
-		return false;
+		return program.getListing().getFunctionContaining(addr) != null;
 	}
 }

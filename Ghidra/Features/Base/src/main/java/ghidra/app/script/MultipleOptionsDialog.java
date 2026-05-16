@@ -28,7 +28,6 @@ import docking.DialogComponentProvider;
 import docking.DockingWindowManager;
 import docking.widgets.checkbox.GCheckBox;
 import docking.widgets.label.GLabel;
-import ghidra.util.Msg;
 
 public class MultipleOptionsDialog<T> extends DialogComponentProvider {
 
@@ -79,6 +78,7 @@ public class MultipleOptionsDialog<T> extends DialogComponentProvider {
 
 			GCheckBox selectAllCheckBox = new GCheckBox("[ Select All ]", false);
 			selectAllCheckBox.setName("select.all.check.box");
+			selectAllCheckBox.getAccessibleContext().setAccessibleName("Select All");
 			panel.add(selectAllCheckBox);
 			panel.add(new JSeparator());
 
@@ -92,7 +92,7 @@ public class MultipleOptionsDialog<T> extends DialogComponentProvider {
 			newCheckBox.setActionCommand(Integer.toString(i));
 			newCheckBox.setName("choice.check.box." + (i + 1));
 			newCheckBox.setSelected(false);
-
+			newCheckBox.getAccessibleContext().setAccessibleName(stringChoices.get(i).toString());
 			selectOptions[i] = newCheckBox;
 			panel.add(selectOptions[i]);
 
@@ -100,25 +100,14 @@ public class MultipleOptionsDialog<T> extends DialogComponentProvider {
 				selectAllGroup.addCheckBox(newCheckBox);
 			}
 		}
-
+		panel.getAccessibleContext().setAccessibleName("Multiple Options");
 		addWorkPanel(panel);
 		addOKButton();
 		addCancelButton();
+	}
 
-		if (SwingUtilities.isEventDispatchThread()) {
-			DockingWindowManager.showDialog(null, this);
-		}
-		else {
-			try {
-				SwingUtilities.invokeAndWait(
-					() -> DockingWindowManager.showDialog(null, MultipleOptionsDialog.this));
-			}
-			catch (Exception e) {
-				Msg.error(this, "Unable to get choices from the user; error showing dialog - " +
-					e.getMessage());
-			}
-		}
-
+	public void show() {
+		DockingWindowManager.showDialog(null, this);
 	}
 
 	@Override

@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +15,10 @@
  */
 package ghidra.program.database.code;
 
+import java.io.IOException;
+
+import db.*;
+import ghidra.framework.data.OpenMode;
 import ghidra.program.database.map.AddressKeyIterator;
 import ghidra.program.database.map.AddressMap;
 import ghidra.program.model.address.Address;
@@ -24,10 +27,6 @@ import ghidra.util.exception.CancelledException;
 import ghidra.util.exception.VersionException;
 import ghidra.util.task.TaskMonitor;
 
-import java.io.IOException;
-
-import db.*;
-
 /**
  * Adapter that accesses the instruction table.
  */
@@ -35,16 +34,17 @@ abstract class InstDBAdapter {
 
 	static final String INSTRUCTION_TABLE_NAME = "Instructions";
 
-	static final Schema INSTRUCTION_SCHEMA = new Schema(1, "Address", new Class[] { IntField.class,
-		ByteField.class }, new String[] { "Proto ID", "Flags" });
+	static final Schema INSTRUCTION_SCHEMA =
+		new Schema(1, "Address", new Field[] { IntField.INSTANCE, ByteField.INSTANCE },
+			new String[] { "Proto ID", "Flags" });
 
 	static final int PROTO_ID_COL = 0;
 	static final int FLAGS_COL = 1;
 
-	static InstDBAdapter getAdapter(DBHandle dbHandle, int openMode, AddressMap addrMap,
+	static InstDBAdapter getAdapter(DBHandle dbHandle, OpenMode openMode, AddressMap addrMap,
 			TaskMonitor monitor) throws VersionException, CancelledException, IOException {
 
-		if (openMode == DBConstants.CREATE) {
+		if (openMode == OpenMode.CREATE) {
 			return new InstDBAdapterV1(dbHandle, addrMap, true);
 		}
 
@@ -56,11 +56,11 @@ abstract class InstDBAdapter {
 			return adapter;
 		}
 		catch (VersionException e) {
-			if (!e.isUpgradable() || openMode == DBConstants.UPDATE) {
+			if (!e.isUpgradable() || openMode == OpenMode.UPDATE) {
 				throw e;
 			}
 			InstDBAdapter adapter = findReadOnlyAdapter(dbHandle, addrMap);
-			if (openMode == DBConstants.UPGRADE) {
+			if (openMode == OpenMode.UPGRADE) {
 				adapter = upgrade(dbHandle, addrMap, adapter, monitor);
 			}
 			return adapter;
@@ -79,8 +79,8 @@ abstract class InstDBAdapter {
 	}
 
 	private static InstDBAdapter upgrade(DBHandle dbHandle, AddressMap addrMap,
-			InstDBAdapter oldAdapter, TaskMonitor monitor) throws VersionException, IOException,
-			CancelledException {
+			InstDBAdapter oldAdapter, TaskMonitor monitor)
+			throws VersionException, IOException, CancelledException {
 
 		AddressMap oldAddrMap = addrMap.getOldAddressMap();
 
@@ -95,8 +95,8 @@ abstract class InstDBAdapter {
 			InstDBAdapter tmpAdapter = new InstDBAdapterV1(tmpHandle, addrMap, true);
 			RecordIterator iter = oldAdapter.getRecords();
 			while (iter.hasNext()) {
-				monitor.checkCanceled();
-				Record rec = iter.next();
+				monitor.checkCancelled();
+				DBRecord rec = iter.next();
 				Address addr = oldAddrMap.decodeAddress(rec.getKey());
 				rec.setKey(addrMap.getKey(addr, true));
 				tmpAdapter.putRecord(rec);
@@ -108,8 +108,8 @@ abstract class InstDBAdapter {
 
 			iter = tmpAdapter.getRecords();
 			while (iter.hasNext()) {
-				monitor.checkCanceled();
-				Record rec = iter.next();
+				monitor.checkCancelled();
+				DBRecord rec = iter.next();
 				newAdapter.putRecord(rec);
 				monitor.setProgress(++count);
 			}
@@ -149,7 +149,7 @@ abstract class InstDBAdapter {
 	 * @return the next record or null.
 	 * @throws IOException if there was a problem accessing the database
 	 */
-	abstract Record getRecordAtOrAfter(Address addr) throws IOException;
+	abstract DBRecord getRecordAtOrAfter(Address addr) throws IOException;
 
 	/**
 	 * Returns the next record after the given address key
@@ -157,21 +157,21 @@ abstract class InstDBAdapter {
 	 * @return the next record or null.
 	 * @throws IOException if there was a problem accessing the database
 	 */
-	abstract Record getRecordAfter(Address addr) throws IOException;
+	abstract DBRecord getRecordAfter(Address addr) throws IOException;
 
 	/**
 	 * Returns the record at the given key or null if none exists.
 	 * @param addr the key.
 	 * @throws IOException if there was a problem accessing the database
 	 */
-	abstract Record getRecord(long addr) throws IOException;
+	abstract DBRecord getRecord(long addr) throws IOException;
 
 	/**
 	 * Returns the record at the given address or null if none exists.
 	 * @param addr the address to use as the key
 	 * @throws IOException if there was a problem accessing the database
 	 */
-	abstract Record getRecord(Address addr) throws IOException;
+	abstract DBRecord getRecord(Address addr) throws IOException;
 
 	/**
 	 * Returns the record just before the given address key.
@@ -179,7 +179,7 @@ abstract class InstDBAdapter {
 	 * @return the previous record or null.
 	 * @throws IOException if there was a problem accessing the database
 	 */
-	abstract Record getRecordBefore(Address addr) throws IOException;
+	abstract DBRecord getRecordBefore(Address addr) throws IOException;
 
 	/**
 	 * Returns a record iterator over all records in the given range.
@@ -208,7 +208,7 @@ abstract class InstDBAdapter {
 	 * @return the previous record or null.
 	 * @throws IOException if there was a problem accessing the database
 	 */
-	abstract Record getRecordAtOrBefore(Address addr) throws IOException;
+	abstract DBRecord getRecordAtOrBefore(Address addr) throws IOException;
 
 	/**
 	 * Returns an AddressKeyIterator over the given range.
@@ -234,7 +234,7 @@ abstract class InstDBAdapter {
 	 * @param record the record to add or update.
 	 * @throws IOException if there was a problem accessing the database
 	 */
-	abstract void putRecord(Record record) throws IOException;
+	abstract void putRecord(DBRecord record) throws IOException;
 
 	/**
 	 * Returns a record iterator starting at the given address.

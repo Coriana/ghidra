@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,11 +16,9 @@
 package mdemangler.typeinfo;
 
 import mdemangler.*;
+import mdemangler.naming.MDNameModifier;
 
-/**
- * 
- */
-public class MDTypeInfo extends MDParsableItem {
+public class MDTypeInfo extends MDParsableItem implements MDNameModifier {
 	private static final String PRIVATE = "private: ";
 	private static final String PROTECTED = "protected: ";
 	private static final String PUBLIC = "public: ";
@@ -43,23 +41,31 @@ public class MDTypeInfo extends MDParsableItem {
 		_NOT_SPECIFIED, _STATIC, _VIRTUAL
 	}
 
+	/**
+	 * Enum representing pointer format.
+	 */
+	enum PointerFormat {
+		_NOT_SPECIFIED, _NEAR, _FAR //HUGE not present in mangling.
+	}
+
 	private StorageClass storage = StorageClass._NOT_SPECIFIED;
 	private AccessSpecifier access = AccessSpecifier._NOT_SPECIFIED;
+	private PointerFormat pointerFormat = PointerFormat._NOT_SPECIFIED;
 	private boolean isThunk = false;
 	private boolean isMember = true;
 	private boolean isExternC = false;
+	private char specialHandlingCode = '\0';
 
 	protected MDType mdtype;
 	protected boolean isTypeCast;
-
-	protected String nameModifier = "";
 
 	public MDTypeInfo(MDMang dmang) {
 		super(dmang, 1);
 	}
 
-	public String getNameModifier() {
-		return nameModifier;
+	@Override
+	public String getModifier() {
+		return "";
 	}
 
 	public void setPrivate() {
@@ -102,6 +108,18 @@ public class MDTypeInfo extends MDParsableItem {
 		return (storage == StorageClass._VIRTUAL);
 	}
 
+	public void setPointerFormat(PointerFormat pointerFormat) {
+		this.pointerFormat = pointerFormat;
+	}
+
+	public boolean isNear() {
+		return (pointerFormat == PointerFormat._NEAR);
+	}
+
+	public boolean isFar() {
+		return (pointerFormat == PointerFormat._FAR);
+	}
+
 	public void setThunk() {
 		isThunk = true;
 	}
@@ -116,6 +134,14 @@ public class MDTypeInfo extends MDParsableItem {
 
 	public boolean isExternC() {
 		return isExternC;
+	}
+
+	public void setSpecialHandlingCode(char code) {
+		specialHandlingCode = code;
+	}
+
+	public char getSpecialHandlingCode() {
+		return specialHandlingCode;
 	}
 
 	public void setNonMember() {

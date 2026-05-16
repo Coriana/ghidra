@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,7 +17,6 @@ package ghidra.app.tablechooser;
 
 import static org.junit.Assert.*;
 
-import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
@@ -33,14 +32,20 @@ import docking.action.*;
 import docking.actions.KeyEntryDialog;
 import docking.actions.ToolActions;
 import docking.tool.util.DockingToolConstants;
+import docking.widgets.table.TableSortState;
 import ghidra.app.nav.Navigatable;
+import ghidra.app.nav.TestDummyNavigatable;
+import ghidra.framework.options.ActionTrigger;
 import ghidra.framework.options.ToolOptions;
 import ghidra.framework.plugintool.DummyPluginTool;
+import ghidra.program.database.ProgramBuilder;
+import ghidra.program.database.ProgramDB;
 import ghidra.program.model.address.Address;
-import ghidra.program.model.address.TestAddress;
-import ghidra.program.model.listing.Program;
+import ghidra.program.model.data.DataType;
+import ghidra.program.model.listing.*;
 import ghidra.test.AbstractGhidraHeadedIntegrationTest;
 import ghidra.test.ToyProgramBuilder;
+import ghidra.util.task.TaskMonitor;
 import resources.Icons;
 import util.CollectionUtils;
 
@@ -50,7 +55,7 @@ public class TableChooserDialogTest extends AbstractGhidraHeadedIntegrationTest 
 	private static final TestExecutorDecision DEFAULT_DECISION = r -> true;
 
 	private DummyPluginTool tool;
-	private SpyTableChooserExecutor executor;
+	private SpyExecutor executor;
 	private TableChooserDialog dialog;
 	private TestAction testAction;
 
@@ -59,7 +64,14 @@ public class TableChooserDialogTest extends AbstractGhidraHeadedIntegrationTest 
 
 	@Before
 	public void setUp() throws Exception {
-		executor = new SpyTableChooserExecutor();
+
+		if (testName.getMethodName().contains("InBulk")) {
+			executor = new SpyBulkTableChooserExecutor();
+		}
+		else {
+			executor = new SpyTableChooserExecutor();
+		}
+
 		createDialog(executor);
 	}
 
@@ -70,21 +82,54 @@ public class TableChooserDialogTest extends AbstractGhidraHeadedIntegrationTest 
 		});
 	}
 
-	private void createDialog(SpyTableChooserExecutor dialogExecutor) throws Exception {
+	private void createDialog(SpyExecutor dialogExecutor) throws Exception {
 		executor = dialogExecutor;
 
 		tool = new DummyPluginTool();
 		tool.setVisible(true);
-		Program program = new ToyProgramBuilder("Test", true).getProgram();
-		Navigatable navigatable = null;
-		dialog = new TableChooserDialog(tool, executor, program, "Dialog Title", navigatable);
+
+		List<Address> addresses = new ArrayList<>();
+		ToyProgramBuilder builder = new ToyProgramBuilder("Test", true);
+		builder.createMemory(".text", "0x0", 0x110);
+		Function f = createFunction(builder, 0x00);
+		addresses.add(f.getEntryPoint());
+		f = createFunction(builder, 0x10);
+		addresses.add(f.getEntryPoint());
+		f = createFunction(builder, 0x20);
+		addresses.add(f.getEntryPoint());
+		f = createFunction(builder, 0x30);
+		addresses.add(f.getEntryPoint());
+		f = createFunction(builder, 0x40);
+		addresses.add(f.getEntryPoint());
+		f = createFunction(builder, 0x50);
+		addresses.add(f.getEntryPoint());
+
+		Program program = builder.getProgram();
+		Navigatable navigatable = new TestDummyNavigatable();
+		runSwing(() -> dialog =
+			new TableChooserDialog(tool, executor, program, "Dialog Title", navigatable));
 
 		testAction = new TestAction();
 		dialog.addAction(testAction);
 
+		dialog.addCustomColumn(new OffsetTestColumn());
+		dialog.addCustomColumn(new SpaceTestColumn());
+
 		dialog.show();
 		waitForDialogComponent(TableChooserDialog.class);
-		loadData();
+		loadData(addresses);
+	}
+
+	private Function createFunction(ProgramBuilder builder, long addr) throws Exception {
+		ProgramDB p = builder.getProgram();
+		FunctionManager fm = p.getFunctionManager();
+		Function f = fm.getFunctionAt(builder.addr(addr));
+		if (f != null) {
+			return f;
+		}
+
+		String a = Long.toHexString(addr);
+		return builder.createEmptyFunction("Function_" + a, "0x" + a, 5, DataType.DEFAULT);
 	}
 
 	private void reCreateDialog(SpyTableChooserExecutor dialogExecutor) throws Exception {
@@ -92,9 +137,9 @@ public class TableChooserDialogTest extends AbstractGhidraHeadedIntegrationTest 
 		createDialog(dialogExecutor);
 	}
 
-	private void loadData() {
-		for (int i = 0; i < 7; i++) {
-			dialog.add(new TestStubRowObject());
+	private void loadData(List<Address> addresses) {
+		for (Address a : addresses) {
+			dialog.add(new TestStubRowObject(a));
 		}
 
 		waitForDialog();
@@ -151,7 +196,7 @@ public class TableChooserDialogTest extends AbstractGhidraHeadedIntegrationTest 
 	@Test
 	public void testCalllbackRemovesItems_OtherItemSelected() {
 		/*
-		 	Select multiple items.  
+		 	Select multiple items.
 		 	Have the first callback remove one of the remaining *unselected* items.
 		 	The removed item should not itself get a callback.
 		 */
@@ -187,7 +232,7 @@ public class TableChooserDialogTest extends AbstractGhidraHeadedIntegrationTest 
 	public void testCalllbackRemovesItems_OtherItemNotSelected() {
 
 		/*
-		 	Select multiple items.  
+		 	Select multiple items.
 		 	Have the first callback remove one of the remaining *selected* items.
 		 	The removed item should not itself get a callback.
 		 */
@@ -200,8 +245,9 @@ public class TableChooserDialogTest extends AbstractGhidraHeadedIntegrationTest 
 		testDecision = r -> {
 			toProcess.remove(r);
 
+			// Simulate the client removing items from the table while processing items
 			// if not empty, remove one of the remaining items
-			if (!toProcess.isEmpty()) {
+			if (!removedButNotExecuted.isEmpty()) {
 				TestStubRowObject other = toProcess.remove(0);
 				removedButNotExecuted.add(other);
 				dialog.remove(other);
@@ -234,7 +280,7 @@ public class TableChooserDialogTest extends AbstractGhidraHeadedIntegrationTest 
 		CountDownLatch continueLatch = new CountDownLatch(1);
 		testDecision = r -> {
 
-			// 
+			//
 			// Signal that we have started and wait to continue
 			//
 			startLatch.countDown();
@@ -308,9 +354,89 @@ public class TableChooserDialogTest extends AbstractGhidraHeadedIntegrationTest 
 		assertTrue(newToolTip.contains("(A)"));
 	}
 
+	@Test
+	public void testSetSortColumn() throws Exception {
+		assertSortedColumn(0);
+		dialog.setSortColumn(1);
+		assertSortedColumn(1);
+	}
+
+	@Test
+	public void testSetSortState() throws Exception {
+		assertSortedColumn(0);
+		dialog.setSortState(TableSortState.createDefaultSortState(2, false));
+		assertSortedColumn(2);
+	}
+
+	@Test(expected = IllegalArgumentException.class)
+	public void testSetSortState_Invalid() throws Exception {
+		assertSortedColumn(0);
+		dialog.setSortState(TableSortState.createDefaultSortState(100));
+	}
+
+	@Test
+	public void testCallback_ExecuteInBulk() throws Exception {
+
+		int rowCount = getRowCount();
+		List<TestStubRowObject> selected = selectRows(0, 1, 3);
+
+		testDecision = r -> true;
+
+		pressExecuteButton();
+		waitForDialog();
+		assertNotInDialog(selected);
+		assertRowCount(rowCount - selected.size());
+	}
+
+	@Test
+	public void testCalllbackRemovesItems_OtherItemNotSelected_ExecuteInBulk() {
+
+		/*
+		 	Select multiple items.
+		 	Have the first callback remove one of the remaining *selected* items.
+		 	The removed item should not itself get a callback.
+		 */
+
+		int rowCount = getRowCount();
+		List<TestStubRowObject> selected = selectRows(0, 1, 3);
+		List<TestStubRowObject> toProcess = new ArrayList<>(selected);
+
+		List<TestStubRowObject> removedButNotExecuted = new ArrayList<>();
+		testDecision = r -> {
+			toProcess.remove(r);
+
+			// Simulate the client removing items from the table while processing items
+			// if not empty, remove one of the remaining items
+			if (removedButNotExecuted.isEmpty()) {
+				TestStubRowObject other = toProcess.remove(0);
+				removedButNotExecuted.add(other);
+				dialog.remove(other);
+			}
+			return true; // remove 'r'
+		};
+
+		pressExecuteButton();
+		waitForDialog();
+		assertTrue(toProcess.isEmpty());
+
+		assertNotInDialog(selected);
+		assertRowCount(rowCount - selected.size());
+		assertNotExecuted(removedButNotExecuted);
+	}
+
 //==================================================================================================
 // Private Methods
 //==================================================================================================
+
+	private void assertSortedColumn(int expectedColumn) {
+		waitForCondition(() -> expectedColumn == getSortColumn(),
+			"Incorrect sorted column; expected " + expectedColumn + ", found " + getSortColumn());
+	}
+
+	private int getSortColumn() {
+		TableChooserTableModel model = getModel();
+		return runSwing(() -> model.getPrimarySortColumnIndex());
+	}
 
 	private void setKeyBindingViaF4Dialog(DockingAction action, KeyStroke ks) {
 
@@ -329,10 +455,14 @@ public class TableChooserDialogTest extends AbstractGhidraHeadedIntegrationTest 
 	}
 
 	private void performLaunchKeyStrokeDialogAction() {
-		ToolActions toolActions = (ToolActions) ((AbstractDockingTool) tool).getToolActions();
+		ToolActions toolActions = (ToolActions) tool.getToolActions();
 		Action action = toolActions.getAction(KeyStroke.getKeyStroke("F4"));
 		assertNotNull(action);
-		runSwing(() -> action.actionPerformed(new ActionEvent(this, 0, "")), false);
+		runSwing(() -> {
+			SystemKeyBindingAction sysAction = (SystemKeyBindingAction) action;
+			ExecutableAction executableAction = sysAction.getExecutableAction(null);
+			executableAction.execute();
+		}, false);
 	}
 
 	private void setOptionsKeyStroke(DockingAction action, KeyStroke newKs) {
@@ -340,7 +470,7 @@ public class TableChooserDialogTest extends AbstractGhidraHeadedIntegrationTest 
 		ToolOptions keyOptions = tool.getOptions(DockingToolConstants.KEY_BINDINGS);
 
 		String name = action.getName() + " (" + action.getOwner() + ")";
-		runSwing(() -> keyOptions.setKeyStroke(name, newKs));
+		runSwing(() -> keyOptions.setActionTrigger(name, new ActionTrigger(newKs)));
 		waitForSwing();
 
 		KeyStroke actual = action.getKeyBinding();
@@ -415,6 +545,7 @@ public class TableChooserDialogTest extends AbstractGhidraHeadedIntegrationTest 
 
 	private void waitForDialog() {
 		waitForCondition(() -> !dialog.isBusy());
+		waitForSwing();
 	}
 
 	private void pressExecuteButton() {
@@ -443,15 +574,14 @@ public class TableChooserDialogTest extends AbstractGhidraHeadedIntegrationTest 
 
 //==================================================================================================
 // Inner Classes
-//==================================================================================================	
+//==================================================================================================
 
 	private interface TestExecutorDecision {
 		public boolean decide(AddressableRowObject rowObject);
 	}
 
-	private class SpyTableChooserExecutor implements TableChooserExecutor {
-
-		private Map<AddressableRowObject, AtomicInteger> callbacks = new HashMap<>();
+	private abstract class SpyExecutor implements TableChooserExecutor {
+		protected Map<AddressableRowObject, AtomicInteger> callbacks = new HashMap<>();
 
 		@Override
 		public String getButtonName() {
@@ -466,6 +596,13 @@ public class TableChooserDialogTest extends AbstractGhidraHeadedIntegrationTest 
 			return counter.get();
 		}
 
+		boolean wasExecuted(AddressableRowObject rowObject) {
+			return callbacks.containsKey(rowObject);
+		}
+	}
+
+	private class SpyTableChooserExecutor extends SpyExecutor {
+
 		@Override
 		public boolean execute(AddressableRowObject rowObject) {
 
@@ -477,29 +614,97 @@ public class TableChooserDialogTest extends AbstractGhidraHeadedIntegrationTest 
 			boolean result = testDecision.decide(rowObject);
 			return result;
 		}
+	}
 
-		boolean wasExecuted(AddressableRowObject rowObject) {
-			return callbacks.containsKey(rowObject);
+	private class SpyBulkTableChooserExecutor extends SpyExecutor {
+
+		@Override
+		public boolean executeInBulk(List<AddressableRowObject> rowObjects,
+				List<AddressableRowObject> deleted, TaskMonitor monitor) {
+
+			for (AddressableRowObject rowObject : rowObjects) {
+				if (monitor.isCancelled()) {
+					break;
+				}
+
+				if (testDecision.decide(rowObject)) {
+					deleted.add(rowObject);
+				}
+
+				if (!dialog.contains(rowObject)) {
+					// this simulates the handling of the case where we remove items arbitrarily
+					// while processing items in this list
+					continue;
+				}
+
+				callbacks.merge(rowObject, new AtomicInteger(1), (k, v) -> {
+					v.incrementAndGet();
+					return v;
+				});
+			}
+
+			return true;
+		}
+
+		@Override
+		public boolean execute(AddressableRowObject rowObject) {
+			fail("execute() called unexpectedly");
+			return false;
 		}
 	}
 
 	private static class TestStubRowObject implements AddressableRowObject {
 
-		private static int counter;
-		private long addr;
+		private Address addr;
 
-		TestStubRowObject() {
-			addr = ++counter;
+		TestStubRowObject(Address a) {
+			this.addr = a;
 		}
 
 		@Override
 		public Address getAddress() {
-			return new TestAddress(addr);
+			return addr;
 		}
 
 		@Override
 		public String toString() {
 			return getAddress().toString();
+		}
+	}
+
+	private static class OffsetTestColumn extends AbstractColumnDisplay<String> {
+
+		@Override
+		public String getColumnValue(AddressableRowObject rowObject) {
+			return Long.toString(rowObject.getAddress().getOffset());
+		}
+
+		@Override
+		public String getColumnName() {
+			return "Offset";
+		}
+
+		@Override
+		public int compare(AddressableRowObject o1, AddressableRowObject o2) {
+			return o1.getAddress().compareTo(o2.getAddress());
+		}
+	}
+
+	private static class SpaceTestColumn extends AbstractColumnDisplay<String> {
+
+		@Override
+		public String getColumnValue(AddressableRowObject rowObject) {
+			return rowObject.getAddress().getAddressSpace().toString();
+		}
+
+		@Override
+		public String getColumnName() {
+			return "Space";
+		}
+
+		@Override
+		public int compare(AddressableRowObject o1, AddressableRowObject o2) {
+			return o1.getAddress().compareTo(o2.getAddress());
 		}
 	}
 

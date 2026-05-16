@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,24 +20,29 @@ import java.awt.event.*;
 import java.util.*;
 
 import javax.swing.*;
-import javax.swing.event.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.text.Document;
 import javax.swing.text.JTextComponent;
+
+import org.apache.commons.lang3.StringUtils;
 
 import docking.*;
 import docking.widgets.OptionDialog;
 import docking.widgets.checkbox.GCheckBox;
 import docking.widgets.combobox.GComboBox;
 import ghidra.app.util.viewer.field.AnnotatedStringHandler;
-import ghidra.app.util.viewer.field.Annotation;
+import ghidra.app.util.viewer.field.CommentUtils;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.CodeUnit;
+import ghidra.program.model.listing.CommentType;
 import ghidra.util.HelpLocation;
+import ghidra.util.exception.AssertException;
 
 /**
  * Dialog for setting the comments for a CodeUnit.
  */
-public class CommentsDialog extends DialogComponentProvider implements KeyListener {
+public class CommentsDialog extends ReusableDialogComponentProvider implements KeyListener {
 
 	private JTextArea eolField;
 	private JTextArea preField;
@@ -62,22 +67,16 @@ public class CommentsDialog extends DialogComponentProvider implements KeyListen
 
 	private boolean enterMode = false;
 	private JCheckBox enterBox = new GCheckBox("Enter accepts comment", enterMode);
-	{
-		enterBox.addChangeListener(new ChangeListener() {
-			@Override
-			public void stateChanged(ChangeEvent e) {
-				enterMode = enterBox.isSelected();
-				plugin.updateOptions();
-			}
-		});
-	}
 	private JPopupMenu popup = new JPopupMenu();
 
-	/**
-	 * Constructor 
-	 */
 	CommentsDialog(CommentsPlugin plugin) {
 		super("Set Comments");
+
+		enterBox.addChangeListener(e -> {
+			enterMode = enterBox.isSelected();
+			plugin.updateOptions();
+		});
+
 		setHelpLocation(new HelpLocation(plugin.getName(), "Comments"));
 		addWorkPanel(createPanel());
 
@@ -92,15 +91,15 @@ public class CommentsDialog extends DialogComponentProvider implements KeyListen
 	 * @param cu code unit
 	 * @param type comment type
 	 */
-	void showDialog(CodeUnit cu, int type) {
+	void showDialog(CodeUnit cu, CommentType type) {
 		setTitle("Set Comment(s) at Address " + cu.getMinAddress());
 		codeUnit = cu;
 
-		preComment = cu.getComment(CodeUnit.PRE_COMMENT);
-		postComment = cu.getComment(CodeUnit.POST_COMMENT);
-		eolComment = cu.getComment(CodeUnit.EOL_COMMENT);
-		plateComment = cu.getComment(CodeUnit.PLATE_COMMENT);
-		repeatableComment = cu.getComment(CodeUnit.REPEATABLE_COMMENT);
+		preComment = cu.getComment(CommentType.PRE);
+		postComment = cu.getComment(CommentType.POST);
+		eolComment = cu.getComment(CommentType.EOL);
+		plateComment = cu.getComment(CommentType.PLATE);
+		repeatableComment = cu.getComment(CommentType.REPEATABLE);
 
 		preComment = (preComment == null) ? "" : preComment;
 		postComment = (postComment == null) ? "" : postComment;
@@ -136,33 +135,31 @@ public class CommentsDialog extends DialogComponentProvider implements KeyListen
 		tool.showDialog(this);
 	}
 
-	void setCommentType(int type) {
+	void setCommentType(CommentType type) {
+		if (type == null) {
+			return; // Leave tab unchanged from last use
+		}
 		switch (type) {
-			case CodeUnit.EOL_COMMENT:
+			case CommentType.EOL:
 				tab.setSelectedIndex(0);
 				break;
-			case CodeUnit.PRE_COMMENT:
+			case CommentType.PRE:
 				tab.setSelectedIndex(1);
 				break;
-			case CodeUnit.POST_COMMENT:
+			case CommentType.POST:
 				tab.setSelectedIndex(2);
 				break;
-			case CodeUnit.PLATE_COMMENT:
+			case CommentType.PLATE:
 				tab.setSelectedIndex(3);
 				break;
-			case CodeUnit.REPEATABLE_COMMENT:
+			case CommentType.REPEATABLE:
 				tab.setSelectedIndex(4);
 				break;
+			default:
+				throw new AssertException("Unsupported comment type: " + type.name());
 		}
 	}
 
-	/////////////////////////////////////////////
-	// *** GhidraDialog "callback" methods ***
-	/////////////////////////////////////////////
-
-	/**
-	 * Callback for the cancel button.
-	 */
 	@Override
 	protected void cancelCallback() {
 
@@ -203,9 +200,6 @@ public class CommentsDialog extends DialogComponentProvider implements KeyListen
 		close();
 	}
 
-	/**
-	 * Callback for the OK button.
-	 */
 	@Override
 	protected void okCallback() {
 		if (wasChanged) {
@@ -222,9 +216,6 @@ public class CommentsDialog extends DialogComponentProvider implements KeyListen
 		}
 	}
 
-	/**
-	 * Callback for the Apply button.
-	 */
 	@Override
 	protected void applyCallback() {
 		preComment = preField.getText();
@@ -240,22 +231,16 @@ public class CommentsDialog extends DialogComponentProvider implements KeyListen
 		setApplyEnabled(false);
 	}
 
-	////////////////////////////////////////////////////////////////////
-	// ** private methods **
-	////////////////////////////////////////////////////////////////////
-
 	private AnnotationAdapterWrapper[] getAnnotationAdapterWrappers() {
-		AnnotatedStringHandler[] annotations = Annotation.getAnnotatedStringHandlers();
-		AnnotationAdapterWrapper[] retVal = new AnnotationAdapterWrapper[annotations.length];
-		for (int i = 0; i < annotations.length; i++) {
-			retVal[i] = new AnnotationAdapterWrapper(annotations[i]);
+		List<AnnotatedStringHandler> annotations = CommentUtils.getAnnotatedStringHandlers();
+		int count = annotations.size();
+		AnnotationAdapterWrapper[] retVal = new AnnotationAdapterWrapper[count];
+		for (int i = 0; i < count; i++) {
+			retVal[i] = new AnnotationAdapterWrapper(annotations.get(i));
 		}
 		return retVal;
 	}
 
-	/**
-	 * Create the panel for the dialog.
-	 */
 	private JPanel createPanel() {
 
 		JPanel panel = new JPanel(new BorderLayout());
@@ -269,15 +254,16 @@ public class CommentsDialog extends DialogComponentProvider implements KeyListen
 		Arrays.sort(annotations);
 		GComboBox<AnnotationAdapterWrapper> annotationsComboBox = new GComboBox<>(annotations);
 		JButton addAnnotationButton = new JButton("Add Annotation");
-		addAnnotationButton.addActionListener(new ActionListener() {
-			@Override
-			public void actionPerformed(ActionEvent e) {
-				JTextArea currentTextArea = getSelectedTextArea();
-				AnnotationAdapterWrapper aaw =
-					(AnnotationAdapterWrapper) annotationsComboBox.getSelectedItem();
-				currentTextArea.insert(aaw.getPrototypeString(),
-					currentTextArea.getCaretPosition());
-				currentTextArea.setCaretPosition(currentTextArea.getCaretPosition() - 1);
+		addAnnotationButton.addActionListener(e -> {
+			JTextArea textArea = getSelectedTextArea();
+			AnnotationAdapterWrapper aaw =
+				(AnnotationAdapterWrapper) annotationsComboBox.getSelectedItem();
+			String selectedText = textArea.getSelectedText();
+			if (!StringUtils.isBlank(selectedText)) {
+				textArea.replaceSelection(aaw.getPrototypeString(selectedText));
+			}
+			else {
+				insertAnnotation(textArea, aaw);
 			}
 		});
 		JPanel annoPanel = new JPanel();
@@ -298,6 +284,12 @@ public class CommentsDialog extends DialogComponentProvider implements KeyListen
 		plateField = new JTextArea(5, 80);
 		eolField = new JTextArea(5, 80);
 		repeatableField = new JTextArea(5, 80);
+
+		preField.getAccessibleContext().setAccessibleName("Pre Comment");
+		postField.getAccessibleContext().setAccessibleName("Post Comment");
+		plateField.getAccessibleContext().setAccessibleName("Plate Comment");
+		eolField.getAccessibleContext().setAccessibleName("EOL Comment");
+		repeatableField.getAccessibleContext().setAccessibleName("Repeatable Comment");
 
 		DocumentListener dl = new DocumentListener() {
 			@Override
@@ -360,30 +352,36 @@ public class CommentsDialog extends DialogComponentProvider implements KeyListen
 		tab.addTab("  Plate Comment  ", new JScrollPane(plateField));
 		tab.addTab("  Repeatable Comment  ", new JScrollPane(repeatableField));
 
-		tab.addChangeListener(new ChangeListener() {
+		tab.addKeyListener(new KeyAdapter() {
 			@Override
-			public void stateChanged(ChangeEvent ev) {
-				chooseFocus();
+			public void keyPressed(KeyEvent e) {
+				int keyCode = e.getKeyCode();
+				if (keyCode == KeyEvent.VK_SPACE || keyCode == KeyEvent.VK_ENTER) {
+					focusSelectedTab();
+					e.consume();
+				}
 			}
 		});
-
-		ActionListener addAnnotationAction = new ActionListener() {
+		tab.addMouseListener(new MouseAdapter() {
 			@Override
-			public void actionPerformed(ActionEvent e) {
-				JTextArea currentTextArea = getSelectedTextArea();
-				for (int i = 0; i < annotations.length; i++) {
-					if (annotations[i].toString().equals(e.getActionCommand())) {
-						currentTextArea.insert(annotations[i].getPrototypeString(),
-							currentTextArea.getCaretPosition());
-						currentTextArea.setCaretPosition(currentTextArea.getCaretPosition() - 1);
-					}
+			public void mouseClicked(MouseEvent e) {
+				if (e.getButton() == MouseEvent.BUTTON1) {
+					focusSelectedTab();
+				}
+			}
+		});
+		ActionListener addAnnotationAction = e -> {
+			JTextArea currentTextArea = getSelectedTextArea();
+			for (AnnotationAdapterWrapper annotation : annotations) {
+				if (annotation.toString().equals(e.getActionCommand())) {
+					insertAnnotation(currentTextArea, annotation);
 				}
 			}
 		};
 
 		JMenu insertMenu = new JMenu("Insert");
-		for (int i = 0; i < annotations.length; i++) {
-			JMenuItem menuItem = new JMenuItem(annotations[i].toString());
+		for (AnnotationAdapterWrapper annotation : annotations) {
+			JMenuItem menuItem = new JMenuItem(annotation.toString());
 			menuItem.addActionListener(addAnnotationAction);
 			insertMenu.add(menuItem);
 		}
@@ -396,6 +394,11 @@ public class CommentsDialog extends DialogComponentProvider implements KeyListen
 		repeatableField.addMouseListener(new PopupListener());
 
 		return panel;
+	}
+
+	private void insertAnnotation(JTextArea textArea, AnnotationAdapterWrapper annotation) {
+		textArea.insert(annotation.getPrototypeString(), textArea.getCaretPosition());
+		textArea.setCaretPosition(textArea.getCaretPosition() - 1);
 	}
 
 	private void installUndoRedo(JTextComponent textComponent) {
@@ -454,7 +457,7 @@ public class CommentsDialog extends DialogComponentProvider implements KeyListen
 		}
 	}
 
-	private void chooseFocus() {
+	private void focusSelectedTab() {
 		getSelectedTextArea().requestFocus();
 	}
 
@@ -466,14 +469,27 @@ public class CommentsDialog extends DialogComponentProvider implements KeyListen
 	@Override
 	public void keyPressed(KeyEvent e) {
 		JTextArea textArea = (JTextArea) e.getSource();
+		if (e.getKeyCode() != KeyEvent.VK_ENTER) {
+			return;
+		}
 
-		if (e.getKeyCode() == KeyEvent.VK_ENTER) {
-			if (e.isShiftDown() && enterMode) {
-				textArea.append("\n");
-			}
-			else if (e.isShiftDown() != enterMode) {
-				okCallback();
-			}
+		int modifiers = e.getModifiersEx();
+		if ((modifiers & InputEvent.SHIFT_DOWN_MASK) == InputEvent.SHIFT_DOWN_MASK) {
+			textArea.replaceSelection("\n");
+			e.consume();
+			return;
+		}
+
+		if ((modifiers &
+			DockingUtils.CONTROL_KEY_MODIFIER_MASK) == DockingUtils.CONTROL_KEY_MODIFIER_MASK) {
+			okCallback(); // Control-Enter allows closes the dialog
+			e.consume();
+			return;
+		}
+
+		if (enterMode) {
+			e.consume();
+			okCallback();
 		}
 	}
 
@@ -528,6 +544,10 @@ public class CommentsDialog extends DialogComponentProvider implements KeyListen
 
 		public String getPrototypeString() {
 			return handler.getPrototypeString();
+		}
+
+		public String getPrototypeString(String contained) {
+			return handler.getPrototypeString(contained);
 		}
 	}
 }

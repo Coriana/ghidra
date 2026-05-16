@@ -17,21 +17,13 @@ package ghidra.app.util.bin.format.macho.commands;
 
 import java.io.IOException;
 
-import ghidra.app.util.bin.format.FactoryBundledWithBinaryReader;
+import ghidra.app.util.bin.BinaryReader;
 import ghidra.app.util.bin.format.macho.MachConstants;
-import ghidra.app.util.bin.format.macho.MachHeader;
-import ghidra.app.util.importer.MessageLog;
-import ghidra.program.flatapi.FlatProgramAPI;
-import ghidra.program.model.address.Address;
 import ghidra.program.model.data.*;
-import ghidra.program.model.listing.ProgramModule;
 import ghidra.util.exception.DuplicateNameException;
-import ghidra.util.task.TaskMonitor;
 
 /**
- * Represents a routines_command and routines_command_64 structure.
- * 
- * @see <a href="https://opensource.apple.com/source/xnu/xnu-4570.71.2/EXTERNAL_HEADERS/mach-o/loader.h.auto.html">mach-o/loader.h</a> 
+ * Represents a routines_command and routines_command_64 structure 
  */
 public class RoutinesCommand extends LoadCommand {
     private long init_address;
@@ -45,31 +37,18 @@ public class RoutinesCommand extends LoadCommand {
 
 	private boolean is32bit;
 
-	static RoutinesCommand createRoutinesCommand(FactoryBundledWithBinaryReader reader,
-			boolean is32bit) throws IOException {
-        RoutinesCommand command = (RoutinesCommand) reader.getFactory().create(RoutinesCommand.class);
-        command.initRoutinesCommand(reader, is32bit);
-        return command;
-    }
-
-    /**
-     * DO NOT USE THIS CONSTRUCTOR, USE create*(GenericFactory ...) FACTORY METHODS INSTEAD.
-     */
-    public RoutinesCommand() {}
-
-	private void initRoutinesCommand(FactoryBundledWithBinaryReader reader, boolean is32bit)
-			throws IOException {
-		initLoadCommand(reader);
+	RoutinesCommand(BinaryReader reader, boolean is32bit) throws IOException {
+		super(reader);
 		this.is32bit = is32bit;
 		if (is32bit) {
-			init_address = reader.readNextInt() & 0xffffffffL;
-			init_module  = reader.readNextInt() & 0xffffffffL;
-			reserved1    = reader.readNextInt() & 0xffffffffL;
-			reserved2    = reader.readNextInt() & 0xffffffffL;
-			reserved3    = reader.readNextInt() & 0xffffffffL;
-			reserved4    = reader.readNextInt() & 0xffffffffL;
-			reserved5    = reader.readNextInt() & 0xffffffffL;
-			reserved6    = reader.readNextInt() & 0xffffffffL;
+			init_address = reader.readNextUnsignedInt();
+			init_module  = reader.readNextUnsignedInt();
+			reserved1    = reader.readNextUnsignedInt();
+			reserved2    = reader.readNextUnsignedInt();
+			reserved3    = reader.readNextUnsignedInt();
+			reserved4    = reader.readNextUnsignedInt();
+			reserved5    = reader.readNextUnsignedInt();
+			reserved6    = reader.readNextUnsignedInt();
 		}
 		else {
 			init_address = reader.readNextLong();
@@ -148,20 +127,5 @@ public class RoutinesCommand extends LoadCommand {
 	@Override
 	public String getCommandName() {
 		return "routines_command";
-	}
-
-	@Override
-	public void markup(MachHeader header, FlatProgramAPI api, Address baseAddress, boolean isBinary, ProgramModule parentModule, TaskMonitor monitor, MessageLog log) {
-		updateMonitor(monitor);
-		try {
-			if (isBinary) {
-				createFragment(api, baseAddress, parentModule);
-				Address addr = baseAddress.getNewAddress(getStartIndex());
-				api.createData(addr, toDataType());
-			}
-		}
-		catch (Exception e) {
-			log.appendMsg("Unable to create "+getCommandName()+" - "+e.getMessage());
-		}
 	}
 }

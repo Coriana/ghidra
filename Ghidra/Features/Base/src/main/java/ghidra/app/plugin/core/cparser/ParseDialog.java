@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,12 +15,12 @@
  */
 package ghidra.app.plugin.core.cparser;
 
-import java.awt.BorderLayout;
-import java.awt.Dimension;
+import java.awt.*;
 import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
 import java.io.*;
 import java.util.*;
+import java.util.List;
 
 import javax.swing.*;
 import javax.swing.event.*;
@@ -29,38 +29,45 @@ import javax.swing.table.TableModel;
 import docking.*;
 import docking.action.*;
 import docking.widgets.OptionDialog;
+import docking.widgets.button.BrowseButton;
 import docking.widgets.combobox.GhidraComboBox;
 import docking.widgets.dialogs.InputDialog;
 import docking.widgets.filechooser.GhidraFileChooser;
 import docking.widgets.filechooser.GhidraFileChooserMode;
+import docking.widgets.label.GLabel;
 import docking.widgets.pathmanager.PathnameTablePanel;
+import docking.widgets.table.GTableCellRenderer;
+import docking.widgets.table.GTableCellRenderingData;
 import generic.jar.ResourceFile;
+import generic.theme.Gui;
+import ghidra.app.plugin.core.processors.SetLanguageDialog;
+import ghidra.app.util.cparser.C.CParserUtils;
 import ghidra.framework.Application;
 import ghidra.framework.options.SaveState;
 import ghidra.framework.preferences.Preferences;
 import ghidra.framework.store.db.PackedDatabase;
 import ghidra.program.model.data.FileDataTypeManager;
+import ghidra.program.model.lang.CompilerSpecID;
+import ghidra.program.model.lang.LanguageID;
 import ghidra.util.HelpLocation;
 import ghidra.util.Msg;
 import ghidra.util.filechooser.ExtensionFileFilter;
 import resources.Icons;
-import resources.ResourceManager;
 
 /**
- * Dialog that shows files used for parsing C header files. The profile has a list of 
- * source header files to parse, followed by parse options (compiler directives). 
- * Ghidra supplies a Windows profile by default in core/parserprofiles. The user can do 
- * "save as" on this default profile to create new profiles that will be written to the 
- * user's <home>/userprofiles directory. The CParserPlugin creates this directory if it 
- * doesn't exist.
- * 
- * The data types resulting from the parse operation can either be added to the data type
- * manager in the current program, or written to an archive data file.
- * 
- * 
+ * Dialog that shows files used for parsing C header files. The profile has a list of source header
+ * files to parse, followed by parse options (compiler directives). Ghidra supplies a Windows
+ * profile by default in core/parserprofiles. The user can do "save as" on this default profile to
+ * create new profiles that will be written to the user's {@code <home>/userprofiles} directory. The
+ * CParserPlugin creates this directory if it doesn't exist.
+ * <p>
+ * The data types resulting from the parse operation can either be added to the data type manager in
+ * the current program, or written to an archive data file.
+ *
+ *
  *
  */
-class ParseDialog extends DialogComponentProvider {
+class ParseDialog extends ReusableDialogComponentProvider {
 	final static String PROFILE_DIR = "parserprofiles";
 
 	private static String FILE_EXTENSION = ".prf";
@@ -76,6 +83,13 @@ class ParseDialog extends DialogComponentProvider {
 
 	private PathnameTablePanel pathPanel;
 	private JTextArea parseOptionsField;
+
+	protected JComponent languagePanel;
+	protected JTextField languageTextField;
+	protected JButton languageButton;
+	protected String languageIDString = null;
+	protected String compilerIDString = null;
+
 	private GhidraComboBox<ComboBoxItem> comboBox;
 	private DefaultComboBoxModel<ComboBoxItem> comboModel;
 	private DockingAction saveAction;
@@ -87,37 +101,45 @@ class ParseDialog extends DialogComponentProvider {
 	private TableModelListener tableListener;
 	private ItemListener comboItemListener;
 	private TableModel tableModel;
-	private ArrayList<ComboBoxItem> itemList;
+
+	private PathnameTablePanel includePathPanel;
+	private TableModel parsePathTableModel;
+	private TableModelListener parsePathTableListener;
+
+	private List<ComboBoxItem> itemList;
 	private ComboBoxItemComparator comparator;
 	private ResourceFile parentUserFile;
-	private GhidraFileChooser fileChooser;
 	private boolean saveAsInProgress;
+	private boolean initialBuild = true;
+
+	private boolean userDefined = false;
+	private String currentProfileName = null;
 
 	ParseDialog(CParserPlugin plugin) {
-		super("Parse C Source", false);
+		super("Parse C Source", false, true, true, false);
 
 		this.plugin = plugin;
+	}
+
+	public void setupForDisplay() {
+		if (!initialBuild) {
+			toFront();
+			return;
+		}
+
 		itemList = new ArrayList<>();
 		comparator = new ComboBoxItemComparator();
 		addWorkPanel(buildMainPanel());
 		addDismissButton();
 		createActions();
-		setActionsEnabled();
-	}
+		notifyContextChanged();
 
-	void writeState(SaveState saveState) {
-		ComboBoxItem item = (ComboBoxItem) comboBox.getSelectedItem();
-		saveState.putString(CURRENT_PROFILE, item.file.getName());
-		saveState.putBoolean(USER_DEFINED, item.isUserDefined);
-	}
-
-	void readState(SaveState saveState) {
-		String name = saveState.getString(CURRENT_PROFILE, null);
-		if (name != null) {
-			boolean userDefined = saveState.getBoolean(USER_DEFINED, true);
+		// setup based on save state
+		if (currentProfileName != null) {
 			for (int i = 0; i < itemList.size(); i++) {
 				ComboBoxItem item = itemList.get(i);
-				if (userDefined == item.isUserDefined && name.equals(item.file.getName())) {
+				if (userDefined == item.isUserDefined &&
+					currentProfileName.equals(item.file.getName())) {
 					comboBox.setSelectedIndex(i);
 					break;
 				}
@@ -125,7 +147,31 @@ class ParseDialog extends DialogComponentProvider {
 		}
 	}
 
+	void writeState(SaveState saveState) {
+		// Get the current state if the dialog has been displayed
+		if (!initialBuild) {
+			ComboBoxItem item = (ComboBoxItem) comboBox.getSelectedItem();
+
+			currentProfileName = item.file.getName();
+			userDefined = item.isUserDefined;
+
+		}
+		saveState.putString(CURRENT_PROFILE, currentProfileName);
+		saveState.putBoolean(USER_DEFINED, userDefined);
+	}
+
+	void readState(SaveState saveState) {
+		currentProfileName = saveState.getString(CURRENT_PROFILE, null);
+		if (currentProfileName != null) {
+			userDefined = saveState.getBoolean(USER_DEFINED, true);
+		}
+	}
+
 	void closeProfile() {
+		// dialog not built yet
+		if (initialBuild) {
+			return;
+		}
 		ComboBoxItem item = (ComboBoxItem) comboBox.getSelectedItem();
 		if (item.isChanged) {
 			processItemChanged(item);
@@ -138,6 +184,8 @@ class ParseDialog extends DialogComponentProvider {
 	}
 
 	protected JPanel buildMainPanel() {
+		initialBuild = true;
+
 		mainPanel = new JPanel(new BorderLayout(10, 5));
 
 		comboModel = new DefaultComboBoxModel<>();
@@ -145,20 +193,25 @@ class ParseDialog extends DialogComponentProvider {
 
 		comboBox = new GhidraComboBox<>(comboModel);
 		comboItemListener = e -> selectionChanged(e);
+		comboBox.getAccessibleContext().setAccessibleName("Parse Configurations");
 		comboBox.addItemListener(comboItemListener);
 
 		JPanel cPanel = new JPanel(new BorderLayout());
 		cPanel.setBorder(BorderFactory.createTitledBorder("Parse Configuration"));
 		cPanel.add(comboBox);
+		cPanel.getAccessibleContext().setAccessibleName("Configuration");
 		JPanel comboPanel = new JPanel(new BorderLayout());
 		comboPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+		comboPanel.getAccessibleContext().setAccessibleName("Configurations");
 		comboPanel.add(cPanel);
 
-		pathPanel = new PathnameTablePanel(null, true, false);
+		// enable edits, add to bottom, ordered
+		pathPanel = new PathnameTablePanel(null, true, false, true);
 		pathPanel.setBorder(BorderFactory.createTitledBorder("Source files to parse"));
+		pathPanel.getAccessibleContext().setAccessibleName("Path");
 		String importDir = Preferences.getProperty(LAST_IMPORT_C_DIRECTORY);
 		if (importDir == null) {
-			importDir = Preferences.getProperty(Preferences.LAST_IMPORT_DIRECTORY);
+			importDir = Preferences.getProperty(Preferences.LAST_PATH_DIRECTORY);
 			if (importDir != null) {
 				Preferences.setProperty(LAST_IMPORT_C_DIRECTORY, importDir);
 			}
@@ -167,15 +220,66 @@ class ParseDialog extends DialogComponentProvider {
 			GhidraFileChooserMode.FILES_AND_DIRECTORIES, true,
 			new ExtensionFileFilter(new String[] { "h" }, "C Header Files"));
 
+		// Set default render to display red if file would not be found
+		// Using include paths
+		pathPanel.getTable().setDefaultRenderer(String.class, new GTableCellRenderer() {
+			@Override
+			public Component getTableCellRendererComponent(GTableCellRenderingData data) {
+
+				JLabel label = (JLabel) super.getTableCellRendererComponent(data);
+				label.getAccessibleContext().setAccessibleName("Path Data");
+				Object value = data.getValue();
+
+				String pathName = (String) value;
+				pathName = (pathName == null ? "" : pathName.trim());
+
+				if (pathName.length() == 0 || pathName.startsWith("#")) {
+					return label;
+				}
+
+				boolean fileExists = true;
+				File file = new File(pathName);
+				fileExists = file.exists();
+
+				// file not found directly, see if one of the include paths will find the file
+				if (!fileExists) {
+					fileExists = doesFileExist(pathName, fileExists);
+				}
+
+				label.setText(pathName.toString());
+				if (!fileExists) {
+					label.setForeground(getErrorForegroundColor(data.isSelected()));
+				}
+				return label;
+			}
+		});
+
 		tableListener = e -> {
 			ComboBoxItem item = (ComboBoxItem) comboBox.getSelectedItem();
-			item.isChanged = true;
-			setActionsEnabled();
+			item.isChanged = !initialBuild;
+			notifyContextChanged();
 		};
 		tableModel = pathPanel.getTable().getModel();
 		tableModel.addTableModelListener(tableListener);
 
+		// enable edits, add to bottom, ordered
+		includePathPanel = new PathnameTablePanel(null, true, false, true);
+		includePathPanel.setBorder(BorderFactory.createTitledBorder("Include paths"));
+		includePathPanel.setFileChooserProperties("Choose Source Files", LAST_IMPORT_C_DIRECTORY,
+			GhidraFileChooserMode.FILES_AND_DIRECTORIES, true,
+			new ExtensionFileFilter(new String[] { "h" }, "C Header Files"));
+
+		parsePathTableListener = e -> {
+			ComboBoxItem item = (ComboBoxItem) comboBox.getSelectedItem();
+			item.isChanged = !initialBuild;
+			notifyContextChanged();
+			pathPanel.getTable().repaint();
+		};
+		parsePathTableModel = includePathPanel.getTable().getModel();
+		parsePathTableModel.addTableModelListener(parsePathTableListener);
+
 		JPanel optionsPanel = new JPanel(new BorderLayout());
+		optionsPanel.getAccessibleContext().setAccessibleName("Options");
 		optionsPanel.setBorder(BorderFactory.createTitledBorder("Parse Options"));
 
 		// create options field
@@ -183,58 +287,158 @@ class ParseDialog extends DialogComponentProvider {
 		parseOptionsField = new JTextArea(5, 70);
 		JScrollPane pane = new JScrollPane(parseOptionsField);
 		pane.getViewport().setPreferredSize(new Dimension(300, 200));
+		pane.getAccessibleContext().setAccessibleName("Options");
 		optionsPanel.add(pane, BorderLayout.CENTER);
+
+		JPanel archPanel = new JPanel(new BorderLayout());
+		archPanel.setBorder(BorderFactory.createTitledBorder("Program Architecture:"));
+		archPanel.getAccessibleContext().setAccessibleName("Program Architecture");
+		archPanel.add(new GLabel(" ", SwingConstants.RIGHT));
+		languagePanel = buildLanguagePanel();
+		archPanel.add(languagePanel);
 
 		// create Parse Button
 
 		parseButton = new JButton("Parse to Program");
 		parseButton.addActionListener(ev -> doParse(false));
 		parseButton.setToolTipText("Parse files and add data types to current program");
+		parseButton.getAccessibleContext().setAccessibleName("Parse to Program");
 		addButton(parseButton);
 
 		parseToFileButton = new JButton("Parse to File...");
 		parseToFileButton.addActionListener(ev -> doParse(true));
 		parseToFileButton.setToolTipText("Parse files and output to archive file");
+		parseToFileButton.getAccessibleContext().setAccessibleName("Parse to File");
 		addButton(parseToFileButton);
 
-		pathPanel.setPreferredSize(new Dimension(pathPanel.getPreferredSize().width, 200));
-		JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, pathPanel, optionsPanel);
-		splitPane.setResizeWeight(0.50);
 		mainPanel.add(comboPanel, BorderLayout.NORTH);
-		mainPanel.add(splitPane, BorderLayout.CENTER);
+
+		includePathPanel.setPreferredSize(new Dimension(pathPanel.getPreferredSize().width, 200));
+		JSplitPane optionsPane =
+			new JSplitPane(JSplitPane.VERTICAL_SPLIT, includePathPanel, optionsPanel);
+		optionsPane.getAccessibleContext().setAccessibleName("Include Path and Options");
+		optionsPane.setResizeWeight(0.50);
+
+		pathPanel.setPreferredSize(new Dimension(pathPanel.getPreferredSize().width, 200));
+		JSplitPane outerPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, pathPanel, optionsPane);
+		outerPane.getAccessibleContext().setAccessibleName("Path and Options");
+		outerPane.setResizeWeight(0.50);
+
+		mainPanel.add(outerPane, BorderLayout.CENTER);
+
+		mainPanel.add(archPanel, BorderLayout.SOUTH);
 
 		setHelpLocation(new HelpLocation(plugin.getName(), "Parse_C_Source"));
 
 		loadProfile();
 
+		initialBuild = false;
+		mainPanel.getAccessibleContext().setAccessibleName("Parse");
 		return mainPanel;
 	}
 
-	private void selectionChanged(ItemEvent e) {
-		if (e.getStateChange() == ItemEvent.DESELECTED) {
-			ComboBoxItem item = (ComboBoxItem) e.getItem();
-			if (item.isChanged && !saveAsInProgress) {
-				if (item.isUserDefined) {
-					if (OptionDialog.showOptionDialog(rootPanel, "Save Changes to Profile?",
-						"Profile " + item.file.getName() +
-							" has changed.\nDo you want to save your changes?",
-						"Yes", OptionDialog.QUESTION_MESSAGE) == OptionDialog.OPTION_ONE) {
-						save(item);
-					}
-				}
-				else {
-					if (OptionDialog.showOptionDialog(rootPanel, "Save Changes to Another Profile?",
-						"You have made changes to the default profile " + item.file.getName() +
-							",\nhowever, updating default profiles is not allowed." +
-							"\nDo you want to save your changes to another profile?",
-						"Yes", OptionDialog.QUESTION_MESSAGE) == OptionDialog.OPTION_ONE) {
-						saveAs(item);
-					}
-				}
+	private boolean doesFileExist(String pathName, boolean fileExists) {
+		String[] includePaths = includePathPanel.getPaths();
+		for (String path : includePaths) {
+			File file = CParserUtils.getFile(path, pathName);
+			if (file == null) {
+				continue;
+			}
+			fileExists = file.exists();
+			if (fileExists) {
+				break;
 			}
 		}
+		return fileExists;
+	}
+
+	private JComponent buildLanguagePanel() {
+		languageTextField = new JTextField();
+		languageTextField.setEditable(false);
+		languageTextField.setFocusable(false);
+
+		languageButton = new BrowseButton();
+		languageButton.addActionListener(e -> {
+			SetLanguageDialog dialog = new SetLanguageDialog(plugin.getTool(), languageIDString,
+				compilerIDString, "Select Program Architecture for File DataType Archive");
+			LanguageID languageId = dialog.getLanguageDescriptionID();
+			CompilerSpecID compilerSpecId = dialog.getCompilerSpecDescriptionID();
+			if ((languageId == null) || (compilerSpecId == null)) {
+				return;
+			}
+
+			String newLanguageIDString = languageId.getIdAsString();
+			String newCompilerIDString = compilerSpecId.getIdAsString();
+
+			if (!Objects.equals(newLanguageIDString, languageIDString) ||
+				!Objects.equals(newCompilerIDString, compilerIDString)) {
+				itemChanged();
+			}
+
+			languageIDString = newLanguageIDString;
+			compilerIDString = newCompilerIDString;
+
+			updateArchitectureDescription();
+		});
+
+		updateArchitectureDescription();
+
+		languageButton.setName("Set Processor Architecture");
+		Gui.registerFont(languageButton, Font.BOLD);
+
+		JPanel panel = new JPanel(new BorderLayout());
+		panel.add(languageTextField, BorderLayout.CENTER);
+		panel.add(languageButton, BorderLayout.EAST);
+		return panel;
+	}
+
+	private void updateArchitectureDescription() {
+		String newProgramArchitectureSummary = "64/32 (primarily for backward compatibility)";
+
+		if (languageIDString != null) {
+			StringBuilder buf = new StringBuilder();
+			buf.append(languageIDString);
+			buf.append("  /  ");
+			buf.append(compilerIDString != null ? compilerIDString : "none");
+			newProgramArchitectureSummary = buf.toString();
+		}
+
+		languageTextField.setText(newProgramArchitectureSummary);
+	}
+
+	private void selectionChanged(ItemEvent e) {
 		if (e.getStateChange() == ItemEvent.SELECTED) {
 			loadProfile();
+			return;
+		}
+
+		ComboBoxItem item = (ComboBoxItem) e.getItem();
+		if (!item.isChanged) {
+			return;
+		}
+		if (saveAsInProgress) {
+			return;
+		}
+		if (initialBuild) {
+			return;
+		}
+
+		if (item.isUserDefined) {
+			if (OptionDialog.showOptionDialog(rootPanel, "Save Changes to Profile?",
+				"Profile " + item.file.getName() +
+					" has changed.\nDo you want to save your changes?",
+				"Yes", OptionDialog.QUESTION_MESSAGE) == OptionDialog.OPTION_ONE) {
+				save(item);
+			}
+		}
+		else {
+			if (OptionDialog.showOptionDialog(rootPanel, "Save Changes to Another Profile?",
+				"You have made changes to the default profile " + item.file.getName() +
+					",\nhowever, updating default profiles is not allowed." +
+					"\nDo you want to save your changes to another profile?",
+				"Yes", OptionDialog.QUESTION_MESSAGE) == OptionDialog.OPTION_ONE) {
+				saveAs(item);
+			}
 		}
 	}
 
@@ -255,53 +459,6 @@ class ParseDialog extends DialogComponentProvider {
 				"Yes", OptionDialog.QUESTION_MESSAGE) == OptionDialog.OPTION_ONE) {
 				saveAs(item);
 			}
-		}
-	}
-
-	private void loadProfile() {
-		if (docListener != null) {
-			parseOptionsField.getDocument().removeDocumentListener(docListener);
-		}
-		tableModel.removeTableModelListener(tableListener);
-		ComboBoxItem item = (ComboBoxItem) comboBox.getSelectedItem();
-
-		StringBuffer sb = new StringBuffer();
-		ArrayList<String> pathList = new ArrayList<>();
-		try {
-			BufferedReader br =
-				new BufferedReader(new InputStreamReader(item.file.getInputStream()));
-			String line = null;
-			while ((line = br.readLine()) != null) {
-				line = line.trim();
-				if (line.startsWith("-") || (line.length() == 0 && sb.length() > 0)) {
-					// this is a compiler directive
-					sb.append(line + "\n");
-				}
-				else if (line.length() > 0) {
-					File f = new File(line);
-					pathList.add(f.getPath());
-				}
-			}
-			String[] paths = new String[pathList.size()];
-			paths = pathList.toArray(paths);
-			pathPanel.setPaths(paths);
-			parseOptionsField.setText(sb.toString());
-
-			br.close();
-		}
-		catch (FileNotFoundException e) {
-			Msg.showInfo(getClass(), getComponent(), "File Not Found",
-				"Could not find file\n" + item.file.getAbsolutePath());
-		}
-		catch (IOException e) {
-			Msg.showError(this, getComponent(), "Error Loading Profile",
-				"Exception occurred while reading file\n" + item.file.getAbsolutePath() + ": " + e);
-		}
-		finally {
-			// add a document listener to the options field
-			addDocumentListener();
-			tableModel.addTableModelListener(tableListener);
-			setActionsEnabled();
 		}
 	}
 
@@ -329,8 +486,11 @@ class ParseDialog extends DialogComponentProvider {
 
 	private void itemChanged() {
 		ComboBoxItem item = (ComboBoxItem) comboBox.getSelectedItem();
+		if (item == null) {
+			return;
+		}
 		item.isChanged = true;
-		setActionsEnabled();
+		notifyContextChanged();
 	}
 
 	private void createActions() {
@@ -339,9 +499,14 @@ class ParseDialog extends DialogComponentProvider {
 			public void actionPerformed(ActionContext context) {
 				save((ComboBoxItem) comboBox.getSelectedItem());
 			}
+
+			@Override
+			public boolean isEnabledForContext(ActionContext context) {
+				ComboBoxItem item = (ComboBoxItem) comboBox.getSelectedItem();
+				return item.isChanged && item.isUserDefined;
+			}
 		};
-		saveAction.setEnabled(false);
-		ImageIcon icon = ResourceManager.loadImage("images/disk.png");
+		Icon icon = Icons.SAVE_ICON;
 		String saveGroup = "save";
 		saveAction.setMenuBarData(new MenuData(new String[] { "Save" }, icon, saveGroup));
 		saveAction.setToolBarData(new ToolBarData(icon, saveGroup));
@@ -353,9 +518,13 @@ class ParseDialog extends DialogComponentProvider {
 			public void actionPerformed(ActionContext context) {
 				saveAs((ComboBoxItem) comboBox.getSelectedItem());
 			}
+
+			@Override
+			public boolean isEnabledForContext(ActionContext context) {
+				return true;
+			}
 		};
-		saveAsAction.setEnabled(true);
-		icon = ResourceManager.loadImage("images/disk_save_as.png");
+		icon = Icons.SAVE_AS_ICON;
 		saveAsAction.setMenuBarData(new MenuData(new String[] { "Save As..." }, icon, saveGroup));
 		saveAsAction.setToolBarData(new ToolBarData(icon, saveGroup));
 		saveAsAction.setDescription("Save profile to new name");
@@ -366,13 +535,17 @@ class ParseDialog extends DialogComponentProvider {
 			public void actionPerformed(ActionContext context) {
 				clear();
 			}
+
+			@Override
+			public boolean isEnabledForContext(ActionContext context) {
+				return true;
+			}
 		};
 
-		clearAction.setEnabled(true);
-		icon = ResourceManager.loadImage("images/erase16.png");
+		icon = Icons.CLEAR_ICON;
 		String clearGroup = "clear";
-		clearAction.setMenuBarData(
-			new MenuData(new String[] { "Clear Profile" }, icon, clearGroup));
+		clearAction
+				.setMenuBarData(new MenuData(new String[] { "Clear Profile" }, icon, clearGroup));
 		clearAction.setToolBarData(new ToolBarData(icon, clearGroup));
 		clearAction.setDescription("Clear profile");
 		addAction(clearAction);
@@ -382,8 +555,12 @@ class ParseDialog extends DialogComponentProvider {
 			public void actionPerformed(ActionContext context) {
 				refresh();
 			}
+
+			@Override
+			public boolean isEnabledForContext(ActionContext context) {
+				return true;
+			}
 		};
-		refreshAction.setEnabled(true);
 		icon = Icons.REFRESH_ICON;
 		String refreshGroup = "refresh";
 		refreshAction.setMenuBarData(new MenuData(new String[] { "Refresh" }, icon, refreshGroup));
@@ -397,9 +574,14 @@ class ParseDialog extends DialogComponentProvider {
 			public void actionPerformed(ActionContext context) {
 				delete();
 			}
+
+			@Override
+			public boolean isEnabledForContext(ActionContext context) {
+				ComboBoxItem item = (ComboBoxItem) comboBox.getSelectedItem();
+				return item.isUserDefined;
+			}
 		};
-		deleteAction.setEnabled(false);
-		icon = ResourceManager.loadImage("images/edit-delete.png");
+		icon = Icons.DELETE_ICON;
 		String deleteGroup = "Xdelete";
 		deleteAction.setMenuBarData(new MenuData(new String[] { "Delete" }, icon, deleteGroup));
 		deleteAction.setToolBarData(new ToolBarData(icon, deleteGroup));
@@ -439,7 +621,7 @@ class ParseDialog extends DialogComponentProvider {
 		else {
 			writeProfile(item.file);
 			item.isChanged = false;
-			setActionsEnabled();
+			notifyContextChanged();
 		}
 	}
 
@@ -468,6 +650,7 @@ class ParseDialog extends DialogComponentProvider {
 				}
 				file.delete();
 			}
+			saveAsInProgress = true;
 			ComboBoxItem newItem = new ComboBoxItem(file, true);
 			if (itemList.contains(newItem)) {
 				itemList.remove(newItem);
@@ -478,7 +661,6 @@ class ParseDialog extends DialogComponentProvider {
 				index = -index - 1;
 			}
 			itemList.add(index, newItem);
-			saveAsInProgress = true;
 			writeProfile(newItem.file);
 			newItem.isChanged = false;
 			item.isChanged = false;
@@ -489,7 +671,97 @@ class ParseDialog extends DialogComponentProvider {
 			finally {
 				saveAsInProgress = false;
 			}
-			setActionsEnabled();
+			notifyContextChanged();
+		}
+	}
+
+	private void loadProfile() {
+		if (docListener != null) {
+			parseOptionsField.getDocument().removeDocumentListener(docListener);
+		}
+		tableModel.removeTableModelListener(tableListener);
+		parsePathTableModel.removeTableModelListener(parsePathTableListener);
+		ComboBoxItem item = (ComboBoxItem) comboBox.getSelectedItem();
+		item.isChanged = false;
+
+		StringBuffer sb = new StringBuffer();
+		List<String> pathList = new ArrayList<>();
+		List<String> includeList = new ArrayList<>();
+		String langString = null;
+		String compileString = null;
+		try {
+			BufferedReader br =
+				new BufferedReader(new InputStreamReader(item.file.getInputStream()));
+			String line = null;
+			while ((line = br.readLine()) != null && line.trim().length() > 0) {
+				line = line.trim();
+
+				pathList.add(line);
+			}
+
+			while ((line = br.readLine()) != null && line.trim().length() > 0) {
+				line = line.trim();
+
+				sb.append(line + "\n");
+			}
+
+			// get paths
+			while ((line = br.readLine()) != null && line.trim().length() > 0) {
+				line = line.trim();
+
+				includeList.add(line);
+			}
+
+			// get language
+			while ((line = br.readLine()) != null) {
+				line = line.trim();
+				if (line.length() > 0) {
+					langString = (line.length() == 0 ? null : line);
+					break;
+				}
+			}
+
+			// get compiler spec
+			while ((line = br.readLine()) != null) {
+				line = line.trim();
+				if (line.length() > 0) {
+					compileString = (line.length() == 0 ? null : line);
+					break;
+				}
+			}
+
+			String[] paths = new String[pathList.size()];
+			paths = pathList.toArray(paths);
+			pathPanel.setPaths(paths);
+
+			String[] incpaths = new String[includeList.size()];
+			incpaths = includeList.toArray(incpaths);
+			includePathPanel.setPaths(incpaths);
+
+			parseOptionsField.setText(sb.toString());
+
+			languageIDString = langString;
+
+			compilerIDString = compileString;
+
+			updateArchitectureDescription();
+
+			br.close();
+		}
+		catch (FileNotFoundException e) {
+			Msg.showInfo(getClass(), getComponent(), "File Not Found",
+				"Could not find file\n" + item.file.getAbsolutePath());
+		}
+		catch (IOException e) {
+			Msg.showError(this, getComponent(), "Error Loading Profile",
+				"Exception occurred while reading file\n" + item.file.getAbsolutePath() + ": " + e);
+		}
+		finally {
+			// add a document listener to the options field
+			addDocumentListener();
+			tableModel.addTableModelListener(tableListener);
+			parsePathTableModel.addTableModelListener(parsePathTableListener);
+			notifyContextChanged();
 		}
 	}
 
@@ -500,7 +772,7 @@ class ParseDialog extends DialogComponentProvider {
 				new BufferedWriter(new OutputStreamWriter(outputFile.getOutputStream()));
 			String[] paths = pathPanel.getPaths();
 			for (String path : paths) {
-				writer.write(path);
+				writer.write(path.trim());
 				writer.newLine();
 			}
 			writer.newLine();
@@ -512,6 +784,30 @@ class ParseDialog extends DialogComponentProvider {
 				writer.write(tok);
 				writer.newLine();
 			}
+			writer.newLine();
+
+			// Write paths
+			String[] includePaths = includePathPanel.getPaths();
+			for (String path : includePaths) {
+				writer.write(path.trim());
+				writer.newLine();
+			}
+			writer.newLine();
+
+			// Write Language ID Spec
+			if (languageIDString != null) {
+				writer.write(languageIDString);
+			}
+			writer.newLine();
+			writer.newLine();
+
+			// Write Compiler ID Spec
+			if (compilerIDString != null) {
+				writer.write(compilerIDString);
+			}
+			writer.newLine();
+			writer.newLine();
+
 			writer.close();
 		}
 		catch (IOException e) {
@@ -539,6 +835,7 @@ class ParseDialog extends DialogComponentProvider {
 	private void doParse(boolean parseToFile) {
 		clearStatusText();
 		String options = getParseOptions();
+		String[] includePaths = includePathPanel.getPaths();
 		String[] paths = pathPanel.getPaths();
 
 		if (paths.length == 0) {
@@ -551,44 +848,48 @@ class ParseDialog extends DialogComponentProvider {
 		pathPanel.setPaths(paths);
 
 		if (parseToFile) {
+			if (languageIDString == null || compilerIDString == null) {
+				Msg.showWarn(getClass(), rootPanel, "Program Architecture not Specified",
+					"A Program Architecture must be specified in order to parse to a file.");
+				return;
+			}
+
 			File file = getSaveFile();
 			if (file != null) {
-				plugin.parse(paths, options, file.getAbsolutePath());
+				plugin.parse(paths, includePaths, options, languageIDString, compilerIDString,
+					file.getAbsolutePath());
 			}
+			return;
 		}
-		else {
-			plugin.parse(paths, options);
-		}
+
+		plugin.parse(paths, includePaths, options);
 	}
 
 	private String[] expandPaths(String[] paths) {
-		ArrayList<String> list = new ArrayList<>();
-
+		List<String> list = new ArrayList<>();
 		for (String path : paths) {
 			File file = new File(path);
+
 			// process each header file in the directory
-			if (file.isDirectory()) {
-				IncludeFileFinder includeFileFinder = new IncludeFileFinder(file);
-				try {
-					List<String> includeFileRoots = includeFileFinder.getIncludeFileRoots(true);
-					for (Object element : includeFileRoots) {
-						String string = (String) element;
-						if (string.endsWith(".h")) {
-							list.add(string);
-						}
+			if (!file.isDirectory()) {
+				list.add(path);
+				continue;
+			}
+
+			IncludeFileFinder finder = new IncludeFileFinder(file);
+			try {
+				List<String> roots = finder.getIncludeFileRoots(true);
+				for (String filePath : roots) {
+					if (filePath.endsWith(".h")) {
+						list.add(filePath);
 					}
 				}
-				catch (IOException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
 			}
-			else {
-				list.add(path);
+			catch (IOException e) {
+				Msg.error(this, "Exception finding CParser paths", e);
 			}
 		}
 
-		// convert paths list to String[]
 		return list.toArray(new String[0]);
 	}
 
@@ -607,7 +908,12 @@ class ParseDialog extends DialogComponentProvider {
 
 	private void addToComboModel(ResourceFile parent, boolean isUserDefined) {
 		ResourceFile[] children = parent.listFiles();
-		for (ResourceFile resourceFile : children) {
+		List<ResourceFile> sorted = Arrays.asList(children);
+		// sort each set of files, system will go first
+		// User local files second
+		// new files at the end
+		Collections.sort(sorted);
+		for (ResourceFile resourceFile : sorted) {
 			if (resourceFile.getName().startsWith(".")) {
 				continue;
 			}
@@ -617,63 +923,54 @@ class ParseDialog extends DialogComponentProvider {
 		}
 	}
 
-	private void setActionsEnabled() {
-		ComboBoxItem item = (ComboBoxItem) comboBox.getSelectedItem();
-		if (saveAction != null) {
-			saveAction.setEnabled(item.isChanged && item.isUserDefined);
-			deleteAction.setEnabled(item.isUserDefined);
-		}
-	}
-
 	private File getSaveFile() {
-		if (fileChooser == null) {
-			fileChooser = new GhidraFileChooser(rootPanel);
-			String dir = Preferences.getProperty(Preferences.LAST_EXPORT_DIRECTORY);
-			if (dir != null) {
-				File file = new File(dir);
-				fileChooser.setCurrentDirectory(file);
-				fileChooser.setTitle("Choose Save Archive File");
-				fileChooser.setApproveButtonText("Choose Save Archive File");
-				fileChooser.setApproveButtonToolTipText("Choose filename for archive");
-			}
-		}
-		fileChooser.rescanCurrentDirectory();
-		File file = fileChooser.getSelectedFile();
-		if (file != null) {
-			File parent = file.getParentFile();
-			if (parent != null) {
-				Preferences.setProperty(Preferences.LAST_EXPORT_DIRECTORY,
-					parent.getAbsolutePath());
-			}
 
-			String name = file.getName();
-			if (!file.getName().endsWith(FileDataTypeManager.SUFFIX)) {
-				file = new File(file.getParentFile(), name + FileDataTypeManager.SUFFIX);
-			}
-			if (file.exists()) {
-				if (OptionDialog.showOptionDialog(rootPanel, "Overwrite Existing File?",
-					"The file " + file.getAbsolutePath() +
-						" already exists.\nDo you want to overwrite it?",
-					"Yes", OptionDialog.QUESTION_MESSAGE) != OptionDialog.OPTION_ONE) {
-					file = null;
-				}
-				else {
-					try {
-						PackedDatabase.delete(file);
-					}
-					catch (IOException e) {
-						Msg.showError(this, mainPanel, "Archive Overwrite Failed", e.getMessage());
-						return null;
-					}
-				}
-			}
+		GhidraFileChooser fileChooser = new GhidraFileChooser(rootPanel);
+		fileChooser.setTitle("Choose Save Archive File");
+		fileChooser.setApproveButtonText("Choose Save Archive File");
+		fileChooser.setApproveButtonToolTipText("Choose filename for archive");
+		fileChooser.setLastDirectoryPreference(Preferences.LAST_EXPORT_DIRECTORY);
+
+		File file = fileChooser.getSelectedFile();
+		fileChooser.dispose();
+		if (file == null) {
+			return null;
+		}
+
+		File parent = file.getParentFile();
+		if (parent != null) {
+			Preferences.setProperty(Preferences.LAST_EXPORT_DIRECTORY,
+				parent.getAbsolutePath());
+		}
+
+		String name = file.getName();
+		if (!file.getName().endsWith(FileDataTypeManager.SUFFIX)) {
+			file = new File(file.getParentFile(), name + FileDataTypeManager.SUFFIX);
+		}
+
+		if (!file.exists()) {
+			return file;
+		}
+
+		int choice = OptionDialog.showOptionDialog(rootPanel, "Overwrite Existing File?",
+			"The file " + file.getAbsolutePath() +
+				" already exists.\nDo you want to overwrite it?",
+			"Yes", OptionDialog.QUESTION_MESSAGE);
+
+		if (choice != OptionDialog.OPTION_ONE) {
+			return null;
+		}
+
+		try {
+			PackedDatabase.delete(file);
+		}
+		catch (IOException e) {
+			Msg.showError(this, mainPanel, "Archive Overwrite Failed", e.getMessage());
+			return null;
 		}
 		return file;
 	}
 
-	/**
-	 * Called when user selects Cancel Button
-	 */
 	@Override
 	protected void dismissCallback() {
 		close();
@@ -693,7 +990,7 @@ class ParseDialog extends DialogComponentProvider {
 		return parseOptionsField.getText();
 	}
 
-	private class ComboBoxItem {
+	class ComboBoxItem {
 		private ResourceFile file;
 		private boolean isUserDefined;
 		private boolean isChanged;
@@ -730,11 +1027,7 @@ class ParseDialog extends DialogComponentProvider {
 
 		@Override
 		public int hashCode() {
-			final int prime = 31;
-			int result = 1;
-			result = prime * result + ((file == null) ? 0 : file.hashCode());
-			result = prime * result + (isUserDefined ? 1231 : 1237);
-			return result;
+			return Objects.hash(file, isUserDefined);
 		}
 
 	}
@@ -750,5 +1043,55 @@ class ParseDialog extends DialogComponentProvider {
 			}
 			return 1;
 		}
+	}
+
+//==================================================================================================
+// Methods for Testing
+//==================================================================================================
+
+	GhidraComboBox<ParseDialog.ComboBoxItem> getParseComboBox() {
+		return comboBox;
+	}
+
+	PathnameTablePanel getSourceFiles() {
+		return this.pathPanel;
+	}
+
+	PathnameTablePanel getIncludePaths() {
+		return this.includePathPanel;
+	}
+
+	JTextArea getParseOptionsTextField() {
+		return this.parseOptionsField;
+	}
+
+	JButton getLanguageButton() {
+		return this.languageButton;
+	}
+
+	JTextField getLanguageText() {
+		return this.languageTextField;
+	}
+
+	JButton getParseButton() {
+		return this.parseButton;
+	}
+
+	JButton getParseToFileButton() {
+		return this.parseToFileButton;
+	}
+
+	List<ComboBoxItem> getProfiles() {
+		return this.itemList;
+	}
+
+	ComboBoxItem getCurrentItem() {
+		ComboBoxItem item = (ComboBoxItem) comboBox.getSelectedItem();
+
+		return item;
+	}
+
+	ResourceFile getUserProfileParent() {
+		return parentUserFile;
 	}
 }

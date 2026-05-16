@@ -15,12 +15,12 @@
  */
 package ghidra.app.util.bin.format.elf;
 
-import ghidra.app.plugin.exceptionhandlers.gcc.datatype.AbstractLeb128DataType;
+import javax.help.UnsupportedOperationException;
+
 import ghidra.docking.settings.Settings;
 import ghidra.docking.settings.SettingsDefinition;
 import ghidra.program.model.address.Address;
-import ghidra.program.model.data.DataType;
-import ghidra.program.model.data.DataTypeManager;
+import ghidra.program.model.data.*;
 
 /**
  * <code>AndroidElfRelocationData</code> provides a dynamic LEB128 data 
@@ -31,7 +31,7 @@ import ghidra.program.model.data.DataTypeManager;
  * component instance.  This functionality relies on the 1:1 relationship
  * between this dynamic datatype and the single component which references it.
  */
-class AndroidElfRelocationData extends AbstractLeb128DataType {
+class AndroidElfRelocationData extends SignedLeb128DataType {
 
 	private final long relocationOffset;
 
@@ -42,31 +42,19 @@ class AndroidElfRelocationData extends AbstractLeb128DataType {
 	 * @param relocationOffset relocation offset associated with component.
 	 */
 	AndroidElfRelocationData(DataTypeManager dtm, long relocationOffset) {
-		super("sleb128", true, dtm);
+		super(dtm);
 		this.relocationOffset = relocationOffset;
 	}
 
 	@Override
 	public DataType clone(DataTypeManager dtm) {
-		if (dtm == getDataTypeManager()) {
-			return this;
-		}
-		return new AndroidElfRelocationData(dtm, relocationOffset);
-	}
-
-	@Override
-	public String getMnemonic(Settings settings) {
-		return name;
+		// specific instances are used by AndroidElfRelocationTableDataType
+		throw new UnsupportedOperationException("may not be cloned");
 	}
 
 	@Override
 	public String getDescription() {
 		return "Android Packed Relocation Data for ELF";
-	}
-
-	@Override
-	public String getDefaultLabelPrefix() {
-		return "sleb128";
 	}
 
 	@Override

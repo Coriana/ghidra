@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,9 +15,10 @@
  */
 package ghidra;
 
-import java.awt.Color;
 import java.awt.event.MouseEvent;
 
+import generic.theme.GColor;
+import ghidra.app.util.SearchConstants;
 import ghidra.framework.options.Options;
 
 /**
@@ -35,8 +36,6 @@ public interface GhidraOptions {
 	 * Category name for the Browser options that affect the display.
 	 */
 	final String CATEGORY_BROWSER_DISPLAY = "Listing Display";
-	@Deprecated //remove a few versions after 8.0
-	final String OLD_CATEGORY_BROWSER_DISPLAY = "Browser Display";
 
 	/**
 	 * Category name for the Browser Navigation Marker options.
@@ -84,13 +83,17 @@ public interface GhidraOptions {
 	/**
 	 * Option for the max number of hits found in a search; the search
 	 * stops when it reaches this limit.
+	 * @deprecated use {@link SearchConstants#SEARCH_LIMIT_NAME}
 	 */
-	final String OPTION_SEARCH_LIMIT = "Search Limit";
+	@Deprecated
+	final String OPTION_SEARCH_LIMIT = SearchConstants.SEARCH_LIMIT_NAME;
 
 	/**
 	 * Options title the search category
+	 * @deprecated use {@link SearchConstants#SEARCH_OPTION_NAME}
 	 */
-	final String OPTION_SEARCH_TITLE = "Search";
+	@Deprecated(since = "11.3", forRemoval = true)
+	final String OPTION_SEARCH_TITLE = SearchConstants.SEARCH_OPTION_NAME;
 
 	/**
 	 * Category name for the "Auto Analysis" options.
@@ -101,8 +104,6 @@ public interface GhidraOptions {
 	 * Options name for Browser fields
 	 */
 	final String CATEGORY_BROWSER_FIELDS = "Listing Fields";
-	@Deprecated //remove a few versions after 8.0
-	final String OLD_CATEGORY_BROWSER_FIELDS = "Browser Fields";
 
 	/**
 	 * Options title for Mnemonic group.
@@ -125,8 +126,6 @@ public interface GhidraOptions {
 	 * Category name for Browser Popup options
 	 */
 	final String CATEGORY_BROWSER_POPUPS = "Listing Popups";
-	@Deprecated //remove a few versions after 8.0
-	final String OLD_CATEGORY_BROWSER_POPUPS = "Browser Popups";
 
 	/**
 	 * Category name for Decompiler Popup options
@@ -162,7 +161,7 @@ public interface GhidraOptions {
 
 	final String HIGHLIGHT_CURSOR_LINE_COLOR = "Cursor." + HIGHLIGHT_CURSOR_LINE_COLOR_OPTION_NAME;
 
-	final Color DEFAULT_CURSOR_LINE_COLOR = new Color(232, 242, 254);
+	final GColor DEFAULT_CURSOR_LINE_COLOR = new GColor("color.bg.currentline.listing");
 
 	final String HIGHLIGHT_CURSOR_LINE_OPTION_NAME = "Highlight Cursor Line";
 
@@ -182,6 +181,7 @@ public interface GhidraOptions {
 
 	public static enum CURSOR_MOUSE_BUTTON_NAMES {
 		LEFT(MouseEvent.BUTTON1), MIDDLE(MouseEvent.BUTTON2), RIGHT(MouseEvent.BUTTON3);
+
 		private int mouseEventID;
 
 		CURSOR_MOUSE_BUTTON_NAMES(int mouseEventID) {
@@ -196,10 +196,9 @@ public interface GhidraOptions {
 	// end cursor highlight
 
 	final String OPTION_SELECTION_COLOR = "Selection Colors.Selection Color";
-	final Color DEFAULT_SELECTION_COLOR = new Color(180, 255, 180);
+	final GColor DEFAULT_SELECTION_COLOR = new GColor("color.bg.selection.listing");
 
 	final String OPTION_HIGHLIGHT_COLOR = "Selection Colors.Highlight Color";
-	final Color DEFAULT_HIGHLIGHT_COLOR = new Color(255, 255, 180);
+	final GColor DEFAULT_HIGHLIGHT_COLOR = new GColor("color.bg.highlight.listing");
 	final String APPLY_ENABLED = "apply.enabled";
-
 }

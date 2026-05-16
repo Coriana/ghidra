@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,8 +18,9 @@ package ghidra.program.database.map;
 import java.io.IOException;
 import java.util.*;
 
-import db.DBConstants;
 import db.DBHandle;
+import ghidra.framework.data.OpenMode;
+import ghidra.program.database.ProgramAddressFactory;
 import ghidra.program.database.map.AddressMapDBAdapter.AddressMapEntry;
 import ghidra.program.database.mem.MemoryMapDB;
 import ghidra.program.model.address.*;
@@ -99,6 +100,8 @@ public class AddressMapDB implements AddressMap {
 	private Address[] sortedBaseEndAddrs;
 	private List<KeyRange> allKeyRanges; // all existing key ranges (includes non-absolute memory, and external space) 
 	private HashMap<Address, Integer> addrToIndexMap = new HashMap<Address, Integer>();
+	private Address lastBaseAddress;
+	private int lastIndex;
 
 	private long baseImageOffset; // pertains to default address space only
 	private List<AddressRange> segmentedRanges; // when using segmented memory, this list contains	
@@ -126,30 +129,9 @@ public class AddressMapDB implements AddressMap {
 			int comp = normalizedAddr.getAddressSpace().compareTo(space);
 			if (comp == 0) {
 				// Same address space - assumes unsigned space
-				long maxOffset = space.getMaxAddress().getOffset();
 				long otherOffset = addr.getOffset() - baseImageOffset;
 				long offset = normalizedAddr.getOffset();
-				if (space.getSize() == 64) {
-					// Address space offsets are 64-bit unsigned
-					// wrapping of otherOffset handled automatically
-					if (offset < 0 && otherOffset >= 0) {
-						return 1;
-					}
-					else if (offset >= 0 && otherOffset < 0) {
-						return -1;
-					}
-				}
-				else if (otherOffset < 0) {
-					// wrap normalized otherOffset within space for spaces smaller than 64-bits
-					otherOffset += maxOffset + 1;
-				}
-				long diff = offset - otherOffset;
-				if (diff > 0) {
-					return 1;
-				}
-				if (diff < 0) {
-					return -1;
-				}
+				return Long.compareUnsigned(offset, otherOffset);
 			}
 			return comp;
 		}
@@ -199,15 +181,15 @@ public class AddressMapDB implements AddressMap {
 	 * @throws IOException thrown if a dabase io error occurs.
 	 * @throws VersionException if the database version does not match the expected version.
 	 */
-	public AddressMapDB(DBHandle handle, int openMode, AddressFactory factory, long baseImageOffset,
-			TaskMonitor monitor) throws IOException, VersionException {
-		this.readOnly = (openMode == DBConstants.READ_ONLY);
+	public AddressMapDB(DBHandle handle, OpenMode openMode, AddressFactory factory,
+			long baseImageOffset, TaskMonitor monitor) throws IOException, VersionException {
+		this.readOnly = (openMode == OpenMode.IMMUTABLE);
 		this.addrFactory = factory;
 		this.baseImageOffset = baseImageOffset;
 		defaultAddrSpace = addrFactory.getDefaultAddressSpace();
 		adapter = AddressMapDBAdapter.getAdapter(handle, openMode, addrFactory, monitor);
 		oldAddrMap = (adapter.oldAddrMap != null) ? adapter.oldAddrMap : this;
-		useOldAddrMap = (openMode == DBConstants.READ_ONLY && oldAddrMap != this);
+		useOldAddrMap = (openMode == OpenMode.IMMUTABLE && oldAddrMap != this);
 		baseAddrs = adapter.getBaseAddresses(false);
 		init(true);
 	}
@@ -238,7 +220,6 @@ public class AddressMapDB implements AddressMap {
 		for (int i = 0; i < sortedBaseStartAddrs.length; i++) {
 			long max = sortedBaseStartAddrs[i].getAddressSpace().getMaxAddress().getOffset();
 			max = max < 0 ? MAX_OFFSET : Math.min(max, MAX_OFFSET);
-			// Avoid use of add which fails for overlay addresses which have restricted min/max offsets
 			long off = sortedBaseStartAddrs[i].getOffset() | max;
 			sortedBaseEndAddrs[i] =
 				sortedBaseStartAddrs[i].getAddressSpace().getAddressInThisSpaceOnly(off);
@@ -251,8 +232,12 @@ public class AddressMapDB implements AddressMap {
 		}
 	}
 
-	@Override
+	/**
+	 * Clears any cached values.
+	 * @throws IOException if an IO error occurs
+	 */
 	public synchronized void invalidateCache() throws IOException {
+		lastBaseAddress = null;
 		if (!readOnly) {
 			baseAddrs = adapter.getBaseAddresses(true);
 			init(true);
@@ -310,6 +295,48 @@ public class AddressMapDB implements AddressMap {
 		return encodeAbsolute(addr, create ? INDEX_CREATE : INDEX_MATCH);
 	}
 
+	private Address checkAddressSpace(Address addr) {
+		AddressSpace space = addr.getAddressSpace();
+		if (space.getType() == AddressSpace.TYPE_DELETED) {
+			return addr;
+		}
+		if (space.isStackSpace()) {
+			AddressSpace myStackSpace = addrFactory.getStackSpace();
+			if (!space.equals(myStackSpace)) {
+				// Stack AddressSpace differs from my program's stack
+				throw new IllegalArgumentException(
+					"Unknown stack address from a different Program: " + addr.toString(true));
+			}
+		}
+		else if (space.isMemorySpace()) {
+			AddressSpace mySpace = addrFactory.getAddressSpace(space.getSpaceID()); // fast lookup
+			if (space != mySpace) {
+				// AddressSpace instance is not from my program's AddressFactory -
+				// perform a lookup by name and allow use if matching space is found.
+				// Although mixing address space use between programs is not preferred we try to 
+				// accomodate provided all address characterics match.  An ID lookup is performed 
+				// first since it is the fastest way to verify the address originated from our
+				// address factory, otherwise we must attempt to find the same address space
+				// by name and check all characteristics via the equals method.  This assumes
+				// a HashMap lookup based on an integer key is faster than a string key lookup.
+				mySpace = addrFactory.getAddressSpace(space.getName());
+
+				// NOTE: overlay spaces from different programs will never be equal if their 
+				// 'orderedKey' differ.  This can occur if they get renamed.
+				if (!space.equals(mySpace)) {
+					throw new IllegalArgumentException(
+						"Unknown address from a different Program: " + addr.toString(true));
+				}
+				// Transform into my address to avoid map contamination
+				if (mySpace instanceof OverlayAddressSpace myOvSpace) {
+					return myOvSpace.getAddressInThisSpaceOnly(addr.getOffset());
+				}
+				return mySpace.getAddress(addr.getOffset());
+			}
+		}
+		return addr;
+	}
+
 	/**
 	 * Get absolute key encoding for the specified address
 	 * @param addr address
@@ -330,6 +357,7 @@ public class AddressMapDB implements AddressMap {
 			case AddressSpace.TYPE_CODE:
 			case AddressSpace.TYPE_DELETED:
 			case AddressSpace.TYPE_OTHER:
+				addr = checkAddressSpace(addr);
 				int baseIndex = getBaseAddressIndex(addr, false, indexOperation);
 				long offset;
 				if (baseIndex < 0) {
@@ -362,6 +390,7 @@ public class AddressMapDB implements AddressMap {
 				return REGISTER_ADDR_TYPE_LONG | (addr.getOffset() & ADDR_OFFSET_MASK);
 
 			case AddressSpace.TYPE_STACK:
+				addr = checkAddressSpace(addr);
 				return STACK_ADDR_TYPE_LONG | (addr.getOffset() & ADDR_OFFSET_MASK);
 
 			case AddressSpace.TYPE_EXTERNAL:
@@ -391,8 +420,13 @@ public class AddressMapDB implements AddressMap {
 
 		AddressSpace space = addr.getAddressSpace();
 		Address tBase = space.getAddressInThisSpaceOnly(normalizedBaseOffset);
+		if (tBase.equals(lastBaseAddress)) {
+			return lastIndex;
+		}
 		Integer tIndex = addrToIndexMap.get(tBase);
 		if (tIndex != null) {
+			lastBaseAddress = tBase;
+			lastIndex = tIndex;
 			return tIndex;
 		}
 		else if (indexOperation == INDEX_MATCH) {
@@ -435,7 +469,6 @@ public class AddressMapDB implements AddressMap {
 		}
 
 		// A new address map entry is required
-		checkAddressSpace(addr.getAddressSpace());
 		int index = baseAddrs.length;
 		if (readOnly) {
 			// Create new base without modifying database
@@ -458,18 +491,6 @@ public class AddressMapDB implements AddressMap {
 		return index;
 	}
 
-	void checkAddressSpace(AddressSpace addrSpace) {
-		AddressSpace[] spaces = addrFactory.getPhysicalSpaces();
-		for (AddressSpace space : spaces) {
-			if (addrSpace.equals(space)) {
-				return;
-			}
-		}
-		if (addrSpace.getPhysicalSpace() != AddressSpace.OTHER_SPACE) { // not physical - but always exists in program
-			throw new IllegalArgumentException("Address space not found in program");
-		}
-	}
-
 	@Override
 	public synchronized Address decodeAddress(long value) {
 		return decodeAddress(value, true);
@@ -483,6 +504,7 @@ public class AddressMapDB implements AddressMap {
 	 * @param useMemorySegmentation if true and the program's default address space is segmented (i.e., SegmentedAddressSpace).
 	 * the address returned will be normalized to defined segmented memory blocks if possible.  This parameter should 
 	 * generally always be true except when used by the Memory map objects to avoid recursion problems.
+	 * @return decoded address
 	 */
 	public synchronized Address decodeAddress(long value, boolean useMemorySegmentation) {
 		Address addr;
@@ -608,28 +630,13 @@ public class AddressMapDB implements AddressMap {
 	 * stack space.  This makes bad stack addresses which previously existed
 	 * impossible to decode.  Instead of return NO_ADDRESS, we will simply truncate such 
 	 * bad stack offsets to the MIN or MAX offsets.
-	 * @param offset
-	 * @param stackSpace
-	 * @return
+	 * @param offset stack offset
+	 * @param stackSpace stack memory space
+	 * @return truncated stack offset
 	 */
 	private long truncateStackOffset(long offset, AddressSpace stackSpace) {
 		return offset < 0 ? stackSpace.getMinAddress().getOffset()
 				: stackSpace.getMaxAddress().getOffset();
-	}
-
-	@Override
-	public boolean hasSameKeyBase(long addrKey1, long addrKey2) {
-		return (addrKey1 >> ADDR_OFFSET_SIZE) == (addrKey2 >> ADDR_OFFSET_SIZE);
-	}
-
-	@Override
-	public boolean isKeyRangeMax(long addrKey) {
-		return (addrKey & ADDR_OFFSET_MASK) == MAX_OFFSET;
-	}
-
-	@Override
-	public boolean isKeyRangeMin(long addrKey) {
-		return (addrKey & ADDR_OFFSET_MASK) == 0;
 	}
 
 	private long encodeRelative(Address addr, boolean addrIsNormalized, int indexOperation) {
@@ -645,6 +652,7 @@ public class AddressMapDB implements AddressMap {
 			case AddressSpace.TYPE_CODE:
 			case AddressSpace.TYPE_DELETED:
 			case AddressSpace.TYPE_OTHER:
+				addr = checkAddressSpace(addr);
 				boolean normalize = !addrIsNormalized && isInDefaultAddressSpace(addr);
 				int baseIndex = getBaseAddressIndex(addr, normalize, indexOperation);
 				long offset;
@@ -701,7 +709,10 @@ public class AddressMapDB implements AddressMap {
 		return addrFactory;
 	}
 
-	@Override
+	/**
+	 * Sets the image base, effectively changing the mapping between addresses and longs.
+	 * @param base the new base address.
+	 */
 	public void setImageBase(Address base) {
 		if (useOldAddrMap) {
 			throw new IllegalStateException();
@@ -713,11 +724,6 @@ public class AddressMapDB implements AddressMap {
 			}
 		}
 		baseImageOffset = base.getOffset();
-	}
-
-	@Override
-	public synchronized int getModCount() {
-		return baseAddrs.length;
 	}
 
 	@Override
@@ -803,15 +809,16 @@ public class AddressMapDB implements AddressMap {
 	/**
 	 * Create all memory base segments within the specified range.
 	 * NOTE: minAddress and maxAddress must have the same address space!
-	 * @param minAddress
-	 * @param maxAddress
+	 * @param minAddress start address of the range
+	 * @param maxAddress last address of the range
+	 * @param absolute if the address are absolute and not relative
 	 */
-	private void createBaseSegments(Address minAddress, Address maxAddress) {
+	private void createBaseSegments(Address minAddress, Address maxAddress, boolean absolute) {
 
 		long minBase;
 		long maxBase;
 
-		if (isInDefaultAddressSpace(minAddress)) {
+		if (!absolute && isInDefaultAddressSpace(minAddress)) {
 			minBase = getNormalizedOffset(minAddress) & BASE_MASK;
 			maxBase = getNormalizedOffset(maxAddress) & BASE_MASK;
 		}
@@ -820,25 +827,43 @@ public class AddressMapDB implements AddressMap {
 			maxBase = maxAddress.getOffset() & BASE_MASK;
 		}
 
-		for (long base = minBase; base <= maxBase; base += (MAX_OFFSET + 1)) {
-			getBaseAddressIndex(minAddress.getNewAddress(base), false, INDEX_CREATE);
+		long minSegment = minBase >>> 32;
+		long maxSegment = maxBase >>> 32;
+		long numBases;
+		if (minSegment <= maxSegment) {
+			numBases = maxSegment - minSegment + 1;
+		}
+		else {
+			numBases = maxSegment + (0x100000000L - minSegment) + 1;
+		}
+
+		if (numBases > 2) {
+			throw new UnsupportedOperationException("Can't create address bases for a range that" +
+				"extends across more than two upper 32 bit segments!");
+		}
+
+		getBaseAddressIndex(minAddress.getNewAddress(minBase), false, INDEX_CREATE);
+		if (minBase != maxBase) {
+			getBaseAddressIndex(minAddress.getNewAddress(maxBase), false, INDEX_CREATE);
 		}
 	}
 
 	/**
 	 * Add simple key ranges where the address range lies within a single base segment for a single space.
 	 * NOTE: start and end addresses must have the same address space!
-	 * @param keyRangeList
-	 * @param start
-	 * @param end
-	 * @param absolute
-	 * @param create
+	 * @param keyRangeList the list to store key ranges into
+	 * @param start the start address
+	 * @param end the end address
+	 * @param absolute true if the address are to be encoded as absolute (not relative to the
+	 *  image base
+	 * @param create if true, this method will add new address bases that are required to
+	 * store addresses in that database that have that address base
 	 */
 	private void addKeyRanges(List<KeyRange> keyRangeList, Address start, Address end,
 			boolean absolute, boolean create) {
 		if (start.isMemoryAddress()) {
 			if (create) {
-				createBaseSegments(start, end);
+				createBaseSegments(start, end, absolute);
 			}
 			Address normalizedStart = absolute ? start : getShiftedAddr(start);
 			Address normalizedEnd = absolute ? end : getShiftedAddr(end);
@@ -919,14 +944,20 @@ public class AddressMapDB implements AddressMap {
 	@Override
 	public Address getImageBase() {
 		if (defaultAddrSpace instanceof SegmentedAddressSpace) {
-			return ((SegmentedAddressSpace) defaultAddrSpace).getAddress(
-				(int) (baseImageOffset >> 4), 0);
+			return ((SegmentedAddressSpace) defaultAddrSpace)
+					.getAddress((int) (baseImageOffset >> 4), 0);
 		}
 		return defaultAddrSpace.getAddress(baseImageOffset);
 	}
 
-	@Override
-	public synchronized void setLanguage(Language newLanguage, AddressFactory addrFactory,
+	/**
+	 * Converts the current base addresses to addresses compatible with the new language.
+	 * @param newLanguage the new language to use.
+	 * @param addrFactory the new AddressFactory.
+	 * @param translator translates address spaces from the old language to the new language.
+	 * @throws IOException if IO error occurs
+	 */
+	public synchronized void setLanguage(Language newLanguage, ProgramAddressFactory addrFactory,
 			LanguageTranslator translator) throws IOException {
 
 		List<AddressMapEntry> entries = adapter.getEntries();
@@ -966,13 +997,22 @@ public class AddressMapDB implements AddressMap {
 		init(true);
 	}
 
-	@Override
+	/**
+	 * Rename an existing overlay space.
+	 * @param oldName old overlay name
+	 * @param newName new overlay name (must be unique among all space names within this map)
+	 * @throws IOException if IO error occurs
+	 */
 	public synchronized void renameOverlaySpace(String oldName, String newName) throws IOException {
 		adapter.renameOverlaySpace(oldName, newName);
 		invalidateCache();
 	}
 
-	@Override
+	/**
+	 * Delete the specified overlay space from this address map.
+	 * @param name overlay space name (must be unique among all space names within this map)
+	 * @throws IOException if IO error occurs
+	 */
 	public synchronized void deleteOverlaySpace(String name) throws IOException {
 		adapter.deleteOverlaySpace(name);
 		invalidateCache();

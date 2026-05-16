@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,11 +15,10 @@
  */
 package ghidra.app.util.bin.format.ne;
 
-import ghidra.app.util.bin.format.*;
-import ghidra.util.Conv;
-
 import java.io.IOException;
 import java.util.ArrayList;
+
+import ghidra.app.util.bin.BinaryReader;
 
 /**
  * A class for storing the new-executable resource table.
@@ -30,7 +28,7 @@ import java.util.ArrayList;
  * 
  */
 public class ResourceTable {
-    private short index;
+    private int index;
     private short alignmentShiftCount;
     private ResourceType [] types;
     private ResourceName [] names;
@@ -41,11 +39,11 @@ public class ResourceTable {
      * @param index  the byte index where the Resource Table begins,
      *               (this is relative to the beginning of the file
      */
-    ResourceTable(FactoryBundledWithBinaryReader reader, short index) throws IOException {
+	ResourceTable(BinaryReader reader, int index) throws IOException {
         this.index = index;
 
         long oldIndex = reader.getPointerIndex();
-        reader.setPointerIndex(Conv.shortToInt(index));
+        reader.setPointerIndex(index);
 
         alignmentShiftCount = reader.readNextShort();
 
@@ -100,7 +98,7 @@ public class ResourceTable {
      * relative to the beginning of the file.
      * @return the byte index where the resource table begins
      */
-    public short getIndex() {
+    public int getIndex() {
         return index;
     }
 }

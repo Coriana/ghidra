@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,10 +22,9 @@ import java.util.List;
 import javax.swing.JComponent;
 import javax.swing.JPanel;
 
-import org.jdom.Element;
+import org.jdom2.Element;
 
-import docking.ActionContext;
-import docking.DialogComponentProvider;
+import docking.*;
 import docking.action.*;
 import docking.widgets.OptionDialog;
 import ghidra.app.util.viewer.format.*;
@@ -80,7 +79,7 @@ public class SetFormatDialogComponentProvider extends DialogComponentProvider {
 		listingPanel.showHeader(true);
 
 		container.add(listingPanel);
-
+		container.getAccessibleContext().setAccessibleName("Set Format");
 		return container;
 	}
 
@@ -88,6 +87,7 @@ public class SetFormatDialogComponentProvider extends DialogComponentProvider {
 		FormatManager formatManagerCopy = currentFormatManager.createClone();
 		ListingPanel panel = new ListingPanel(formatManagerCopy, program);
 		panel.setView(view);
+		panel.getAccessibleContext().setAccessibleName("Listing");
 		return panel;
 	}
 
@@ -122,12 +122,12 @@ public class SetFormatDialogComponentProvider extends DialogComponentProvider {
 		FieldHeader headerPanel = listingPanel.getFieldHeader();
 		if (headerPanel != null && headerPanel.isAncestorOf(event.getComponent())) {
 			FieldHeaderLocation fhLoc = headerPanel.getFieldHeaderLocation(event.getPoint());
-			return new ActionContext().setContextObject(fhLoc);
+			return new DefaultActionContext().setContextObject(fhLoc);
 		}
 		return null;
 	}
 
-	/*testing*/ FieldHeader getFieldHeader() {
+	public FieldHeader getFieldHeader() {
 		return listingPanel.getFieldHeader();
 	}
 //==================================================================================================

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -32,7 +32,9 @@ import ghidra.app.plugin.core.datamgr.archive.Archive;
 import ghidra.app.plugin.core.datamgr.archive.FileArchive;
 import ghidra.app.plugin.core.datamgr.tree.ArchiveNode;
 import ghidra.framework.GenericRunInfo;
-import ghidra.program.model.data.FileDataTypeManager;
+import ghidra.program.database.ProgramBuilder;
+import ghidra.program.model.data.*;
+import ghidra.program.model.lang.ProgramArchitecture;
 import ghidra.util.Msg;
 
 public class CreateArchive1Test extends AbstractCreateArchiveTest {
@@ -62,6 +64,10 @@ public class CreateArchive1Test extends AbstractCreateArchiveTest {
 		createNewArchive(string + FileDataTypeManager.SUFFIX, true);
 
 		ArchiveNode archiveNode = (ArchiveNode) archiveRootNode.getChild("MyArchive");
+		StandAloneDataTypeManager dtm =
+			(StandAloneDataTypeManager) archiveNode.getCategory().getDataTypeManager();
+		assertNull(dtm.getProgramArchitecture());
+
 		createCategory(archiveNode.getCategory(), "bob");
 		waitForTree();
 
@@ -79,10 +85,72 @@ public class CreateArchive1Test extends AbstractCreateArchiveTest {
 		DataTypeTestUtils.performAction(action, tree);
 		waitForTree();
 
+		archiveNode = (ArchiveNode) archiveRootNode.getChild("MyArchive");
+		assertNull(archiveNode);
+
 		archiveNode =
 			DataTypeTestUtils.openArchive(getTestDirectoryPath(), "MyArchive.gdt", false, plugin);
 		assertNotNull(archiveNode.getChild("bob"));
 		assertNotNull(archiveNode.getChild("joe"));
+
+		File f = new File(getTestDirectoryPath(), "MyArchive.gdt.bak");
+		f.deleteOnExit();
+	}
+
+	@Test
+	public void testCreateAndPopulateWithArchitecture() throws Exception {
+
+		String string = "MyArchive";
+		createNewArchive(string + FileDataTypeManager.SUFFIX, true);
+
+		ArchiveNode archiveNode = (ArchiveNode) archiveRootNode.getChild("MyArchive");
+		StandAloneDataTypeManager dtm =
+			(StandAloneDataTypeManager) archiveNode.getCategory().getDataTypeManager();
+		assertNull(dtm.getProgramArchitecture());
+		setArchitecture(dtm, ProgramBuilder._TOY64_LE, "default");
+
+		assertEquals(8, dtm.getPointer(DataType.DEFAULT).getLength());
+
+		createCategory(archiveNode.getCategory(), "bob");
+		waitForTree();
+
+		DataType dt =
+			resolveDataType(dtm, new StructureDataType(new CategoryPath("/bob"), "MyStruct", 0));
+		dt = resolveDataType(dtm, new PointerDataType(dt));
+		assertEquals(8, dtm.getPointer(DataType.DEFAULT).getLength());
+		DataTypePath dataTypePath = dt.getDataTypePath();
+
+		tree.setSelectedNode(archiveNode);
+		waitForTree();
+
+		createCategory(archiveNode.getCategory(), "joe");
+		waitForTree();
+
+		DockingActionIf action = getAction(plugin, "Save");
+		DataTypeTestUtils.performAction(action, tree);
+		waitForTree();
+
+		action = getAction(plugin, "Close Archive");
+		DataTypeTestUtils.performAction(action, tree);
+		waitForTree();
+
+		archiveNode = (ArchiveNode) archiveRootNode.getChild("MyArchive");
+		assertNull(archiveNode);
+
+		archiveNode =
+			DataTypeTestUtils.openArchive(getTestDirectoryPath(), "MyArchive.gdt", false, plugin);
+		assertNotNull(archiveNode.getChild("bob"));
+		assertNotNull(archiveNode.getChild("joe"));
+
+		dtm = (StandAloneDataTypeManager) archiveNode.getCategory().getDataTypeManager();
+		ProgramArchitecture arch = dtm.getProgramArchitecture();
+		assertNotNull("Expected architecture to be set", arch);
+		assertEquals(ProgramBuilder._TOY64_LE, arch.getLanguage().getLanguageID().toString());
+		assertEquals("default", arch.getCompilerSpec().getCompilerSpecID().toString());
+
+		dt = dtm.getDataType(dataTypePath);
+		assertNotNull(dt);
+		assertEquals(8, dtm.getPointer(DataType.DEFAULT).getLength());
 
 		File f = new File(getTestDirectoryPath(), "MyArchive.gdt.bak");
 		f.deleteOnExit();
@@ -96,7 +164,7 @@ public class CreateArchive1Test extends AbstractCreateArchiveTest {
 		// verify that the archive was saved by opening it again and checking it has the right stuff.
 
 		// create file to cause a name collision
-		File file = writeTempFile("MyArchive.gdt");
+		writeTempFile("MyArchive.gdt");
 
 		int insertedCount = getTreeModelInsertedNodeCount();
 		Msg.trace(this, testName.getMethodName() + ":NODE COUNT: " + insertedCount);
@@ -166,7 +234,7 @@ public class CreateArchive1Test extends AbstractCreateArchiveTest {
 
 		assertNull(archiveRootNode.getChild(archiveName));
 
-		waitForPostedSwingRunnables();
+		waitForSwing();
 
 		// make sure it is deleted on disk as well
 		try {
@@ -190,7 +258,7 @@ public class CreateArchive1Test extends AbstractCreateArchiveTest {
 		// verify that the archive did not get saved to that name.
 
 		// create file to cause a name collision
-		File file = writeTempFile("MyArchive.gdt");
+		writeTempFile("MyArchive.gdt");
 
 		createNewArchive("MyArchive.gdt", false);
 
@@ -199,7 +267,7 @@ public class CreateArchive1Test extends AbstractCreateArchiveTest {
 
 		JButton button = findButtonByText(optDialog.getComponent(), "No");
 		pressButton(button);
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		waitForTree();
 
 		ArchiveNode archiveNode = (ArchiveNode) archiveRootNode.getChild("MyArchive");

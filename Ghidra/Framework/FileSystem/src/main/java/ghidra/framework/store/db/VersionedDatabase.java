@@ -23,6 +23,7 @@ import org.apache.logging.log4j.Logger;
 import db.DBHandle;
 import db.Database;
 import db.buffers.*;
+import ghidra.framework.Application;
 import ghidra.framework.store.local.ItemSerializer;
 import ghidra.util.exception.*;
 import ghidra.util.task.TaskMonitor;
@@ -287,8 +288,8 @@ public class VersionedDatabase extends Database {
 	/**
 	 * Open a specific version of this database for non-update use.
 	 * @param version database version or LATEST_VERSION for current version
-	 * @param minChangeDataVer the minimum database version whoose change data
-	 * should be associated with the returned buffer file.  A value of -1 indicates that 
+	 * @param minChangeDataVer the minimum database version whose change data
+	 * should be associated with the returned buffer file.  A value of -1 indicates that
 	 * change data is not required.
 	 * @return buffer file for non-update use.
 	 * @throws IOException
@@ -417,7 +418,8 @@ public class VersionedDatabase extends Database {
 			else {
 				BufferFile bf = openBufferFile(version, -1);
 				try {
-					File tmpFile = File.createTempFile("ghidra", LocalBufferFile.TEMP_FILE_EXT);
+					File tmpFile =
+						Application.createTempFile("ghidra", LocalBufferFile.TEMP_FILE_EXT);
 					tmpFile.delete();
 					BufferFile tmpBf = new LocalBufferFile(tmpFile, bf.getBufferSize());
 					boolean success = false;
@@ -425,17 +427,9 @@ public class VersionedDatabase extends Database {
 						LocalBufferFile.copyFile(bf, tmpBf, null, monitor);
 						tmpBf.close();
 
-						InputStream itemIn = new FileInputStream(tmpFile);
-						try {
+						try (InputStream itemIn = new FileInputStream(tmpFile)) {
 							ItemSerializer.outputItem(name, contentType, filetype, tmpFile.length(),
 								itemIn, outputFile, monitor);
-						}
-						finally {
-							try {
-								itemIn.close();
-							}
-							catch (IOException e) {
-							}
 						}
 						success = true;
 					}
@@ -455,7 +449,7 @@ public class VersionedDatabase extends Database {
 	}
 
 	/**
-	 * <code>VerDBBufferFileManager</code> provides buffer file management 
+	 * <code>VerDBBufferFileManager</code> provides buffer file management
 	 * for this versioned database instead of the DBBufferFileManager.
 	 */
 	private class VerDBBufferFileManager implements BufferFileManager {
@@ -484,7 +478,7 @@ public class VersionedDatabase extends Database {
 			return new File(dbDir,
 				CHANGE_FILE_PREFIX + version + LocalBufferFile.BUFFER_FILE_EXTENSION);
 		}
-		
+
 		@Override
 		public File getChangeMapFile() {
 			return null;

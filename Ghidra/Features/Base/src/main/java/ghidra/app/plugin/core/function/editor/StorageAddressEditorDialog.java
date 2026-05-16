@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,8 +17,7 @@ package ghidra.app.plugin.core.function.editor;
 
 import java.awt.*;
 import java.awt.event.*;
-import java.util.Arrays;
-import java.util.List;
+import java.util.Objects;
 
 import javax.swing.*;
 import javax.swing.event.*;
@@ -30,8 +29,11 @@ import docking.widgets.label.GDLabel;
 import docking.widgets.label.GLabel;
 import docking.widgets.table.GTable;
 import ghidra.app.services.DataTypeManagerService;
+import ghidra.app.util.datatype.DataTypeSelectionEditor;
+import ghidra.app.util.datatype.NavigationDirection;
 import ghidra.program.model.address.Address;
-import ghidra.program.model.data.*;
+import ghidra.program.model.data.AbstractFloatDataType;
+import ghidra.program.model.data.DataType;
 import ghidra.program.model.lang.Register;
 import ghidra.program.model.listing.*;
 import ghidra.util.HelpLocation;
@@ -41,9 +43,7 @@ import ghidra.util.layout.VerticalLayout;
 
 public class StorageAddressEditorDialog extends DialogComponentProvider
 		implements ModelChangeListener {
-	private FunctionVariableData variableData;
-	private StorageAddressModel model;
-	private VarnodeTableModel varnodeTableModel;
+
 	private ParameterDataTypeCellEditor dataTypeEditor;
 	private GTable varnodeTable;
 	private ListSelectionListener selectionListener;
@@ -52,23 +52,33 @@ public class StorageAddressEditorDialog extends DialogComponentProvider
 	private JButton removeButton;
 	private JButton upButton;
 	private JButton downButton;
-	private int size;
 	private JLabel currentSizeLabel;
+
+	private FunctionVariableData variableData;
+	private StorageAddressModel model;
+	private VarnodeTableModel varnodeTableModel;
+	private int size;
 	private boolean cancelled = true;
+
+	private DataType previousDataType;
+	private DataType currentDataType;
 
 	/**
 	 * Constructor
-	 * @param program
-	 * @param service
-	 * @param storage
-	 * @param variableData
+	 * @param program the program
+	 * @param service the data type manager service
+	 * @param storage the variable storage
+	 * @param variableData the variable data
 	 */
 	public StorageAddressEditorDialog(Program program, DataTypeManagerService service,
 			VariableStorage storage, FunctionVariableData variableData) {
 		super("Storage Address Editor");
 		this.variableData = variableData;
 		model = new StorageAddressModel(program, storage, this);
-		setDataType(variableData.getFormalDataType());
+
+		currentDataType = variableData.getFormalDataType();
+		previousDataType = currentDataType;
+		setDataType(currentDataType);
 		setHelpLocation(new HelpLocation("FunctionPlugin", "Edit_Parameter_Storage"));
 		addWorkPanel(buildMainPanel(service));
 		addOKButton();
@@ -78,50 +88,14 @@ public class StorageAddressEditorDialog extends DialogComponentProvider
 
 	/**
 	 * Read-only use constructor for Help screenshot
-	 * @param program
-	 * @param service
+	 * @param program the program
+	 * @param service the data type manager service
 	 * @param var function parameter to be displayed in editor dialog
 	 * @param ordinal parameter ordinal (-1 for return)
 	 */
 	public StorageAddressEditorDialog(Program program, DataTypeManagerService service,
 			final Variable var, final int ordinal) {
-		this(program, service, var.getVariableStorage(), new FunctionVariableData() {
-
-			@Override
-			public void setStorage(VariableStorage storage) {
-				// unsupported
-			}
-
-			@Override
-			public void setName(String name) {
-				// unsupported
-			}
-
-			@Override
-			public void setFormalDataType(DataType dataType) {
-				// unsupported
-			}
-
-			@Override
-			public VariableStorage getStorage() {
-				return var.getVariableStorage();
-			}
-
-			@Override
-			public String getName() {
-				return var.getName();
-			}
-
-			@Override
-			public Integer getIndex() {
-				return ordinal;
-			}
-
-			@Override
-			public DataType getFormalDataType() {
-				return var.getDataType();
-			}
-		});
+		this(program, service, var.getVariableStorage(), new ReadOnlyVariableData(ordinal, var));
 	}
 
 	@Override
@@ -131,6 +105,15 @@ public class StorageAddressEditorDialog extends DialogComponentProvider
 				return;
 			}
 		}
+
+		if (!Objects.equals(previousDataType, currentDataType)) {
+			boolean isValid = variableData.setFormalDataType(currentDataType);
+			if (!isValid) {
+				setStatusText("Invalid data type");
+				return;
+			}
+		}
+
 		cancelled = false;
 		close();
 	}
@@ -143,19 +126,46 @@ public class StorageAddressEditorDialog extends DialogComponentProvider
 		JPanel panel = new JPanel(new BorderLayout());
 		panel.add(buildInfoPanel(service), BorderLayout.NORTH);
 		panel.add(buildTablePanel(), BorderLayout.CENTER);
+		panel.getAccessibleContext().setAccessibleName("Storage Address Editor");
 		return panel;
 	}
 
 	private void setDataType(DataType dt) {
-		DataType dataType = variableData.getFormalDataType();
-		size = dataType.getLength();
-		boolean unconstrained =
-			(dataType instanceof AbstractFloatDataType) || Undefined.isUndefined(dataType);
+		currentDataType = dt;
+		size = dt.getLength();
+		boolean unconstrained = (dt instanceof AbstractFloatDataType) || (dt == DataType.DEFAULT);
 		model.setRequiredSize(size, unconstrained);
 		if (sizeLabel != null) {
-			sizeLabel.setText("" + size);
-			dataChanged();
+			sizeLabel.setText(Integer.toString(size));
 		}
+		model.notifyDataChanged();
+	}
+
+	private void maybeHandleTabNavigation() {
+		DataTypeSelectionEditor internalEditor = dataTypeEditor.getEditor();
+		NavigationDirection navigationDirection = internalEditor.getNavigationDirection();
+		if (navigationDirection == NavigationDirection.BACKWARD) {
+			// Not all buttons are always enabled.  Walk backwards until we find one
+			if (downButton.isEnabled()) {
+				downButton.requestFocusInWindow();
+			}
+			else if (upButton.isEnabled()) {
+				upButton.requestFocusInWindow();
+			}
+			else if (removeButton.isEnabled()) {
+				removeButton.requestFocusInWindow();
+			}
+			else if (addButton.isEnabled()) {
+				addButton.requestFocusInWindow();
+			}
+			else {
+				varnodeTable.requestFocusInWindow();
+			}
+		}
+		else if (navigationDirection == NavigationDirection.FORWARD) {
+			varnodeTable.requestFocusInWindow();
+		}
+		// navigationDirection == null implies that no navigation event happened
 	}
 
 	private Component buildInfoPanel(DataTypeManagerService service) {
@@ -164,34 +174,28 @@ public class StorageAddressEditorDialog extends DialogComponentProvider
 
 		panel.add(new GLabel("Datatype: "));
 
-		dataTypeEditor = new ParameterDataTypeCellEditor(this, service);
+		dataTypeEditor =
+			new ParameterDataTypeCellEditor(this, service, model.getProgram().getDataTypeManager());
 
 		dataTypeEditor.addCellEditorListener(new CellEditorListener() {
 
 			@Override
 			public void editingStopped(ChangeEvent e) {
 				DataType dt = (DataType) dataTypeEditor.getCellEditorValue();
-				variableData.setFormalDataType(dt);
 				setDataType(dt);
+				maybeHandleTabNavigation();
 			}
 
 			@Override
 			public void editingCanceled(ChangeEvent e) {
-				// ignore
+				maybeHandleTabNavigation();
 			}
 		});
 
-		final Component dataTypeEditComponent = dataTypeEditor.getTableCellEditorComponent(null,
+		Component dataTypeEditComponent = dataTypeEditor.getTableCellEditorComponent(null,
 			variableData.getFormalDataType(), false, 0, 0);
 
-		final DropDownSelectionTextField<DataType> textField = dataTypeEditor.getTextField();
-		textField.setBorder((new JTextField()).getBorder()); // restore default border
-
-		JButton chooserButton = dataTypeEditor.getChooserButton();
-		JButton defaultButton = new JButton(); // restore default border/background
-		chooserButton.setBorder(defaultButton.getBorder());
-		chooserButton.setBackground(defaultButton.getBackground());
-
+		DropDownSelectionTextField<DataType> textField = dataTypeEditor.getTextField();
 		textField.addFocusListener(new FocusListener() {
 
 			@Override
@@ -213,14 +217,16 @@ public class StorageAddressEditorDialog extends DialogComponentProvider
 
 		panel.add(dataTypeEditComponent);
 		panel.add(new GLabel("Datatype Size: "));
-		sizeLabel = new GDLabel("" + size);
+		sizeLabel = new GDLabel(Integer.toString(size));
+		sizeLabel.getAccessibleContext().setAccessibleName("Size");
 		panel.add(sizeLabel);
 		panel.add(new GLabel("Allocated Size:"));
 		currentSizeLabel = new GDLabel("");
+		currentSizeLabel.getAccessibleContext().setAccessibleName("Current Size");
 		panel.add(currentSizeLabel);
 
 		setFocusComponent(textField);
-
+		panel.getAccessibleContext().setAccessibleName("Info");
 		return panel;
 	}
 
@@ -229,10 +235,13 @@ public class StorageAddressEditorDialog extends DialogComponentProvider
 		panel.setBorder(BorderFactory.createTitledBorder("Storage Locations"));
 		varnodeTableModel = new VarnodeTableModel(model);
 		varnodeTable = new GTable(varnodeTableModel);
+		varnodeTable.getAccessibleContext().setAccessibleName("Varnode");
 		selectionListener = new ListSelectionListener() {
 			@Override
 			public void valueChanged(ListSelectionEvent e) {
 				model.setSelectedVarnodeRows(varnodeTable.getSelectedRows());
+				updateTableButtonEnablement();
+				updateStatusText();
 			}
 		};
 		varnodeTable.getSelectionModel().addListSelectionListener(selectionListener);
@@ -247,8 +256,10 @@ public class StorageAddressEditorDialog extends DialogComponentProvider
 		varnodeTable.setSurrendersFocusOnKeystroke(true);
 
 		JScrollPane scroll = new JScrollPane(varnodeTable);
+		scroll.getAccessibleContext().setAccessibleName("Varnode");
 		panel.add(scroll, BorderLayout.CENTER);
 		panel.add(buildButtonPanel(), BorderLayout.EAST);
+		panel.getAccessibleContext().setAccessibleName("Table");
 		return panel;
 	}
 
@@ -256,9 +267,13 @@ public class StorageAddressEditorDialog extends DialogComponentProvider
 		JPanel panel = new JPanel(new VerticalLayout(5));
 		panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 		addButton = new JButton("Add");
+		addButton.getAccessibleContext().setAccessibleName("Add");
 		removeButton = new JButton("Remove");
+		removeButton.getAccessibleContext().setAccessibleName("Remove");
 		upButton = new JButton("Up");
+		upButton.getAccessibleContext().setAccessibleName("Up");
 		downButton = new JButton("Down");
+		downButton.getAccessibleContext().setAccessibleName("Down");
 
 		addButton.addActionListener(new ActionListener() {
 			@Override
@@ -290,17 +305,16 @@ public class StorageAddressEditorDialog extends DialogComponentProvider
 		panel.add(new JSeparator());
 		panel.add(upButton);
 		panel.add(downButton);
+		panel.getAccessibleContext().setAccessibleName("Button");
 		return panel;
 	}
 
 	@Override
 	public void dataChanged() {
-		updateDataType();
+		varnodeTableModel.storageModelChanged();
 		updateCurrentSize();
 		updateStatusText();
 		updateOkButton();
-		updateVarnodeTable();
-		updateTableSelection();
 		updateTableButtonEnablement();
 	}
 
@@ -308,29 +322,6 @@ public class StorageAddressEditorDialog extends DialogComponentProvider
 		removeButton.setEnabled(model.canRemoveVarnodes());
 		upButton.setEnabled(model.canMoveVarnodeUp());
 		downButton.setEnabled(model.canMoveVarnodeDown());
-	}
-
-	private void updateTableSelection() {
-		int[] selectedRows = model.getSelectedVarnodeRows();
-
-		if (!Arrays.equals(selectedRows, varnodeTable.getSelectedRows())) {
-			varnodeTable.clearSelection();
-			for (int i : selectedRows) {
-				varnodeTable.addRowSelectionInterval(i, i);
-			}
-		}
-	}
-
-	private void updateVarnodeTable() {
-		List<VarnodeInfo> varnodeList = model.getVarnodes();
-		List<VarnodeInfo> tableVarnodeList = varnodeTableModel.getVarnodes();
-		if (!varnodeList.equals(tableVarnodeList)) {
-			ListSelectionModel selectionModel = varnodeTable.getSelectionModel();
-			selectionModel.removeListSelectionListener(selectionListener);
-			varnodeTableModel.setVarnodes(varnodeList);
-			selectionModel.addListSelectionListener(selectionListener);
-		}
-
 	}
 
 	private void updateOkButton() {
@@ -342,47 +333,8 @@ public class StorageAddressEditorDialog extends DialogComponentProvider
 	}
 
 	private void updateCurrentSize() {
-		currentSizeLabel.setText("" + model.getCurrentSize());
+		currentSizeLabel.setText(Integer.toString(model.getCurrentSize()));
 	}
-
-	private boolean adjustingDataType = false;
-
-	private void updateDataType() {
-		// If storage size has changed with an undefined datatype, 
-		// alter the size of the undefined type
-		if (adjustingDataType) {
-			return;
-		}
-		adjustingDataType = true;
-		try {
-			int currentSize = model.getCurrentSize();
-			if (currentSize > 0 && Undefined.isUndefined(variableData.getFormalDataType())) {
-				DataType adjustedUndefinedtype = Undefined.getUndefinedDataType(currentSize);
-				variableData.setFormalDataType(adjustedUndefinedtype);
-				dataTypeEditor.getEditor().setCellEditorValue(adjustedUndefinedtype);
-				setDataType(adjustedUndefinedtype);
-			}
-		}
-		finally {
-			adjustingDataType = false;
-		}
-	}
-
-//	public static void main(String[] args) throws Exception {
-////		DockingWindowsLookAndFeelUtils.setLookAndFeel("Metal");
-//		ProgramBuilder builder = new ProgramBuilder();
-//		builder.addMemory("1000", 1000);
-//		Function fun = builder.addFunction("foo", "1000", 20, new VoidDataType());
-//
-//		Program program = builder.getProgram();
-//		AddressSpace stackSpace = program.getAddressFactory().getStackSpace();
-//		Address address = stackSpace.getAddress(4);
-//		VariableStorage storage = new VariableStorage(program, address, 4);
-//
-//		DockingWindowManager dwm = new DockingWindowManager("Test", null, null);
-//		dwm.showDialog(new StorageAddressEditorDialog(program, storage, 8));
-//		System.exit(0);
-//	}
 
 	@Override
 	public void tableRowsChanged() {
@@ -397,4 +349,56 @@ public class StorageAddressEditorDialog extends DialogComponentProvider
 	public boolean wasCancelled() {
 		return cancelled;
 	}
+
+	private static class ReadOnlyVariableData implements FunctionVariableData {
+
+		private int ordinal;
+		private Variable variable;
+
+		private ReadOnlyVariableData(int ordinal, Variable variable) {
+			this.ordinal = ordinal;
+			this.variable = variable;
+		}
+
+		@Override
+		public void setStorage(VariableStorage storage) {
+			// unsupported
+		}
+
+		@Override
+		public boolean setFormalDataType(DataType dataType) {
+			return false;
+		}
+
+		@Override
+		public void setName(String name) {
+			// unsupported
+		}
+
+		@Override
+		public VariableStorage getStorage() {
+			return variable.getVariableStorage();
+		}
+
+		@Override
+		public String getName() {
+			return variable.getName();
+		}
+
+		@Override
+		public Integer getIndex() {
+			return ordinal;
+		}
+
+		@Override
+		public DataType getFormalDataType() {
+			return variable.getDataType();
+		}
+
+		@Override
+		public boolean hasStorageConflict() {
+			return false;
+		}
+	}
+
 }

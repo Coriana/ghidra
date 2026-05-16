@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,24 +18,19 @@ package ghidra.app.plugin.core.function;
 import docking.action.MenuData;
 import ghidra.app.cmd.function.CreateThunkFunctionCmd;
 import ghidra.app.context.*;
-import ghidra.framework.cmd.BackgroundCommand;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolType;
 import ghidra.util.HelpLocation;
 
-/**
- * <CODE>EditThunkFunctionAction</CODE> allows the user to modify the function
- * referenced by this function
- */
 class EditThunkFunctionAction extends ProgramContextAction {
 	/** the plugin associated with this action. */
 	FunctionPlugin funcPlugin;
 
 	/**
 	 * Create a new action, to edit a thunk function at the current location
-	 * @param functionPlugin does checking for this action
+	 * @param plugin  does checking for this action
 	 */
 	public EditThunkFunctionAction(FunctionPlugin plugin) {
 		super("Set Thunked Function", plugin.getName());
@@ -51,10 +46,6 @@ class EditThunkFunctionAction extends ProgramContextAction {
 		setEnabled(true);
 	}
 
-	/**
-	 * Method called when the action is invoked.
-	 * @param ActionEvent details regarding the invocation of this action
-	 */
 	@Override
 	public void actionPerformed(ProgramActionContext context) {
 
@@ -81,22 +72,32 @@ class EditThunkFunctionAction extends ProgramContextAction {
 		if (func == null) {
 			return;
 		}
+		Address funcEntry = func.getEntryPoint();
 
 		Function refFunc = func.getThunkedFunction(false);
+		Symbol refSymbol = null;
+		if (refFunc == null) {
+			// if not already thunked, fill in a possible value from functions instructions
+			Address thunkAddr = CreateThunkFunctionCmd.getThunkedAddr(program, funcEntry, false);
+			if (thunkAddr != null) {
+				refSymbol = program.getSymbolTable().getPrimarySymbol(thunkAddr);
+			}
+		} else {
+			refSymbol = refFunc.getSymbol();
+		}
 
 		// Prompt for function referenced by thunk
 		ThunkReferenceAddressDialog dialog = new ThunkReferenceAddressDialog(funcPlugin.getTool());
-		dialog.showDialog(program, func.getEntryPoint(),
-			refFunc != null ? refFunc.getSymbol() : null);
+		dialog.showDialog(program, funcEntry, refSymbol);
 		Symbol referencedSymbol = dialog.getSymbol();
 		Address referencedFunctionAddr = dialog.getAddress();
 
-		BackgroundCommand cmd;
+		CreateThunkFunctionCmd cmd;
 		if (referencedSymbol != null) {
-			cmd = new CreateThunkFunctionCmd(func.getEntryPoint(), null, referencedSymbol);
+			cmd = new CreateThunkFunctionCmd(funcEntry, null, referencedSymbol);
 		}
 		else if (referencedFunctionAddr != null) {
-			cmd = new CreateThunkFunctionCmd(func.getEntryPoint(), null, referencedFunctionAddr);
+			cmd = new CreateThunkFunctionCmd(funcEntry, null, referencedFunctionAddr);
 		}
 		else {
 			return; // cancelled

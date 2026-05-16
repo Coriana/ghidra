@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -24,15 +24,10 @@ import javax.swing.event.TableModelListener;
 import javax.swing.table.TableColumn;
 import javax.swing.table.TableModel;
 
-import ghidra.app.services.GoToService;
 import ghidra.program.model.symbol.Reference;
 import ghidra.util.table.GhidraTable;
 import ghidra.util.table.GhidraThreadedTablePanel;
 
-/**
- * 
- * 
- */
 class ReferencePanel extends JPanel {
 
 	private ReferenceProvider referenceProvider;
@@ -40,8 +35,8 @@ class ReferencePanel extends JPanel {
 	private TableModelListener listener;
 	private GhidraThreadedTablePanel<Reference> threadedTablePanel;
 
-	ReferencePanel(ReferenceProvider provider, SymbolReferenceModel model, SymbolRenderer renderer,
-			GoToService gotoService) {
+	ReferencePanel(ReferenceProvider provider, SymbolReferenceModel model,
+			SymbolRenderer renderer) {
 
 		super(new BorderLayout());
 
@@ -51,10 +46,14 @@ class ReferencePanel extends JPanel {
 
 		refTable = threadedTablePanel.getTable();
 		refTable.setAutoLookupColumn(SymbolReferenceModel.LABEL_COL);
-		refTable.setName("ReferenceTable");//used by JUnit...
 		refTable.setPreferredScrollableViewportSize(new Dimension(250, 200));
-		refTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-		refTable.installNavigation(gotoService, gotoService.getDefaultNavigatable());
+		refTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+		refTable.installNavigation(provider.getTool());
+		refTable.getSelectionModel().addListSelectionListener(e -> {
+			if (!e.getValueIsAdjusting()) {
+				provider.contextChanged();
+			}
+		});
 
 		this.listener = e -> referenceProvider.updateTitle();
 		refTable.getModel().addTableModelListener(listener);
@@ -67,6 +66,9 @@ class ReferencePanel extends JPanel {
 		}
 
 		add(threadedTablePanel, BorderLayout.CENTER);
+
+		String namePrefix = "Reference";
+		refTable.setAccessibleNamePrefix(namePrefix);
 	}
 
 	GhidraTable getTable() {

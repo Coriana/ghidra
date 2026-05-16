@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,11 +16,12 @@
 package ghidra.app.plugin.core.scalartable;
 
 import java.awt.Component;
+import java.awt.Font;
 import java.math.BigInteger;
 import java.util.Comparator;
 
-import javax.swing.*;
-import javax.swing.table.TableModel;
+import javax.swing.JLabel;
+import javax.swing.SwingConstants;
 
 import docking.widgets.table.*;
 import ghidra.docking.settings.Settings;
@@ -33,7 +34,6 @@ import ghidra.program.model.symbol.Reference;
 import ghidra.program.util.ProgramLocation;
 import ghidra.program.util.ProgramSelection;
 import ghidra.util.datastruct.Accumulator;
-import ghidra.util.datastruct.SizeLimitedAccumulatorWrapper;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.table.AddressBasedTableModel;
 import ghidra.util.table.column.AbstractGColumnRenderer;
@@ -49,7 +49,7 @@ public class ScalarSearchModel extends AddressBasedTableModel<ScalarRowObject> {
 	static final int PREVIEW_COLUMN = 1;
 	static final int HEX_COLUMN = 2;
 
-	static final int TEMP_MAX_RESULTS = 1_000_000;
+	static final int MAX_RESULTS = 100_000;
 
 	private Listing listing;
 
@@ -57,7 +57,7 @@ public class ScalarSearchModel extends AddressBasedTableModel<ScalarRowObject> {
 	private long minValue;
 	private long maxValue;
 
-	private SizeLimitedAccumulatorWrapper<ScalarRowObject> sizedAccumulator;
+	private Accumulator<ScalarRowObject> currentAccumulator;
 
 	ScalarSearchModel(ScalarSearchPlugin plugin, ProgramSelection currentSelection) {
 		super("Scalars", plugin.getTool(), null, null);
@@ -91,7 +91,7 @@ public class ScalarSearchModel extends AddressBasedTableModel<ScalarRowObject> {
 			return;
 		}
 
-		sizedAccumulator = new SizeLimitedAccumulatorWrapper<>(accumulator, TEMP_MAX_RESULTS);
+		currentAccumulator = accumulator;
 
 		if (currentSelection != null) {
 			loadTableFromSelection(monitor);
@@ -105,11 +105,7 @@ public class ScalarSearchModel extends AddressBasedTableModel<ScalarRowObject> {
 		iterateOverInstructions(monitor, instructions);
 		iterateOverData(monitor, dataIterator);
 
-		sizedAccumulator = null;
-	}
-
-	private boolean tooManyResults() {
-		return sizedAccumulator.hasReachedSizeLimit();
+		currentAccumulator = null;
 	}
 
 	void initialize(Program p, long newMinValue, long newMaxValue) {
@@ -149,18 +145,17 @@ public class ScalarSearchModel extends AddressBasedTableModel<ScalarRowObject> {
 
 		for (Instruction instruction : instructions) {
 
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			monitor.incrementProgress(1);
 
-			if (tooManyResults()) {
+			if (currentAccumulator.getProgress() > MAX_RESULTS) {
 				return;
 			}
 
 			int numOperands = instruction.getNumOperands();
-
 			for (int opIndex = 0; opIndex <= numOperands; opIndex++) {
 
-				monitor.checkCanceled();
+				monitor.checkCancelled();
 
 				Object[] opObjs = instruction.getOpObjects(opIndex);
 				Reference[] operandReferences = instruction.getOperandReferences(opIndex);
@@ -177,17 +172,15 @@ public class ScalarSearchModel extends AddressBasedTableModel<ScalarRowObject> {
 
 		while (dataIterator.hasNext()) {
 
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			monitor.incrementProgress(1);
 
-			if (tooManyResults()) {
+			if (currentAccumulator.getProgress() > MAX_RESULTS) {
 				return;
 			}
 
 			Data data = dataIterator.next();
-
 			int numComponents = data.getNumComponents();
-
 			if (numComponents > 0) {
 				findScalarsInCompositeData(data, numComponents, monitor);
 			}
@@ -201,7 +194,7 @@ public class ScalarSearchModel extends AddressBasedTableModel<ScalarRowObject> {
 			TaskMonitor monitor) throws CancelledException {
 
 		for (Object opObj : opObjs) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 
 			Scalar scalar = getScalarFromOperand(opObj, monitor);
 			if (scalar != null) {
@@ -222,7 +215,7 @@ public class ScalarSearchModel extends AddressBasedTableModel<ScalarRowObject> {
 			return;
 		}
 
-		sizedAccumulator.add(rowObject);
+		currentAccumulator.add(rowObject);
 	}
 
 	private void findScalarsInCompositeData(Data data, int numComponents, TaskMonitor monitor)
@@ -234,7 +227,7 @@ public class ScalarSearchModel extends AddressBasedTableModel<ScalarRowObject> {
 
 		for (int i = 0; i < numComponents; i++) {
 
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			Data component = data.getComponent(i);
 			getScalarsFromCompositeData(data, component, monitor);
 		}
@@ -251,7 +244,7 @@ public class ScalarSearchModel extends AddressBasedTableModel<ScalarRowObject> {
 
 		for (int i = 0; i < numSubComponents; i++) {
 
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			Data subComponent = component.getComponent(i);
 			getScalarsFromCompositeData(data, subComponent, monitor);
 		}
@@ -321,7 +314,7 @@ public class ScalarSearchModel extends AddressBasedTableModel<ScalarRowObject> {
 
 //==================================================================================================
 // Columns & Column helpers
-//==================================================================================================	
+//==================================================================================================
 
 	private class ScalarComparator implements Comparator<Scalar> {
 
@@ -339,9 +332,9 @@ public class ScalarSearchModel extends AddressBasedTableModel<ScalarRowObject> {
 				return (o1.isSigned() ? 1 : -1);
 			}
 
-			return o1.compareTo(o2);
+			return o1.isSigned() ? Long.compare(o1.getSignedValue(), o2.getSignedValue())
+					: Long.compareUnsigned(o1.getUnsignedValue(), o2.getUnsignedValue());
 		}
-
 	}
 
 	private abstract class AbstractScalarValueRenderer extends AbstractGColumnRenderer<Scalar> {
@@ -409,15 +402,14 @@ public class ScalarSearchModel extends AddressBasedTableModel<ScalarRowObject> {
 			}
 
 			@Override
-			protected void configureFont(JTable table, TableModel model, int column) {
-				setFont(fixedWidthFont);
+			protected Font getDefaultFont() {
+				return fixedWidthFont;
 			}
 
 			@Override
 			public ColumnConstraintFilterMode getColumnConstraintFilterMode() {
 				return ColumnConstraintFilterMode.ALLOW_ALL_FILTERS;
 			}
-
 		};
 
 		@Override
@@ -439,10 +431,7 @@ public class ScalarSearchModel extends AddressBasedTableModel<ScalarRowObject> {
 		public Scalar getValue(ScalarRowObject rowObject, Settings settings, Program p,
 				ServiceProvider provider) throws IllegalArgumentException {
 			Scalar scalar = rowObject.getScalar();
-
-			Scalar unsigned = new Scalar(scalar.bitLength(), scalar.getUnsignedValue(), false);
-			return unsigned;
-
+			return new Scalar(scalar.bitLength(), scalar.getUnsignedValue(), false);
 		}
 	}
 

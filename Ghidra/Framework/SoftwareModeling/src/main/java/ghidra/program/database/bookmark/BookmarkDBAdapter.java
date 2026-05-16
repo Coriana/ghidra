@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,15 +15,15 @@
  */
 package ghidra.program.database.bookmark;
 
+import java.io.IOException;
+
+import db.*;
+import ghidra.framework.data.OpenMode;
 import ghidra.program.database.map.AddressMap;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSetView;
 import ghidra.util.exception.VersionException;
 import ghidra.util.task.TaskMonitor;
-
-import java.io.IOException;
-
-import db.*;
 
 abstract class BookmarkDBAdapter {
 	static final Schema SCHEMA = BookmarkDBAdapterV3.V3_SCHEMA;
@@ -35,10 +34,10 @@ abstract class BookmarkDBAdapter {
 
 	static final String BOOKMARK_TABLE_NAME = "Bookmarks";
 
-	static BookmarkDBAdapter getAdapter(DBHandle dbHandle, int openMode, int[] typeIds,
+	static BookmarkDBAdapter getAdapter(DBHandle dbHandle, OpenMode openMode, int[] typeIds,
 			AddressMap addrMap, TaskMonitor monitor) throws VersionException, IOException {
 
-		if (openMode == DBConstants.CREATE) {
+		if (openMode == OpenMode.CREATE) {
 			return new BookmarkDBAdapterV3(dbHandle, true, typeIds, addrMap);
 		}
 
@@ -50,11 +49,11 @@ abstract class BookmarkDBAdapter {
 			return adapter;
 		}
 		catch (VersionException e) {
-			if (!e.isUpgradable() || openMode == DBConstants.UPDATE) {
+			if (!e.isUpgradable() || openMode == OpenMode.UPDATE) {
 				throw e;
 			}
 			BookmarkDBAdapter adapter = findReadOnlyAdapter(dbHandle, addrMap, typeIds);
-			if (openMode == DBConstants.UPGRADE) {
+			if (openMode == OpenMode.UPGRADE) {
 				adapter = upgrade(dbHandle, adapter, typeIds, addrMap, monitor);
 			}
 			return adapter;
@@ -88,8 +87,8 @@ abstract class BookmarkDBAdapter {
 	}
 
 	private static BookmarkDBAdapter upgrade(DBHandle dbHandle, BookmarkDBAdapter oldAdapter,
-			int[] typeIds, AddressMap addrMap, TaskMonitor monitor) throws VersionException,
-			IOException {
+			int[] typeIds, AddressMap addrMap, TaskMonitor monitor)
+			throws VersionException, IOException {
 
 		if (oldAdapter instanceof BookmarkDBAdapterV0) {
 			// Actually upgrade from Version 0 delayed until BookmarkDBManager.setProgram is invoked
@@ -111,13 +110,13 @@ abstract class BookmarkDBAdapter {
 		BookmarkDBAdapter tmpAdapter = null;
 		try {
 			tmpAdapter = new BookmarkDBAdapterV3(tmpHandle, true, typeIds, addrMap);
-			for (int i = 0; i < typeIds.length; i++) {
-				RecordIterator it = oldAdapter.getRecordsByType(typeIds[i]);
+			for (int typeId2 : typeIds) {
+				RecordIterator it = oldAdapter.getRecordsByType(typeId2);
 				while (it.hasNext()) {
 					if (monitor.isCancelled()) {
 						throw new IOException("Upgrade Cancelled");
 					}
-					Record rec = it.next();
+					DBRecord rec = it.next();
 					int typeId = getTypeId(rec);
 					tmpAdapter.addType(typeId);
 					Address addr = oldAddrMap.decodeAddress(rec.getLongValue(ADDRESS_COL));
@@ -127,18 +126,18 @@ abstract class BookmarkDBAdapter {
 				}
 			}
 			dbHandle.deleteTable(BOOKMARK_TABLE_NAME);
-			for (int i = 0; i < typeIds.length; i++) {
-				dbHandle.deleteTable(BOOKMARK_TABLE_NAME + typeIds[i]);
+			for (int typeId : typeIds) {
+				dbHandle.deleteTable(BOOKMARK_TABLE_NAME + typeId);
 			}
 			BookmarkDBAdapter newAdapter =
 				new BookmarkDBAdapterV3(dbHandle, true, typeIds, addrMap);
-			for (int i = 0; i < typeIds.length; i++) {
-				RecordIterator it = tmpAdapter.getRecordsByType(typeIds[i]);
+			for (int typeId : typeIds) {
+				RecordIterator it = tmpAdapter.getRecordsByType(typeId);
 				while (it.hasNext()) {
 					if (monitor.isCancelled()) {
 						throw new IOException("Upgrade Cancelled");
 					}
-					Record rec = it.next();
+					DBRecord rec = it.next();
 					newAdapter.updateRecord(rec);
 					monitor.setProgress(++cnt);
 				}
@@ -151,7 +150,7 @@ abstract class BookmarkDBAdapter {
 		}
 	}
 
-	static int getTypeId(Record rec) {
+	static int getTypeId(DBRecord rec) {
 		long key = rec.getKey();
 		return (int) (key >> 48);
 	}
@@ -181,7 +180,7 @@ abstract class BookmarkDBAdapter {
 	 * @return
 	 * @throws IOException 
 	 */
-	Record createBookmark(int typeId, String category, long index, String comment)
+	DBRecord createBookmark(int typeId, String category, long index, String comment)
 			throws IOException {
 		throw new UnsupportedOperationException("Bookmarks are read-only and may not be created");
 	}
@@ -191,7 +190,7 @@ abstract class BookmarkDBAdapter {
 	 * @param rec modified bookmark record
 	 * @throws IOException
 	 */
-	void updateRecord(Record rec) throws IOException {
+	void updateRecord(DBRecord rec) throws IOException {
 		throw new UnsupportedOperationException("Bookmarks are read-only and may not be modified");
 	}
 
@@ -209,7 +208,7 @@ abstract class BookmarkDBAdapter {
 	 * @param id bookmark ID
 	 * @return bookmark record or null if not found.
 	 */
-	abstract Record getRecord(long id) throws IOException;
+	abstract DBRecord getRecord(long id) throws IOException;
 
 	/**
 	 * Get all bookmark records associated with a specific type and address.
@@ -221,8 +220,8 @@ abstract class BookmarkDBAdapter {
 	abstract RecordIterator getRecordsByTypeStartingAtAddress(int typeID, long startAddress,
 			boolean forward) throws IOException;
 
-	abstract RecordIterator getRecordsByTypeForAddressRange(int typeId, long startAddr, long endAddr)
-			throws IOException;
+	abstract RecordIterator getRecordsByTypeForAddressRange(int typeId, long startAddr,
+			long endAddr) throws IOException;
 
 	/**
 	 * Get all bookmark records with a specific type ID and category.

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,6 +19,7 @@ import static org.junit.Assert.*;
 
 import org.junit.*;
 
+import db.Transaction;
 import ghidra.program.database.ProgramBuilder;
 import ghidra.program.model.listing.Program;
 import ghidra.test.AbstractGhidraHeadedIntegrationTest;
@@ -61,7 +62,7 @@ public class DataTypeTest extends AbstractGhidraHeadedIntegrationTest {
 
 		Structure structA = new StructureDataType("structA", 0);
 		structA.setCategoryPath(new CategoryPath("/catA"));
-		structA.setInternallyAligned(true);
+		structA.setPackingEnabled(true);
 
 		Pointer p = new PointerDataType(structA);
 
@@ -121,6 +122,50 @@ public class DataTypeTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	@Test
+	public void testReplaceWith() {
+		int txId = program.startTransaction("Pointer Test");
+
+		Structure struct1 =
+			(Structure) dtm.resolve(createStruct("abc", new ByteDataType(), 10), null);
+
+		Structure struct2 =
+			(Structure) dtm.resolve(createStruct("xyz", new ByteDataType(), 10), null);
+
+		Pointer ptr1 = (Pointer) dtm.resolve(new PointerDataType(struct1), null); // ptr1 -> struct1
+
+		Pointer ptr2 = (Pointer) dtm.resolve(new PointerDataType(struct2), null); // ptr2 -> struct2
+
+		struct1.add(ptr2);
+		struct2.add(ptr1);
+
+		// ptr1 -> struct1 { ptr2 -> struct2 { ptr1 } }
+
+		try {
+			DataType dt = dtm.replaceDataType(struct2, ptr2, false);
+			// ptr2 cannot exist without struct2
+			fail("Expected dependency exception");
+		}
+		catch (DataTypeDependencyException e) {
+			// expected - ignore
+		}
+
+		DataTypeComponent dtc = struct1.getComponent(10);
+		assertEquals(ptr2, dtc.getDataType());
+		try {
+			struct1 = (Structure) dtm.replaceDataType(ptr2, struct1, false);
+			// Replacement will trip on dependency and force replacement with undefined component
+			dtc = struct1.getComponent(10);
+			assertEquals(DataType.DEFAULT, dtc.getDataType());
+		}
+		catch (DataTypeDependencyException e) {
+			fail("Unexpected dependsOn error");
+		}
+
+		program.endTransaction(txId, true);
+
+	}
+
+	@Test
 	public void testReplaceWithStructureContainingReplacedStructure() {
 		int txId = program.startTransaction("Add Struct");
 
@@ -145,6 +190,84 @@ public class DataTypeTest extends AbstractGhidraHeadedIntegrationTest {
 
 		program.endTransaction(txId, true);
 
+	}
+
+	@Test
+	public void testStructureReplace() {
+
+		try (Transaction tx = program.openTransaction("Test")) {
+
+			Structure struct1 = createStruct("abc", Undefined1DataType.dataType,
+				2 * dtm.getDataOrganization().getPointerSize());
+			struct1.setExplicitMinimumAlignment(
+				dtm.getDataOrganization().getDefaultPointerAlignment());
+
+			Structure resolvedStruct1 = (Structure) dtm.resolve(struct1, null);
+			assertEquals(0, resolvedStruct1.getParents().size());
+
+			Structure struct2 = createStruct("xyz", resolvedStruct1, 1);
+			struct2.setPackingEnabled(true);
+			Structure resolvedStruct2 = (Structure) dtm.resolve(struct2, null);
+
+			assertEquals(1, resolvedStruct1.getParents().size());
+
+			DataType dt =
+				new ArrayDataType(new PointerDataType(new IntegerDataType(dtm), dtm), 2, -1);
+
+			resolvedStruct2.replace(0, dt, -1);
+
+			assertEquals(0, resolvedStruct1.getParents().size());
+
+			//@formatter:off
+			assertEquals(
+				"/xyz\n" + 
+				"pack()\n" + 
+				"Structure xyz {\n" + 
+				"   0   int *[2]   8      \"\"\n" + 
+				"}\n" + 
+				"Length: 8 Alignment: 4\n",
+				resolvedStruct2.toString());
+			//@formatter:on
+		}
+	}
+
+	@Test
+	public void testStructureReplace2() {
+
+		try (Transaction tx = program.openTransaction("Test")) {
+
+			Structure struct1 = new StructureDataType("abc", 0);
+			struct1.setPackingEnabled(true);
+			struct1.setExplicitMinimumAlignment(
+				dtm.getDataOrganization().getDefaultPointerAlignment());
+
+			Structure resolvedStruct1 = (Structure) dtm.resolve(struct1, null);
+			assertEquals(0, resolvedStruct1.getParents().size());
+
+			Structure struct2 = createStruct("xyz", resolvedStruct1, 1);
+			struct2.setPackingEnabled(true);
+			Structure resolvedStruct2 = (Structure) dtm.resolve(struct2, null);
+
+			assertEquals(1, resolvedStruct1.getParents().size());
+
+			DataType dt =
+				new ArrayDataType(new PointerDataType(new IntegerDataType(dtm), dtm), 0, -1);
+
+			resolvedStruct2.replace(0, dt, -1);
+
+			assertEquals(0, resolvedStruct1.getParents().size());
+
+			//@formatter:off
+			assertEquals(
+				"/xyz\n" + 
+				"pack()\n" + 
+				"Structure xyz {\n" + 
+				"   0   int *[0]   0      \"\"\n" + 
+				"}\n" + 
+				"Length: 0 Alignment: 4\n",
+				resolvedStruct2.toString());
+			//@formatter:on
+		}
 	}
 
 	private StructureDataType createStruct(String name, DataType contentType, int count) {

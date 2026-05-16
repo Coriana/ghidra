@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,14 +15,17 @@
  */
 package ghidra.app.util.demangler;
 
+import generic.json.Json;
+
 /**
- * A simple class to contain the various settings for demangling.
+ * A simple class to contain the various settings for demangling
  */
 public class DemanglerOptions {
 
-	private boolean applySignature = true;
-	private boolean doDisassembly = true;
-	private boolean demangleOnlyKnownPatterns = true;
+	protected boolean applyCallingConvention = true;
+	protected boolean applySignature = true;
+	protected boolean doDisassembly = true;
+	protected boolean demangleOnlyKnownPatterns = true;
 
 	public DemanglerOptions() {
 		// use default values
@@ -35,47 +38,65 @@ public class DemanglerOptions {
 	}
 
 	/**
-	 * Checks if the apply signature option is currently set.
-	 * 
-	 * @return true if set to apply function signatures that are demangled. 
+	 * Checks if the apply signature option is currently set
+	 *
+	 * @return true if set to apply function signatures that are demangled
 	 */
 	public boolean applySignature() {
 		return applySignature;
 	}
 
 	/**
-	 * Set the option to apply function signatures that are demangled.
-	 * 
-	 * @param applySignature true to apply function signatures that are demangled. 
+	 * Set the option to apply function signatures that are demangled
+	 *
+	 * @param applySignature true to apply function signatures that are demangled
 	 */
 	public void setApplySignature(boolean applySignature) {
 		this.applySignature = applySignature;
 	}
 
 	/**
-	 * Checks if the option to perform disassembly for known data structures (like functions) when 
-	 * demangling is set.
-	 * 
-	 * @return true if the option is set.
+	 * Checks if the option to perform disassembly for known data structures (like functions) when
+	 * demangling is set
+	 *
+	 * @return true if the option is set
 	 */
 	public boolean doDisassembly() {
 		return doDisassembly;
 	}
 
 	/**
-	 * Sets the option to perform disassembly for known data structures (like functions) when 
-	 * demangling.
-	 * 
-	 * @param doDisassembly true to perform disassembly when demangling.
+	 * Checks if the apply function signature calling convention option is currently set
+	 *
+	 * @return true if set to apply calling conventions
+	 */
+	public boolean applyCallingConvention() {
+		return applyCallingConvention;
+	}
+
+	/**
+	 * Set the option to apply function signature calling conventions
+	 *
+	 * @param applyCallingConvention true to apply calling conventions
+	 */
+	public void setApplyCallingConvention(boolean applyCallingConvention) {
+		this.applyCallingConvention = applyCallingConvention;
+	}
+
+	/**
+	 * Sets the option to perform disassembly for known data structures (like functions) when
+	 * demangling
+	 *
+	 * @param doDisassembly true to perform disassembly when demangling
 	 */
 	public void setDoDisassembly(boolean doDisassembly) {
 		this.doDisassembly = doDisassembly;
 	}
 
 	/**
-	 * Checks if the option to only demangle known mangled patterns is set.
-	 * 
-	 * @return true if only known mangled patterns will be demangled.
+	 * Checks if the option to only demangle known mangled patterns is set
+	 *
+	 * @return true if only known mangled patterns will be demangled
 	 */
 	public boolean demangleOnlyKnownPatterns() {
 		return demangleOnlyKnownPatterns;
@@ -83,10 +104,15 @@ public class DemanglerOptions {
 
 	/**
 	 * Sets the option to only demangle known mangled patterns. Setting this to false causes
-	 * all symbols to be demangled, which may result in some symbols getting demangled that were not
-	 * actually mangled symbols.
-	 * 
-	 * @param demangleOnlyKnownPatterns true to only demangle known mangled patterns.
+	 * most symbols to be demangled, which may result in some symbols getting demangled that were
+	 * not actually mangled symbols.
+	 *
+	 * <P>Generally, a demangler will report an error if a symbol fails to demangle.   Hence,
+	 * clients can use this flag to prevent such errors, signalling to the demangler to only
+	 * attempt those symbols that have a known start pattern.  If the known start pattern list
+	 * becomes comprehensive, then this flag can go away.
+	 *
+	 * @param demangleOnlyKnownPatterns true to only demangle known mangled patterns
 	 */
 	public void setDemangleOnlyKnownPatterns(boolean demangleOnlyKnownPatterns) {
 		this.demangleOnlyKnownPatterns = demangleOnlyKnownPatterns;
@@ -94,12 +120,6 @@ public class DemanglerOptions {
 
 	@Override
 	public String toString() {
-		//@formatter:off
-		return "{\n" +
-			"\tdoDisassembly: " + doDisassembly + ",\n" +
-			"\tapplySignature: " + applySignature + ",\n" +
-			"\tdemangleOnlyKnownPatterns: " + demangleOnlyKnownPatterns + ",\n" +
-		"}";
-		//@formatter:on
+		return Json.toString(this);
 	}
 }

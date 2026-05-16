@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -57,7 +57,6 @@ public class PropertyListMergeManager implements MergeResolver {
 	private int currentConflict;
 	private int totalConflictCount;
 	private ProgramMultiUserMergeManager mergeManager;
-	private int progressIndex;
 	private int propertyListChoice = ASK_USER;
 
 	/**
@@ -73,7 +72,8 @@ public class PropertyListMergeManager implements MergeResolver {
 	 * resultProgram and latestProgram start out the same
 	 */
 	public PropertyListMergeManager(ProgramMultiUserMergeManager mergeManager,
-			Program resultProgram, Program myProgram, Program originalProgram, Program latestProgram) {
+			Program resultProgram, Program myProgram, Program originalProgram,
+			Program latestProgram) {
 		this.mergeManager = mergeManager;
 		this.resultProgram = resultProgram;
 		this.myProgram = myProgram;
@@ -86,6 +86,7 @@ public class PropertyListMergeManager implements MergeResolver {
 	/* (non-Javadoc)
 	 * @see ghidra.app.merge.MergeResolver#apply()
 	 */
+	@Override
 	public void apply() {
 		conflictOption = mergePanel.getSelectedOption();
 
@@ -99,6 +100,7 @@ public class PropertyListMergeManager implements MergeResolver {
 	/* (non-Javadoc)
 	 * @see ghidra.app.merge.MergeResolver#cancel()
 	 */
+	@Override
 	public void cancel() {
 		conflictOption = CANCELED;
 	}
@@ -106,6 +108,7 @@ public class PropertyListMergeManager implements MergeResolver {
 	/* (non-Javadoc)
 	 * @see ghidra.app.merge.MergeResolver#getDescription()
 	 */
+	@Override
 	public String getDescription() {
 		return "Merge Property Lists";
 	}
@@ -113,6 +116,7 @@ public class PropertyListMergeManager implements MergeResolver {
 	/* (non-Javadoc)
 	 * @see ghidra.app.merge.MergeResolver#getName()
 	 */
+	@Override
 	public String getName() {
 		return "Property List Merger";
 	}
@@ -120,6 +124,7 @@ public class PropertyListMergeManager implements MergeResolver {
 	/* (non-Javadoc)
 	 * @see ghidra.app.merge.MergeResolver#merge(ghidra.util.task.TaskMonitor)
 	 */
+	@Override
 	public void merge(TaskMonitor monitor) {
 
 		mergeManager.setInProgress(PROPERTY_LIST_PHASE);
@@ -143,7 +148,8 @@ public class PropertyListMergeManager implements MergeResolver {
 				currentMonitor.setProgress(i);
 				String myName = myNames.get(i);
 				int progress = (int) (((float) (i / myNamesCount)) * 100);
-				mergeManager.updateProgress(progress, "Merging property list for " + myName + "...");
+				mergeManager.updateProgress(progress,
+					"Merging property list for " + myName + "...");
 				boolean isInLatest = latestNames.contains(myName);
 				boolean isInOrig = origNames.contains(myName);
 				if (!isInLatest && !isInOrig) {
@@ -157,7 +163,7 @@ public class PropertyListMergeManager implements MergeResolver {
 				}
 			}
 			mergeManager.updateProgress(100);
-			currentMonitor.initialize(myNamesCount);
+
 			try {
 				processConflicts();
 				commit = true;
@@ -193,7 +199,6 @@ public class PropertyListMergeManager implements MergeResolver {
 				return;
 			}
 			addProperty(list, resultList, optionName);
-			currentMonitor.setProgress(++progressIndex);
 		}
 
 	}
@@ -251,7 +256,6 @@ public class PropertyListMergeManager implements MergeResolver {
 
 					if (latestValue.equals(origValue)) {
 						latestList.removeOption(propertyName);
-						currentMonitor.setProgress(++progressIndex);
 					}
 					else {
 						String listName = latestList.getName();
@@ -275,25 +279,23 @@ public class PropertyListMergeManager implements MergeResolver {
 		Object resultValue = getValue(resultList, propertyName);
 		Object origValue = getValue(origList, propertyName);
 
-		if (!SystemUtilities.isEqual(resultValue, myValue)) {
-			if (propertyName.equals(Program.ANALYZED) && (myValue instanceof Boolean)) {
-				// If latest or my version sets "Analyzed" to true, then it should result in true.
-				setValue(resultList, propertyName, myList.getType(propertyName), Boolean.TRUE);
-				currentMonitor.setProgress(++progressIndex);
-				return;
-			}
-			if (SystemUtilities.isEqual(resultValue, origValue)) {
-				setValue(resultList, propertyName, myList.getType(propertyName), myValue);
-				currentMonitor.setProgress(++progressIndex);
-			}
-			else {
-				String listName = resultList.getName();
-				ArrayList<ConflictInfo> mapList = getConflictList(listName);
-				mapList.add(new ConflictInfo(listName, propertyName,
-					resultList.getType(propertyName), myList.getType(propertyName),
-					origList.getType(propertyName), resultValue, myValue, origValue));
-				++totalConflictCount;
-			}
+		if (SystemUtilities.isEqual(origValue, myValue) ||
+			SystemUtilities.isEqual(resultValue, myValue)) {
+			// value was not modified in my program or it was changed the same as in latest
+			return;
+		}
+		if (SystemUtilities.isEqual(resultValue, origValue)) {
+			// no change by latest - use my value
+			setValue(resultList, propertyName, myList.getType(propertyName), myValue);
+		}
+		else {
+			// my change conflicts with latest change
+			String listName = resultList.getName();
+			ArrayList<ConflictInfo> mapList = getConflictList(listName);
+			mapList.add(new ConflictInfo(listName, propertyName,
+				resultList.getType(propertyName), myList.getType(propertyName),
+				origList.getType(propertyName), resultValue, myValue, origValue));
+			++totalConflictCount;
 		}
 	}
 
@@ -322,7 +324,6 @@ public class PropertyListMergeManager implements MergeResolver {
 
 		if (!myValue.equals(origValue)) {
 			setValue(resultList, propertyName, myList.getType(propertyName), myValue);
-			currentMonitor.setProgress(++progressIndex);
 		}
 
 	}
@@ -365,13 +366,13 @@ public class PropertyListMergeManager implements MergeResolver {
 				return options.getBoolean(propertyName, false) ? Boolean.TRUE : Boolean.FALSE;
 
 			case DOUBLE_TYPE:
-				return new Double(options.getDouble(propertyName, 0d));
+				return Double.valueOf(options.getDouble(propertyName, 0d));
 
 			case INT_TYPE:
-				return new Integer(options.getInt(propertyName, 0));
+				return Integer.valueOf(options.getInt(propertyName, 0));
 
 			case LONG_TYPE:
-				return new Long(options.getLong(propertyName, 0L));
+				return Long.valueOf(options.getLong(propertyName, 0L));
 
 			case NO_TYPE:
 				return null;
@@ -412,7 +413,7 @@ public class PropertyListMergeManager implements MergeResolver {
 			String currentListName) throws CancelledException {
 
 		for (int i = 0; i < conflictList.size(); i++) {
-			currentMonitor.setProgress(++progressIndex);
+			currentMonitor.setProgress(i);
 
 			ConflictInfo info = conflictList.get(i);
 
@@ -461,6 +462,7 @@ public class PropertyListMergeManager implements MergeResolver {
 			final int totalNumConflicts) {
 		try {
 			SwingUtilities.invokeAndWait(new Runnable() {
+				@Override
 				public void run() {
 					if (mergePanel == null) {
 						mergePanel = new PropertyListMergePanel(mergeManager, totalNumConflicts);
@@ -482,6 +484,7 @@ public class PropertyListMergeManager implements MergeResolver {
 		// and continue.
 	}
 
+	@Override
 	public String[][] getPhases() {
 		return new String[][] { PROPERTY_LIST_PHASE };
 	}

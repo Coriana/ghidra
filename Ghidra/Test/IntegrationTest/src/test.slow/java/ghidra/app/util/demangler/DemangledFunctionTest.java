@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,11 +21,14 @@ import java.util.Arrays;
 
 import org.junit.*;
 
+import ghidra.app.util.demangler.gnu.GnuDemangler;
+import ghidra.app.util.demangler.microsoft.*;
 import ghidra.program.database.ProgramBuilder;
 import ghidra.program.database.ProgramDB;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.data.VoidDataType;
+import ghidra.program.model.lang.CompilerSpec;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.symbol.*;
 import ghidra.test.AbstractGhidraHeadlessIntegrationTest;
@@ -61,11 +64,16 @@ public class DemangledFunctionTest extends AbstractGhidraHeadlessIntegrationTest
 
 		// this is: public long __thiscall ATL::CRegKey::Close(void)
 		String mangled = "?CloseM@CRegKeyM@ATL@@QAEJXZ";
-		DemangledObject demangled = DemanglerUtil.demangle(mangled);
+		Address addr = addr("0x0101");
+		MicrosoftDemangler demangler = new MicrosoftDemangler();
+		MicrosoftDemanglerOptions options = demangler.createDefaultOptions();
+		MicrosoftMangledContext mangledContext =
+			demangler.createMangledContext(mangled, options, program, addr);
+		options.setInterpretation(MsCInterpretation.FUNCTION);
+		DemangledObject demangled = demangler.demangle(mangledContext);
 		assertTrue(demangled instanceof DemangledFunction);
 
-		Address addr = addr("0x0101");
-		assertTrue(demangled.applyTo(program, addr, new DemanglerOptions(), TaskMonitor.DUMMY));
+		assertTrue(demangled.applyTo(program, addr, options, TaskMonitor.DUMMY));
 
 		assertFunction("CloseM", addr);
 
@@ -86,7 +94,7 @@ public class DemangledFunctionTest extends AbstractGhidraHeadlessIntegrationTest
 	/*
 	 * Test that the DemangledFunction will properly update a thunk function
 	 * with its namespace, and ripple through to the underlying default thunked
-	 * function.  The thunk 'this' parameter should utilize the Class 
+	 * function.  The thunk 'this' parameter should utilize the Class
 	 * within which the thunk resides.
 	 */
 	@Test
@@ -94,7 +102,14 @@ public class DemangledFunctionTest extends AbstractGhidraHeadlessIntegrationTest
 
 		// this is: public long __thiscall ATL::CRegKey::Close(void)
 		String mangled = "?Close@CRegKey@ATL@@QAEJXZ";
-		DemangledObject demangled = DemanglerUtil.demangle(mangled);
+		Address addr = addr("0x0100");
+		MicrosoftDemangler demangler = new MicrosoftDemangler();
+		MangledContext mangledContext =
+			demangler.createMangledContext(mangled, null, program, addr);
+		DemanglerOptions options = mangledContext.getOptions();
+		// TODO: need direct way to change "for function" vs. just address and program; which might mean MicrosoftDemanglerContext
+		//mangledContext.setIsFunction(true);
+		DemangledObject demangled = demangler.demangle(mangledContext);
 		assertTrue(demangled instanceof DemangledFunction);
 
 		FunctionManager functionMgr = program.getFunctionManager();
@@ -104,8 +119,7 @@ public class DemangledFunctionTest extends AbstractGhidraHeadlessIntegrationTest
 			new AddressSet(addr("0x0100")), SourceType.IMPORTED);
 		f2.setThunkedFunction(f1);
 
-		Address addr = addr("0x0100");
-		demangled.applyTo(program, addr, new DemanglerOptions(), TaskMonitor.DUMMY);
+		demangled.applyTo(program, addr, options, TaskMonitor.DUMMY);
 
 		assertFunction("Close", addr);
 		assertNoBookmarkAt(addr);
@@ -147,10 +161,16 @@ public class DemangledFunctionTest extends AbstractGhidraHeadlessIntegrationTest
 		SymbolTable symbolTable = program.getSymbolTable();
 		symbolTable.createLabel(addr, mangled, SourceType.IMPORTED);
 
-		DemangledObject demangled = DemanglerUtil.demangle(mangled);
+		MicrosoftDemangler demangler = new MicrosoftDemangler();
+		MangledContext mangledContext =
+			demangler.createMangledContext(mangled, null, program, addr);
+		DemanglerOptions options = mangledContext.getOptions();
+		// TODO: need direct way to change "for function" vs. just address and program; which might mean MicrosoftDemanglerContext
+		//mangledContext.setIsFunction(true);
+		DemangledObject demangled = demangler.demangle(mangledContext);
 		assertTrue(demangled instanceof DemangledFunction);
 
-		assertTrue(demangled.applyTo(program, addr, new DemanglerOptions(), TaskMonitor.DUMMY));
+		assertTrue(demangled.applyTo(program, addr, options, TaskMonitor.DUMMY));
 
 		assertFunction("Close", addr);
 		assertNoBookmarkAt(addr);
@@ -184,10 +204,16 @@ public class DemangledFunctionTest extends AbstractGhidraHeadlessIntegrationTest
 		String mangledWithAddr = SymbolUtilities.getAddressAppendedName(mangled, addr);
 		symbolTable.createLabel(addr, mangledWithAddr, SourceType.IMPORTED);
 
-		DemangledObject demangled = DemanglerUtil.demangle(mangled);
+		MicrosoftDemangler demangler = new MicrosoftDemangler();
+		MangledContext mangledContext =
+			demangler.createMangledContext(mangled, null, program, addr);
+		DemanglerOptions options = mangledContext.getOptions();
+		// TODO: need direct way to change "for function" vs. just address and program; which might mean MicrosoftDemanglerContext
+		//mangledContext.setIsFunction(true);
+		DemangledObject demangled = demangler.demangle(mangledContext);
 		assertTrue(demangled instanceof DemangledFunction);
 
-		assertTrue(demangled.applyTo(program, addr, new DemanglerOptions(), TaskMonitor.DUMMY));
+		assertTrue(demangled.applyTo(program, addr, options, TaskMonitor.DUMMY));
 
 		assertFunction("Close", addr);
 		assertNoBookmarkAt(addr);
@@ -222,10 +248,16 @@ public class DemangledFunctionTest extends AbstractGhidraHeadlessIntegrationTest
 		symbolTable.createLabel(addr, "Close", SourceType.IMPORTED);
 		symbolTable.createLabel(addr, mangled, SourceType.IMPORTED);
 
-		DemangledObject demangled = DemanglerUtil.demangle(mangled);
+		MicrosoftDemangler demangler = new MicrosoftDemangler();
+		MangledContext mangledContext =
+			demangler.createMangledContext(mangled, null, program, addr);
+		DemanglerOptions options = mangledContext.getOptions();
+		// TODO: need direct way to change "for function" vs. just address and program; which might mean MicrosoftDemanglerContext
+		//mangledContext.setIsFunction(true);
+		DemangledObject demangled = demangler.demangle(mangledContext);
 		assertTrue(demangled instanceof DemangledFunction);
 
-		assertTrue(demangled.applyTo(program, addr, new DemanglerOptions(), TaskMonitor.DUMMY));
+		assertTrue(demangled.applyTo(program, addr, options, TaskMonitor.DUMMY));
 
 		assertFunction("Close", addr);
 		assertNoBookmarkAt(addr);
@@ -257,14 +289,69 @@ public class DemangledFunctionTest extends AbstractGhidraHeadlessIntegrationTest
 		SymbolTable symbolTable = program.getSymbolTable();
 		symbolTable.createLabel(addr, mangled, SourceType.IMPORTED);
 
-		DemangledObject demangled = DemanglerUtil.demangle(mangled);
+		MicrosoftDemangler demangler = new MicrosoftDemangler();
+		MangledContext mangledContext =
+			demangler.createMangledContext(mangled, null, program, addr);
+		DemanglerOptions options = mangledContext.getOptions();
+		// TODO: need direct way to change "for function" vs. just address and program; which might mean MicrosoftDemanglerContext
+		//mangledContext.setIsFunction(true);
+		DemangledObject demangled = demangler.demangle(mangledContext);
 		assertTrue(demangled instanceof DemangledFunction);
-		assertTrue(demangled.applyTo(program, addr, new DemanglerOptions(), TaskMonitor.DUMMY));
+		assertTrue(demangled.applyTo(program, addr, options, TaskMonitor.DUMMY));
+
+		String className =
+			"F<E::D::G<E::D::H<bool_(__cdecl*const)(C::B_const&),0>,bool,C::B_const&>_>";
+		String functionName = className + "<E::D::A<bool,C::B_const&>_>";
+
+		Function function = assertFunction(functionName, addr);
+		assertNoBookmarkAt(addr);
+
+		Symbol[] symbols = symbolTable.getSymbols(addr);
+		assertEquals(2, symbols.length);
+		assertEquals(functionName, symbols[0].getName());
+		assertEquals(mangled, symbols[1].getName());
+
+		// Check for the Class 'this' pointer
+		Parameter[] parameters = function.getParameters();
+		assertEquals(2, parameters.length);
+		Parameter p1 = parameters[0];
+		assertEquals("this", p1.getName());
+		assertEquals(className + " *", p1.getDataType().toString());
+
+		Namespace ns = symbols[0].getParentNamespace();
+		assertEquals(className, ns.getName(false));
+		ns = ns.getParentNamespace();
+		assertEquals("E", ns.getName(false));
+	}
+
+	@Test
+	public void testFunctionThisPointerWithTags() throws Exception {
+
+		//
+		// Test a function within a class that has a 'this' pointer
+		//
+
+		String mangled =
+			"??$?0V?$A@_NABW4B@C@@@D@E@@@?$F@V?$G@U?$H@Q6A_NABW4B@C@@@Z$0A@@D@E@@_NABW4B@C@@@D@E@@@E@@QAE@ABV?$F@V?$A@_NABW4B@C@@@D@E@@@1@@Z";
+		Address addr = addr("0x0101");
+
+		SymbolTable symbolTable = program.getSymbolTable();
+		symbolTable.createLabel(addr, mangled, SourceType.IMPORTED);
+
+		MicrosoftDemangler demangler = new MicrosoftDemangler();
+		MangledContext mangledContext =
+			demangler.createMangledContext(mangled,
+				MicrosoftDemanglerOptions.DEFAULT_UNDERLYING_OUTPUT, program, addr);
+		DemanglerOptions options = mangledContext.getOptions();
+		// TODO: need direct way to change "for function" vs. just address and program; which might mean MicrosoftDemanglerContext
+		//mangledContext.setIsFunction(true);
+		DemangledObject demangled = demangler.demangle(mangledContext);
+		assertTrue(demangled instanceof DemangledFunction);
+		assertTrue(demangled.applyTo(program, addr, options, TaskMonitor.DUMMY));
 
 		String className =
 			"F<class_E::D::G<struct_E::D::H<bool_(__cdecl*const)(enum_C::B_const&),0>,bool,enum_C::B_const&>_>";
-		String functionName =
-			className + "<class_E::D::A<bool,enum_C::B_const&>_>";
+		String functionName = className + "<class_E::D::A<bool,enum_C::B_const&>_>";
 
 		Function function = assertFunction(functionName, addr);
 		assertNoBookmarkAt(addr);
@@ -294,7 +381,7 @@ public class DemangledFunctionTest extends AbstractGhidraHeadlessIntegrationTest
 	 * location symbol.
 	 */
 	@Test
-	public void testApply_ExtrnalFunctionInClassInNamespace() throws Exception {
+	public void testApply_ExternalFunctionInClassInNamespace() throws Exception {
 
 		// this is: public long __thiscall ATL::CRegKey::Close(void)
 		String mangled = "?Close@CRegKey@ATL@@QAEJXZ";
@@ -306,10 +393,16 @@ public class DemangledFunctionTest extends AbstractGhidraHeadlessIntegrationTest
 
 		Address addr = extLoc.getExternalSpaceAddress();
 
-		DemangledObject demangled = DemanglerUtil.demangle(mangled);
+		MicrosoftDemangler demangler = new MicrosoftDemangler();
+		MangledContext mangledContext =
+			demangler.createMangledContext(mangled, null, program, addr);
+		DemanglerOptions options = mangledContext.getOptions();
+		// TODO: need direct way to change "for function" vs. just address and program; which might mean MicrosoftDemanglerContext
+		//mangledContext.setIsFunction(true);
+		DemangledObject demangled = demangler.demangle(mangledContext);
 		assertTrue(demangled instanceof DemangledFunction);
 
-		assertTrue(demangled.applyTo(program, addr, new DemanglerOptions(), TaskMonitor.DUMMY));
+		assertTrue(demangled.applyTo(program, addr, options, TaskMonitor.DUMMY));
 
 		assertFunction("Close", addr);
 		assertNoBookmarkAt(addr);
@@ -339,7 +432,7 @@ public class DemangledFunctionTest extends AbstractGhidraHeadlessIntegrationTest
 	public void testFunctionVariable() throws Exception {
 
 		//
-		// This makes sure that a variable inside of a function namespace prevents a class 
+		// This makes sure that a variable inside of a function namespace prevents a class
 		// namespace object from being created when a function does not exist.  Instead it should
 		// create a simple namespace.
 		//
@@ -348,16 +441,20 @@ public class DemangledFunctionTest extends AbstractGhidraHeadlessIntegrationTest
 		String functionName = "__gthread_active_p";
 		programBuilder.createEmptyFunction(functionName, "0x0101", 10, new VoidDataType());
 
+		Address addr = addr("0x0103");
 		programBuilder.createLabel("0x0103", mangled);
 
-		DemangledObject demangled = DemanglerUtil.demangle(program, mangled);
+		GnuDemangler demangler = new GnuDemangler();
+		MangledContext mangledContext =
+			demangler.createMangledContext(mangled, null, program, addr);
+		DemanglerOptions options = mangledContext.getOptions();
+		DemangledObject demangled = demangler.demangle(mangledContext);
 		assertNotNull(demangled);
 		assertTrue(demangled instanceof DemangledVariable);
 
 		assertEquals("__gthread_active_p()::__gthread_active_ptr", demangled.getSignature(false));
 
-		Address addr = addr("0x0103");
-		demangled.applyTo(program, addr, new DemanglerOptions(), TaskMonitor.DUMMY);
+		demangled.applyTo(program, addr, options, TaskMonitor.DUMMY);
 
 		assertSimpleNamespaceExists("__gthread_active_p()");
 		assertNoBookmarkAt(addr);
@@ -370,6 +467,30 @@ public class DemangledFunctionTest extends AbstractGhidraHeadlessIntegrationTest
 
 		Namespace ns = symbols[0].getParentNamespace();
 		assertEquals("__gthread_active_p()", ns.getName(false));
+	}
+
+	@Test
+	public void testApply_Function_DoNotApplyCallingConvention() throws Exception {
+
+		String mangled = "?CloseM@CRegKeyM@ATL@@QAEJXZ";
+		Address addr = addr("0x0101");
+		MicrosoftDemangler demangler = new MicrosoftDemangler();
+		MangledContext mangledContext =
+			demangler.createMangledContext(mangled, null, program, addr);
+		DemanglerOptions options = mangledContext.getOptions();
+		// TODO: need direct way to change "for function" vs. just address and program; which might mean MicrosoftDemanglerContext
+		//mangledContext.setIsFunction(true);
+		DemangledObject demangled = demangler.demangle(mangledContext);
+		assertTrue(demangled instanceof DemangledFunction);
+
+		DemangledFunction demangledFunction = (DemangledFunction) demangled;
+		demangledFunction.setCallingConvention(CompilerSpec.CALLING_CONVENTION_stdcall);
+
+		options.setApplyCallingConvention(false);
+		assertTrue(demangled.applyTo(program, addr, options, TaskMonitor.DUMMY));
+
+		Function function = assertFunction("CloseM", addr);
+		assertEquals("unknown", function.getCallingConventionName());
 	}
 
 	private void assertNoBookmarkAt(Address addr) {

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -26,7 +26,6 @@ import generic.lsh.vector.VectorCompare;
 import ghidra.feature.vt.api.main.*;
 import ghidra.feature.vt.api.util.VTAbstractProgramCorrelator;
 import ghidra.framework.options.ToolOptions;
-import ghidra.framework.plugintool.ServiceProvider;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSetView;
 import ghidra.program.model.listing.*;
@@ -38,13 +37,6 @@ public class SimilarSymbolNameProgramCorrelator extends VTAbstractProgramCorrela
 
 	public static double SIMILARITY_THRESHOLD = 0.5;
 
-	protected SimilarSymbolNameProgramCorrelator(ServiceProvider serviceProvider,
-			Program sourceProgram, AddressSetView sourceAddressSet, Program destinationProgram,
-			AddressSetView destinationAddressSet, ToolOptions options) {
-		super(serviceProvider, sourceProgram, sourceAddressSet, destinationProgram,
-			destinationAddressSet, options);
-	}
-
 	HashMap<Symbol, LSHCosineVectorAccum> sourceMap;
 	HashMap<Symbol, LSHCosineVectorAccum> destinationMap;
 
@@ -52,6 +44,12 @@ public class SimilarSymbolNameProgramCorrelator extends VTAbstractProgramCorrela
 
 	int featureID = 0;
 	int minNameLength;
+
+	public SimilarSymbolNameProgramCorrelator(Program sourceProgram,
+			AddressSetView sourceAddressSet, Program destinationProgram,
+			AddressSetView destinationAddressSet, ToolOptions options) {
+		super(sourceProgram, sourceAddressSet, destinationProgram, destinationAddressSet, options);
+	}
 
 	@Override
 	protected void doCorrelate(VTMatchSet matchSet, TaskMonitor monitor) throws CancelledException {
@@ -68,9 +66,9 @@ public class SimilarSymbolNameProgramCorrelator extends VTAbstractProgramCorrela
 	}
 
 	private void extractNGramFeatures(VTMatchSet matchSet, TaskMonitor monitor, int n) {
-		sourceMap = new HashMap<Symbol, LSHCosineVectorAccum>();
-		destinationMap = new HashMap<Symbol, LSHCosineVectorAccum>();
-		idMap = new HashMap<String, Integer>();
+		sourceMap = new HashMap<>();
+		destinationMap = new HashMap<>();
+		idMap = new HashMap<>();
 
 		final Program sourceProgram = getSourceProgram();
 		final Program destinationProgram = getDestinationProgram();
@@ -108,8 +106,7 @@ public class SimilarSymbolNameProgramCorrelator extends VTAbstractProgramCorrela
 			if (!addressSet.contains(symbol.getAddress())) {
 				continue;
 			}
-			if (symbol.getSource() == SourceType.DEFAULT ||
-				symbol.getSource() == SourceType.ANALYSIS) {
+			if (symbol.getSource().isLowerOrEqualPriorityThan(SourceType.ANALYSIS)) {
 				continue;
 			}
 
@@ -183,7 +180,7 @@ public class SimilarSymbolNameProgramCorrelator extends VTAbstractProgramCorrela
 			LSHCosineVectorAccum destinationVector,
 			Set<DominantPair<Symbol, LSHCosineVectorAccum>> neighbors, double threshold,
 			TaskMonitor monitor) {
-		List<VTMatchInfo> result = new ArrayList<VTMatchInfo>();
+		List<VTMatchInfo> result = new ArrayList<>();
 		int sourceLength = 0;
 		int destinationLength = 0;
 
@@ -271,7 +268,7 @@ public class SimilarSymbolNameProgramCorrelator extends VTAbstractProgramCorrela
 			getOptions().getEnum(SimilarSymbolNameProgramCorrelatorFactory.MEMORY_MODEL,
 				SimilarSymbolNameProgramCorrelatorFactory.MEMORY_MODEL_DEFAULT);
 		int L = KandL.memoryModelToL(model);
-		return new LSHMultiHash<Symbol>(model.getK(), L);
+		return new LSHMultiHash<>(model.getK(), L);
 	}
 
 	@Override

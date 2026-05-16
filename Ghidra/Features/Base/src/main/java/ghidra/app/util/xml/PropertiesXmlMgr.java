@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,18 +14,6 @@
  * limitations under the License.
  */
 package ghidra.app.util.xml;
-
-import ghidra.app.util.importer.MessageLog;
-import ghidra.framework.options.*;
-import ghidra.program.model.address.*;
-import ghidra.program.model.listing.*;
-import ghidra.program.model.util.*;
-import ghidra.util.XmlProgramUtilities;
-import ghidra.util.exception.*;
-import ghidra.util.task.TaskMonitor;
-import ghidra.util.xml.*;
-import ghidra.xml.XmlElement;
-import ghidra.xml.XmlPullParser;
 
 import java.awt.Color;
 import java.awt.Font;
@@ -36,6 +23,19 @@ import java.util.*;
 import javax.swing.KeyStroke;
 
 import org.xml.sax.SAXParseException;
+
+import ghidra.app.util.importer.MessageLog;
+import ghidra.framework.options.*;
+import ghidra.program.model.address.*;
+import ghidra.program.model.listing.*;
+import ghidra.program.model.util.*;
+import ghidra.util.ColorUtils;
+import ghidra.util.XmlProgramUtilities;
+import ghidra.util.exception.*;
+import ghidra.util.task.TaskMonitor;
+import ghidra.util.xml.*;
+import ghidra.xml.XmlElement;
+import ghidra.xml.XmlPullParser;
 
 class PropertiesXmlMgr {
 
@@ -124,7 +124,7 @@ class PropertiesXmlMgr {
 		}
 
 		if (!overwrite && !"bookmarks".equals(type)) {
-			PropertyMap map = propMapMgr.getPropertyMap(name);
+			PropertyMap<?> map = propMapMgr.getPropertyMap(name);
 			if (map != null && map.hasProperty(addr)) {
 				log.appendMsg("Conflicting '" + name + "' PROPERTY ignored at: " + addr);
 				return; // skip - property conflicts
@@ -166,7 +166,7 @@ class PropertiesXmlMgr {
 			strMap.add(addr, str);
 		}
 		else if ("bookmarks".equals(type)) {
-			// Must retain for backward compatibility with old Ver-1 Note bookmarks which 
+			// Must retain for backward compatibility with old Ver-1 Note bookmarks which
 			// were saved as simple properties
 			BookmarkManager bmMgr = program.getBookmarkManager();
 			if (!overwrite) {
@@ -209,7 +209,8 @@ class PropertiesXmlMgr {
 		String listName = getPropertyList(pathname);
 		String name = getPropertyName(pathname);
 		if (listName == null || name == null) {
-			log.appendMsg("Property NAME attribute must contain both category prefix and property name");
+			log.appendMsg(
+				"Property NAME attribute must contain both category prefix and property name");
 			return;
 		}
 		Options list = program.getOptions(listName);
@@ -253,7 +254,7 @@ class PropertiesXmlMgr {
 			list.setDate(name, new Date(value));
 		}
 		else if ("color".equals(type)) {
-			Color color = new Color(XmlUtilities.parseInt(element.getAttribute("VALUE")));
+			Color color = ColorUtils.getColor(XmlUtilities.parseInt(element.getAttribute("VALUE")));
 			list.setColor(name, color);
 		}
 		else if ("file".equals(type)) {
@@ -278,7 +279,19 @@ class PropertiesXmlMgr {
 			String xmlString = XmlUtilities.unEscapeElementEntities(escapedXML);
 			KeyStroke keyStroke =
 				(KeyStroke) OptionType.KEYSTROKE_TYPE.convertStringToObject(xmlString);
-			list.setKeyStroke(name, keyStroke);
+
+			ActionTrigger trigger = null;
+			if (keyStroke != null) {
+				trigger = new ActionTrigger(keyStroke);
+			}
+			list.setActionTrigger(name, trigger);
+		}
+		else if ("actionTrigger".equals(type)) {
+			String escapedXML = element.getAttribute("VALUE");
+			String xmlString = XmlUtilities.unEscapeElementEntities(escapedXML);
+			ActionTrigger actionTrigger =
+				(ActionTrigger) OptionType.ACTION_TRIGGER.convertStringToObject(xmlString);
+			list.setActionTrigger(name, actionTrigger);
 		}
 		else if ("custom".equals(type)) {
 			String escapedXML = element.getAttribute("VALUE");
@@ -311,7 +324,8 @@ class PropertiesXmlMgr {
 	//   						 XML WRITE CURRENT DTD                                   //
 	///////////////////////////////////////////////////////////////////////////////////////
 
-	void write(XmlWriter writer, AddressSetView set, TaskMonitor monitor) throws CancelledException {
+	void write(XmlWriter writer, AddressSetView set, TaskMonitor monitor)
+			throws CancelledException {
 		monitor.setMessage("Writing PROPERTIES ...");
 		writer.startElement("PROPERTIES");
 		writePropertyMaps(writer, set, monitor);
@@ -323,11 +337,11 @@ class PropertiesXmlMgr {
 			throws CancelledException {
 		List<String> listNames = program.getOptionsNames();
 		Collections.sort(listNames);
-		for (int i = 0; i < listNames.size(); i++) {
-			Options propList = program.getOptions(listNames.get(i));
+		for (String listName : listNames) {
+			Options propList = program.getOptions(listName);
 			List<String> propNames = propList.getOptionNames();
 			Collections.sort(propNames);
-			String prefix = listNames.get(i) + PROPERTY_LIST_CATEGORY_DELIMITER;
+			String prefix = listName + PROPERTY_LIST_CATEGORY_DELIMITER;
 			for (String name : propNames) {
 				if (monitor.isCancelled()) {
 					throw new CancelledException();
@@ -398,15 +412,21 @@ class PropertiesXmlMgr {
 						attrs.addAttribute("VALUE", XmlUtilities.escapeElementEntities(xmlString));
 						break;
 					case KEYSTROKE_TYPE:
-						attrs.addAttribute("TYPE", "keyStroke");
-						KeyStroke keyStroke = propList.getKeyStroke(name, null);
-						xmlString = OptionType.KEYSTROKE_TYPE.convertObjectToString(keyStroke);
+						attrs.addAttribute("TYPE", "actionTrigger");
+						ActionTrigger trigger = propList.getActionTrigger(name, null);
+						xmlString = OptionType.ACTION_TRIGGER.convertObjectToString(trigger);
+						attrs.addAttribute("VALUE", XmlUtilities.escapeElementEntities(xmlString));
+						break;
+					case ACTION_TRIGGER:
+						attrs.addAttribute("TYPE", "actionTrigger");
+						ActionTrigger actionTrigger = propList.getActionTrigger(name, null);
+						xmlString = OptionType.ACTION_TRIGGER.convertObjectToString(actionTrigger);
 						attrs.addAttribute("VALUE", XmlUtilities.escapeElementEntities(xmlString));
 						break;
 					case CUSTOM_TYPE:
 						attrs.addAttribute("TYPE", "custom");
 						CustomOption custom = propList.getCustomOption(name, null);
-						xmlString = OptionType.KEYSTROKE_TYPE.convertObjectToString(custom);
+						xmlString = OptionType.CUSTOM_TYPE.convertObjectToString(custom);
 						attrs.addAttribute("VALUE", XmlUtilities.escapeElementEntities(xmlString));
 						break;
 					case BYTE_ARRAY_TYPE:
@@ -433,7 +453,7 @@ class PropertiesXmlMgr {
 				throw new CancelledException();
 			}
 			String mapName = mapNames.next();
-			PropertyMap map = propMapMgr.getPropertyMap(mapName);
+			PropertyMap<?> map = propMapMgr.getPropertyMap(mapName);
 			if (map instanceof VoidPropertyMap) {
 				writeVoidMap((VoidPropertyMap) map, writer, set, monitor);
 			}
@@ -490,6 +510,7 @@ class PropertiesXmlMgr {
 				writer.endElement("PROPERTY");
 			}
 			catch (NoValueException e) {
+				// skip
 			}
 		}
 	}
@@ -514,6 +535,7 @@ class PropertiesXmlMgr {
 				writer.endElement("PROPERTY");
 			}
 			catch (NoValueException e) {
+				// skip
 			}
 		}
 	}

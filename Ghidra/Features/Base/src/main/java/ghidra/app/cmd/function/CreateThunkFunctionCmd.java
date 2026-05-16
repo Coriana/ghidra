@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,21 +15,21 @@
  */
 package ghidra.app.cmd.function;
 
+import static ghidra.program.model.symbol.RefType.*;
+
 import java.math.BigInteger;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import ghidra.app.util.PseudoDisassembler;
 import ghidra.framework.cmd.BackgroundCommand;
-import ghidra.framework.model.DomainObject;
 import ghidra.program.database.function.OverlappingFunctionException;
 import ghidra.program.model.address.*;
-import ghidra.program.model.block.BasicBlockModel;
-import ghidra.program.model.block.CodeBlock;
+import ghidra.program.model.block.*;
+import ghidra.program.model.data.DataType;
 import ghidra.program.model.lang.Register;
 import ghidra.program.model.lang.RegisterValue;
 import ghidra.program.model.listing.*;
-import ghidra.program.model.mem.MemoryBlock;
 import ghidra.program.model.pcode.PcodeOp;
 import ghidra.program.model.pcode.Varnode;
 import ghidra.program.model.symbol.*;
@@ -41,7 +41,7 @@ import ghidra.util.task.TaskMonitor;
 /**
  * Command for creating a thunk function at an address.
  */
-public class CreateThunkFunctionCmd extends BackgroundCommand {
+public class CreateThunkFunctionCmd extends BackgroundCommand<Program> {
 	private Address entry;
 	private AddressSetView body;
 	private Address referencedFunctionAddr;
@@ -69,7 +69,9 @@ public class CreateThunkFunctionCmd extends BackgroundCommand {
 	 * be created (a check will be done to look for an previously defined external location)</li>
 	 * <li>If referencedFunctionAddr corresponds to an instruction, a new function will be<br>
 	 * created at that address.</li>
-	 * </ul>
+	 * </ul> 
+	 * @param referringThunkAddresses provides a list of referring Thunk functions which lead to
+	 * the creation of the function at entry.
 	 */
 	public CreateThunkFunctionCmd(Address entry, AddressSetView body,
 			Address referencedFunctionAddr, List<Address> referringThunkAddresses) {
@@ -143,8 +145,7 @@ public class CreateThunkFunctionCmd extends BackgroundCommand {
 	}
 
 	@Override
-	public boolean applyTo(DomainObject obj, TaskMonitor monitor) {
-		Program program = (Program) obj;
+	public boolean applyTo(Program program, TaskMonitor monitor) {
 
 		FunctionManager functionMgr = program.getFunctionManager();
 
@@ -237,7 +238,7 @@ public class CreateThunkFunctionCmd extends BackgroundCommand {
 	}
 
 	private AddressSetView computeThunkBody(Program program) {
-		if (MemoryBlock.isExternalBlockAddress(entry, program)) {
+		if (program.getMemory().isExternalBlockAddress(entry)) {
 			return new AddressSet(entry, entry);
 		}
 		Listing listing = program.getListing();
@@ -254,6 +255,14 @@ public class CreateThunkFunctionCmd extends BackgroundCommand {
 		return null;
 	}
 
+	/**
+	 * Get the thunkee function the thunking function refers to.
+	 * 
+	 * @param autoThunkOK if true, discover the thunkee function
+	 * @param program program
+	 * @param monitor for canceling
+	 * @return referenced function
+	 */
 	private Function getReferencedFunction(boolean autoThunkOK, Program program,
 			TaskMonitor monitor) {
 
@@ -289,6 +298,11 @@ public class CreateThunkFunctionCmd extends BackgroundCommand {
 					return null;
 				}
 			}
+
+			// if still no thunkAddr, grab the first basic block and the call/jump at the end of the block
+			if (referencedFunctionAddr == null || referencedFunctionAddr == Address.NO_ADDRESS) {
+				referencedFunctionAddr = getFirstBlockJumpCall(program, monitor);
+			}
 		}
 		else if (referencedFunctionAddr != null) {
 			// Ignore low-bit for certain languages (e.g., Thumb)
@@ -306,7 +320,7 @@ public class CreateThunkFunctionCmd extends BackgroundCommand {
 		if (f == null) {
 			// If referencedFunctionAddr contained within EXTERNAL block attempt to 
 			// create a thunk function for it
-			if (MemoryBlock.isExternalBlockAddress(referencedFunctionAddr, program)) {
+			if (program.getMemory().isExternalBlockAddress(referencedFunctionAddr)) {
 				CreateThunkFunctionCmd extThunkCmd =
 					new CreateThunkFunctionCmd(referencedFunctionAddr, false);
 				if (extThunkCmd.applyTo(program)) {
@@ -327,7 +341,7 @@ public class CreateThunkFunctionCmd extends BackgroundCommand {
 			Symbol s = program.getSymbolTable().getPrimarySymbol(referencedFunctionAddr);
 			if (s != null) {
 				ExternalLocation extLoc = (ExternalLocation) s.getObject();
-				Msg.debug(this,
+				Msg.trace(this,
 					"Converting external location to function as a result of thunk at: " + entry);
 				return extLoc.createFunction();
 			}
@@ -361,6 +375,37 @@ public class CreateThunkFunctionCmd extends BackgroundCommand {
 		}
 		setStatusMsg("Failed to create thunk at " + entry +
 			": unable to create thunked-function at " + referencedFunctionAddr);
+		return null;
+	}
+
+	/**
+	 * Get the first blocks unconditional jump or call destination
+	 * 
+	 * @param program program
+	 * @param monitor monitor for potentially long operation
+	 * @return first blocks unconditional call/jump, null if none in first block
+	 */
+	private Address getFirstBlockJumpCall(Program program, TaskMonitor monitor) {
+		SimpleBlockModel simpleBlockModel = new SimpleBlockModel(program);
+
+		try {
+			CodeBlock codeBlockAt = simpleBlockModel.getCodeBlockAt(entry, monitor);
+			if (codeBlockAt == null) {
+				return null;
+			}
+			CodeBlockReferenceIterator destinations = codeBlockAt.getDestinations(monitor);
+			while (destinations.hasNext()) {
+				CodeBlockReference destRef = destinations.next();
+				FlowType flowType = destRef.getFlowType();
+				if ((flowType.isCall() || flowType.isJump()) && flowType.isUnConditional()) {
+					return destRef.getDestinationAddress();
+				}
+			}
+		}
+		catch (CancelledException e) {
+			// ignore
+		}
+
 		return null;
 	}
 
@@ -407,25 +452,25 @@ public class CreateThunkFunctionCmd extends BackgroundCommand {
 
 		// get the basic block
 		//
-		// NOTE: Assumption, target addres must be computable in single flow, or else isn't a thunk
+		// NOTE: Assumption, target address must be computable in single flow, or else isn't a thunk
 
 		BasicBlockModel basicBlockModel = new BasicBlockModel(program);
-
 		final CodeBlock jumpBlockAt =
 			basicBlockModel.getFirstCodeBlockContaining(location, monitor);
-		// If the jump target can has a computable target with only the instructions in the basic block it is found in
-		//  then it isn't a switch statment
-		//
-		// NOTE: Assumption, we have found all flows leading to the switch that might split the basic block
+		if (jumpBlockAt == null) {
+			return false;
+		}
 
 		final AtomicInteger foundCount = new AtomicInteger(0);
-		SymbolicPropogator prop = new SymbolicPropogator(program);
+		SymbolicPropogator prop = new SymbolicPropogator(program,false);
 
+		// try to compute the thunk by flowing constants from the start of the block
 		prop.flowConstants(jumpBlockAt.getFirstStartAddress(), jumpBlockAt,
 			new ContextEvaluatorAdapter() {
 				@Override
 				public boolean evaluateReference(VarnodeContext context, Instruction instr,
-						int pcodeop, Address address, int size, RefType refType) {
+						int pcodeop, Address address, int size, DataType dataType,
+						RefType refType) {
 					// go ahead and place the reference, since it is a constant.
 					if (refType.isComputed() && refType.isFlow() &&
 						program.getMemory().contains(address)) {
@@ -450,8 +495,8 @@ public class CreateThunkFunctionCmd extends BackgroundCommand {
 					BigInteger value = context.getValue(isaModeSwitchRegister, false);
 					if (value != null && program.getListing().getInstructionAt(addr) == null) {
 						try {
-							program.getProgramContext().setValue(isaModeRegister, addr, addr,
-								value);
+							program.getProgramContext()
+									.setValue(isaModeRegister, addr, addr, value);
 						}
 						catch (ContextChangeException e) {
 							// ignore
@@ -494,7 +539,7 @@ public class CreateThunkFunctionCmd extends BackgroundCommand {
 	/**
 	 * Get the address that this function would thunk if it is a valid thunk
 	 *
-	 * @param program
+	 * @param program the program
 	 * @param entry location to check for a thunk
 	 * @param checkForSideEffects true if there should be no extra registers affected
 	 *
@@ -518,6 +563,13 @@ public class CreateThunkFunctionCmd extends BackgroundCommand {
 		Listing listing = program.getListing();
 
 		Instruction instr = listing.getInstructionAt(entry);
+
+		// if there is no pcode, go to the next instruction
+		// assume fallthrough (ie. x86 instruction ENDBR64)
+		// TODO: at some point, might need to do a NOP detection
+		if (instr != null && instr.getPcode().length == 0) {
+			instr = listing.getInstructionAfter(entry);
+		}
 		if (instr == null) {
 			return null;
 		}
@@ -562,7 +614,7 @@ public class CreateThunkFunctionCmd extends BackgroundCommand {
 
 				// Storing to a location is not allowed for a thunk
 				//   as a side-effect of the thunk.
-				if (pcodeOp.getOpcode() == PcodeOp.STORE) {
+				if (checkForSideEffects && pcodeOp.getOpcode() == PcodeOp.STORE) {
 					return null;
 				}
 
@@ -583,6 +635,8 @@ public class CreateThunkFunctionCmd extends BackgroundCommand {
 
 			// keep going if flow target is right below, allow only a simple branch.
 			if (isLocalBranch(listing, instr, flowType)) {
+				Address[] flows = instr.getFlows();
+				instr = listing.getInstructionAt(flows[0]);
 				continue;
 			}
 
@@ -615,18 +669,20 @@ public class CreateThunkFunctionCmd extends BackgroundCommand {
 	}
 
 	/**
-	 * Handle conversion of label within reserved EXTERNAL block to a real 
-	 * external function which can be thunked.  This may be necessary when a
-	 * loaded symbol failed to identify itself as a function.  This will 
-	 * only handle single symbols contained within the global namespace.
+	 * Facilitates conversion of a global label within the reserved EXTERNAL block to an 
+	 * external function which can be thunked.  This may be necessary when a loaded symbol 
+	 * failed to identify itself as a function.
+	 * <p>
+	 * NOTE: If a suitable External symbol is found or created the original symbol for the 
+	 * thunk function will be removed.
 	 * 
-	 * @param program 
+	 * @param program the program
 	 * @param entry function being created
 	 * @return newly created external function address or null
 	 */
 	static Address getThunkedExternalFunctionAddress(Program program, Address entry) {
 
-		if (!MemoryBlock.isExternalBlockAddress(entry, program)) {
+		if (!program.getMemory().isExternalBlockAddress(entry)) {
 			return null;
 		}
 
@@ -641,11 +697,30 @@ public class CreateThunkFunctionCmd extends BackgroundCommand {
 			return null;
 		}
 		try {
-			Msg.debug(CreateFunctionCmd.class, "Creating external function symbol: " + s.getName());
 			ExternalManager extMgr = program.getExternalManager();
-			ExternalLocation extLoc =
-				extMgr.addExtFunction(Library.UNKNOWN, s.getName(), null, s.getSource());
-			return extLoc.getExternalSpaceAddress();
+
+			Symbol externalSymbol = null;
+			for (Symbol symbol : symbolTable.getSymbols(s.getName())) {
+				// Only consider external symbols directly in a Library root Namespace
+				if (!symbol.isExternal() || !symbol.getParentNamespace().isLibrary()) {
+					continue;
+				}
+				if (externalSymbol != null) {
+					// multiple ambiguous external symbols - can't decide
+					return null;
+				}
+				externalSymbol = symbol;
+			}
+
+			if (externalSymbol == null) {
+				ExternalLocation extLoc =
+					extMgr.addExtFunction(Library.UNKNOWN, s.getName(), null, s.getSource());
+				externalSymbol = extLoc.getSymbol();
+			}
+
+			s.delete(); // remove original symbol from EXTERNAL block
+
+			return externalSymbol.getAddress();
 		}
 		catch (DuplicateNameException | InvalidInputException e) {
 			// ignore - unexpected
@@ -653,14 +728,35 @@ public class CreateThunkFunctionCmd extends BackgroundCommand {
 		return null;
 	}
 
+	// Check for a local branch, which is an unconditional branch that jumps at most
+	// 8 bytes ahead to allow for embedded addresses or mini thunks to another thunk.
+	//
+	// An example of a mini thunk is an Arm Thumb function that converts to ARM code
+	// to for calling another function that is Arm code.
+	//
 	private static boolean isLocalBranch(Listing listing, Instruction instr, FlowType flowType) {
-		if ((flowType.isJump() && !flowType.isConditional())) {
-			Address[] flows = instr.getFlows();
-			// allow a jump of 4 instructions forward.
-			if (flows.length == 1 && Math.abs(flows[0].subtract(instr.getMinAddress())) <= 4) {
-				return true;
-			}
+		// if not a jump instruction, or is a conditional jump, not local branch
+		if (!flowType.isJump() || flowType.isConditional()) {
+			return false;
 		}
+
+		Address[] flows = instr.getFlows();
+		if (flows.length != 1) {
+			// no branch, or more than one branch is not local
+			return false;
+		}
+
+		// if not in same address space, can't be a local branch
+		Address minAddress = instr.getMinAddress();
+		if (!minAddress.hasSameAddressSpace(flows[0])) {
+			return false;
+		}
+
+		// allow a jump of 8 bytes forward to allow for an embedded address
+		if (Math.abs(flows[0].subtract(instr.getMinAddress())) <= 8) {
+			return true;
+		}
+
 		return false;
 	}
 
@@ -668,36 +764,66 @@ public class CreateThunkFunctionCmd extends BackgroundCommand {
 			FlowType flowType, boolean checkForSideEffects, HashSet<Varnode> setRegisters,
 			HashSet<Varnode> usedRegisters) {
 
-		// conditional jumps can't be thunks.
-		// any other flow, not good
-		Address flowingAddr = null;
-		if ((flowType.isJump() || flowType.equals(RefType.COMPUTED_CALL_TERMINATOR) ||
-			flowType.equals(RefType.CALL_TERMINATOR)) && !flowType.isConditional()) {
-			// program counter should be assumed to be used
-
-			// assume PC is used when considering registers that have been set
-			Register PC = program.getLanguage().getProgramCounter();
-			if (PC != null) {
-				usedRegisters.add(new Varnode(PC.getAddress(), PC.getMinimumByteSize()));
+		// conditional jumps/call terminators can't be thunks,
+		// unless not checkingForSideEffects and just trying to get possible thunk address.
+		
+		boolean isJump = flowType.isJump();
+		boolean isCall = flowType.isCall();
+		boolean isConditional = flowType.isConditional();
+		
+		// only jump/call are allowed
+		if (!(isJump || isCall)) {
+			return null;
+		}
+		
+		// no conditional jumps allowed
+		if (isJump && isConditional) {
+			return null;
+		}
+		
+		if (isCall) {
+			// Any conditional call considered as having side-effects
+			if (isConditional && checkForSideEffects) {
+				return null;
 			}
-			setRegisters.removeAll(usedRegisters);
-
-			// check that the setRegisters are all hidden, meaning don't care.
-			for (Iterator<Varnode> iterator = setRegisters.iterator(); iterator.hasNext();) {
-				Varnode rvnode = iterator.next();
-				Register reg = program.getRegister(rvnode);
-				// the register pcode access could have fallen in the middle of a valid register
-				//  thus no register will exist at the varnode
-				if (reg != null && reg.isHidden()) {
-					iterator.remove();
+			// CALL_TERMINATOR, COMPUTED_CALL_TERMINATOR
+			else if (!flowType.isTerminal()) {
+				if (flowType == COMPUTED_CALL ||
+					flowType == UNCONDITIONAL_CALL) {
+					// consider any simple call having side-effects
+					if (checkForSideEffects) {
+						return null;
+					}
 				}
 			}
+		}
+		
+		// program counter should be assumed to be used
+		// assume PC is used when considering registers that have been set
+		Register PC = program.getLanguage().getProgramCounter();
+		if (PC != null) {
+			usedRegisters.add(new Varnode(PC.getAddress(), PC.getMinimumByteSize()));
+		}
+		setRegisters.removeAll(usedRegisters);
 
-			// if not checking for sideEffect registers set, or there are no side-effects
-			if (!checkForSideEffects || setRegisters.size() == 0) {
-				flowingAddr = getFlowingAddress(program, instr);
+		// check that the setRegisters are all hidden, meaning don't care.
+		for (Iterator<Varnode> iterator = setRegisters.iterator(); iterator.hasNext();) {
+			Varnode rvnode = iterator.next();
+			Register reg = program.getRegister(rvnode);
+			// the register pcode access could have fallen in the middle of a valid register
+			//  thus no register will exist at the varnode
+			if (reg != null && reg.isHidden()) {
+				iterator.remove();
 			}
 		}
+
+		Address flowingAddr = null;
+		
+		// if not checking for sideEffect registers set, or there are no side-effects
+		if (!checkForSideEffects || setRegisters.size() == 0) {
+			flowingAddr = getFlowingAddress(program, instr);
+		}
+		
 		return flowingAddr;
 	}
 
@@ -796,6 +922,9 @@ public class CreateThunkFunctionCmd extends BackgroundCommand {
 		}
 		// check the parent varnode
 		Register register = program.getRegister(regVarnode);
+		if (register == null) {
+			return false;
+		}
 		Register parentRegister = register.getParentRegister();
 		if (parentRegister == null) {
 			return false;
@@ -849,6 +978,9 @@ public class CreateThunkFunctionCmd extends BackgroundCommand {
 
 	/**
 	 * Check if this is a Thunking function.
+	 * 
+	 * @param program the program
+	 * @param func function to check
 	 *
 	 * @return true if this is a function thunking another.
 	 */

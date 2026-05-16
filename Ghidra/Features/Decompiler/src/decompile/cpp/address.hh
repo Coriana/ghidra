@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,19 +16,32 @@
 /// \file address.hh
 /// \brief Classes for specifying addresses and other low-level constants
 ///
-///  All addresses are absolute and there are are no registers in CPUI. However,
+///  All addresses are absolute and there are no registers in CPUI. However,
 ///  all addresses are prefixed with an "immutable" pointer, which can
 ///  specify a separate RAM space, a register space, an i/o space etc. Thus
 ///  a translation from a real machine language will typically simulate registers
 ///  by placing them in their own space, separate from RAM. Indirection
 ///  (i.e. pointers) must be simulated through the LOAD and STORE ops.
 
-#ifndef __CPUI_ADDR__
-#define __CPUI_ADDR__
+#ifndef __ADDRESS_HH__
+#define __ADDRESS_HH__
 
 #include "space.hh"
 
+namespace ghidra {
+
 class AddrSpaceManager;
+
+extern AttributeId ATTRIB_FIRST;	///< Marshaling attribute "first"
+extern AttributeId ATTRIB_LAST;		///< Marshaling attribute "last"
+extern AttributeId ATTRIB_UNIQ;		///< Marshaling attribute "uniq"
+
+extern ElementId ELEM_ADDR;		///< Marshaling element \<addr>
+extern ElementId ELEM_RANGE;		///< Marshaling element \<range>
+extern ElementId ELEM_RANGELIST;	///< Marshaling element \<rangelist>
+extern ElementId ELEM_REGISTER;		///< Marshaling element \<register>
+extern ElementId ELEM_SEQNUM;		///< Marshaling element \<seqnum>
+extern ElementId ELEM_VARNODE;		///< Marshaling element \<varnode>
 
 /// \brief A low-level machine address for labelling bytes and data.
 ///
@@ -65,34 +78,31 @@ public:
   int4 read(const string &s); ///< Read in the address from a string
   AddrSpace *getSpace(void) const; ///< Get the address space
   uintb getOffset(void) const;  ///< Get the address offset
-  void toPhysical(void);       ///< Convert this to a physical address
   char getShortcut(void) const;	///< Get the shortcut character for the address space
   Address &operator=(const Address &op2); ///< Copy an address
   bool operator==(const Address &op2) const; ///< Compare two addresses for equality
   bool operator!=(const Address &op2) const; ///< Compare two addresses for inequality
   bool operator<(const Address &op2) const; ///< Compare two addresses via their natural ordering
   bool operator<=(const Address &op2) const; ///< Compare two addresses via their natural ordering
-  Address operator+(int4 off) const; ///< Increment address by a number of bytes
-  Address operator-(int4 off) const; ///< Decrement address by a number of bytes
+  Address operator+(int8 off) const; ///< Increment address by a number of bytes
+  Address operator-(int8 off) const; ///< Decrement address by a number of bytes
   friend ostream &operator<<(ostream &s,const Address &addr);  ///< Write out an address to stream
   bool containedBy(int4 sz,const Address &op2,int4 sz2) const;	///< Determine if \e op2 range contains \b this range
   int4 justifiedContain(int4 sz,const Address &op2,int4 sz2,bool forceleft) const; ///< Determine if \e op2 is the least significant part of \e this.
-  int4 overlap(int4 skip,const Address &op,int4 size) const; ///< Determine how two address ranges overlap
-  bool isContiguous(int4 sz,const Address &loaddr,int4 losz) const; ///< Does \e this form a contigous range with \e loaddr
+  int4 overlap(int4 skip,const Address &op,int4 size) const; ///< Determine how \b this address falls in a given address range
+  int4 overlapJoin(int4 skip,const Address &op,int4 size) const;	///< Determine how \b this falls in a possible \e join space address range
+  bool isContiguous(int4 sz,const Address &loaddr,int4 losz) const; ///< Does \e this form a contiguous range with \e loaddr
   bool isConstant(void) const; ///< Is this a \e constant \e value
   void renormalize(int4 size);	///< Make sure there is a backing JoinRecord if \b this is in the \e join space
   bool isJoin(void) const;	///< Is this a \e join \e value
-  void saveXml(ostream &s) const; ///< Save this to a stream as an XML tag
-  void saveXml(ostream &s,int4 size) const; ///< Save this and a size to a stream as an XML tag
+  void encode(Encoder &encoder) const; ///< Encode \b this to a stream
+  void encode(Encoder &encoder,int4 size) const; ///< Encode \b this and a size to a stream
 
-  /// Restore an address from parsed XML
-  static Address restoreXml(const Element *el,const AddrSpaceManager *manage);
+  /// Decode an address from a stream
+  static Address decode(Decoder &decoder);
 
-  /// Restore an address and size from parsed XML
-  static Address restoreXml(const Element *el,const AddrSpaceManager *manage,int4 &size);
-
-  /// Recover an encoded address space from an address
-  static AddrSpace *getSpaceFromConst(const Address &addr);
+  /// Decode an address and size from a stream
+  static Address decode(Decoder &decoder,int4 &size);
 };
 
 /// \brief A class for uniquely labelling and comparing PcodeOps
@@ -147,15 +157,17 @@ public:
     return (pc < op2.pc);
   }
 
-  /// Save a SeqNum to a stream as an XML tag
-  void saveXml(ostream &s) const;
+  /// Encode a SeqNum to a stream
+  void encode(Encoder &encoder) const;
 
-  /// Restore a SeqNum from parsed XML
-  static SeqNum restoreXml(const Element *el,const AddrSpaceManager *manage);
+  /// Decode a SeqNum from a stream
+  static SeqNum decode(Decoder &decoder);
 
-  /// Write out a SeqNum to a stream
+  /// Write out a SeqNum in human readable form to a stream
   friend ostream &operator<<(ostream &s,const SeqNum &sq);
 };
+
+class RangeProperties;
 
 /// \brief A contiguous range of bytes in some address space
 class Range {
@@ -172,7 +184,8 @@ public:
   /// \param l is the offset of the last byte in the range
   Range(AddrSpace *s,uintb f,uintb l) {
     spc = s; first = f; last = l; }
-  Range(void) {}					///< Constructor for use with restoreXml
+  Range(void) {}					///< Constructor for use with decode
+  Range(const RangeProperties &properties,const AddrSpaceManager *manage);	///< Construct range out of basic properties
   AddrSpace *getSpace(void) const { return spc; }	///< Get the address space containing \b this Range
   uintb getFirst(void) const { return first; }		///< Get the offset of the first byte in \b this Range
   uintb getLast(void) const { return last; }		///< Get the offset of the last byte in \b this Range
@@ -191,8 +204,24 @@ public:
       return (spc->getIndex() < op2.spc->getIndex());
     return (first < op2.first); }
   void printBounds(ostream &s) const;			///< Print \b this Range to a stream
-  void saveXml(ostream &s) const;			///< Save \b this Range to an XML stream
-  void restoreXml(const Element *el,const AddrSpaceManager *manage);	///< Restore \b this from XML stream
+  void encode(Encoder &encoder) const;			///< Encode \b this Range to a stream
+  void decode(Decoder &decoder);			///< Restore \b this from a stream
+  void decodeFromAttributes(Decoder &decoder);		///< Read \b from attributes on another tag
+};
+
+/// \brief A partially parsed description of a Range
+///
+/// Class that allows \<range> tags to be parsed, when the address space doesn't yet exist
+class RangeProperties {
+  friend class Range;
+  string spaceName;		///< Name of the address space containing the range
+  uintb first;			///< Offset of first byte in the Range
+  uintb last;			///< Offset of last byte in the Range
+  bool isRegister;		///< Range is specified a  register name
+  bool seenLast;		///< End of the range is actively specified
+public:
+  RangeProperties(void) { first = 0; last = 0; isRegister = false; seenLast = false; }
+  void decode(Decoder &decoder);	///< Decode \b this from a stream
 };
 
 /// \brief A disjoint set of Ranges, possibly across multiple address spaces
@@ -220,8 +249,39 @@ public:
   bool inRange(const Address &addr,int4 size) const;		///< Check containment an address range
   uintb longestFit(const Address &addr,uintb maxsize) const;	///< Find size of biggest Range containing given address
   void printBounds(ostream &s) const;				///< Print a description of \b this RangeList to stream
-  void saveXml(ostream &s) const;				///< Write \b this RangeList to an XML stream
-  void restoreXml(const Element *el,const AddrSpaceManager *manage);	///< Restore \b this RangeList from an XML stream
+  void encode(Encoder &encoder) const;				///< Encode \b this RangeList to a stream
+  void decode(Decoder &decoder);				///< Decode \b this RangeList from a \<rangelist> element
+};
+
+/// \brief An endian aware range of bits contained in a contiguous set of bytes
+class BitRange {
+public:
+  int4 byteOffset;		///< Byte offset of the region containing the range
+  int4 byteSize;		///< Size of the region in bytes
+  int4 leastSigBit;		///< Least significant bit of the bit-range within its region
+  int4 numBits;			///< Number of bits in the range
+  bool isBigEndian;		///< Is the underlying encoding big endian
+  BitRange(void) { byteOffset = -1; byteSize = -1; leastSigBit = -1; numBits = -1; isBigEndian = false; }	///< Construct \e undefined range
+  BitRange(int4 bOff,int4 bSize,bool bigEndian) {
+    byteOffset = bOff; byteSize = bSize; leastSigBit = 0; numBits = bSize * 8; isBigEndian = bigEndian; }	///< Construct byte range
+  BitRange(const BitRange &op2,int4 off,int4 sz);	///< Constructor, copy range into new container
+  BitRange(int4 bOff,int4 bSize,int4 least,int4 num,bool bigEndian) { byteOffset = bOff; byteSize = bSize; leastSigBit = least;
+				  numBits = num; isBigEndian = bigEndian; }	///< Constructor
+  bool empty(void) const { return (numBits <= 0); }	///< Return \b true if \b this is an empty bit range (zero bits)
+  int4 compare(const BitRange &op2) const;	///< Compare \b this with another as containers
+  int4 translateLSB(const BitRange &op2) const;	///< Translate the \b leastSigBit of the given range into \b this reference frame
+  int4 overlapTest(const BitRange &op2) const;	///< Characterize the type of overlap between \b this and another range
+  void intersection(const BitRange &op2);	///< Replace \b this with the intersection of \b this with another BitRange
+  void intersectMask(uintb mask);		///< Restrict \b this with a mask that lines up with the container
+  void shift(int4 leftShiftAmount);		///< Replace \b this with the shifted range
+  void truncateMostSigBytes(int4 num);		///< Truncate the most significant bytes in the byte container
+  void truncateLeastSigBytes(int4 num);		///< Truncate the least significant bytes in the byte container
+  void extendBytes(int4 num);			///< Add most significant bytes to the container
+  uintb getMask(void) const;			///< Get mask representing \b this range
+  bool isByteRange(void) const;			///< Return \b true if \b this bit range is also a byte range
+  bool isMostSignificant(void) const;		///< Return \b true if the bit range occupies the most significant bits of the container
+  void minimizeContainer(void);			///< Shrink the container to fit the bit range
+  void expandToMost(void);			///< Expand the bitrange until it includes the most significant bits of the container
 };
 
 /// Precalculated masks indexed by size
@@ -391,7 +451,7 @@ inline bool Address::operator<=(const Address &op2) const {
 /// space, and the Address will wrap around if necessary.
 /// \param off is the number to add to the offset
 /// \return the new incremented address
-inline Address Address::operator+(int4 off) const {
+inline Address Address::operator+(int8 off) const {
   return Address(base,base->wrapOffset(offset+off));
 }
 
@@ -401,8 +461,22 @@ inline Address Address::operator+(int4 off) const {
 /// necessary.
 /// \param off is the number to subtract from the offset
 /// \return the new decremented address
-inline Address Address::operator-(int4 off) const {
+inline Address Address::operator-(int8 off) const {
   return Address(base,base->wrapOffset(offset-off));
+}
+
+/// This method is equivalent to Address::overlap, but a range in the \e join space can be
+/// considered overlapped with its constituent pieces.
+/// If \e this + \e skip falls in the range, \e op to \e op + \e size, then a non-negative integer is
+/// returned indicating where in the interval it falls. Otherwise -1 is returned.
+/// \param skip is an adjust to \e this address
+/// \param op is the start of the range to check
+/// \param size is the size of the range
+/// \return an integer indicating how overlap occurs
+inline int4 Address::overlapJoin(int4 skip,const Address &op,int4 size) const
+
+{
+  return op.getSpace()->overlapJoin(op.getOffset(), size, base, offset, skip);
 }
 
 /// Determine if this address is from the \e constant \e space.
@@ -419,38 +493,27 @@ inline bool Address::isJoin(void) const {
   return (base->getType() == IPTR_JOIN);
 }
 
-/// Save an \b \<addr\> tag corresponding to this address to a
+/// Save an \<addr\> element corresponding to this address to a
 /// stream.  The exact format is determined by the address space,
 /// but this generally has a \e space and an \e offset attribute.
-/// \param s is the stream being written to
-inline void Address::saveXml(ostream &s) const {
-  s << "<addr";
+/// \param encoder is the stream encoder
+inline void Address::encode(Encoder &encoder) const {
+  encoder.openElement(ELEM_ADDR);
   if (base!=(AddrSpace *)0)
-    base->saveXmlAttributes(s,offset);
-  s << "/>";
+    base->encodeAttributes(encoder,offset);
+  encoder.closeElement(ELEM_ADDR);
 }
 
-/// Save an \b \<addr\> tag corresponding to this address to a
+/// Encode an \<addr> element corresponding to this address to a
 /// stream.  The tag will also include an extra \e size attribute
 /// so that it can describe an entire memory range.
-/// \param s is the stream being written to
+/// \param encoder is the stream encoder
 /// \param size is the number of bytes in the range
-inline void Address::saveXml(ostream &s,int4 size) const {
-  s << "<addr";
+inline void Address::encode(Encoder &encoder,int4 size) const {
+  encoder.openElement(ELEM_ADDR);
   if (base!=(AddrSpace *)0)
-    base->saveXmlAttributes(s,offset,size);
-  s << "/>";
-}
-
-/// In \b LOAD and \b STORE instructions, the particular address
-/// space being read/written is encoded as a constant input parameter
-/// to the instruction.  Internally, this constant is the actual
-/// pointer to the AddrSpace.  This function allows the encoded pointer
-/// to be recovered from the address it is encoded in.
-/// \param addr is the Address encoding the pointer
-/// \return the AddrSpace pointer
-inline AddrSpace *Address::getSpaceFromConst(const Address &addr) {
-  return (AddrSpace *)(uintp)addr.offset;
+    base->encodeAttributes(encoder,offset,size);
+  encoder.closeElement(ELEM_ADDR);
 }
 
 /// \param addr is the Address to test for containment
@@ -464,7 +527,19 @@ inline bool Range::contains(const Address &addr) const {
 
 /// \param size is the desired size in bytes
 /// \return a value appropriate for masking off the first \e size bytes
-inline uintb calc_mask(int4 size) { return uintbmasks[(size<8)? size : 8]; }
+inline uintb calc_mask(int4 size) { return uintbmasks[((uint4)size) < 8  ? size : 8]; }
+
+/// \param size of the integer in bytes
+/// \return largest unsigned integer value for given size
+inline uintb calc_uint_max(int4 size) { return calc_mask(size); }
+
+/// \param size of the integer in bytes
+/// \return largest signed integer value for given size
+inline uintb calc_int_max(int4 size) { return calc_mask(size) >> 1; }
+
+/// \param size of the integer in bytes
+/// \return smallest signed integer value for given size
+inline uintb calc_int_min(int4 size) { return (uintb)1 << (size * 8 - 1); }
 
 /// Perform a CPUI_INT_RIGHT on the given val
 /// \param val is the value to shift
@@ -502,13 +577,39 @@ inline uintb minimalmask(uintb val)
   return 0xff;
 }
 
+/// \brief Sign extend above given bit
+///
+/// Sign extend \b val starting at \b bit
+/// \param val is the value to be sign-extended
+/// \param bit is the index of the bit to extend from (0=least significant bit)
+/// \return the sign extended value
+inline intb sign_extend(intb val,int4 bit)
+
+{
+  int4 sa = 8*sizeof(intb) - (bit+1);
+  val = (val << sa) >> sa;
+  return val;
+}
+
+/// \brief Clear all bits above given bit
+///
+/// Zero extend \b val starting at \b bit
+/// \param val is the value to be zero extended
+/// \param bit is the index of the bit to extend from (0=least significant bit)
+/// \return the extended value
+inline intb zero_extend(intb val,int4 bit)
+
+{
+  int4 sa = sizeof(intb)*8 - (bit+1);
+  return (intb)(((uintb)val << sa) >> sa);
+}
+
 extern bool signbit_negative(uintb val,int4 size);	///< Return true if the sign-bit is set
 extern uintb calc_mask(int4 size);			///< Calculate a mask for a given byte size
 extern uintb uintb_negate(uintb in,int4 size);		///< Negate the \e sized value
 extern uintb sign_extend(uintb in,int4 sizein,int4 sizeout);	///< Sign-extend a value between two byte sizes
+extern uintb extend_signbit(uintb val,int4 numbits,int4 size);	///< Extend a signed value of given number of bits to a full integer
 
-extern void sign_extend(intb &val,int4 bit); 		///< Sign extend above given bit
-extern void zero_extend(intb &val,int4 bit);		///< Clear all bits above given bit
 extern void byte_swap(intb &val,int4 size);		///< Swap bytes in the given value
 
 extern uintb byte_swap(uintb val,int4 size);		///< Return the given value with bytes swapped
@@ -520,9 +621,5 @@ extern int4 count_leading_zeros(uintb val);		///< Return the number of leading z
 extern uintb coveringmask(uintb val);			///< Return a mask that \e covers the given value
 extern int4 bit_transitions(uintb val,int4 sz);		///< Calculate the number of bit transitions in the sized value
 
-extern void mult64to128(uint8 *res,uint8 x,uint8 y);
-extern void unsignedSubtract128(uint8 *a,uint8 *b);
-extern int4 unsignedCompare128(uint8 *a,uint8 *b);
-extern int4 power2Divide(int4 n,uint8 divisor,uint8 &q,uint8 &r);
-
+} // End namespace ghidra
 #endif

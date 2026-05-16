@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,7 +15,8 @@
  */
 package help.screenshot;
 
-import java.awt.*;
+import java.awt.Component;
+import java.awt.Rectangle;
 import java.util.Arrays;
 
 import javax.swing.*;
@@ -23,11 +24,10 @@ import javax.swing.table.JTableHeader;
 
 import org.junit.Test;
 
-import docking.DockableComponent;
 import docking.menu.MultiStateDockingAction;
 import docking.util.AnimationUtils;
 import docking.util.image.Callout;
-import docking.util.image.CalloutComponentInfo;
+import docking.util.image.CalloutInfo;
 import docking.widgets.EmptyBorderButton;
 import docking.widgets.filter.*;
 import docking.widgets.table.columnfilter.ColumnBasedTableFilter;
@@ -38,6 +38,7 @@ import docking.widgets.table.constrainteditor.ColumnConstraintEditor;
 import docking.widgets.table.constrainteditor.IntegerConstraintEditor;
 import docking.widgets.table.threaded.ThreadedTableModel;
 import docking.widgets.tree.*;
+import generic.theme.GThemeDefaults.Colors.Palette;
 import ghidra.app.plugin.core.datamgr.DataTypesProvider;
 import ghidra.app.plugin.core.datamgr.tree.DataTypeArchiveGTree;
 import ghidra.app.plugin.core.functionwindow.FunctionWindowProvider;
@@ -86,11 +87,15 @@ public class TreesScreenShots extends GhidraScreenShotGenerator {
 		 	component we provide.   But, we need to be able to translate that component's
 		 	location to a value that is relative to the image (we created the image above by
 		 	capturing the provider using it's DockableComponent).
+		 	
+		 	Important!: since we only captured the provider and not the window, we need to pass in
+		 	the dockable component, which is the same bounds as the provider.  If we pass the parent
+		 	window, then we will be off in the y direction in the amount of all the items above the
+		 	dockable component, such as the window bar, the menu bar, etc.
 		 */
 
-		DockableComponent dc = getDockableComponent(provider);
-
-		CalloutComponentInfo calloutInfo = new CalloutComponentInfo(dc, label);
+		Component dc = getDockableComponent(provider);
+		CalloutInfo calloutInfo = new CalloutInfo(dc, label);
 		calloutInfo.setMagnification(2.75D); // make it a bit bigger than default
 		Callout callout = new Callout();
 		image = callout.createCalloutOnImage(image, calloutInfo);
@@ -102,8 +107,8 @@ public class TreesScreenShots extends GhidraScreenShotGenerator {
 		Rectangle area = new Rectangle();
 		int height = 275;
 		area.x = 0;
-		area.y = 80;
-		area.width = 560;
+		area.y = 60;
+		area.width = 580;
 		area.height = height - area.y;
 		crop(area);
 	}
@@ -182,7 +187,7 @@ public class TreesScreenShots extends GhidraScreenShotGenerator {
 		int x = rectangle.x + rectangle.width - (width - padding) - iconPadding;
 		int y = rectangle.y - padding;
 		Rectangle shapeBounds = new Rectangle(x, y, width, height);
-		drawOval(Color.GREEN.darker(), shapeBounds, thickness);
+		drawOval(Palette.GREEN, shapeBounds, thickness);
 
 	}
 

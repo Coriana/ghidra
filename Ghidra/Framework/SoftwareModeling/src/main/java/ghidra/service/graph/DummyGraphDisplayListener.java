@@ -15,23 +15,28 @@
  */
 package ghidra.service.graph;
 
-import java.util.List;
+import java.util.Set;
 
 public class DummyGraphDisplayListener implements GraphDisplayListener {
 
 	@Override
-	public void graphClosed() {
-		// I'm a dummy
+	public GraphDisplayListener cloneWith(GraphDisplay graphDisplay) {
+		return new DummyGraphDisplayListener();
 	}
 
 	@Override
-	public void selectionChanged(List<String> vertexIds) {
-		// I'm a dummy
+	public void selectionChanged(Set<AttributedVertex> vertices) {
+		// stub
 	}
 
 	@Override
-	public void locationChanged(String vertexId) {
-		// I'm a dummy
+	public void locationFocusChanged(AttributedVertex vertex) {
+		// stub
+	}
+
+	@Override
+	public void dispose() {
+		// stub
 	}
 
 }

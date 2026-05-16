@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -26,11 +26,14 @@ import mdemangler.MDMang;
  * Enums.
  */
 public abstract class AbstractComplexMsType extends AbstractMsType {
-
-	protected int count;
+	// -1 is a flag to prevent the count from being emitted, which is what is desired if there
+	// is not a count field for the child type.  0 and up are valid values.
+	protected int count = -1;
 	protected RecordNumber fieldDescriptorListRecordNumber;
 	protected MsProperty property;
 	protected String name;
+	// Used by MsType and 19MsType; maybe by StMsType; not by 16MsType
+	protected String mangledName;
 
 	/**
 	 * Constructor for this type.
@@ -45,7 +48,7 @@ public abstract class AbstractComplexMsType extends AbstractMsType {
 	 * Constructor for this type.
 	 * @param pdb {@link AbstractPdb} to which this type belongs.
 	 * @param count number of field elements
-	 * @param fieldDescriptorListRecordNumber {@link RecordNumber} of field list 
+	 * @param fieldDescriptorListRecordNumber {@link RecordNumber} of field list
 	 * @param property {@link MsProperty} of this type
 	 * @param name the name of this type
 	 */
@@ -97,6 +100,14 @@ public abstract class AbstractComplexMsType extends AbstractMsType {
 	@Override
 	public String getName() {
 		return name;
+	}
+
+	/**
+	 * Returns the mangled name within this complex type
+	 * @return Mangled name; can be null
+	 */
+	public String getMangledName() {
+		return mangledName;
 	}
 
 	/**

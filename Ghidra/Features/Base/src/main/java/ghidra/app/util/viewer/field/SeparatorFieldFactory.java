@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,9 +19,10 @@ import java.math.BigInteger;
 
 import docking.widgets.fieldpanel.field.*;
 import docking.widgets.fieldpanel.support.FieldLocation;
-import ghidra.app.util.HighlightProvider;
+import ghidra.app.util.ListingHighlightProvider;
 import ghidra.app.util.viewer.format.FieldFormatModel;
 import ghidra.app.util.viewer.listingpanel.ListingModel;
+import ghidra.app.util.viewer.proxy.AddressProxy;
 import ghidra.app.util.viewer.proxy.ProxyObj;
 import ghidra.framework.options.Options;
 import ghidra.framework.options.ToolOptions;
@@ -48,11 +49,11 @@ public class SeparatorFieldFactory extends FieldFactory {
 	/**
 	 * Constructor
 	 * @param model the model that the field belongs to.
-	 * @param hsProvider the HightLightStringProvider.
+	 * @param hlProvider the HightLightStringProvider.
 	 * @param displayOptions the Options for display properties.
 	 * @param fieldOptions the Options for field specific properties.
 	 */
-	private SeparatorFieldFactory(FieldFormatModel model, HighlightProvider hlProvider,
+	private SeparatorFieldFactory(FieldFormatModel model, ListingHighlightProvider hlProvider,
 			Options displayOptions, Options fieldOptions) {
 		super(FIELD_NAME, model, hlProvider, displayOptions, fieldOptions);
 	}
@@ -65,13 +66,17 @@ public class SeparatorFieldFactory extends FieldFactory {
 		if (!enabled) {
 			return null;
 		}
+		if (!(proxy instanceof AddressProxy)) {
+			return null;
+		}
 		int numChars = width / getMetrics().charWidth(sepChar);
 		sb.setLength(0);
 		for (int i = 0; i < numChars; i++) {
 			sb.append(sepChar);
 		}
 
-		AttributedString as = new AttributedString(sb.toString(), color, getMetrics());
+		AttributedString as =
+			new AttributedString(sb.toString(), ListingColors.SEPARATOR, getMetrics());
 		FieldElement text = new TextFieldElement(as, 0, 0);
 		return ListingTextField.createSingleLineTextField(this, proxy, text, startX + varWidth,
 			width, hlProvider);
@@ -114,9 +119,8 @@ public class SeparatorFieldFactory extends FieldFactory {
 	}
 
 	@Override
-	public FieldFactory newInstance(FieldFormatModel formatModel, HighlightProvider provider,
+	public FieldFactory newInstance(FieldFormatModel formatModel, ListingHighlightProvider provider,
 			ToolOptions displayOptions, ToolOptions fieldOptions) {
 		return new SeparatorFieldFactory(formatModel, provider, displayOptions, fieldOptions);
 	}
-
 }

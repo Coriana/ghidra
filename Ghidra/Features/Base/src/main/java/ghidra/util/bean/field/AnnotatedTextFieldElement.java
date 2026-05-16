@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,14 +18,15 @@ package ghidra.util.bean.field;
 import docking.widgets.fieldpanel.field.*;
 import docking.widgets.fieldpanel.support.RowColLocation;
 import ghidra.app.nav.Navigatable;
-import ghidra.app.util.viewer.field.Annotation;
+import ghidra.app.util.viewer.field.*;
 import ghidra.framework.plugintool.ServiceProvider;
+import ghidra.program.model.listing.Program;
 import ghidra.program.util.ProgramLocation;
 
 /**
- * A subclass of {@link FieldElement} that allows for mouse handling callbacks via the 
+ * A subclass of {@link FieldElement} that allows for mouse handling callbacks via the
  * {@link #handleMouseClicked(Navigatable, ServiceProvider)} method.  This class
- * is based upon {@link Annotation} objects, which are elements that perform actions when the 
+ * is based upon {@link Annotation} objects, which are elements that perform actions when the
  * use clicks an instance of this class in the display.
  */
 final public class AnnotatedTextFieldElement extends AbstractTextFieldElement {
@@ -41,15 +42,18 @@ final public class AnnotatedTextFieldElement extends AbstractTextFieldElement {
 
 	/**
 	 * Constructor that initializes this text field element with the given annotation and row
-	 * and column information.  The text of this element is the text returned from
-	 * {@link Annotation#getDisplayString()}.
+	 * and column information.  The text of this element is the display text created by the 
+	 * annotation handler for the given annotation.
 	 * 
 	 * @param annotation The Annotation that this element is describing.
+	 * @param prototype the prototype string used to create new strings
+	 * @param program the program
 	 * @param row The row that this element is on
 	 * @param column The column value of this element (the column index where this element starts)
 	 */
-	public AnnotatedTextFieldElement(Annotation annotation, int row, int column) {
-		this(annotation, annotation.getDisplayString(), row, column);
+	public AnnotatedTextFieldElement(Annotation annotation, AttributedString prototype,
+			Program program, int row, int column) {
+		this(annotation, getDisplayString(annotation, prototype, program), row, column);
 	}
 
 	/**
@@ -61,8 +65,32 @@ final public class AnnotatedTextFieldElement extends AbstractTextFieldElement {
 		return annotation.getAnnotationText();
 	}
 
+	public String getDisplayString() {
+		return attributedString.getText();
+	}
+
+	private static AttributedString getDisplayString(Annotation a, AttributedString prototype,
+			Program program) {
+
+		String[] annotationParts = a.getAnnotationParts();
+		AnnotatedStringHandler handler = CommentUtils.getAnnotationHandler(annotationParts);
+
+		AttributedString displayString;
+		try {
+			displayString = handler.createAnnotatedString(prototype, annotationParts, program);
+		}
+		catch (AnnotationException ae) {
+			// uh-oh
+			handler =
+				new InvalidAnnotatedStringHandler("Annotation Exception: " + ae.getMessage());
+			displayString = handler.createAnnotatedString(prototype, annotationParts, program);
+		}
+
+		return displayString;
+	}
+
 	/**
-	 * This method is designed to be called when a mouse click has occurred for a given 
+	 * This method is designed to be called when a mouse click has occurred for a given
 	 * {@link ProgramLocation}.
 	 * 
 	 * @param sourceNavigatable The source Navigatable
@@ -71,19 +99,23 @@ final public class AnnotatedTextFieldElement extends AbstractTextFieldElement {
 	 */
 	public boolean handleMouseClicked(Navigatable sourceNavigatable,
 			ServiceProvider serviceProvider) {
-		return annotation.handleMouseClick(sourceNavigatable, serviceProvider);
+
+		String[] annotationParts = annotation.getAnnotationParts();
+		AnnotatedStringHandler handler = CommentUtils.getAnnotationHandler(annotationParts);
+		return handler.handleMouseClick(annotationParts, sourceNavigatable,
+			serviceProvider);
 	}
 
 	@Override
 	public RowColLocation getDataLocationForCharacterIndex(int characterIndex) {
-		return new RowColLocation(row, column);
+		return new RowColLocation(row, column + characterIndex);
 	}
 
 	@Override
 	public int getCharacterIndexForDataLocation(int dataRow, int dataColumn) {
 		if (row == dataRow) {
 			if (dataColumn >= column && dataColumn < column + attributedString.length()) {
-				return 0;
+				return dataColumn - column;
 			}
 		}
 		return -1;
@@ -103,4 +135,5 @@ final public class AnnotatedTextFieldElement extends AbstractTextFieldElement {
 		return new AnnotatedTextFieldElement(annotation,
 			attributedString.replaceAll(targets, replacement), row, column);
 	}
+
 }

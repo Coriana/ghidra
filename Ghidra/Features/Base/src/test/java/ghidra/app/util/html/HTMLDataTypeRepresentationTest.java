@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -25,11 +25,11 @@ import java.util.regex.Pattern;
 
 import javax.swing.*;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.*;
 
 import docking.widgets.label.GDHtmlLabel;
 import generic.test.AbstractGenericTest;
+import generic.theme.GThemeDefaults.Colors;
 import ghidra.app.util.ToolTipUtils;
 import ghidra.program.model.data.*;
 import ghidra.program.model.data.Composite;
@@ -47,7 +47,9 @@ public class HTMLDataTypeRepresentationTest extends AbstractGenericTest {
 		DataType dataTypeCopy = composite.copy(null);
 		Composite compositeCopy = (Composite) dataTypeCopy;
 		int fieldIndex = 0;
-		setName(compositeCopy, fieldIndex);
+
+		DataTypeComponent component = compositeCopy.getComponent(fieldIndex);
+		component.setFieldName("newName");
 
 		HTMLDataTypeRepresentation representation = ToolTipUtils.getHTMLRepresentation(composite);
 		HTMLDataTypeRepresentation otherRepresentation =
@@ -361,8 +363,8 @@ public class HTMLDataTypeRepresentationTest extends AbstractGenericTest {
 
 	private String getParamText(String html) {
 
-		// function html format: 
-		// 	<HTML>void&nbsp;myFunction(<BR>&nbsp;&nbsp;&nbsp;&nbsp;byte&nbsp;)<BR></HTML>
+		// function html format:
+		// 	<html>void&nbsp;myFunction(<BR>&nbsp;&nbsp;&nbsp;&nbsp;byte&nbsp;)<BR></HTML>
 
 		Pattern p = Pattern.compile("\\((.*)\\)");
 		Matcher matcher = p.matcher(html);
@@ -739,7 +741,11 @@ public class HTMLDataTypeRepresentationTest extends AbstractGenericTest {
 		assertOnlyTypeDefNamesDifferent(diff);
 	}
 
+	/**
+	 * Test marked as ignored pending HTML rendering fix - see GP-1974
+	 */
 	@Test
+	@Ignore
 	public void testTypeDefDiff_ArraysOfStructures_DifferentStructures() {
 
 		Structure s1 = getStructWithEnum();
@@ -785,8 +791,8 @@ public class HTMLDataTypeRepresentationTest extends AbstractGenericTest {
 		assertEquals("ccc ddd", l3a.get(1));
 
 		//[a bbbbbbbb, bbbbbbbbbb, bbbbbbbbbb, bbbbbb c]
-		List<String> l4 = HTMLDataTypeRepresentation.breakLongLineAtWordBoundaries(
-			"a bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb c", 10);
+		List<String> l4 = HTMLDataTypeRepresentation
+				.breakLongLineAtWordBoundaries("a bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb c", 10);
 		assertEquals(4, l4.size());
 		assertEquals("a bbbbbbbb", l4.get(0));
 		assertEquals("bbbbbbbbbb", l4.get(1));
@@ -813,19 +819,25 @@ public class HTMLDataTypeRepresentationTest extends AbstractGenericTest {
 
 		List<ValidatableLine> h1 = td1.headerContent;
 		List<ValidatableLine> h2 = td2.headerContent;
-		Assert.assertNotEquals("TypeDef diff should have different headers", h1, h2);
+		Assert.assertNotEquals("Typedef diff should have different headers", h1, h2);
 
-		List<ValidatableLine> b1 = td1.bodyContent;
-		List<ValidatableLine> b2 = td2.bodyContent;
+//		List<ValidatableLine> b1 = td1.bodyContent;
+//		List<ValidatableLine> b2 = td2.bodyContent;
 
 		// crude, but effective
-		String s1 = b1.toString();
-		String s2 = b2.toString();
+		String s1 = h1.toString();
+		String s2 = h2.toString();
 
-		String size1 = s1.replaceAll(".*Size: (\\d+).*", "$1");
-		String size2 = s2.replaceAll(".*Size: (\\d+).*", "$1");
+		Pattern p = Pattern.compile(".*Length: (\\d+).*");
+		Matcher m1 = p.matcher(s1);
+		assertTrue("Typedef length not found", m1.find());
+		String size1 = m1.group(1);
 
-		Assert.assertNotEquals("TypeDef diff should have different Size values", size1, size2);
+		Matcher m2 = p.matcher(s2);
+		assertTrue("Typedef length not found", m2.find());
+		String size2 = m2.group(1);
+
+		Assert.assertNotEquals("Typedef diff should have different Length values", size1, size2);
 	}
 
 	private void assertTypeDefsSame(HTMLDataTypeRepresentation[] diff) {
@@ -1209,18 +1221,6 @@ public class HTMLDataTypeRepresentationTest extends AbstractGenericTest {
 		}
 	}
 
-	private void setName(Composite c, int fieldIndex) {
-		DataTypeComponent component = c.getComponent(fieldIndex);
-		try {
-			component.setFieldName("newName");
-		}
-		catch (DuplicateNameException e) {
-			// shouldn't happen
-			e.printStackTrace();
-			Assert.fail("Unexpected duplicate name");
-		}
-	}
-
 	private void assertCompositeHeaderEquals(HTMLDataTypeRepresentation[] diffedRepresentations) {
 		List<ValidatableLine> headerLines =
 			((CompositeDataTypeHTMLRepresentation) diffedRepresentations[0]).headerContent;
@@ -1465,7 +1465,7 @@ public class HTMLDataTypeRepresentationTest extends AbstractGenericTest {
 		StringBuffer buffy1 = new StringBuffer(rightHtml);
 		JLabel rightLabel = new GDHtmlLabel();
 		rightLabel.setOpaque(true);
-		rightLabel.setBackground(Color.WHITE);
+		rightLabel.setBackground(Colors.BACKGROUND);
 		rightLabel.setVerticalAlignment(SwingConstants.TOP);
 		rightPanel.add(rightLabel);
 
@@ -1475,7 +1475,7 @@ public class HTMLDataTypeRepresentationTest extends AbstractGenericTest {
 		StringBuffer buffy2 = new StringBuffer(leftHtml);
 		JLabel leftLabel = new GDHtmlLabel();
 		leftLabel.setOpaque(true);
-		leftLabel.setBackground(Color.WHITE);
+		leftLabel.setBackground(Colors.BACKGROUND);
 		leftLabel.setVerticalAlignment(SwingConstants.TOP);
 		leftPanel.add(leftLabel);
 

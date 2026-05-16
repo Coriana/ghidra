@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,21 +16,19 @@
 package ghidra.file.formats.ubi;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 
-import generic.continues.RethrowContinuesFactory;
-import ghidra.app.util.bin.BinaryReader;
-import ghidra.app.util.bin.ByteProvider;
+import ghidra.app.util.bin.*;
 import ghidra.app.util.bin.format.macho.CpuTypes;
 import ghidra.app.util.bin.format.ubi.FatArch;
 import ghidra.app.util.bin.format.ubi.FatHeader;
 import ghidra.formats.gfilesystem.*;
 import ghidra.formats.gfilesystem.annotations.FileSystemInfo;
 import ghidra.formats.gfilesystem.factory.GFileSystemBaseFactory;
+import ghidra.formats.gfilesystem.fileinfo.FileAttributeType;
+import ghidra.formats.gfilesystem.fileinfo.FileAttributes;
 import ghidra.program.model.lang.Processor;
-import ghidra.util.BoundedInputStream;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
 
@@ -45,9 +43,14 @@ public class UniversalBinaryFileSystem extends GFileSystemBase {
 	}
 
 	@Override
-	public String getInfo(GFile file, TaskMonitor monitor) {
+	public FileAttributes getFileAttributes(GFile file, TaskMonitor monitor) {
 		int index = list.indexOf(file);
-		return (index != -1) ? header.getArchitectures().get(index).toString() : null;
+		FileAttributes result = new FileAttributes();
+		if (index != -1) {
+			result.add(FileAttributeType.COMMENT_ATTR,
+				header.getArchitectures().get(index).toString());
+		}
+		return result;
 	}
 
 	@Override
@@ -70,7 +73,7 @@ public class UniversalBinaryFileSystem extends GFileSystemBase {
 	@Override
 	public void open(TaskMonitor monitor) throws IOException, CancelledException {
 		try {
-			header = FatHeader.createFatHeader(RethrowContinuesFactory.INSTANCE, provider);
+			header = new FatHeader(provider);
 			List<FatArch> architectures = header.getArchitectures();
 			for (FatArch architecture : architectures) {
 				Processor processor =
@@ -89,17 +92,21 @@ public class UniversalBinaryFileSystem extends GFileSystemBase {
 	}
 
 	@Override
-	protected InputStream getData(GFile file, TaskMonitor monitor)
+	public ByteProvider getByteProvider(GFile file, TaskMonitor monitor)
 			throws IOException, CancelledException {
 
 		int index = list.indexOf(file);
+
+		if (index == -1) {
+			return null;
+		}
 
 		List<FatArch> architectures = header.getArchitectures();
 
 		FatArch architecture = architectures.get(index);
 
-		return new BoundedInputStream(provider.getInputStream(architecture.getOffset()),
-			architecture.getSize());
+		return new ByteProviderWrapper(provider, architecture.getOffset(), architecture.getSize(),
+			file.getFSRL());
 	}
 
 	@Override

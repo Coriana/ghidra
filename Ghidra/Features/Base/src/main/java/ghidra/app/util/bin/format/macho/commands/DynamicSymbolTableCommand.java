@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,137 +19,126 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-import ghidra.app.util.bin.format.FactoryBundledWithBinaryReader;
+import ghidra.app.util.bin.BinaryReader;
 import ghidra.app.util.bin.format.macho.*;
 import ghidra.app.util.importer.MessageLog;
 import ghidra.program.flatapi.FlatProgramAPI;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.*;
-import ghidra.program.model.listing.Data;
-import ghidra.program.model.listing.ProgramModule;
-import ghidra.program.model.symbol.RefType;
+import ghidra.program.model.listing.*;
+import ghidra.program.model.symbol.*;
 import ghidra.program.model.util.CodeUnitInsertionException;
+import ghidra.util.exception.CancelledException;
 import ghidra.util.exception.DuplicateNameException;
 import ghidra.util.task.TaskMonitor;
 
 /**
  * Represents a dysymtab_command structure.
- * 
- * @see <a href="https://opensource.apple.com/source/xnu/xnu-4570.71.2/EXTERNAL_HEADERS/mach-o/loader.h.auto.html">mach-o/loader.h</a> 
  */
 public class DynamicSymbolTableCommand extends LoadCommand {
 
-	private int ilocalsym;
-	private int nlocalsym;
-	private int iextdefsym;
-	private int nextdefsym;
-	private int iundefsym;
-	private int nundefsym;
-	private int tocoff;
-	private int ntoc;
-	private int modtaboff;
-	private int nmodtab;
-	private int extrefsymoff;
-	private int nextrefsyms;
-	private int indirectsymoff;
-	private int nindirectsyms;
-	private int extreloff;
-	private int nextrel;
-	private int locreloff;
-	private int nlocrel;
+	private long ilocalsym;
+	private long nlocalsym;
+	private long iextdefsym;
+	private long nextdefsym;
+	private long iundefsym;
+	private long nundefsym;
+	private long tocoff;
+	private long ntoc;
+	private long modtaboff;
+	private long nmodtab;
+	private long extrefsymoff;
+	private long nextrefsyms;
+	private long indirectsymoff;
+	private long nindirectsyms;
+	private long extreloff;
+	private long nextrel;
+	private long locreloff;
+	private long nlocrel;
 
-	private List<TableOfContents> tocList = new ArrayList<TableOfContents>();
-	private List<DynamicLibraryModule> moduleList = new ArrayList<DynamicLibraryModule>();
-	private List<DynamicLibraryReference> referencedList = new ArrayList<DynamicLibraryReference>();
-	private int[] indirectSymbols = new int[0];
-	private List<RelocationInfo> externalRelocations = new ArrayList<RelocationInfo>();
-	private List<RelocationInfo> localRelocations = new ArrayList<RelocationInfo>();
-
-	static DynamicSymbolTableCommand createDynamicSymbolTableCommand(
-			FactoryBundledWithBinaryReader reader, MachHeader header) throws IOException {
-		DynamicSymbolTableCommand command =
-			(DynamicSymbolTableCommand) reader.getFactory().create(DynamicSymbolTableCommand.class);
-		command.initDynamicSymbolTableCommand(reader, header);
-		return command;
-	}
+	private List<TableOfContents> tocList = new ArrayList<>();
+	private List<DynamicLibraryModule> moduleList = new ArrayList<>();
+	private List<DynamicLibraryReference> referencedList = new ArrayList<>();
+	private List<Integer> indirectSymbols = new ArrayList<>();
+	private List<RelocationInfo> externalRelocations = new ArrayList<>();
+	private List<RelocationInfo> localRelocations = new ArrayList<>();
 
 	/**
-	 * DO NOT USE THIS CONSTRUCTOR, USE create*(GenericFactory ...) FACTORY METHODS INSTEAD.
+	 * Creates and parses a new {@link DynamicSymbolTableCommand}
+	 * 
+	 * @param loadCommandReader A {@link BinaryReader reader} that points to the start of the load
+	 *   command
+	 * @param dataReader A {@link BinaryReader reader} that can read the data that the load command
+	 *   references.  Note that this might be in a different underlying provider.
+	 * @param header The {@link MachHeader header} associated with this load command
+	 * @throws IOException if an IO-related error occurs while parsing
 	 */
-	public DynamicSymbolTableCommand() {
-	}
-
-	private void initDynamicSymbolTableCommand(FactoryBundledWithBinaryReader reader,
+	DynamicSymbolTableCommand(BinaryReader loadCommandReader, BinaryReader dataReader,
 			MachHeader header) throws IOException {
-		initLoadCommand(reader);
+		super(loadCommandReader);
 
-		ilocalsym = reader.readNextInt();
-		nlocalsym = reader.readNextInt();
-		iextdefsym = reader.readNextInt();
-		nextdefsym = reader.readNextInt();
-		iundefsym = reader.readNextInt();
-		nundefsym = reader.readNextInt();
-		tocoff = reader.readNextInt();
-		ntoc = reader.readNextInt();
-		modtaboff = reader.readNextInt();
-		nmodtab = reader.readNextInt();
-		extrefsymoff = reader.readNextInt();
-		nextrefsyms = reader.readNextInt();
-		indirectsymoff = reader.readNextInt();
-		nindirectsyms = reader.readNextInt();
-		extreloff = reader.readNextInt();
-		nextrel = reader.readNextInt();
-		locreloff = reader.readNextInt();
-		nlocrel = reader.readNextInt();
-
-		long index = reader.getPointerIndex();
+		ilocalsym = loadCommandReader.readNextUnsignedInt();
+		nlocalsym = checkCount(loadCommandReader.readNextUnsignedInt());
+		iextdefsym = loadCommandReader.readNextUnsignedInt();
+		nextdefsym = checkCount(loadCommandReader.readNextUnsignedInt());
+		iundefsym = loadCommandReader.readNextUnsignedInt();
+		nundefsym = checkCount(loadCommandReader.readNextUnsignedInt());
+		tocoff = loadCommandReader.readNextUnsignedInt();
+		ntoc = checkCount(loadCommandReader.readNextUnsignedInt());
+		modtaboff = loadCommandReader.readNextUnsignedInt();
+		nmodtab = checkCount(loadCommandReader.readNextUnsignedInt());
+		extrefsymoff = loadCommandReader.readNextUnsignedInt();
+		nextrefsyms = checkCount(loadCommandReader.readNextUnsignedInt());
+		indirectsymoff = loadCommandReader.readNextUnsignedInt();
+		nindirectsyms = checkCount(loadCommandReader.readNextUnsignedInt());
+		extreloff = loadCommandReader.readNextUnsignedInt();
+		nextrel = checkCount(loadCommandReader.readNextUnsignedInt());
+		locreloff = loadCommandReader.readNextUnsignedInt();
+		nlocrel = checkCount(loadCommandReader.readNextUnsignedInt());
 
 		if (tocoff > 0) {
-			reader.setPointerIndex(header.getStartIndexInProvider() + tocoff);
-			for (int i = 0; i < ntoc; ++i) {
-				tocList.add(TableOfContents.createTableOfContents(reader));
+			dataReader.setPointerIndex(header.getStartIndex() + tocoff);
+			for (long i = 0; i < ntoc; ++i) {
+				tocList.add(new TableOfContents(dataReader));
 			}
 		}
 		if (modtaboff > 0) {
-			reader.setPointerIndex(header.getStartIndexInProvider() + modtaboff);
-			for (int i = 0; i < nmodtab; ++i) {
-				moduleList.add(DynamicLibraryModule.createDynamicLibraryModule(reader, header));
+			dataReader.setPointerIndex(header.getStartIndex() + modtaboff);
+			for (long i = 0; i < nmodtab; ++i) {
+				moduleList.add(new DynamicLibraryModule(dataReader, header));
 			}
 		}
 		if (extrefsymoff > 0) {
-			reader.setPointerIndex(header.getStartIndexInProvider() + extrefsymoff);
-			for (int i = 0; i < nextrefsyms; ++i) {
-				referencedList.add(DynamicLibraryReference.createDynamicLibraryReference(reader));
+			dataReader.setPointerIndex(header.getStartIndex() + extrefsymoff);
+			for (long i = 0; i < nextrefsyms; ++i) {
+				referencedList.add(new DynamicLibraryReference(dataReader));
 			}
 		}
 		if (indirectsymoff > 0) {
-			reader.setPointerIndex(header.getStartIndexInProvider() + indirectsymoff);
-			indirectSymbols = new int[nindirectsyms];
-			for (int i = 0; i < nindirectsyms; ++i) {
-				indirectSymbols[i] = reader.readNextInt();
+			dataReader.setPointerIndex(header.getStartIndex() + indirectsymoff);
+			for (long i = 0; i < nindirectsyms; ++i) {
+				indirectSymbols.add(dataReader.readNextInt());
 			}
 		}
 		if (extreloff > 0) {
-			reader.setPointerIndex(header.getStartIndexInProvider() + extreloff);
-			for (int i = 0; i < nextrel; ++i) {
-				externalRelocations.add(RelocationFactory.readRelocation(reader, header.is32bit()));
+			dataReader.setPointerIndex(header.getStartIndex() + extreloff);
+			for (long i = 0; i < nextrel; ++i) {
+				externalRelocations.add(new RelocationInfo(dataReader));
 			}
 		}
 		if (locreloff > 0) {
-			reader.setPointerIndex(header.getStartIndexInProvider() + locreloff);
-			for (int i = 0; i < nlocrel; ++i) {
-				localRelocations.add(RelocationFactory.readRelocation(reader, header.is32bit()));
+			dataReader.setPointerIndex(header.getStartIndex() + locreloff);
+			for (long i = 0; i < nlocrel; ++i) {
+				localRelocations.add(new RelocationInfo(dataReader));
 			}
 		}
-
-		reader.setPointerIndex(index);
 	}
 
 	/**
 	 * Returns the index of the first local symbol.
 	 * @return the index of the first local symbol
 	 */
-	public int getLocalSymbolIndex() {
+	public long getLocalSymbolIndex() {
 		return ilocalsym;
 	}
 
@@ -157,7 +146,7 @@ public class DynamicSymbolTableCommand extends LoadCommand {
 	 * Returns the total number of local symbols.
 	 * @return the total number of local symbols
 	 */
-	public int getLocalSymbolCount() {
+	public long getLocalSymbolCount() {
 		return nlocalsym;
 	}
 
@@ -165,7 +154,7 @@ public class DynamicSymbolTableCommand extends LoadCommand {
 	 * Returns the index of the first external symbol.
 	 * @return the index of the first external symbol
 	 */
-	public int getExternalSymbolIndex() {
+	public long getExternalSymbolIndex() {
 		return iextdefsym;
 	}
 
@@ -173,7 +162,7 @@ public class DynamicSymbolTableCommand extends LoadCommand {
 	 * Returns the total number of external symbols.
 	 * @return the total number of external symbols
 	 */
-	public int getExternalSymbolCount() {
+	public long getExternalSymbolCount() {
 		return nextdefsym;
 	}
 
@@ -181,7 +170,7 @@ public class DynamicSymbolTableCommand extends LoadCommand {
 	 * Returns the index of the first undefined symbol.
 	 * @return the index of the first undefined symbol
 	 */
-	public int getUndefinedSymbolIndex() {
+	public long getUndefinedSymbolIndex() {
 		return iundefsym;
 	}
 
@@ -189,7 +178,7 @@ public class DynamicSymbolTableCommand extends LoadCommand {
 	 * Returns the total number of undefined symbols.
 	 * @return the total number of undefined symbols
 	 */
-	public int getUndefinedSymbolCount() {
+	public long getUndefinedSymbolCount() {
 		return nundefsym;
 	}
 
@@ -197,7 +186,7 @@ public class DynamicSymbolTableCommand extends LoadCommand {
 	 * Returns the byte index from the start of the file to the table of contents (TOC).
 	 * @return the byte index of the TOC
 	 */
-	public int getTableOfContentsOffset() {
+	public long getTableOfContentsOffset() {
 		return tocoff;
 	}
 
@@ -205,7 +194,7 @@ public class DynamicSymbolTableCommand extends LoadCommand {
 	 * Returns the number of entries in the table of contents.
 	 * @return the number of entries in the table of contents
 	 */
-	public int getTableOfContentsSize() {
+	public long getTableOfContentsSize() {
 		return ntoc;
 	}
 
@@ -217,7 +206,7 @@ public class DynamicSymbolTableCommand extends LoadCommand {
 	 * Returns the byte index from the start of the file to the module table.
 	 * @return the byte index of the module table
 	 */
-	public int getModuleTableOffset() {
+	public long getModuleTableOffset() {
 		return modtaboff;
 	}
 
@@ -225,7 +214,7 @@ public class DynamicSymbolTableCommand extends LoadCommand {
 	 * Returns the number of entries in the module table.
 	 * @return the number of entries in the module table
 	 */
-	public int getModuleTableSize() {
+	public long getModuleTableSize() {
 		return nmodtab;
 	}
 
@@ -237,7 +226,7 @@ public class DynamicSymbolTableCommand extends LoadCommand {
 	 * Returns the byte index from the start of the file to the external reference table.
 	 * @return the byte index of the external reference table
 	 */
-	public int getReferencedSymbolTableOffset() {
+	public long getReferencedSymbolTableOffset() {
 		return extrefsymoff;
 	}
 
@@ -245,7 +234,7 @@ public class DynamicSymbolTableCommand extends LoadCommand {
 	 * Returns the number of entries in the external reference table.
 	 * @return the number of entries in the external reference table
 	 */
-	public int getReferencedSymbolTableSize() {
+	public long getReferencedSymbolTableSize() {
 		return nextrefsyms;
 	}
 
@@ -257,7 +246,7 @@ public class DynamicSymbolTableCommand extends LoadCommand {
 	 * Returns the byte index from the start of the file to the indirect symbol table.
 	 * @return the byte index of the indirect symbol table
 	 */
-	public int getIndirectSymbolTableOffset() {
+	public long getIndirectSymbolTableOffset() {
 		return indirectsymoff;
 	}
 
@@ -265,11 +254,11 @@ public class DynamicSymbolTableCommand extends LoadCommand {
 	 * Returns the number of entries in the indirect symbol table.
 	 * @return the number of entries in the indirect symbol table
 	 */
-	public int getIndirectSymbolTableSize() {
+	public long getIndirectSymbolTableSize() {
 		return nindirectsyms;
 	}
 
-	public int[] getIndirectSymbols() {
+	public List<Integer> getIndirectSymbols() {
 		return indirectSymbols;
 	}
 
@@ -277,7 +266,7 @@ public class DynamicSymbolTableCommand extends LoadCommand {
 	 * Returns the byte index from the start of the file to the external relocation table.
 	 * @return the byte index of the external relocation table
 	 */
-	public int getExternalRelocationOffset() {
+	public long getExternalRelocationOffset() {
 		return extreloff;
 	}
 
@@ -285,7 +274,7 @@ public class DynamicSymbolTableCommand extends LoadCommand {
 	 * Returns the number of entries in the external relocation table.
 	 * @return the number of entries in the external relocation table
 	 */
-	public int getExternalRelocationSize() {
+	public long getExternalRelocationSize() {
 		return nextrel;
 	}
 
@@ -297,7 +286,7 @@ public class DynamicSymbolTableCommand extends LoadCommand {
 	 * Returns the byte index from the start of the file to the local relocation table.
 	 * @return the byte index of the local relocation table
 	 */
-	public int getLocalRelocationOffset() {
+	public long getLocalRelocationOffset() {
 		return locreloff;
 	}
 
@@ -305,12 +294,22 @@ public class DynamicSymbolTableCommand extends LoadCommand {
 	 * Returns the number of entries in the local relocation table.
 	 * @return the number of entries in the local relocation table
 	 */
-	public int getLocalRelocationSize() {
+	public long getLocalRelocationSize() {
 		return nlocrel;
 	}
 
 	public List<RelocationInfo> getLocalRelocations() {
 		return localRelocations;
+	}
+
+	@Override
+	public long getLinkerDataOffset() {
+		return indirectsymoff;
+	}
+
+	@Override
+	public long getLinkerDataSize() {
+		return nindirectsyms * Integer.BYTES;
 	}
 
 	@Override
@@ -346,22 +345,76 @@ public class DynamicSymbolTableCommand extends LoadCommand {
 	}
 
 	@Override
-	public void markup(MachHeader header, FlatProgramAPI api, Address baseAddress, boolean isBinary,
-			ProgramModule parentModule, TaskMonitor monitor, MessageLog log) {
-		updateMonitor(monitor);
-		try {
-			if (isBinary) {
-				createFragment(api, baseAddress, parentModule);
-				Address address = baseAddress.getNewAddress(getStartIndex());
-				api.createData(address, toDataType());
+	public void markup(Program program, MachHeader header, String source, TaskMonitor monitor,
+			MessageLog log) throws CancelledException {
+		markupIndirectSymbolTable(program, header, source, monitor, log);
 
-				markupTOC(header, api, baseAddress, parentModule, monitor);
-				markupModules(header, api, baseAddress, parentModule, monitor);
-				markupReferencedSymbolTable(header, api, baseAddress, parentModule, monitor);
-				makupIndirectSymbolTable(header, api, baseAddress, parentModule, monitor);
-				markupExternalRelocations(api, baseAddress, parentModule, monitor);
-				markupLocalRelocations(api, baseAddress, parentModule, monitor);
+		// TODO: Handle more than just the indirect symbol table
+
+	}
+
+	private void markupIndirectSymbolTable(Program program, MachHeader header, String source,
+			TaskMonitor monitor, MessageLog log) {
+		Address indirectSymbolTableAddr =
+			fileOffsetToAddress(program, header, indirectsymoff, nindirectsyms);
+		if (indirectSymbolTableAddr == null) {
+			return;
+		}
+
+		markupPlateComment(program, indirectSymbolTableAddr, source, "indirect");
+		
+		Address symbolTableAddr = null;
+		Address stringTableAddr = null;
+		SymbolTableCommand symbolTable = header.getFirstLoadCommand(SymbolTableCommand.class);
+		if (symbolTable != null) {
+			symbolTableAddr = fileOffsetToAddress(program, header, symbolTable.getSymbolOffset(),
+				symbolTable.getNumberOfSymbols());
+			stringTableAddr = fileOffsetToAddress(program, header,
+				symbolTable.getStringTableOffset(), symbolTable.getStringTableSize());
+		}
+
+		ReferenceManager referenceManager = program.getReferenceManager();
+		try {
+			for (int i = 0; i < nindirectsyms; i++) {
+				int nlistIndex = indirectSymbols.get(i);
+				Address dataAddr = indirectSymbolTableAddr.add(i * DWORD.getLength());
+				DataUtilities.createData(program, dataAddr, DWORD, -1,
+					DataUtilities.ClearDataMode.CHECK_FOR_SPACE);
+				if (symbolTableAddr != null) {
+					NList nlist = symbolTable.getSymbolAt(nlistIndex);
+					if (nlist == null) {
+						continue;
+					}
+					Reference ref = referenceManager.addMemoryReference(dataAddr,
+						symbolTableAddr.add(nlistIndex * nlist.getSize()), RefType.DATA,
+						SourceType.IMPORTED, 0);
+					referenceManager.setPrimary(ref, true);
+					if (stringTableAddr != null && nlist.getStringTableIndex() != 0) {
+						Address strAddr = stringTableAddr.add(nlist.getStringTableIndex());
+						referenceManager.addMemoryReference(dataAddr, strAddr, RefType.DATA,
+							SourceType.IMPORTED, 0);
+					}
+				}
 			}
+		}
+		catch (Exception e) {
+			log.appendMsg(DynamicSymbolTableCommand.class.getSimpleName(),
+				"Failed to markup: " + getContextualName(source, "indirect"));
+		}
+	}
+
+	@Override
+	public void markupRawBinary(MachHeader header, FlatProgramAPI api, Address baseAddress,
+			ProgramModule parentModule, TaskMonitor monitor, MessageLog log) {
+		try {
+			super.markupRawBinary(header, api, baseAddress, parentModule, monitor, log);
+
+			markupTOC(header, api, baseAddress, parentModule, monitor);
+			markupModules(header, api, baseAddress, parentModule, monitor);
+			markupReferencedSymbolTable(header, api, baseAddress, parentModule, monitor);
+			makupIndirectSymbolTable(header, api, baseAddress, parentModule, monitor);
+			markupExternalRelocations(api, baseAddress, parentModule, monitor);
+			markupLocalRelocations(api, baseAddress, parentModule, monitor);
 		}
 		catch (Exception e) {
 			log.appendMsg("Unable to create " + getCommandName());
@@ -422,19 +475,19 @@ public class DynamicSymbolTableCommand extends LoadCommand {
 
 		api.createFragment(parentModule, "INDIRECT_SYMBOLS", start, length);
 
-		for (int i = 0; i < indirectSymbols.length; ++i) {
+		for (int i = 0; i < indirectSymbols.size(); ++i) {
 			if (monitor.isCancelled()) {
 				return;
 			}
 			Address addr = start.add(i * SIZEOF_DWORD);
 			NList symbol = header.getFirstLoadCommand(SymbolTableCommand.class).getSymbolAt(
-				indirectSymbols[i]);
+				indirectSymbols.get(i));
 			if (symbol != null) {
 				api.setEOLComment(addr, symbol.getString());
 			}
 		}
 
-		api.createDwords(start, getIndirectSymbolTableSize());
+		api.createDwords(start, (int) getIndirectSymbolTableSize());
 	}
 
 	private void markupExternalRelocations(FlatProgramAPI api, Address baseAddress,

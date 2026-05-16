@@ -4,295 +4,413 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/*
- * (c) Copyright 2001 MyCorporation.
- * All Rights Reserved.
- */
 package ghidra.framework.options;
 
 import static org.junit.Assert.*;
 
-import java.io.*;
-
-import org.jdom.Document;
-import org.jdom.Element;
-import org.jdom.input.SAXBuilder;
-import org.jdom.output.XMLOutputter;
-import org.junit.Before;
+import org.jdom2.Element;
 import org.junit.Test;
 
-import generic.test.AbstractGenericTest;
-import ghidra.util.xml.GenericXMLOutputter;
+import generic.test.AbstractGTest;
 import ghidra.util.xml.XmlUtilities;
 
-/**
- * @version 1.0
- * 
- */
-public class SaveStateTest extends AbstractGenericTest {
+public class SaveStateTest {
 
-	private SaveState ss;
+	@Test
+	public void testEmptySaveState() throws Exception {
 
-	/**
-	 * Constructor for SaveStateTest.
-	 * 
-	 * @param arg0
-	 */
-	public SaveStateTest() {
-		super();
-	}
-
-	@Before
-	public void setUp() {
-		ss = new SaveState();
+		SaveState ss = new SaveState("Client_Name");
+		SaveState restored = saveAndRestoreToXml(ss);
+		assertEquals("Client_Name", restored.getName());
 	}
 
 	@Test
-	public void testString() throws Exception {
-		ss.putString("TEST", null);
-		String s = ss.getString("TEST", "FRED");
-		assertNull(s);
+	public void testEmptyNestedSaveState() throws Exception {
 
-		String validKey = "TEST2";
-		ss.putString(validKey, "Value");
-		s = ss.getString(validKey, null);
-		assertNotNull(s);
+		SaveState ss = new SaveState();
+		SaveState nestedSs = new SaveState("Client_Name2");
+		ss.putSaveState("Key", nestedSs);
 
-		// persist the state
-		File saveFileTemp = createTempFile("xmlTest");
-		Element element = ss.saveToXml();
-		saveElement(element, saveFileTemp);
+		SaveState restored = saveAndRestoreToXml(ss);
+		SaveState restoredNestedSs = restored.getSaveState("Key");
+		assertEquals("Client_Name2", restoredNestedSs.getName());
+	}
 
-		// read in the state
-		InputStream is = new FileInputStream(saveFileTemp);
-		SAXBuilder sax = XmlUtilities.createSecureSAXBuilder(false, false);
-		Element root = sax.build(is).getRootElement();
+	@Test
+	public void testRestoreFromXml_BackwardCompatibility_OldestStyleSaveState() throws Exception {
+
+		/*
+		 	Test for backwards compatibility from the original format for save state that was
+		 	around since the beginning.
+		 	
+		 	Note: the oldest style had:
+		 		- no 'KEY' attribute
+		 		- an extra layer of <SAVE_STATE> between the top layer and <STATE> element
+		 */
+
+		//@formatter:off
+		String xml = """
+			<SAVE_STATE>
+				<SAVE_STATE NAME="Bar" TYPE="SaveState">
+			        <SAVE_STATE>
+			            <STATE NAME="DATED_OPTION" TYPE="int" VALUE="3" />
+			        </SAVE_STATE>
+			    </SAVE_STATE>
+			</SAVE_STATE>
+				""";
+		//@formatter:on
+
+		Element element = XmlUtilities.fromString(xml);
+		SaveState rootSaveState = new SaveState(element);
+
+		SaveState saveState = rootSaveState.getSaveState("Bar");
+		assertNotNull(saveState);
+
+		// In the old style, 'NAME' was used as the key value and the state itself had no name.
+		// In this case, getName() returns the default of 'SAVE_STATE'.
+		assertEquals(SaveState.SAVE_STATE_TAG_NAME, saveState.getName());
+
+		assertEquals(3, saveState.getInt("DATED_OPTION", -1));
+	}
+
+	@Test
+	public void testRestoreFromXml_BackwardCompatibility_OldestStyleSaveState_CustomXmlTagName()
+			throws Exception {
+
+		/*
+		 	Test for backwards compatibility from an intermediate format for save state that was
+		 	around for a few months.
+		 	
+		 	Note: the oldest style had:
+		 		- no 'KEY' attribute
+		 		- an extra layer of <SAVE_STATE> between the top layer and <STATE> element
+		 		- a custom xml tag instead of <SAVE_STATE>
+		 */
+
+		//@formatter:off
+		String xml = """
+			<SAVE_STATE>
+			    <SAVE_STATE NAME="TEST" TYPE="SaveState">
+			        <BAR>
+			            <STATE NAME="DATED_OPTION" TYPE="int" VALUE="3" />
+			        </BAR>
+			    </SAVE_STATE>
+			</SAVE_STATE>
+				""";
+		//@formatter:on
+
+		Element element = XmlUtilities.fromString(xml);
+		SaveState rootSaveState = new SaveState(element);
+
+		SaveState saveState = rootSaveState.getSaveState("TEST");
+		assertNotNull(saveState);
+
+		// In the old style, 'NAME' was used as the key value and the state itself had no name.
+		// In this case, getName() returns the default of 'SAVE_STATE'.
+		assertEquals(SaveState.SAVE_STATE_TAG_NAME, saveState.getName());
+		assertEquals(3, saveState.getInt("DATED_OPTION", -1));
+	}
+
+	@Test
+	public void testRestoreFromXml_BackwardCompatibility_OldestStyleSaveState_EmtpyNestdState()
+			throws Exception {
+
+		/*
+		 	Test for backwards compatibility from the original format for save state that was
+		 	around since the beginning.
+		 	
+		 	Note: the oldest style had:
+		 		- no 'KEY' attribute
+		 		- an extra layer of <SAVE_STATE> between the top layer and <STATE> element
+		 */
+
+		//@formatter:off
+		String xml = """
+			<SAVE_STATE>
+				<SAVE_STATE NAME="Bar" TYPE="SaveState" />
+			</SAVE_STATE>
+				""";
+		//@formatter:on
+
+		Element element = XmlUtilities.fromString(xml);
+		SaveState rootSaveState = new SaveState(element);
+
+		SaveState saveState = rootSaveState.getSaveState("Bar");
+		assertNotNull(saveState);
+
+		// In the old style, 'NAME' was used as the key value and the state itself had no name.
+		// In this case, getName() returns the default of 'SAVE_STATE'.
+		assertEquals(SaveState.SAVE_STATE_TAG_NAME, saveState.getName());
+	}
+
+	@Test
+	public void testRestoreFromXml_BackwardCompatibility_RecentStyleSaveState() throws Exception {
+
+		/*
+		 	Test for backwards compatibility from an intermediate format for save state that was
+		 	around for a few months.
+		 	
+		 	Note: the oldest style had:
+		 		- no 'KEY' attribute
+		 		- NO extra layer of <SAVE_STATE> between the top layer and <STATE> element
+		 */
+
+		//@formatter:off
+		String xml = """
+			<SAVE_STATE>
+			    <SAVE_STATE NAME="Bar" TYPE="SaveState">
+			        <STATE NAME="DATED_OPTION" TYPE="int" VALUE="3" />
+			    </SAVE_STATE>
+			</SAVE_STATE>
+				""";
+		//@formatter:on
+
+		Element element = XmlUtilities.fromString(xml);
+		SaveState rootSaveState = new SaveState(element);
+
+		SaveState saveState = rootSaveState.getSaveState("Bar");
+		assertNotNull(saveState);
+
+		// In the old style, 'NAME' was used as the key value and the state itself had no name.
+		// In this case, getName() returns the default of 'SAVE_STATE'.
+		assertEquals(SaveState.SAVE_STATE_TAG_NAME, saveState.getName());
+	}
+
+	@Test
+	public void testSaveState_Unnamed_SingleLayer_RoundTrip() throws Exception {
+
+		SaveState saveState = new SaveState();
+		saveState.putInt("Foo", 21);
+
+		SaveState restoredState = saveAndRestoreToXml(saveState);
+		assertEquals(21, restoredState.getInt("Foo", -1));
+		assertEquals(SaveState.SAVE_STATE_TAG_NAME, restoredState.getName());
+	}
+
+	@Test
+	public void testSaveState_Named_SingleLayer_RoundTrip() throws Exception {
+
+		SaveState saveState = new SaveState("Client_Name");
+		saveState.putInt("Foo", 21);
+
+		SaveState restoredState = saveAndRestoreToXml(saveState);
+		assertEquals(21, restoredState.getInt("Foo", -1));
+		assertEquals("Client_Name", restoredState.getName());
+	}
+
+	@Test
+	public void testSaveState_Unnamed_DoubleLayer_RoundTrip() throws Exception {
+
+		/*
+		 	<SAVE_STATE>
+			    <SAVE_STATE NAME="UNNAMED" KEY="LAYER_TWO" TYPE="SaveState">
+			        <STATE NAME="layer_two.aa" TYPE="int" VALUE="5" />
+			        <STATE NAME="layer_two.bb" TYPE="string" VALUE="bar" />
+			    </SAVE_STATE>
+			    <STATE NAME="layer_one.a" TYPE="string" VALUE="zzzz" />
+			</SAVE_STATE>
+		 */
+
+		// create the hierarchy inside-out for readability
+		SaveState layer2State = new SaveState();
+		layer2State.putInt("layer_two.aa", 5);
+		layer2State.putString("layer_two.bb", "bar");
+
+		SaveState rootSaveState = new SaveState();
+		rootSaveState.putSaveState("LAYER_TWO", layer2State);
+		rootSaveState.putString("layer_one.a", "zzzz");
+
+		SaveState restoredState = saveAndRestoreToXml(rootSaveState);
 
 		// make sure our value is inside
-		SaveState loadedState = new SaveState(root);
-		String value = loadedState.getString(validKey, null);
-		assertNotNull(value);
+		assertEquals("zzzz", restoredState.getString("layer_one.a", null));
+		SaveState restoredSubState = restoredState.getSaveState("LAYER_TWO");
 
-		saveFileTemp.deleteOnExit();
-	}
+		assertEquals(SaveState.DEFAULT_NAME, restoredSubState.getName());
 
-	private void saveElement(Element element, File saveFile) throws Exception {
-		OutputStream os = null;
-		try {
-			os = new FileOutputStream(saveFile);
-			Document doc = new Document(element);
-			XMLOutputter xmlout = new GenericXMLOutputter();
-			xmlout.output(doc, os);
-			os.close();
-		}
-		finally {
-			if (os != null) {
-				os.close();
-			}
-		}
+		String[] expectedNames = { "layer_two.aa", "layer_two.bb" };
+		AbstractGTest.assertArraysEqualUnordered(expectedNames, restoredSubState.getNames());
+		assertEquals(5, restoredSubState.getInt("layer_two.aa", 0));
+		assertEquals("bar", restoredSubState.getString("layer_two.bb", ""));
 	}
 
 	@Test
-	public void testStringArray() {
-		String[] array1 =
-			new String[] { "Dennis", "Bill", "Brian", "Mike", null, "Ellen", "Steve" };
-		ss.putStrings("ARRAY", array1);
-		String[] array2 = ss.getStrings("ARRAY", null);
-		for (int i = 0; i < array1.length; ++i) {
-			assertEquals(array1[i], array2[i]);
-		}
+	public void testSaveState_Named_DoubleLayer_RoundTrip() throws Exception {
+
+		/*
+		 	<SAVE_STATE>
+			    <SAVE_STATE NAME="Client_Name" KEY="LAYER_TWO" TYPE="SaveState">
+			        <STATE NAME="layer_two.aa" TYPE="int" VALUE="5" />
+			        <STATE NAME="layer_two.bb" TYPE="string" VALUE="bar" />
+			    </SAVE_STATE>
+			    <STATE NAME="layer_one.a" TYPE="string" VALUE="zzzz" />
+			</SAVE_STATE>
+		 */
+
+		// create the hierarchy inside-out for readability
+		SaveState layer2State = new SaveState("Client_Name");
+		layer2State.putInt("layer_two.aa", 5);
+		layer2State.putString("layer_two.bb", "bar");
+
+		SaveState rootSaveState = new SaveState();
+		rootSaveState.putSaveState("LAYER_TWO", layer2State);
+		rootSaveState.putString("layer_one.a", "zzzz");
+
+		SaveState restoredState = saveAndRestoreToXml(rootSaveState);
+
+		// make sure our value is inside
+		assertEquals("zzzz", restoredState.getString("layer_one.a", null));
+		SaveState restoredSubState = restoredState.getSaveState("LAYER_TWO");
+
+		String[] expectedNames = { "layer_two.aa", "layer_two.bb" };
+		AbstractGTest.assertArraysEqualUnordered(expectedNames, restoredSubState.getNames());
+		assertEquals(5, restoredSubState.getInt("layer_two.aa", 0));
+		assertEquals("bar", restoredSubState.getString("layer_two.bb", ""));
 	}
 
 	@Test
-	public void testByte() {
-		ss.putByte("FOURTYTWO", (byte) 42);
-		assertTrue(ss.hasValue("FOURTYTWO"));
-		assertEquals((byte) 42, ss.getByte("FOURTYTWO", (byte) 0));
-		assertTrue(!ss.hasValue("XXX"));
-		assertEquals((byte) 5, ss.getByte("XXX", (byte) 5));
+	public void testSaveState_Unnamed_TripleLayer_RoundTrip() throws Exception {
+
+		/*
+		<SAVE_STATE>
+		    <SAVE_STATE NAME="UNNAMED" KEY="LAYER_TWO" TYPE="SaveState">
+		        <SAVE_STATE NAME="UNNAMED" KEY="LAYER_THREE" TYPE="SaveState">
+		            <STATE NAME="layer_three.power_on" TYPE="boolean" VALUE="false" />
+		        </SAVE_STATE>
+		        <STATE NAME="layer_two.a" TYPE="int" VALUE="5" />
+		        <STATE NAME="layer_two.foo" TYPE="string" VALUE="bar" />
+		    </SAVE_STATE>
+		    <STATE NAME="layer_one.name" TYPE="string" VALUE="zzzz" />
+		</SAVE_STATE>
+		*/
+
+		// create the hierarchy inside-out
+		SaveState layer3State = new SaveState();
+		layer3State.putBoolean("layer_three.aaa", false);
+
+		SaveState layer2State = new SaveState();
+		layer2State.putInt("layer_two.aa", 5);
+		layer2State.putString("layer_two.bb", "bar");
+		layer2State.putSaveState("LAYER_THREE", layer3State);
+
+		SaveState rootSaveState = new SaveState();
+		rootSaveState.putSaveState("LAYER_TWO", layer2State);
+		rootSaveState.putString("layer_one.aa", "zzzz");
+
+		SaveState restoredState = saveAndRestoreToXml(rootSaveState);
+
+		// make sure our value is inside
+		assertEquals("zzzz", restoredState.getString("layer_one.aa", null));
+		SaveState restoredSubState = restoredState.getSaveState("LAYER_TWO");
+
+		assertEquals(SaveState.DEFAULT_NAME, restoredSubState.getName());
+
+		String[] expectedNames = { "LAYER_THREE", "layer_two.aa", "layer_two.bb" };
+		AbstractGTest.assertArraysEqualUnordered(expectedNames, restoredSubState.getNames());
+		assertEquals(5, restoredSubState.getInt("layer_two.aa", 0));
+		assertEquals("bar", restoredSubState.getString("layer_two.bb", ""));
+
+		SaveState restoredSubSubState = restoredSubState.getSaveState("LAYER_THREE");
+		assertEquals(SaveState.DEFAULT_NAME, restoredSubSubState.getName());
+		assertEquals(false, restoredSubSubState.getBoolean("layer_three.aaa", true));
 	}
 
 	@Test
-	public void testByteArray() {
-		byte[] array1 = new byte[] { (byte) 0, (byte) 5, (byte) 9, (byte) 42, (byte) 77 };
-		ss.putBytes("ARRAY", array1);
-		byte[] array2 = ss.getBytes("ARRAY", null);
-		for (int i = 0; i < array1.length; ++i) {
-			assertEquals(array1[i], array2[i]);
-		}
+	public void testSaveState_Named_TripleLayer_RoundTrip() throws Exception {
+
+		/*
+		<SAVE_STATE>
+		    <SAVE_STATE NAME="Client_Name_2" KEY="LAYER_TWO" TYPE="SaveState">
+		        <SAVE_STATE NAME="Client_Name_3" KEY="LAYER_THREE" TYPE="SaveState">
+		            <STATE NAME="layer_three.power_on" TYPE="boolean" VALUE="false" />
+		        </SAVE_STATE>
+		        <STATE NAME="layer_two.a" TYPE="int" VALUE="5" />
+		        <STATE NAME="layer_two.foo" TYPE="string" VALUE="bar" />
+		    </SAVE_STATE>
+		    <STATE NAME="layer_one.name" TYPE="string" VALUE="zzzz" />
+		</SAVE_STATE>
+		*/
+
+		// create the hierarchy inside-out
+		SaveState layer3State = new SaveState("Client_Name_3");
+		layer3State.putBoolean("layer_three.aaa", false);
+
+		SaveState layer2State = new SaveState("Client_Name_2");
+		layer2State.putInt("layer_two.aa", 5);
+		layer2State.putString("layer_two.bb", "bar");
+		layer2State.putSaveState("LAYER_THREE", layer3State);
+
+		SaveState rootSaveState = new SaveState();
+		rootSaveState.putSaveState("LAYER_TWO", layer2State);
+		rootSaveState.putString("layer_one.aa", "zzzz");
+
+		SaveState restoredState = saveAndRestoreToXml(rootSaveState);
+
+		// make sure our value is inside
+		assertEquals("zzzz", restoredState.getString("layer_one.aa", null));
+		SaveState restoredSubState = restoredState.getSaveState("LAYER_TWO");
+
+		assertEquals("Client_Name_2", restoredSubState.getName());
+
+		String[] expectedNames = { "LAYER_THREE", "layer_two.aa", "layer_two.bb" };
+		AbstractGTest.assertArraysEqualUnordered(expectedNames, restoredSubState.getNames());
+		assertEquals(5, restoredSubState.getInt("layer_two.aa", 0));
+		assertEquals("bar", restoredSubState.getString("layer_two.bb", ""));
+
+		SaveState restoredSubSubState = restoredSubState.getSaveState("LAYER_THREE");
+		assertEquals("Client_Name_3", restoredSubSubState.getName());
+		assertEquals(false, restoredSubSubState.getBoolean("layer_three.aaa", true));
 	}
 
 	@Test
-	public void testShort() {
-		ss.putShort("FOURTYTWO", (short) 42);
-		assertTrue(ss.hasValue("FOURTYTWO"));
-		assertEquals((short) 42, ss.getShort("FOURTYTWO", (short) 0));
-		assertTrue(!ss.hasValue("XXX"));
-		assertEquals((short) 5, ss.getShort("XXX", (short) 5));
+	public void testSaveState_Unnamed_SiblingSaveStates_RoundTrip() throws Exception {
+
+		/*
+		<SAVE_STATE>
+		    <SAVE_STATE NAME="Client_Name_2_1" KEY="LAYER_TWO_ONE" TYPE="SaveState">
+		        <STATE NAME="layer_two_one.a" TYPE="int" VALUE="5" />
+		    </SAVE_STATE>
+		    <SAVE_STATE NAME="Client_Name_2_2" KEY="LAYER_TWO_TWO" TYPE="SaveState">
+		        <STATE NAME="layer_two_two.a" TYPE="int" VALUE="5" />
+		    </SAVE_STATE>
+		</SAVE_STATE>
+		*/
+
+		// create the hierarchy inside-out
+		SaveState layer2_1State = new SaveState("Client_Name_2_1");
+		layer2_1State.putInt("layer_two_one.a", 5);
+
+		SaveState layer2_2State = new SaveState("Client_Name_2_2");
+		layer2_2State.putInt("layer_two_two.a", 6);
+
+		SaveState rootSaveState = new SaveState();
+		rootSaveState.putSaveState("LAYER_TWO_ONE", layer2_1State);
+		rootSaveState.putSaveState("LAYER_TWO_TWO", layer2_2State);
+
+		SaveState restoredState = saveAndRestoreToXml(rootSaveState);
+
+		// make sure our value is inside
+		SaveState restoredSubState1 = restoredState.getSaveState("LAYER_TWO_ONE");
+		assertEquals("Client_Name_2_1", restoredSubState1.getName());
+
+		SaveState restoredSubState2 = restoredState.getSaveState("LAYER_TWO_TWO");
+		assertEquals("Client_Name_2_2", restoredSubState2.getName());
+
+		assertEquals(5, restoredSubState1.getInt("layer_two_one.a", -1));
+		assertEquals(6, restoredSubState2.getInt("layer_two_two.a", -1));
 	}
 
-	@Test
-	public void testInt() {
-		ss.putInt("FOURTYTWO", 42);
-		assertTrue(ss.hasValue("FOURTYTWO"));
-		assertEquals(42, ss.getInt("FOURTYTWO", 0));
-		assertTrue(!ss.hasValue("XXX"));
-		assertEquals(5, ss.getInt("XXX", 5));
-	}
-
-	@Test
-	public void testIntArray() {
-		int[] array1 = new int[] { 0, 5, 9, 42, 77 };
-		ss.putInts("ARRAY", array1);
-		int[] array2 = ss.getInts("ARRAY", null);
-		for (int i = 0; i < array1.length; ++i) {
-			assertEquals(array1[i], array2[i]);
-		}
-	}
-
-	@Test
-	public void testLong() {
-		ss.putLong("FOURTYTWO", 42);
-		assertTrue(ss.hasValue("FOURTYTWO"));
-		assertEquals(42, ss.getLong("FOURTYTWO", 0));
-		assertTrue(!ss.hasValue("XXX"));
-		assertEquals(5, ss.getLong("XXX", 5));
-	}
-
-	@Test
-	public void testFloat() {
-		ss.putFloat("PI", (float) 3.14159);
-		assertTrue(ss.hasValue("PI"));
-		assertEquals((float) 3.14159, ss.getFloat("PI", (float) 0.0), (float) 0.01);
-		assertTrue(!ss.hasValue("XXX"));
-		assertEquals(5, ss.getFloat("XXX", 5), (float) 0.01);
-	}
-
-	@Test
-	public void testDouble() {
-		ss.putDouble("PI", 3.14159);
-		assertTrue(ss.hasValue("PI"));
-		assertEquals(3.14159, ss.getDouble("PI", 0.0), 0.01);
-		assertTrue(!ss.hasValue("XXX"));
-		assertEquals(5, ss.getDouble("XXX", 5), 0.01);
-	}
-
-	@Test
-	public void testSome() {
-		ss.putDouble("PI", 3.14159);
-		ss.putByte("BYTE", (byte) 0xEE);
-		ss.putLong("LONG", 65536);
-		ss.putString("STRING", "See Jane Run");
-		ss.putBoolean("BOOL_A", false);
-		ss.putBoolean("BOOL_B", true);
-
-		assertEquals(3.1459, ss.getDouble("PI", 0.0), 0.01);
-		assertEquals("See Jane Run", ss.getString("STRING", "BOB"));
-		assertEquals(true, ss.getBoolean("BOOL_B", false));
-		assertEquals((byte) 0xEE, ss.getByte("BYTE", (byte) 0));
-		assertEquals(false, ss.getBoolean("BOOL_A", true));
-	}
-
-	@Test
-	public void testXML() {
-		Element elem1 = new Element("ELEM_1");
-		Element elem2 = new Element("ELEM_2");
-		elem1.setAttribute("NAME", "VALUE");
-		elem1.addContent(elem2);
-		ss.putXmlElement("XML", elem1);
-		Element elem3 = ss.getXmlElement("XML");
-		Element elem4 = (Element) elem3.getChildren().get(0);
-		assertEquals(elem1, elem3);
-		assertEquals(elem1.getName(), elem3.getName());
-		assertEquals(elem2, elem4);
-		assertEquals(elem2.getName(), elem4.getName());
-	}
-
-	@Test
-	public void testXMLEntityEscapingForSCR_4675() throws Exception {
-		String stringWithGreaterThanAndLessThan =
-			"The following statement is true: 1 < 3 > 2 " + "with some trailing text";
-		String greaterThanLessThanKey = "GT_LT_KEY";
-		ss.putString(greaterThanLessThanKey, stringWithGreaterThanAndLessThan);
-
-		String stringWithLargeHexDigit =
-			"The following is a large hex digit: \u0128, \u0132, \307 and \253 " +
-				"with some trailing text &#xFF;";
-		String hexDigitKey = "HEX_DIGIT_KEY";
-		ss.putString(hexDigitKey, stringWithLargeHexDigit);
-
-		String stringWithAmpersandApostropheAndQuote = "That is the Jones' \"love & happiness\".";
-		String ampersandApostropheQuoteKey = "AMP_APOS_KEY";
-		ss.putString(ampersandApostropheQuoteKey, stringWithAmpersandApostropheAndQuote);
-
-		// persist the state
-		File saveFileTemp = null;
-		Element root = null;
-		try {
-			saveFileTemp = createTempFile("xmlTest");
-			Element element = ss.saveToXml();
-			saveElement(element, saveFileTemp);
-
-			// read in the state
-			InputStream is = new FileInputStream(saveFileTemp);
-			SAXBuilder sax = XmlUtilities.createSecureSAXBuilder(false, false);
-			root = sax.build(is).getRootElement();
-		}
-		catch (Exception e) {
-			throw e;
-		}
-		finally {
-			if (saveFileTemp != null) {
-				saveFileTemp.delete();
-			}
-		}
-
-		// make sure our value is the same as we put in (no escaped entities)
-		SaveState loadedState = new SaveState(root);
-		String value = loadedState.getString(greaterThanLessThanKey, null);
-		assertNotNull(value);
-		assertEquals("The XML string saved with special characters was not read in correctly",
-			stringWithGreaterThanAndLessThan, value);
-
-		value = loadedState.getString(hexDigitKey, null);
-		assertNotNull(value);
-		assertEquals("The XML string saved with special characters was not read in correctly",
-			stringWithLargeHexDigit, value);
-
-		value = loadedState.getString(ampersandApostropheQuoteKey, null);
-		assertNotNull(value);
-		assertEquals("The XML string saved with special characters was not read in correctly",
-			stringWithAmpersandApostropheAndQuote, value);
-	}
-
-	@Test
-	public void testIsEmpty() {
-		assertTrue(ss.isEmpty());
-		ss.putBoolean("BOOL", false);
-		assertTrue(!ss.isEmpty());
-	}
-
-	@Test
-	public void testFileInputOutput() throws IOException {
-		ss.putBoolean("B1", true);
-		ss.putInt("I1", 7);
-		ss.putString("S1", "Hey There");
-		File file = createTempFile("SaveStateTest", "xml");
-		ss.saveToFile(file);
-
-		SaveState ss2 = new SaveState(file);
-		assertEquals(true, ss2.getBoolean("B1", false));
-		assertEquals(7, ss2.getInt("I1", 1));
-		assertEquals("Hey There", ss2.getString("S1", ""));
-		file.delete();
+	private SaveState saveAndRestoreToXml(SaveState ss) throws Exception {
+		Element saveToXml = ss.saveToXml();
+		return new SaveState(saveToXml);
 	}
 }

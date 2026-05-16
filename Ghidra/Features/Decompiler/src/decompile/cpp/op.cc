@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,16 +16,22 @@
 #include "op.hh"
 #include "funcdata.hh"
 
+namespace ghidra {
+
+ElementId ELEM_IOP = ElementId("iop",113);
+ElementId ELEM_UNIMPL = ElementId("unimpl",114);
+
+const string IopSpace::NAME = "iop";
+
 /// Constructor for the \b iop space.
 /// There is only one such space, and it is considered internal
 /// to the model, i.e. the Translate engine should never generate
 /// addresses in this space.
 /// \param m is the associated address space manager
 /// \param t is the associated processor translator
-/// \param nm is the name of the space (always \b iop)
 /// \param ind is the associated index
-IopSpace::IopSpace(AddrSpaceManager *m,const Translate *t,const string &nm,int4 ind)
-  : AddrSpace(m,t,IPTR_IOP,nm,sizeof(void *),1,ind,0,1)
+IopSpace::IopSpace(AddrSpaceManager *m,const Translate *t,int4 ind)
+  : AddrSpace(m,t,IPTR_IOP,NAME,false,sizeof(void *),1,ind,0,1,1)
 {
   clearFlags(heritaged|does_deadcode|big_endian);
   if (HOST_ENDIAN==1)		// Endianness always set to host
@@ -52,16 +58,10 @@ void IopSpace::printRaw(ostream &s,uintb offset) const
   bl->getStart().printRaw(s);
 }
 
-void IopSpace::saveXml(ostream &s) const
+void IopSpace::decode(Decoder &decoder)
 
 {
-  throw LowlevelError("Should never save iop space to XML");
-}
-
-void IopSpace::restoreXml(const Element *el)
-
-{
-  throw LowlevelError("Should never restore iop space from XML");
+  throw LowlevelError("Should never decode iop space from stream");
 }
 
 /// Construct a completely unattached PcodeOp.  Space is reserved for input and output Varnodes
@@ -115,7 +115,6 @@ int4 PcodeOp::getRepeatSlot(const Varnode *vn,int4 firstSlot,list<PcodeOp *>::co
 bool PcodeOp::isCollapsible(void) const
 
 {
-  if (code() == CPUI_COPY) return false;
   if ((flags & PcodeOp::nocollapse)!=0) return false;
   if (!isAssignment()) return false;
   if (inrefs.size()==0) return false;
@@ -171,6 +170,106 @@ bool PcodeOp::isCseMatch(const PcodeOp *op) const
   return true;
 }
 
+/// Its possible for the order of operations to be rearranged in some instances but still keep
+/// equivalent data-flow.  Test if \b this operation can be moved to occur immediately after
+/// a specified \e point operation. This currently only tests for movement within a basic block.
+/// \param point is the specified point to move \b this after
+/// \return \b true if the move is possible
+bool PcodeOp::isMoveable(const PcodeOp *point) const
+
+{
+  if (this == point) return true;	// No movement necessary
+  bool movingLoad = false;
+  if (getEvalType() == PcodeOp::special) {
+    if (code() == CPUI_LOAD)
+      movingLoad = true;	// Allow LOAD to be moved with additional restrictions
+    else
+      return false;	// Don't move special ops
+  }
+  if (parent != point->parent) return false;	// Not in the same block
+  if (output != (Varnode *)0) {
+    // Output cannot be moved past an op that reads it
+    list<PcodeOp *>::const_iterator iter = output->beginDescend();
+    list<PcodeOp *>::const_iterator enditer = output->endDescend();
+    while(iter != enditer) {
+      PcodeOp *readOp = *iter;
+      ++iter;
+      if (readOp->parent != parent) continue;
+      if (readOp->start.getOrder() <= point->start.getOrder())
+	return false;		// Is in the block and is read before (or at) -point-
+    }
+  }
+  // Only allow this op to be moved across a CALL in very restrictive circumstances
+  bool crossCalls = false;
+  if (getEvalType() != PcodeOp::special) {
+    // Check for a normal op where all inputs and output are not address tied
+    if (output != (Varnode *)0 && !output->isAddrTied() && !output->isPersist()) {
+      int4 i;
+      for(i=0;i<numInput();++i) {
+	const Varnode *vn = getIn(i);
+	if (vn->isAddrTied() || vn->isPersist())
+	  break;
+      }
+      if (i == numInput())
+	crossCalls = true;
+    }
+  }
+  vector<const Varnode *> tiedList;
+  for(int4 i=0;i<numInput();++i) {
+    const Varnode *vn = getIn(i);
+    if (vn->isAddrTied())
+      tiedList.push_back(vn);
+  }
+  list<PcodeOp *>::iterator biter = basiciter;
+  do {
+    ++biter;
+    PcodeOp *op = *biter;
+    if (op->getEvalType() == PcodeOp::special) {
+      switch (op->code()) {
+	case CPUI_LOAD:
+	  if (output != (Varnode *)0) {
+	    if (output->isAddrTied()) return false;
+	  }
+	  break;
+	case CPUI_STORE:
+	  if (movingLoad)
+	    return false;
+	  else {
+	    if (!tiedList.empty()) return false;
+	    if (output != (Varnode *)0) {
+	      if (output->isAddrTied()) return false;
+	    }
+	  }
+	  break;
+	case CPUI_INDIRECT:		// Let thru, deal with what's INDIRECTed around separately
+	case CPUI_SEGMENTOP:
+	case CPUI_CPOOLREF:
+	  break;
+	case CPUI_CALL:
+	case CPUI_CALLIND:
+	case CPUI_NEW:
+	  if (!crossCalls) return false;
+	  break;
+	default:
+	  return false;
+      }
+    }
+    if (op->output != (Varnode *)0) {
+      if (movingLoad) {
+	if (op->output->isAddrTied()) return false;
+      }
+      for(int4 i=0;i<tiedList.size();++i) {
+	const Varnode *vn = tiedList[i];
+	if (vn->overlap(*op->output)>=0)
+	  return false;
+	if (op->output->overlap(*vn)>=0)
+	  return false;
+      }
+    }
+  } while(biter != point->basiciter);
+  return true;
+}
+
 /// Set the behavioral class (opcode) of this operation. For most applications this should only be called
 /// by the PcodeOpBank.  This is fairly low-level but does cache various boolean flags associated with the opcode
 /// \param t_op is the behavioural class to set
@@ -179,7 +278,8 @@ void PcodeOp::setOpcode(TypeOp *t_op)
 {
   flags &= ~(PcodeOp::branch | PcodeOp::call | PcodeOp::coderef | PcodeOp::commutative |
 	     PcodeOp::returns | PcodeOp::nocollapse | PcodeOp::marker | PcodeOp::booloutput |
-	     PcodeOp::unary | PcodeOp::binary | PcodeOp::special);
+	     PcodeOp::unary | PcodeOp::binary | PcodeOp::ternary | PcodeOp::special |
+	     PcodeOp::has_callspec | PcodeOp::return_copy);
   opcode = t_op;
   flags |= t_op->getFlags();
 }
@@ -283,49 +383,62 @@ void PcodeOp::printDebug(ostream &s) const
     printRaw(s);
 }
 
-/// Write a description including: the opcode name, the sequence number, and separate xml tags
+/// Encode a description including: the opcode name, the sequence number, and separate elements
 /// providing a reference number for each input and output Varnode
-/// \param s is the stream to write to
-void PcodeOp::saveXml(ostream &s) const
+/// \param encoder is the stream encoder
+void PcodeOp::encode(Encoder &encoder) const
 
 {
-  s << "<op";
-  a_v_i(s,"code",(int4)code());
-  s << ">\n";
-  start.saveXml(s);
-  s << '\n';
-  if (output==(Varnode *)0)
-    s << "<void/>\n";
-  else
-    s << "<addr ref=\"0x" << hex << output->getCreateIndex() << "\"/>\n";
+  encoder.openElement(ELEM_OP);
+  encoder.writeSignedInteger(ATTRIB_CODE, (int4)code());
+  start.encode(encoder);
+  if (output==(Varnode *)0) {
+    encoder.openElement(ELEM_VOID);
+    encoder.closeElement(ELEM_VOID);
+  }
+  else {
+    encoder.openElement(ELEM_ADDR);
+    encoder.writeUnsignedInteger(ATTRIB_REF, output->getCreateIndex());
+    encoder.closeElement(ELEM_ADDR);
+  }
   for(int4 i=0;i<inrefs.size();++i) {
     const Varnode *vn = getIn(i);
-    if (vn == (const Varnode *)0)
-      s << "<void/>\n";
+    if (vn == (const Varnode *)0) {
+      encoder.openElement(ELEM_VOID);
+      encoder.closeElement(ELEM_VOID);
+    }
     else if (vn->getSpace()->getType()==IPTR_IOP) {
       if ((i==1)&&(code()==CPUI_INDIRECT)) {
 	PcodeOp *indop = PcodeOp::getOpFromConst(vn->getAddr());
-	s << "<iop";
-	a_v_u(s,"value",indop->getSeqNum().getTime());
-	s << "/>\n";
+	encoder.openElement(ELEM_IOP);
+	encoder.writeUnsignedInteger(ATTRIB_VALUE, indop->getSeqNum().getTime());
+	encoder.closeElement(ELEM_IOP);
       }
-      else
-	s << "<void/>\n";
+      else {
+	encoder.openElement(ELEM_VOID);
+	encoder.closeElement(ELEM_VOID);
+      }
     }
     else if (vn->getSpace()->getType()==IPTR_CONSTANT) {
       if ((i==0)&&((code()==CPUI_STORE)||(code()==CPUI_LOAD))) {
-	AddrSpace *spc = Address::getSpaceFromConst(vn->getAddr());
-	s << "<spaceid name=\"";
-	s << spc->getName() << "\"/>\n";
+	AddrSpace *spc = vn->getSpaceFromConst();
+	encoder.openElement(ELEM_SPACEID);
+	encoder.writeSpace(ATTRIB_NAME, spc);
+	encoder.closeElement(ELEM_SPACEID);
       }
-      else
-	s << "<addr ref=\"0x" << hex << vn->getCreateIndex() << "\"/>\n";
+      else {
+	encoder.openElement(ELEM_ADDR);
+	encoder.writeUnsignedInteger(ATTRIB_REF, vn->getCreateIndex());
+	encoder.closeElement(ELEM_ADDR);
+      }
     }
     else {
-      s << "<addr ref=\"0x" << hex << vn->getCreateIndex() << "\"/>\n";
+      encoder.openElement(ELEM_ADDR);
+      encoder.writeUnsignedInteger(ATTRIB_REF, vn->getCreateIndex());
+      encoder.closeElement(ELEM_ADDR);
     }
   }
-  s << "</op>\n";
+  encoder.closeElement(ELEM_OP);
 }
 
 /// Assuming all the inputs to this op are constants, compute the constant result of evaluating
@@ -356,6 +469,33 @@ uintb PcodeOp::collapse(bool &markedInput) const {
     break;
   }
   throw LowlevelError("Invalid constant collapse");
+}
+
+/// The p-code op must be \e special, or an exception is thrown.  The operation is performed
+/// and if there is no evaluation error, the result is returned and \b evalError is set to \b false.
+/// \param in is an array of input values
+/// \param evalError passes back \b false if there is no evaluation error
+/// \return the result of applying \b this operation to the input values
+uintb PcodeOp::executeSimple(uintb *in,bool &evalError) const
+
+{
+  uint4 evalType = getEvalType();
+  uintb res;
+  try {
+    if (evalType == PcodeOp::unary)
+      res = opcode->evaluateUnary(output->getSize(),inrefs[0]->getSize(),in[0]);
+    else if (evalType == PcodeOp::binary)
+      res = opcode->evaluateBinary(output->getSize(),inrefs[0]->getSize(),in[0],in[1]);
+    else if (evalType == PcodeOp::ternary)
+      res = opcode->evaluateTernary(output->getSize(),inrefs[0]->getSize(),in[0],in[1],in[2]);
+    else
+      throw LowlevelError("Cannot perform simple execution of "+(string)get_opname(code()));
+  } catch(EvaluationError &err) {
+    evalError = true;
+    return 0;
+  }
+  evalError = false;
+  return res;
 }
 
 /// Knowing that \b this PcodeOp has collapsed its constant inputs, one of which has
@@ -527,41 +667,80 @@ uintb PcodeOp::getNZMaskLocal(bool cliploop) const
     resmask = coveringmask((uintb)sz1);
     resmask &= fullmask;
     break;
+  case CPUI_LZCOUNT:
+    resmask = coveringmask(getIn(0)->getSize() * 8);
+    resmask &= fullmask;
+    break;
   case CPUI_SUBPIECE:
     resmask = getIn(0)->getNZMask();
-    resmask >>= 8*getIn(1)->getOffset();
+    sz1 = (int4)getIn(1)->getOffset();
+    if ((int4)getIn(0)->getSize() <= sizeof(uintb)) {
+      if (sz1 < sizeof(uintb))
+	resmask >>= 8*sz1;
+      else
+	resmask = 0;
+    }
+    else {			// Extended precision
+      if (sz1 < sizeof(uintb)) {
+	resmask >>= 8*sz1;
+	if (sz1 > 0)
+	  resmask |= fullmask << (8*(sizeof(uintb)-sz1));
+      }
+      else
+	resmask = fullmask;
+    }
     resmask &= fullmask;
     break;
   case CPUI_PIECE:
+    sa = getIn(1)->getSize();
     resmask = getIn(0)->getNZMask();
-    resmask <<= 8*getIn(1)->getSize();
+    resmask = (sa < sizeof(uintb)) ? resmask << 8*sa : 0;
     resmask |= getIn(1)->getNZMask();
     break;
   case CPUI_INT_MULT:
     val = getIn(0)->getNZMask();
     resmask = getIn(1)->getNZMask();
-    sz1 = mostsigbit_set(val);
-    if (sz1 == -1)
-      resmask = 0;
+    if (size > sizeof(uintb)) {
+      resmask = fullmask;
+    }
     else {
+      sz1 = mostsigbit_set(val);
       sz2 = mostsigbit_set(resmask);
-      if (sz2 == -1)
+      if (sz1 == -1 || sz2 == -1) {
 	resmask = 0;
+      }
       else {
-	if (sz1 + sz2 < 8*size-2)
-	  fullmask >>= (8*size-2-sz1-sz2);
-	sz1 = leastsigbit_set(val);
-	sz2 = leastsigbit_set(resmask);
-	resmask = (~((uintb)0))<<(sz1+sz2);
-	resmask &= fullmask;
+	int4 l1 = leastsigbit_set(val);
+	int4 l2 = leastsigbit_set(resmask);
+	sa = l1 + l2;
+	if (sa >= 8*size) {
+	  resmask = 0;
+	}
+	else {
+	  sz1 = sz1 - l1 + 1;
+	  sz2 = sz2 - l2 + 1;
+	  int4 total = sz1 + sz2;
+	  if (sz1 == 1 || sz2 == 1)
+	    total -= 1;
+	  resmask = fullmask;
+	  if (total < 8 * size)
+	    resmask >>= (8*size - total);
+	  resmask = (resmask << sa) & fullmask;
+	}
       }
     }
     break;
   case CPUI_INT_ADD:
     resmask = getIn(0)->getNZMask();
     if (resmask!=fullmask) {
-      resmask |= getIn(1)->getNZMask();
-      resmask |= (resmask<<1);	// Account for possible carries
+      uintb othermask = getIn(1)->getNZMask();
+      if ((othermask & resmask) == 0) {
+	resmask |= othermask;
+      }
+      else {
+	resmask |= othermask;
+	resmask |= (resmask << 1);	// Account for possible carries
+      }
       resmask &= fullmask;
     }
     break;
@@ -615,6 +794,92 @@ int4 PcodeOp::compareOrder(const PcodeOp *bop) const
   if (common == bop->parent)
     return 1;
   return 0;
+}
+
+/// \brief Determine if a Varnode is a leaf within the CONCAT tree rooted at the given Varnode
+///
+/// The CONCAT tree is the maximal set of Varnodes that are all inputs to CPUI_PIECE operations,
+/// with no other uses, and that all ultimately flow to the root Varnode.  This method tests
+/// whether a Varnode is a leaf of this tree.
+/// \param rootVn is the given root of the CONCAT tree
+/// \param vn is the Varnode to test as a leaf
+/// \param relOffset is byte offset of the test Varnode within fully concatenated value (rooted at \b rootVn)
+/// \return \b true is the test Varnode is a leaf of the tree
+bool PieceNode::isLeaf(Varnode *rootVn,Varnode *vn,int4 relOffset)
+
+{
+  if (vn->isMapped() && rootVn->getSymbolEntry() != vn->getSymbolEntry()) {
+    return true;
+  }
+  if (!vn->isWritten()) return true;
+  PcodeOp *def = vn->getDef();
+  if (def->code() != CPUI_PIECE) return true;
+  PcodeOp *op = vn->loneDescend();
+  if (op == (PcodeOp *)0) return true;
+  if (vn->isAddrTied()) {
+    Address addr = rootVn->getAddr() + relOffset;
+    if (vn->getAddr() != addr) return true;
+  }
+  return false;
+}
+
+/// Find the root of the CONCAT tree of Varnodes marked either isProtoPartial() or isAddrTied().
+/// This will be the maximal Varnode that containing the given Varnode (as storage), with a
+/// backward path to it through PIECE operations. All Varnodes along the path, except the root, will be
+/// marked as isProtoPartial() or isAddrTied().
+/// \return the root of the CONCAT tree
+Varnode *PieceNode::findRoot(Varnode *vn)
+
+{
+  while(vn->isProtoPartial() || vn->isAddrTied()) {
+    list<PcodeOp *>::const_iterator iter = vn->beginDescend();
+    PcodeOp *pieceOp = (PcodeOp *)0;
+    while(iter != vn->endDescend()) {
+      PcodeOp *op = *iter;
+      ++iter;
+      if (op->code() != CPUI_PIECE) continue;
+      int4 slot = op->getSlot(vn);
+      Address addr = op->getOut()->getAddr();
+      if (addr.getSpace()->isBigEndian() == (slot == 1))
+	addr = addr + op->getIn(1-slot)->getSize();
+      addr.renormalize(vn->getSize());		// Allow for possible join address
+      if (addr == vn->getAddr()) {
+	if (pieceOp != (PcodeOp *)0) {		// If there is more than one valid PIECE
+	  if (op->compareOrder(pieceOp))	// Attach this to earliest one
+	    pieceOp = op;
+	}
+	else
+	  pieceOp = op;
+      }
+    }
+    if (pieceOp == (PcodeOp *)0)
+      break;
+    vn = pieceOp->getOut();
+  }
+  return vn;
+}
+
+/// \brief Build the CONCAT tree rooted at the given Varnode
+///
+/// Recursively walk backwards from the root through CPUI_PIECE operations, stopping if a Varnode
+/// is deemed a leaf.  Collect all Varnodes involved in the tree in a list.  For each Varnode in the tree,
+/// record whether it is leaf and also calculate its offset within the data-type attached to the root.
+/// \param stack holds the markup for each node of the tree
+/// \param rootVn is the given root of the tree
+/// \param op is the current PIECE op to explore as part of the tree
+/// \param baseOffset is the offset associated with the output of the current PIECE op wihtin the data-type
+/// \param rootOffset is the offset of the \b rootVn within the data-type
+void PieceNode::gatherPieces(vector<PieceNode> &stack,Varnode *rootVn,PcodeOp *op,int4 baseOffset,int4 rootOffset)
+
+{
+  for(int4 i=0;i<2;++i) {
+    Varnode *vn = op->getIn(i);
+    int4 offset = (rootVn->getSpace()->isBigEndian() == (i==1)) ? baseOffset + op->getIn(1-i)->getSize() : baseOffset;
+    bool res = isLeaf(rootVn,vn,offset-rootOffset);
+    stack.emplace_back(op,i,offset,res);
+    if (!res)
+      gatherPieces(stack,rootVn,vn->getDef(),offset,rootOffset);
+  }
 }
 
 /// Add the PcodeOp to the list of ops with the same op-code. Currently only certain
@@ -952,159 +1217,4 @@ void PcodeOpBank::clear(void)
   uniqid = 0;
 }
 
-static int4 functionalEqualityLevel0(Varnode *vn1,Varnode *vn2)
-
-{ // Return 0 if -vn1- and -vn2- must hold same value
-  // Return -1 if they definitely don't hold same value
-  // Return 1 if the same value depends on ops writing to -vn1- and -vn2-
-  if (vn1==vn2) return 0;
-  if (vn1->getSize() != vn2->getSize()) return -1;
-  if (vn1->isConstant()) {
-    if (vn2->isConstant()) {
-      return (vn1->getOffset() == vn2->getOffset()) ? 0 : -1;
-    }
-    return -1;
-  }
-  if (vn2->isConstant()) return -1;
-  if (vn1->isWritten() && vn2->isWritten()) return 1;
-  return -1;
-}
-
-/// \brief Try to determine if \b vn1 and \b vn2 contain the same value
-///
-/// Return:
-///    -  -1, if they do \b not, or if it can't be immediately verified
-///    -   0, if they \b do hold the same value
-///    -  >0, if the result is contingent on additional varnode pairs having the same value
-/// In the last case, the varnode pairs are returned as (res1[i],res2[i]),
-/// where the return value is the number of pairs.
-/// \param vn1 is the first Varnode to compare
-/// \param vn2 is the second Varnode
-/// \param res1 is a reference to the first returned Varnode
-/// \param res2 is a reference to the second returned Varnode
-/// \return the result of the comparison
-int4 functionalEqualityLevel(Varnode *vn1,Varnode *vn2,Varnode **res1,Varnode **res2)
-
-{
-  int4 testval = functionalEqualityLevel0(vn1,vn2);
-  if (testval != 1) return testval;
-  PcodeOp *op1 = vn1->getDef();
-  PcodeOp *op2 = vn2->getDef();
-  OpCode opc = op1->code();
-
-  if (opc != op2->code()) return -1;
-
-  int4 num = op1->numInput();
-  if (num != op2->numInput()) return -1;
-  if (op1->isMarker()) return -1;
-  if (op2->isCall()) return -1;
-  if (opc == CPUI_LOAD) {
-				// FIXME: We assume two loads produce the same
-				// result if the address is the same and the loads
-				// occur in the same instruction
-    if (op1->getAddr() != op2->getAddr()) return -1;
-  }
-  if (num >= 3) {
-    if (opc != CPUI_PTRADD) return -1; // If this is a PTRADD
-    if (op1->getIn(2)->getOffset() != op2->getIn(2)->getOffset()) return -1; // Make sure the elsize constant is equal
-    num = 2;			// Otherwise treat as having 2 inputs
-  }
-  for(int4 i=0;i<num;++i) {
-    res1[i] = op1->getIn(i);
-    res2[i] = op2->getIn(i);
-  }
-
-  testval = functionalEqualityLevel0(res1[0],res2[0]);
-  if (testval == 0) {	      	// A match locks in this comparison ordering
-    if (num==1) return 0;
-    testval = functionalEqualityLevel0(res1[1],res2[1]);
-    if (testval==0) return 0;
-    if (testval < 0) return -1;
-    res1[0] = res1[1];		// Match is contingent on second pair
-    res2[0] = res2[1];
-    return 1;
-  }
-  if (num == 1) return testval;
-  int4 testval2 = functionalEqualityLevel0(res1[1],res2[1]);
-  if (testval2 == 0) {		// A match locks in this comparison ordering
-    return testval;
-  }
-  int4 unmatchsize;
-  if ((testval==1)&&(testval2==1))
-    unmatchsize = 2;
-  else
-    unmatchsize = -1;
-
-  if (!op1->isCommutative()) return unmatchsize;
-  // unmatchsize must be 2 or -1 here on a commutative operator,
-  // try flipping
-  int4 comm1 = functionalEqualityLevel0(res1[0],res2[1]);
-  int4 comm2 = functionalEqualityLevel0(res1[1],res2[0]);
-  if ((comm1==0) && (comm2==0))
-    return 0;
-  if ((comm1<0)||(comm2<0))
-    return unmatchsize;
-  if (comm1==0)	{		// AND (comm2==1)
-    res1[0] = res1[1];		// Left over unmatch is res1[1] and res2[0]
-    return 1;
-  }
-  if (comm2==0) {		// AND (comm1==1)
-    res2[0] = res2[1];		// Left over unmatch is res1[0] and res2[1]
-    return 1;
-  }
-  // If we reach here (comm1==1) AND (comm2==1)
-  if (unmatchsize == 2)		// If the original ordering wasn't impossible
-    return 2;			// Prefer the original ordering
-  Varnode *tmpvn = res2[0];	// Otherwise swap the ordering
-  res2[0] = res2[1];
-  res2[1] = tmpvn;
-  return 2;
-}
-
-/// \brief Determine if two Varnodes hold the same value
-///
-/// Only return \b true if it can be immediately determined they are equivalent
-/// \param vn1 is the first Varnode
-/// \param vn2 is the second Varnode
-/// \return true if they are provably equal
-bool functionalEquality(Varnode *vn1,Varnode *vn2)
-
-{
-  Varnode *buf1[2];
-  Varnode *buf2[2];
-  return (functionalEqualityLevel(vn1,vn2,buf1,buf2)==0);
-}
-
-/// \brief Return true if vn1 and vn2 are verifiably different values
-///
-/// This is actually a rather speculative test
-/// \param vn1 is the first Varnode to compare
-/// \param vn2 is the second Varnode
-/// \param depth is the maximum level to recurse while testing
-/// \return \b true if they are different
-bool functionalDifference(Varnode *vn1,Varnode *vn2,int4 depth)
-
-{
-  PcodeOp *op1,*op2;
-  int4 i,num;
-
-  if (vn1 == vn2) return false;
-  if ((!vn1->isWritten())||(!vn2->isWritten())) {
-    if (vn1->isConstant() && vn2->isConstant())
-      return !(vn1->getAddr()==vn2->getAddr());
-    if (vn1->isInput()&&vn2->isInput()) return false; // Might be the same
-    if (vn1->isFree()||vn2->isFree()) return false; // Might be the same
-    return true;
-  }
-  op1 = vn1->getDef();
-  op2 = vn2->getDef();
-  if (op1->code() != op2->code()) return true;
-  num = op1->numInput();
-  if (num != op2->numInput()) return true;
-  if (depth==0) return true;	// Different as far as we can tell
-  depth -= 1;
-  for(i=0;i<num;++i)
-    if (functionalDifference(op1->getIn(i),op2->getIn(i),depth))
-      return true;
-  return false;
-}
+} // End namespace ghidra

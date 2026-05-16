@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,12 +15,11 @@
  */
 package ghidra.program.database.symbol;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-import db.Record;
-import ghidra.program.database.DBObjectCache;
-import ghidra.program.database.ProgramDB;
+import db.DBRecord;
 import ghidra.program.database.external.ExternalManagerDB;
 import ghidra.program.database.function.FunctionManagerDB;
 import ghidra.program.model.address.Address;
@@ -29,6 +28,7 @@ import ghidra.program.model.listing.Function;
 import ghidra.program.model.symbol.*;
 import ghidra.program.util.FunctionReturnTypeFieldLocation;
 import ghidra.program.util.ProgramLocation;
+import ghidra.util.Lock.Closeable;
 import ghidra.util.Msg;
 import ghidra.util.exception.DuplicateNameException;
 import ghidra.util.exception.InvalidInputException;
@@ -36,42 +36,25 @@ import ghidra.util.task.TaskMonitor;
 
 /**
  * Symbol class for functions.
- * 
- * Symbol Data Usage:
- *   EXTERNAL:
- *   	long data1 - external data type
- *   	String data3 - external memory address
- *   NON-EXTERNAL:
- *      - not used -
  */
-public class FunctionSymbol extends SymbolDB {
+public class FunctionSymbol extends MemorySymbol {
 
 	private FunctionManagerDB functionMgr;
 
 	/**
 	 * Construct a new FunctionSymbol
 	 * @param symbolMgr the symbol manager.
-	 * @param cache symbol object cache
 	 * @param address the address for this symbol.
 	 * @param record the record for this symbol.
 	 */
-	public FunctionSymbol(SymbolManager symbolMgr, DBObjectCache<SymbolDB> cache, Address address,
-			Record record) {
-		super(symbolMgr, cache, address, record);
+	FunctionSymbol(SymbolManager symbolMgr, Address address, DBRecord record) {
+		super(symbolMgr, address, record, record.getKey());
 		this.functionMgr = symbolMgr.getFunctionManager();
 	}
 
-	/**
-	 * @see ghidra.program.model.symbol.Symbol#getSymbolType()
-	 */
 	@Override
 	public SymbolType getSymbolType() {
 		return SymbolType.FUNCTION;
-	}
-
-	@Override
-	public boolean isExternal() {
-		return address.isExternalAddress();
 	}
 
 	boolean isThunk() {
@@ -81,31 +64,27 @@ public class FunctionSymbol extends SymbolDB {
 	@Override
 	public void setNameAndNamespace(String newName, Namespace newNamespace, SourceType source)
 			throws DuplicateNameException, InvalidInputException, CircularDependencyException {
-		lock.acquire();
-		try {
+		try (Closeable c = lock.write()) {
 			boolean namespaceChange = !getParentNamespace().equals(newNamespace);
 			super.setNameAndNamespace(newName, newNamespace, source);
 			if (namespaceChange) {
 				functionMgr.functionNamespaceChanged(key);
 			}
 		}
-		finally {
-			lock.release();
-		}
 	}
 
-	/**
-	 * @see ghidra.program.model.symbol.Symbol#delete()
-	 */
 	@Override
 	public boolean delete() {
-		lock.acquire();
-		try {
+		try (Closeable c = lock.write()) {
 			boolean restoreLabel = isExternal() || (getSource() != SourceType.DEFAULT);
 			String symName = getName();
-			String extData3 = null;
+			Symbol parentSymbol = getParentSymbol();
+			String extOrigImportName = null;
+			Address extProgramAddr = null;
 			if (isExternal()) {
-				extData3 = getSymbolData3(); // preserve external data
+				// preserve external data
+				extOrigImportName = getExternalOriginalImportedName();
+				extProgramAddr = getExternalProgramAddress();
 			}
 			Namespace namespace = getParentNamespace();
 			SourceType source = getSource();
@@ -119,121 +98,70 @@ public class FunctionSymbol extends SymbolDB {
 			}
 
 			if (super.delete()) {
+				if ((parentSymbol instanceof SymbolDB) && ((SymbolDB) parentSymbol).isDeleting()) {
+					// do not replace function with label if parent namespace is getting removed
+					return false;
+				}
 				if (restoreLabel) {
-					boolean restored = createLabelForDeletedFunctionName(address, symName, extData3,
-						namespace, source, pinned);
-					if (!restored && isExternal()) {
-						removeAllReferencesTo();
+					// Recreate a symbol with the function symbol's name because deleting the function 
+					// does not mean that we want to lose the function name (that is our policy).
+					Symbol newSymbol;
+					if (isExternal()) {
+						newSymbol = symbolMgr.createExternalCodeSymbol(address, symName, namespace,
+							source, extOrigImportName, extProgramAddr);
+					}
+					else {
+						newSymbol = symbolMgr.createLabel(address, symName, namespace, source);
+						newSymbol.setPrimary();
+						if (pinned) {
+							newSymbol.setPinned(true);
+						}
+					}
+					if (newSymbol == null && isExternal()) {
+						// remove all associated external references if external symbol not restored
+						symbolMgr.getReferenceManager().removeAllReferencesTo(getAddress());
 					}
 				}
 				return true;
 			}
 		}
-		finally {
-			lock.release();
-		}
-		return false;
-	}
-
-	/**
-	 * Recreate a symbol with the function symbol's name because deleting the function 
-	 * does not mean that we want to lose the function name (that is our policy).
-	 */
-	private boolean createLabelForDeletedFunctionName(Address entryPoint, String symName,
-			String data3, Namespace namespace, SourceType source, boolean pinned) {
-		if (isExternal()) {
-			SymbolDB parent = (SymbolDB) namespace.getSymbol();
-			if (parent.isDeleting()) {
-				return false; // don't recreate external
-			}
-		}
-		try {
-			SymbolDB newSym;
-			try {
-				newSym = symbolMgr.createSpecialSymbol(entryPoint, symName, namespace,
-					SymbolType.LABEL, -1, -1, data3, source);
-				if (pinned) {
-					newSym.setPinned(true);
-				}
-			}
-			catch (InvalidInputException e) {
-				ProgramDB program = symbolMgr.getProgram();
-				newSym = (SymbolDB) symbolMgr.createLabel(entryPoint, symName,
-					program.getGlobalNamespace(), source);
-			}
-			newSym.setSymbolData3(data3); // reserved for external location use
-			newSym.setPrimary();
-			return true;
-		}
-		catch (DuplicateNameException e) {
-			// This should't happen.
-			Msg.error(this, "Unexpected Exception: " + e.getMessage(), e);
-		}
 		catch (InvalidInputException e) {
 			// This shouldn't happen.
 			Msg.error(this, "Unexpected Exception: " + e.getMessage(), e);
 		}
+		catch (IOException e) {
+			symbolMgr.dbError(e);
+		}
 		return false;
 	}
 
-	/**
-	 * @see ghidra.program.model.symbol.Symbol#getObject()
-	 */
 	@Override
-	public Object getObject() {
+	public Function getObject() {
 		return functionMgr.getFunction(key);
 	}
 
-	/**
-	 * @see ghidra.program.model.symbol.Symbol#isPrimary()
-	 */
 	@Override
 	public boolean isPrimary() {
 		return true;
 	}
 
 	@Override
-	public boolean isPinned() {
-		if (!isExternal()) {
-			return doIsPinned();
-		}
-		return false;
-	}
-
-	@Override
-	public void setPinned(boolean pinned) {
-		if (!isExternal()) {
-			doSetPinned(pinned);
-		}
-	}
-
-	/**
-	 * @see ghidra.program.model.symbol.Symbol#getProgramLocation()
-	 */
-	@Override
 	public ProgramLocation getProgramLocation() {
-		lock.acquire();
-		try {
-			if (!checkIsValid()) {
+		try (Closeable c = lock.read()) {
+			if (!refreshIfNeeded()) {
 				return null;
 			}
-			Function f = (Function) getObject();
+			Function f = getObject();
 			String signature = f.getPrototypeString(false, false);
 			return new FunctionReturnTypeFieldLocation(getProgram(), address, 0, signature,
 				f.getReturnType().getName());
 		}
-		finally {
-			lock.release();
-		}
 	}
 
-	/**
-	 * @see ghidra.program.model.symbol.Symbol#isValidParent(ghidra.program.model.symbol.Namespace)
-	 */
 	@Override
 	public boolean isValidParent(Namespace parent) {
-		return SymbolType.FUNCTION.isValidParent(symbolMgr.getProgram(), parent, address,
-			isExternal());
+		return super.isValidParent(parent) && SymbolType.FUNCTION
+				.isValidParent(symbolMgr.getProgram(), parent, address, isExternal());
 	}
 
 	@Override
@@ -260,55 +188,25 @@ public class FunctionSymbol extends SymbolDB {
 		return super.doGetName();
 	}
 
-//	@Override
-//	public void setNameAndNamespace(String newName, Namespace newNamespace, SourceType source)
-//			throws DuplicateNameException, InvalidInputException, CircularDependencyException {
-//
-//		if (!isExternal()) {
-//
-//			// Check thunk function name - if name matches thunked function
-//			// name switch to using DEFAULT name
-//			
-//			// NOTE: Removed this since this prevents having a second symbol
-//			
-//			Symbol thunkedSymbol = getThunkedSymbol();
-//			if (thunkedSymbol != null) {
-//				String thunkedName = thunkedSymbol.getName();
-//				if (thunkedName.equals(newName)) {
-//					newName = "";
-//					source = SourceType.DEFAULT;
-//				}
-//			}
-//		}
-//
-//		super.setNameAndNamespace(newName, newNamespace, source);
-//	}
+	@Override
+	protected Namespace doGetParentNamespace() {
+
+		// Check for default thunk function which should return the
+		// parent namespace of the thunked-function
+		if (getSource() == SourceType.DEFAULT) {
+			Symbol thunkedSymbol = getThunkedSymbol();
+			if (thunkedSymbol instanceof FunctionSymbol) {
+				FunctionSymbol thunkedFuncSym = (FunctionSymbol) thunkedSymbol;
+				return thunkedFuncSym.getParentNamespace();
+			}
+		}
+		return super.doGetParentNamespace();
+	}
 
 	private Symbol getThunkedSymbol() {
 		long thunkedFunctionId = functionMgr.getThunkedFunctionId(key);
 		return (thunkedFunctionId >= 0) ? symbolMgr.getSymbol(thunkedFunctionId) : null;
 	}
-
-//	@Override
-//	public void setNameAndNamespace(String newName, Namespace newNamespace, SourceType source)
-//			throws DuplicateNameException, InvalidInputException, CircularDependencyException {
-//
-//		long thunkedFunctionId = functionMgr.getThunkedFunctionId(key);
-//		if (thunkedFunctionId >= 0) {
-//			if (!newName.startsWith(Function.THUNK_PREFIX)) {
-//				// ignore
-//				return;
-//			}
-//			// rename thunked function based on thunk name specified
-//			Symbol s = symbolMgr.getSymbol(thunkedFunctionId);
-//			if (s != null) {
-//				s.setName(newName.substring(Function.THUNK_PREFIX.length()), source);
-//			}
-//			return;
-//		}
-//
-//		super.setNameAndNamespace(newName, newNamespace, source);
-//	}
 
 	@Override
 	protected SourceType validateNameSource(String newName, SourceType source) {
@@ -354,13 +252,9 @@ public class FunctionSymbol extends SymbolDB {
 
 	@Override
 	public Reference[] getReferences(TaskMonitor monitor) {
-		lock.acquire();
-		try {
-			checkIsValid();
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
 			Reference[] refs = super.getReferences(monitor);
-			if (monitor == null) {
-				monitor = TaskMonitor.DUMMY;
-			}
 			if (monitor.isCancelled()) {
 				return refs;
 			}
@@ -381,16 +275,12 @@ public class FunctionSymbol extends SymbolDB {
 			}
 			return newRefs;
 		}
-		finally {
-			lock.release();
-		}
 	}
 
 	@Override
 	public int getReferenceCount() {
-		lock.acquire();
-		try {
-			checkIsValid();
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
 			int count = super.getReferenceCount();
 			List<Long> thunkIds = functionMgr.getThunkFunctionIds(key);
 			if (thunkIds != null) {
@@ -398,45 +288,17 @@ public class FunctionSymbol extends SymbolDB {
 			}
 			return count;
 		}
-		finally {
-			lock.release();
-		}
-	}
-
-	@Override
-	public boolean hasMultipleReferences() {
-		lock.acquire();
-		try {
-			checkIsValid();
-
-			if (super.hasMultipleReferences()) {
-				return true;
-			}
-
-			List<Long> thunkIds = functionMgr.getThunkFunctionIds(key);
-			if (thunkIds != null) {
-				return thunkIds.size() > 1;
-			}
-			return false;
-		}
-		finally {
-			lock.release();
-		}
 	}
 
 	@Override
 	public boolean hasReferences() {
-		lock.acquire();
-		try {
-			checkIsValid();
+		try (Closeable c = lock.read()) {
+			refreshIfNeeded();
 			if (super.hasReferences()) {
 				return true;
 			}
 			List<Long> thunkIds = functionMgr.getThunkFunctionIds(key);
 			return thunkIds != null ? (thunkIds.size() != 0) : false;
-		}
-		finally {
-			lock.release();
 		}
 	}
 

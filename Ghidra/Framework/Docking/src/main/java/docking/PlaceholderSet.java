@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,14 +21,14 @@ import java.util.Map.Entry;
 /**
  * A class that tracks:
  * <ul>
- *  	<li>placeholders that are being used for a given provider
- *  	<li>placeholders that are no longer being used, which are available for reuse 
+ *  	<li>placeholders that are being used for a given provider</li>
+ *  	<li>placeholders that are no longer being used, which are available for reuse </li>
  * </ul>
  */
 class PlaceholderSet {
 	private Map<ComponentProvider, ComponentPlaceholder> activePlaceholderMap =
-		new HashMap<ComponentProvider, ComponentPlaceholder>();
-	private Set<ComponentPlaceholder> unusedPlaceholders = new HashSet<ComponentPlaceholder>();
+		new HashMap<>();
+	private Set<ComponentPlaceholder> unusedPlaceholders = new HashSet<>();
 	private PlaceholderManager manager;
 
 	PlaceholderSet(PlaceholderManager manager) {
@@ -36,23 +36,7 @@ class PlaceholderSet {
 	}
 
 	void addRestoredPlaceholder(ComponentPlaceholder restoredPlaceholder) {
-		ComponentPlaceholder existingPlaceholder =
-			getMatchingUnusedPlaceholder(restoredPlaceholder);
-
-		if (existingPlaceholder == null) {
-			unusedPlaceholders.add(restoredPlaceholder);
-			return;
-		}
-
-		if (restoredPlaceholder.wantsToBeShowing()) {
-			// use the new one instead
-			unusedPlaceholders.remove(existingPlaceholder);
-			existingPlaceholder.dispose();
-			unusedPlaceholders.add(restoredPlaceholder);
-		}
-		else {
-			restoredPlaceholder.dispose();
-		}
+		unusedPlaceholders.add(restoredPlaceholder);
 	}
 
 	void placeholderUsed(ComponentProvider provider, ComponentPlaceholder placeholder) {
@@ -78,7 +62,7 @@ class PlaceholderSet {
 	}
 
 	Set<ComponentPlaceholder> getUsedPlaceholders() {
-		return new HashSet<ComponentPlaceholder>(activePlaceholderMap.values());
+		return new HashSet<>(activePlaceholderMap.values());
 	}
 
 	Set<ComponentPlaceholder> getUnusedPlaceholders() {
@@ -110,10 +94,22 @@ class PlaceholderSet {
 		return activePlaceholderMap;
 	}
 
-	void removeAll(String owner) {
+	void remove(ComponentPlaceholder oldPlaceholder) {
+
+		ComponentProvider provider = oldPlaceholder.getProvider();
+		ComponentPlaceholder currentPlaceholder = activePlaceholderMap.get(provider);
+		if (currentPlaceholder == oldPlaceholder) {
+			activePlaceholderMap.remove(provider);
+		}
+
+		unusedPlaceholders.remove(oldPlaceholder);
+		manager.disposePlaceholder(oldPlaceholder, false);
+	}
+
+	void removeAll() {
 		// copy the set to prevent concurrent modifications
 		Set<Entry<ComponentProvider, ComponentPlaceholder>> entries =
-			new HashSet<Entry<ComponentProvider, ComponentPlaceholder>>(
+			new HashSet<>(
 				activePlaceholderMap.entrySet());
 
 		for (Entry<ComponentProvider, ComponentPlaceholder> entry : entries) {
@@ -151,10 +147,11 @@ class PlaceholderSet {
 			Collection<ComponentPlaceholder> placeholders, ComponentPlaceholder matchee) {
 
 		String name = matchee.getName();
+		String group = matchee.getGroup();
 		Iterator<ComponentPlaceholder> it = placeholders.iterator();
 		while (it.hasNext()) {
 			ComponentPlaceholder placeholder = it.next();
-			if (placeholder.getName().equals(name)) {
+			if (placeholder.getName().equals(name) && placeholder.getGroup().equals(group)) {
 				return placeholder;
 			}
 		}

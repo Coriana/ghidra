@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,11 +15,10 @@
  */
 package ghidra.app.util.bin.format.ne;
 
-import ghidra.app.util.bin.format.*;
-import ghidra.util.Conv;
-
 import java.io.IOException;
 import java.util.ArrayList;
+
+import ghidra.app.util.bin.BinaryReader;
 
 /**
  * A class to represent the new-executable module reference table.
@@ -38,11 +36,12 @@ public class ModuleReferenceTable {
      * @param count the count of modules referenced
      * @param imp the imported name table
      */
-    ModuleReferenceTable(FactoryBundledWithBinaryReader reader, short index, short count, ImportedNameTable imp) throws IOException {
+	ModuleReferenceTable(BinaryReader reader, int index, short count, ImportedNameTable imp)
+			throws IOException {
         long oldIndex = reader.getPointerIndex();
-        reader.setPointerIndex(Conv.shortToInt(index));
+        reader.setPointerIndex(index);
 
-        offsets = new short[Conv.shortToInt(count)];
+		offsets = new short[Short.toUnsignedInt(count)];
         for (short i = 0 ; i < count ; ++i) {
             offsets[i] = reader.readNextShort();
         }

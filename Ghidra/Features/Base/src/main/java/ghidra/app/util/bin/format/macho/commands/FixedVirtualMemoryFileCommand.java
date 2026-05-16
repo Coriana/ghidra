@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,7 +17,7 @@ package ghidra.app.util.bin.format.macho.commands;
 
 import java.io.IOException;
 
-import ghidra.app.util.bin.format.FactoryBundledWithBinaryReader;
+import ghidra.app.util.bin.BinaryReader;
 import ghidra.app.util.bin.format.macho.MachConstants;
 import ghidra.app.util.bin.format.macho.MachHeader;
 import ghidra.app.util.importer.MessageLog;
@@ -29,32 +29,14 @@ import ghidra.util.exception.DuplicateNameException;
 import ghidra.util.task.TaskMonitor;
 
 /**
- * Represents a fvmfile_command structure.
- * 
- * @see <a href="https://opensource.apple.com/source/xnu/xnu-4570.71.2/EXTERNAL_HEADERS/mach-o/loader.h.auto.html">mach-o/loader.h</a> 
+ * Represents a fvmfile_command structure 
  */
 public class FixedVirtualMemoryFileCommand extends LoadCommand {
 	private LoadCommandString name;
-	private int header_addr;
+	private long header_addr;
 
-	public static FixedVirtualMemoryFileCommand createFixedVirtualMemoryFileCommand(
-			FactoryBundledWithBinaryReader reader) throws IOException {
-		FixedVirtualMemoryFileCommand command =
-			(FixedVirtualMemoryFileCommand) reader.getFactory().create(
-				FixedVirtualMemoryFileCommand.class);
-		command.initFixedVirtualMemoryFileCommand(reader);
-		return command;
-	}
-
-	/**
-	 * DO NOT USE THIS CONSTRUCTOR, USE create*(GenericFactory ...) FACTORY METHODS INSTEAD.
-	 */
-	public FixedVirtualMemoryFileCommand() {
-	}
-
-	private void initFixedVirtualMemoryFileCommand(FactoryBundledWithBinaryReader reader)
-			throws IOException {
-		initLoadCommand(reader);
+	public FixedVirtualMemoryFileCommand(BinaryReader reader) throws IOException {
+		super(reader);
 	}
 
 	/**
@@ -69,7 +51,7 @@ public class FixedVirtualMemoryFileCommand extends LoadCommand {
 	 * Returns the file's virtual address.
 	 * @return the file's virtual address
 	 */
-	public int getHeaderAddress() {
+	public long getHeaderAddress() {
 		return header_addr;
 	}
 
@@ -90,32 +72,19 @@ public class FixedVirtualMemoryFileCommand extends LoadCommand {
 	}
 
 	@Override
-	public void markup(MachHeader header, FlatProgramAPI api, Address baseAddress, boolean isBinary,
+	public void markupRawBinary(MachHeader header, FlatProgramAPI api, Address baseAddress,
 			ProgramModule parentModule, TaskMonitor monitor, MessageLog log) {
-		updateMonitor(monitor);
-		if (isBinary) {
-			try {
-				createFragment(api, baseAddress, parentModule);
-			}
-			catch (Exception e) {
-				log.appendException(e);
-			}
+		try {
+			super.markupRawBinary(header, api, baseAddress, parentModule, monitor, log);
+
 			Address addr = baseAddress.getNewAddress(getStartIndex());
-			try {
-				api.createData(addr, toDataType());
-			}
-			catch (Exception e) {
-				log.appendMsg("Unable to create " + getCommandName() + " - " + e.getMessage());
-			}
-			try {
-				int strLen = getCommandSize() - name.getOffset();
-				Address strAddr = addr.add(name.getOffset());
-				api.createAsciiString(strAddr, strLen);
-			}
-			catch (Exception e) {
-				log.appendMsg("Unable to create load command string for " + getCommandName() +
-					" - " + e.getMessage());
-			}
+			int strLen = getCommandSize() - name.getOffset();
+			Address strAddr = addr.add(name.getOffset());
+			api.createAsciiString(strAddr, strLen);
+		}
+		catch (Exception e) {
+			log.appendMsg("Unable to create " + getCommandName());
+
 		}
 	}
 }

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,23 +15,30 @@
  */
 package ghidra.program.model.data;
 
-import java.util.ArrayList;
-import java.util.Iterator;
-
-import javax.swing.event.ChangeEvent;
-import javax.swing.event.ChangeListener;
+import java.lang.ref.WeakReference;
+import java.util.*;
+import java.util.function.Consumer;
 
 import ghidra.docking.settings.*;
 import ghidra.util.*;
 
 /**
  * Base implementation for dataTypes.
+ * 
+ * NOTE: Settings are immutable when a DataTypeManager has not been specified (i.e., null).
  */
-public abstract class DataTypeImpl extends AbstractDataType implements ChangeListener {
+public abstract class DataTypeImpl extends AbstractDataType {
 
 	private final static SettingsDefinition[] EMPTY_DEFINITIONS = new SettingsDefinition[0];
+
+	// NOTE: Modification of default settings on Impl datatypes is generally blocked
+	// with the exception of TypeDef's and BuiltInDataType which have had a suitable
+	// defaultSettings implementation established by its DataTypeManager.
 	protected Settings defaultSettings;
-	private ArrayList<DataType> parentList;
+
+	private Integer alignedLength;
+
+	private List<WeakReference<DataType>> parentList;
 	private UniversalID universalID;
 	private SourceArchive sourceArchive;
 	private long lastChangeTime;
@@ -45,7 +52,7 @@ public abstract class DataTypeImpl extends AbstractDataType implements ChangeLis
 			SourceArchive sourceArchive, long lastChangeTime, long lastChangeTimeInSourceArchive,
 			DataTypeManager dataMgr) {
 		super(path, name, dataMgr);
-		defaultSettings = new SettingsImpl(this, null);
+		defaultSettings = SettingsImpl.NO_SETTINGS;
 		parentList = new ArrayList<>();
 		this.universalID = universalID == null ? UniversalIdGenerator.nextID() : universalID;
 		this.sourceArchive = sourceArchive;
@@ -81,19 +88,41 @@ public abstract class DataTypeImpl extends AbstractDataType implements ChangeLis
 		}
 	}
 
-	@Override
-	public void stateChanged(ChangeEvent e) {
-		// don't care
+	/**
+	 * Return the aligned-length for a fixed length datatype.  This is intended to produce a
+	 * result consistent with the C/C++ {@code sizeof(type)} operation.  Use of this method
+	 * with {@link TypeDef} is not allowed.
+	 * Whereas {@link #getLength()} corresponds to the raw type size which may be moved into
+	 * a smaller register/varnode.  Example: this frequently occurs with encoded floating-point
+	 * data such as a 10-byte/80-bit encoding which is stored in memory as 12 or 16-bytes in order
+	 * to maintain memory alignment constraints.
+	 * @param dataType datatype
+	 * @return aligned-length or -1 if not a fixed-length datatype
+	 */
+	private static int computeAlignedLength(DataType dataType) {
+		if ((dataType instanceof TypeDef) || (dataType instanceof Composite) ||
+			(dataType instanceof Array)) {
+			// Typedefs must defer to base datatype for aligned-length determination
+			throw new UnsupportedOperationException();
+		}
+		int len = dataType.getLength();
+		if (len <= 0 || (dataType instanceof Pointer)) {
+			return len;
+		}
+		int align = dataType.getDataOrganization().getSizeAlignment(len);
+		int mod = len % align;
+		if (mod != 0) {
+			len += (align - mod);
+		}
+		return len;
 	}
 
 	@Override
-	public void setDefaultSettings(Settings settings) {
-		defaultSettings = settings;
-	}
-
-	@Override
-	public String getPathName() {
-		return getDataTypePath().getPath();
+	public int getAlignedLength() {
+		if (alignedLength == null) {
+			alignedLength = computeAlignedLength(this);
+		}
+		return alignedLength;
 	}
 
 	@Override
@@ -102,59 +131,77 @@ public abstract class DataTypeImpl extends AbstractDataType implements ChangeLis
 		if (length < 0) {
 			return 1;
 		}
-		return getDataOrganization().getAlignment(this, length);
+		return getDataOrganization().getAlignment(this);
 	}
 
 	@Override
 	public void addParent(DataType dt) {
-		parentList.add(dt);
+		parentList.add(new WeakReference<>(dt));
 	}
 
 	@Override
 	public void removeParent(DataType dt) {
-		parentList.remove(dt);
-	}
-
-	@Override
-	public DataType[] getParents() {
-		DataType[] dts = new DataType[parentList.size()];
-		return parentList.toArray(dts);
-
-	}
-
-	/**
-	 * Notify any parent data types that my size has changed.
-	 */
-	protected void notifySizeChanged() {
-		Iterator<DataType> it = parentList.iterator();
-		while (it.hasNext()) {
-			DataType dt = it.next();
-			dt.dataTypeSizeChanged(this);
+		Iterator<WeakReference<DataType>> iterator = parentList.iterator();
+		while (iterator.hasNext()) {
+			WeakReference<DataType> ref = iterator.next();
+			DataType dataType = ref.get();
+			if (dataType == null) {
+				iterator.remove();
+			}
+			else if (dt == dataType) {
+				iterator.remove();
+				break;
+			}
 		}
 	}
 
+	@Override
+	public Collection<DataType> getParents() {
+		List<DataType> parents = new ArrayList<>();
+		Iterator<WeakReference<DataType>> iterator = parentList.iterator();
+		while (iterator.hasNext()) {
+			WeakReference<DataType> ref = iterator.next();
+			DataType dataType = ref.get();
+			if (dataType == null) {
+				iterator.remove();
+			}
+			else {
+				parents.add(dataType);
+			}
+		}
+		return parents;
+	}
+
 	/**
-	 * Notify any parents that my name has changed.
+	 * Notify all parents that the size of this datatype has changed or
+	 * other significant change that may affect a parent containing this
+	 * datatype.
+	 */
+	protected void notifySizeChanged() {
+		notifyParents(dt -> dt.dataTypeSizeChanged(this));
+	}
+
+	/**
+	 * Notify all parents that this datatype's alignment has changed
+	 */
+	protected void notifyAlignmentChanged() {
+		notifyParents(dt -> dt.dataTypeAlignmentChanged(this));
+	}
+
+	/**
+	 * Notify all parents that this datatype's name has changed
 	 *
 	 * @param oldName
 	 */
 	protected void notifyNameChanged(String oldName) {
-		Iterator<DataType> it = parentList.iterator();
-		while (it.hasNext()) {
-			DataType dt = it.next();
-			dt.dataTypeNameChanged(this, oldName);
-		}
+		notifyParents(dt -> dt.dataTypeNameChanged(this, oldName));
 	}
 
 	/**
-	 * Notify any parents that I am deleted.
+	 * Notify all parents that this datatype has been deleted
 	 */
 	protected void notifyDeleted() {
-		Iterator<DataType> it = parentList.iterator();
-		while (it.hasNext()) {
-			DataType dt = it.next();
-			dt.dataTypeDeleted(this);
-		}
+		notifyParents(dt -> dt.dataTypeDeleted(this));
 	}
 
 	/**
@@ -162,10 +209,20 @@ public abstract class DataTypeImpl extends AbstractDataType implements ChangeLis
 	 * @param replacement replacement data type
 	 */
 	protected void notifyReplaced(DataType replacement) {
-		Iterator<DataType> it = parentList.iterator();
-		while (it.hasNext()) {
-			DataType dt = it.next();
-			dt.dataTypeReplaced(this, replacement);
+		notifyParents(dt -> dt.dataTypeReplaced(this, replacement));
+	}
+
+	protected final void notifyParents(Consumer<DataType> consumer) {
+		Iterator<WeakReference<DataType>> iterator = parentList.iterator();
+		while (iterator.hasNext()) {
+			WeakReference<DataType> ref = iterator.next();
+			DataType dataType = ref.get();
+			if (dataType == null) {
+				iterator.remove();
+			}
+			else {
+				consumer.accept(dataType);
+			}
 		}
 	}
 

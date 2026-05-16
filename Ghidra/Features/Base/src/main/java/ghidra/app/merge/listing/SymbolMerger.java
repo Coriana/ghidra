@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -399,7 +399,7 @@ class SymbolMerger extends AbstractListingMerger {
 			tempLatestChangeIDs.length);
 		Arrays.sort(this.latestChangeIDs);
 
-		monitor.checkCanceled();
+		monitor.checkCancelled();
 		monitor.setProgress(monitor.getProgress() + 1);
 		getPrimariesAdded(this.myAddIDs, mySymTab, myPrimaryAddIDs, mySetPrimary);
 		getPrimariesAdded(this.latestAddIDs, latestSymTab, latestPrimaryAddIDs, latestSetPrimary);
@@ -419,7 +419,7 @@ class SymbolMerger extends AbstractListingMerger {
 		long[] uniqueIDs = new long[first.length];
 		int u = 0;
 		for (long element : first) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			monitor.setProgress(monitor.getProgress() + 1);
 			boolean matched = false;
 			for (long element2 : second) {
@@ -526,7 +526,7 @@ class SymbolMerger extends AbstractListingMerger {
 				renamed = true;
 			}
 //			boolean commentChanged =
-//				!SystemUtilities.isEqual(newSym.getSymbolData3(), oldSym.getSymbolData3());
+//				!SystemUtilities.isEqual(newSym.getSymbolStringData(), oldSym.getSymbolStringData());
 			boolean sourceChanged = newSym.getSource() != oldSym.getSource();
 //			if (commentChanged) {
 //				commentChanges.add(id);
@@ -639,7 +639,7 @@ class SymbolMerger extends AbstractListingMerger {
 		if (currentMonitor != monitor) {
 			currentMonitor = monitor;
 		}
-		monitor.checkCanceled();
+		monitor.checkCancelled();
 
 		setupSymbolChanges(monitor); // Creates ID arrays used by processing methods.
 
@@ -754,7 +754,7 @@ class SymbolMerger extends AbstractListingMerger {
 			monitor.initialize(list.size());
 			for (int i = 0; i < list.size(); i++) {
 				monitor.setProgress(i);
-				monitor.checkCanceled();
+				monitor.checkCancelled();
 				long id = list.get(i);
 				Symbol resultSymbol = resultSymTab.getSymbol(id);
 				if (resultSymbol == null) {
@@ -790,7 +790,7 @@ class SymbolMerger extends AbstractListingMerger {
 		monitor.initialize(len);
 		for (int i = 0; i < len; i++) {
 			monitor.setProgress(i);
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			long id = myRemoveIDs[i];
 			Symbol originalSym = originalSymTab.getSymbol(id);
 			SymbolType originalType = originalSym.getSymbolType();
@@ -829,7 +829,7 @@ class SymbolMerger extends AbstractListingMerger {
 		monitor.initialize(len);
 		for (int i = 0; i < len; i++) {
 			monitor.setProgress(i);
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			incrementProgress(1);
 			long id = myModifiedIDs[i];
 			Symbol mySym = mySymTab.getSymbol(id);
@@ -920,12 +920,12 @@ class SymbolMerger extends AbstractListingMerger {
 //			if (commentChangedInMy) {
 //				if (!commentChangedInLatest) {
 //					if (resultSym != null) {
-//						resultSym.setSymbolData3(mySym.getSymbolData3());
+//						resultSym.setSymbolStringData(mySym.getSymbolStringData());
 //					}
 //				}
 //				else {
 //					Symbol latestSym = latestSymTab.getSymbol(id);
-//					if (!SystemUtilities.isEqual(latestSym.getSymbolData3(), mySym.getSymbolData3())) {
+//					if (!SystemUtilities.isEqual(latestSym.getSymbolStringData(), mySym.getSymbolStringData())) {
 //						saveCommentConflict(id);
 //					}
 //				}
@@ -934,9 +934,21 @@ class SymbolMerger extends AbstractListingMerger {
 		monitor.setProgress(len);
 	}
 
+	private static boolean isDefaultThunk(Symbol s) {
+		if (s.getSource() != SourceType.DEFAULT || s.getSymbolType() != SymbolType.FUNCTION) {
+			return false;
+		}
+		Function f = (Function) s.getObject();
+		return f.isThunk();
+	}
+
 	private void processModifiedFunctionNamespace(long id, Symbol mySym, Symbol resultSym) {
-		Namespace myNs = mySym.getParentNamespace();
-		Namespace resultNs = resultSym.getParentNamespace();
+		Namespace myNs = // default thunks may lie about their namespace
+			isDefaultThunk(mySym) ? mySym.getProgram().getGlobalNamespace()
+					: mySym.getParentNamespace();
+		Namespace resultNs = // default thunks may lie about their namespace
+			isDefaultThunk(resultSym) ? resultSym.getProgram().getGlobalNamespace()
+					: resultSym.getParentNamespace();
 		try {
 			Namespace desiredNs = resolveNamespace(myPgm, myNs);
 			// Is the result namespace the one we actually want it to be?
@@ -996,11 +1008,11 @@ class SymbolMerger extends AbstractListingMerger {
 //		if (commentChangedInMy) {
 //			if (!commentChangedInLatest) {
 //				// Use My version's comment since Latest didn't change it.
-//				resultSym.setSymbolData3(mySym.getSymbolData3());
+//				resultSym.setSymbolStringData(mySym.getSymbolStringData());
 //			}
 //			else {
 //				Symbol latestSym = latestSymTab.getSymbol(id);
-//				if (!SystemUtilities.isEqual(latestSym.getSymbolData3(), mySym.getSymbolData3())) {
+//				if (!SystemUtilities.isEqual(latestSym.getSymbolStringData(), mySym.getSymbolStringData())) {
 //					saveFunctionCommentConflict(id); // My & Latest changed comment differently.
 //				}
 //			}
@@ -1015,7 +1027,7 @@ class SymbolMerger extends AbstractListingMerger {
 		monitor.initialize(len);
 		for (int i = 0; i < len; i++) {
 			monitor.setProgress(i);
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			incrementProgress(1);
 			long id = myAnchorChangeIDs[i];
 			Symbol mySym = mySymTab.getSymbol(id);
@@ -1039,7 +1051,7 @@ class SymbolMerger extends AbstractListingMerger {
 		AddressIterator iter = mySetPrimary.getAddresses(true);
 		while (iter.hasNext()) {
 			monitor.incrementProgress(1);
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			incrementProgress(1);
 			Address addr = iter.next();
 			Symbol myPrimary = mySymTab.getPrimarySymbol(addr);
@@ -1058,7 +1070,7 @@ class SymbolMerger extends AbstractListingMerger {
 				// Both changed primary so check for conflict.
 				Symbol latestPrimary = latestSymTab.getPrimarySymbol(addr);
 				Symbol latestSameAsMy = SimpleDiffUtility.getSymbol(myPrimary, latestPgm);
-				if (!same(latestPrimary, latestSameAsMy)) {
+				if (!Objects.equals(latestPrimary, latestSameAsMy)) {
 					savePrimaryConflict(addr);
 				}
 			}
@@ -1080,7 +1092,7 @@ class SymbolMerger extends AbstractListingMerger {
 		int len = myAddIDs.length;
 		monitor.initialize(len);
 		for (int i = 0; i < len; i++) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			incrementProgress(1);
 			monitor.incrementProgress(1);
 			long id = myAddIDs[i];
@@ -1169,11 +1181,11 @@ class SymbolMerger extends AbstractListingMerger {
 			// Handle Symbol comments.
 //			if (commentChangedInMy) {
 //				if (!commentChangedInLatest) {
-//					resultSym.setSymbolData3(mySym.getSymbolData3()); // Use My version's comment since Latest didn't change it.
+//					resultSym.setSymbolStringData(mySym.getSymbolStringData()); // Use My version's comment since Latest didn't change it.
 //				}
 //				else {
 //					Symbol latestSym = latestSymTab.getSymbol(id);
-//					if (!SystemUtilities.isEqual(latestSym.getSymbolData3(), mySym.getSymbolData3())) {
+//					if (!SystemUtilities.isEqual(latestSym.getSymbolStringData(), mySym.getSymbolStringData())) {
 //						saveAddFunctionCommentConflict(id); // My & Latest changed comment differently.
 //					}
 //				}
@@ -1193,7 +1205,7 @@ class SymbolMerger extends AbstractListingMerger {
 		MultiAddressIterator multiIter =
 			new MultiAddressIterator(new AddressIterator[] { originalIter, latestIter, myIter });
 		while (multiIter.hasNext()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			Address[] addrs = multiIter.nextAddresses();
 			if (addrs[0] != null) {
 				if (addrs[1] == null || addrs[2] == null) {
@@ -1220,7 +1232,7 @@ class SymbolMerger extends AbstractListingMerger {
 		// Remove entry points if possible.
 		AddressIterator iter = removeEntryPts.getAddresses(true);
 		while (iter.hasNext()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			Address addr = iter.next();
 			tempResultSymTab.removeExternalEntryPoint(addr);
 			incrementProgress(1);
@@ -1228,7 +1240,7 @@ class SymbolMerger extends AbstractListingMerger {
 		// Add entry points if possible.
 		iter = addEntryPts.getAddresses(true);
 		while (iter.hasNext()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			Address addr = iter.next();
 			tempResultSymTab.addExternalEntryPoint(addr);
 			incrementProgress(1);
@@ -1360,8 +1372,8 @@ class SymbolMerger extends AbstractListingMerger {
 
 //	private void processAddedSymbolComment(Symbol resultSym, Symbol mySym) {
 //		// My version added a symbol that matches on in the result version.
-//		String resultComment = resultSym.getSymbolData3();
-//		String myComment = mySym.getSymbolData3();
+//		String resultComment = resultSym.getSymbolStringData();
+//		String myComment = mySym.getSymbolStringData();
 //		if (SystemUtilities.isEqual(resultComment, myComment)) {
 //			return; // Already has My symbol comment.
 //		}
@@ -1369,7 +1381,7 @@ class SymbolMerger extends AbstractListingMerger {
 //			return; // My version isn't setting a symbol comment.
 //		}
 //		if (resultComment == null) {
-//			resultSym.setSymbolData3(myComment); // Latest didn't set a comment, but My did so use My symbol comment.
+//			resultSym.setSymbolStringData(myComment); // Latest didn't set a comment, but My did so use My symbol comment.
 //		}
 //		else if (!myComment.equals(resultComment)) {
 //			saveAddCommentConflict(mySym.getID()); // Both set a different symbol comment, so conflict
@@ -1503,18 +1515,18 @@ class SymbolMerger extends AbstractListingMerger {
 
 	public void merge(int progressMinimum, int progressMaximum, TaskMonitor monitor)
 			throws ProgramConflictException, MemoryAccessException, CancelledException {
-		monitor.checkCanceled();
+		monitor.checkCancelled();
 		monitor.setProgress(0);
 		clearResolveInfo();
 		autoMerge(progressMinimum, progressMaximum, monitor);
-		monitor.checkCanceled();
+		monitor.checkCancelled();
 		mergeConflicts(monitor);
-		monitor.checkCanceled();
+		monitor.checkCancelled();
 		processDeferredRemoves(monitor);
-		monitor.checkCanceled();
+		monitor.checkCancelled();
 		infoBuf.append(getDeferredRemovesInfo());
 		infoBuf.append(getRenamedConflictsInfo());
-		monitor.checkCanceled();
+		monitor.checkCancelled();
 		showResolveInfo();
 	}
 
@@ -1528,7 +1540,7 @@ class SymbolMerger extends AbstractListingMerger {
 			Symbol latestResultSymbol = getResultSymbolFromLatestSymbol(latestPrimary);
 			Symbol myPrimary = mySymTab.getPrimarySymbol(addr);
 			Symbol myResultSymbol = getResultSymbolFromMySymbol(myPrimary);
-			if (myResultSymbol == null || same(myResultSymbol, latestResultSymbol)) {
+			if (myResultSymbol == null || Objects.equals(myResultSymbol, latestResultSymbol)) {
 				return;
 			}
 			currentAddress = addr;
@@ -1699,7 +1711,7 @@ class SymbolMerger extends AbstractListingMerger {
 //				currentAddress = addr;
 //				currentSymbol = mySym;
 //				Symbol resultSym = getResultSymbolFromMySymbol(mySym);
-//				currentSymbolComment = (resultSym != null) ? resultSym.getSymbolData3() : "";
+//				currentSymbolComment = (resultSym != null) ? resultSym.getSymbolStringData() : "";
 //				currentBackgroundSet = new AddressSet(resultAddressFactory, addr, addr);
 //				if (askUser && mergeManager != null) {
 //					boolean useForAll = (symbolAddCommentChoice != ASK_USER);
@@ -1900,10 +1912,10 @@ class SymbolMerger extends AbstractListingMerger {
 //			return;
 //		}
 //		if ((chosenConflictOption & KEEP_LATEST) != 0) {
-//			result.setSymbolData3(latest.getSymbolData3());
+//			result.setSymbolStringData(latest.getSymbolStringData());
 //		}
 //		else if ((chosenConflictOption & KEEP_MY) != 0) {
-//			result.setSymbolData3(my.getSymbolData3());
+//			result.setSymbolStringData(my.getSymbolStringData());
 //		}
 //	}
 
@@ -1921,10 +1933,10 @@ class SymbolMerger extends AbstractListingMerger {
 //			return;
 //		}
 //		if ((chosenConflictOption & KEEP_RESULT) != 0) {
-//			result.setSymbolData3(currentSymbolComment);
+//			result.setSymbolStringData(currentSymbolComment);
 //		}
 //		else if ((chosenConflictOption & KEEP_MY) != 0) {
-//			result.setSymbolData3(my.getSymbolData3());
+//			result.setSymbolStringData(my.getSymbolStringData());
 //		}
 //	}
 
@@ -2241,7 +2253,7 @@ class SymbolMerger extends AbstractListingMerger {
 			Symbol newSymbol)
 			throws DuplicateNameException, InvalidInputException, CircularDependencyException {
 		renameSymbol(oldProgram, oldSymbol, newProgram, newSymbol);
-//		oldSymbol.setSymbolData3(newSymbol.getSymbolData3());
+//		oldSymbol.setSymbolStringData(newSymbol.getSymbolStringData());
 		// Handle primary.
 		if (newSymbol.isPrimary() && !oldSymbol.isPrimary()) {
 			oldSymbol.setPrimary();
@@ -2434,7 +2446,7 @@ class SymbolMerger extends AbstractListingMerger {
 	private Symbol createSymbol(String name, SymbolType type, Address resultAddr,
 			Namespace resultParentNs, Program srcPgm, long srcSymID, SourceType source)
 			throws DuplicateNameException, InvalidInputException {
-//		String comment = srcSymbol.getSymbolData3();
+//		String comment = srcSymbol.getSymbolStringData();
 		Symbol symbol = null;
 		if (type == SymbolType.LABEL) {
 			symbol = resultSymTab.createLabel(resultAddr, name, resultParentNs, source);
@@ -2451,12 +2463,14 @@ class SymbolMerger extends AbstractListingMerger {
 			ExternalManager srcExtMgr = srcPgm.getExternalManager();
 			String path = srcExtMgr.getExternalLibraryPath(name);
 
+			// NOTE: No attempt is made to preserve library ordinal
+
 			ExternalManagerDB extMgr = (ExternalManagerDB) resultPgm.getExternalManager();
 			extMgr.setExternalPath(name, path, (source == SourceType.USER_DEFINED));
 			symbol = resultSymTab.getLibrarySymbol(name);
 		}
 		if (symbol != null) {
-//			symbol.setSymbolData3(comment);
+//			symbol.setSymbolStringData(comment);
 			if (symbol.getParentNamespace().equals(resultParentNs)) {
 				long resolveSymID = symbol.getID();
 				updateResolveIDs(srcPgm, srcSymID, resolveSymID);
@@ -2659,7 +2673,7 @@ class SymbolMerger extends AbstractListingMerger {
 			String symbolName, ChangeListener listener) {
 		Symbol latest =
 			latestSymTab.getNamespace(symbolName, DiffUtility.getNamespace(myNamespace, latestPgm))
-				.getSymbol();
+					.getSymbol();
 		Symbol my = mySymTab.getNamespace(symbolName, myNamespace).getSymbol();
 		String text = "Namespace Conflict";
 		conflictPanel.clear();
@@ -2852,7 +2866,7 @@ class SymbolMerger extends AbstractListingMerger {
 //		info[1] = s.getName(false);
 //		info[2] = s.getParentNamespace().getSymbol().getName();
 //		info[3] = s.getSymbolType().toString();
-//		info[4] = ConflictUtility.getTruncatedHTMLString(s.getSymbolData3(), TRUNCATE_LENGTH);
+//		info[4] = ConflictUtility.getTruncatedHTMLString(s.getSymbolStringData(), TRUNCATE_LENGTH);
 //		return info;
 //	}
 
@@ -2907,15 +2921,15 @@ class SymbolMerger extends AbstractListingMerger {
 		private final static long serialVersionUID = 1;
 
 		public boolean add(long l) {
-			return super.add(new Long(l));
+			return super.add(Long.valueOf(l));
 		}
 
 		public boolean contains(long l) {
-			return super.contains(new Long(l));
+			return super.contains(Long.valueOf(l));
 		}
 
 		public boolean remove(long l) {
-			return super.remove(new Long(l));
+			return super.remove(Long.valueOf(l));
 		}
 	}
 

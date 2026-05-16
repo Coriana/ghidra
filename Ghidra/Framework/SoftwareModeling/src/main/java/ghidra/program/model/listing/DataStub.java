@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,6 +20,7 @@ import java.util.Iterator;
 import java.util.List;
 
 import ghidra.docking.settings.Settings;
+import ghidra.docking.settings.SettingsDefinition;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.DataTypeDisplayOptions;
@@ -30,7 +31,6 @@ import ghidra.program.model.scalar.Scalar;
 import ghidra.program.model.symbol.*;
 import ghidra.util.Saveable;
 import ghidra.util.exception.NoValueException;
-import ghidra.util.prop.PropertyVisitor;
 
 /**
  * DataStub can be extended for use by tests. It throws an UnsupportedOperationException
@@ -100,11 +100,6 @@ public class DataStub implements Data {
 	}
 
 	@Override
-	public void visitProperty(PropertyVisitor visitor, String propertyName) {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
 	public String getLabel() {
 		throw new UnsupportedOperationException();
 	}
@@ -135,27 +130,22 @@ public class DataStub implements Data {
 	}
 
 	@Override
-	public String getComment(int commentType) {
+	public String getComment(CommentType commentType) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public String[] getCommentAsArray(int commentType) {
+	public String[] getCommentAsArray(CommentType commentType) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public void setComment(int commentType, String comment) {
+	public void setComment(CommentType commentType, String comment) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public void setCommentAsArray(int commentType, String[] comment) {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public boolean isSuccessor(CodeUnit codeUnit) {
+	public void setCommentAsArray(CommentType commentType, String[] comment) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -293,7 +283,7 @@ public class DataStub implements Data {
 
 	@Override
 	public Memory getMemory() {
-		throw new UnsupportedOperationException();
+		return null;
 	}
 
 	@Override
@@ -323,17 +313,17 @@ public class DataStub implements Data {
 	}
 
 	@Override
+	public boolean isChangeAllowed(SettingsDefinition settingsDefinition) {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
 	public Long getLong(String name) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
 	public String getString(String name) {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public byte[] getByteArray(String name) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -349,11 +339,6 @@ public class DataStub implements Data {
 
 	@Override
 	public void setString(String name, String value) {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public void setByteArray(String name, byte[] value) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -404,6 +389,11 @@ public class DataStub implements Data {
 
 	@Override
 	public boolean isConstant() {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public boolean isWritable() {
 		throw new UnsupportedOperationException();
 	}
 
@@ -524,6 +514,11 @@ public class DataStub implements Data {
 
 	@Override
 	public Data getComponentAt(int offset) {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public Data getComponentContaining(int offset) {
 		throw new UnsupportedOperationException();
 	}
 

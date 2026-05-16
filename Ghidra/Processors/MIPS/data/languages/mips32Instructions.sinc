@@ -162,7 +162,6 @@ define pcodeop special2;
 
 # 0100 0001 011t tttt 0110 0000 0000 0000
 :di                             is $(AMODE) & prime=0x10 & mfmc0=0x0B & rd=0x0C & fct2=0x0 & bit5=0x0 & zero3=0x0 & rt=0x0 {
-    zero = Status;
     Status = Status & -2;   # clearing last bit (ffff..fffe == -2 signed)
 }
 :di RT                          is $(AMODE) & prime=0x10 & mfmc0=0x0B & rd=0x0C & fct2=0x0 & bit5=0x0 & zero3=0x0 & RT {
@@ -176,7 +175,6 @@ define pcodeop special2;
 
 # 0100 0001 011t tttt 0110 0000 0010 0000
 :ei                             is $(AMODE) & prime=0x10 & mfmc0=0x0B & rd=0x0C & fct2=0x0 & bit5=0x01 & zero3=0x0 & rt=0x0 {
-    zero = Status;
     Status = Status | 1;
 }
 :ei RT                          is $(AMODE) & prime=0x10 & mfmc0=0x0B & rd=0x0C & fct2=0x0 & bit5=0x01 & zero3=0x0 & RT {
@@ -184,13 +182,22 @@ define pcodeop special2;
     Status = Status | 1;
 }
 
+# MIPS R3000 and prior only, replaced with ERET in R4000 and later
+# 0100 0010 0000 0000 0000 0000 0001 0000
+:rfe                           is $(AMODE) & prime=0x10 & fct=0x10 & bit25=1 & copfill=0  {
+    local currentStatus = Status;
+    Status = (currentStatus & 0xfffffff0) | ((currentStatus & 0x3c) >> 2);
+}
+
 # 0100 0010 0000 0000 0000 0000 0001 1000
 :eret                           is $(AMODE) & prime=0x10 & fct=0x18 & bit25=1 & copfill=0  {
-    return[EPC];
+	JXWritePC(EPC);
+	return[EPC];
 }
 
 :eretnc							is $(AMODE) & prime=0x10 & fct=0x18 & bit25=1 & copfill=1  {
-    return[EPC];
+	JXWritePC(EPC);
+	return[EPC];
 }
 
 # 0111 11ss ssst tttt mmmm mLLL LL00 0000 
@@ -198,21 +205,15 @@ define pcodeop special2;
     # Extract Bit Field
     # RT = extractField(RSsrc, msbd:1, lsb:1);
     # Note that msbd = size - 1
-@if REGSIZE == "4"
-    rs_tmp:4 = RSsrc << (32 - (msbd + lsb + 1));
-    rs_tmp = rs_tmp >> (32 - (msbd + 1));
+    rs_tmp:$(REGSIZE) = RSsrc << ($(REGSIZE) * 8 - (msbd + lsb + 1));
+    rs_tmp = rs_tmp >> ($(REGSIZE) * 8 - (msbd + 1));
     RT = zext(rs_tmp);
-@else
-    rs_tmp:8 = RSsrc << (64 - (msbd + lsb + 1));
-    rs_tmp = rs_tmp >> (64 - (msbd + 1));
-    RT = zext(rs_tmp);
-@endif
 }
 
 # 0111 11ss ssst tttt mmmm mLLL LL00 0100
 :ins RT, RSsrc, lsb, InsSize    is $(AMODE) & prime=0x1F & fct=0x04 & RT & RTsrc & RSsrc & lsb & msbd & InsSize {
     tmpa:$(REGSIZE) = -1;
-    tmpa = tmpa >> ($(REGSIZE) - InsSize);
+    tmpa = tmpa >> ($(REGSIZE) * 8 - InsSize);
     tmpb:$(REGSIZE) = RSsrc & tmpa;
     tmpa = tmpa << lsb;
     tmpa = ~tmpa;
@@ -406,30 +407,9 @@ define pcodeop special2;
     RD = sext(*[ram]:1 INDEX_BASE);
 }
 
-:lbux RD, INDEX_BASE		is $(AMODE) & prime=0x1F & RD & fct=10 & fct2=6 & INDEX_BASE {
-    RD = zext(*[ram]:1 INDEX_BASE);
-}
-
-@ifdef MIPS64
-:ldx RD, INDEX_BASE		is $(AMODE) & prime=0x1F & RD & fct=10 & fct2=8 & INDEX_BASE {
-    RD = *[ram]:8 INDEX_BASE;
-}
-@endif
-
-:lhx RD, INDEX_BASE		is $(AMODE) & prime=0x1F & RD & fct=10 & fct2=4 & INDEX_BASE {
-    RD = sext(*[ram]:2 INDEX_BASE);
-}
 
 :lhux RD, INDEX_BASE		is $(AMODE) & prime=0x1F & RD & fct=10 & fct2=20 & INDEX_BASE {
     RD = zext(*[ram]:2 INDEX_BASE);
-}
-
-:lwx RD, INDEX_BASE		is $(AMODE) & prime=0x1F & RD & fct=10 & fct2=0 & INDEX_BASE {
-@ifdef MIPS64
-    RD = sext(*[ram]:4 INDEX_BASE);
-@else
-    RD = *[ram]:4 INDEX_BASE;
-@endif
 }
 
 @ifdef MIPS64
@@ -445,13 +425,13 @@ define pcodeop special2;
 
 # 0100 1000 000t tttt iiii iiii iiii iiii
 :mfc2 RT, immed                 is $(AMODE) & prime=0x12 & copop=0 & RT & immed {
-    tmp:$(REGSIZE) = getCopReg(2:1, immed:4);
+    tmp:4 = getCopReg(2:1, immed:4);
     RT = sext( tmp );
 }
 
 # 0100 1000 011t tttt iiii iiii iiii iiii
 :mfhc2 RT, immed                is $(AMODE) & prime=0x12 & copop=3 & RT & fs & immed {
-    tmp:$(REGSIZE) = getCopReg(2:1, immed:4);
+    tmp:4 = getCopReg(2:1, immed:4);
     RT = sext(tmp >> 32);
 }
 
@@ -472,16 +452,20 @@ define pcodeop special2;
 }
 
 # 0100 0000 100t tttt dddd d000 0000 0sss
-:mtc0 RTsrc, RD0, sel               is $(AMODE) & prime=0x10 & copop=4 & RTsrc & RD0 & zero6=0 & sel {
-	setCopReg(0:1, RD0, RTsrc, sel:1); 
+:mtc0 RTsrc, RD0               is $(AMODE) & prime=0x10 & copop=4 & RTsrc & RD0 & zero6=0 {
+	setCopReg(0:1, RD0, RTsrc); 
 }
+
 # 0100 1000 100t tttt iiii iiii iiii iiii
 :mtc2 RTsrc, immed              is $(AMODE) & prime=0x12 & copop=4 & RTsrc & immed {
     setCopReg(2:1, immed:4, RTsrc);
 }
 
 :mthc0 RTsrc, RD0, sel          is $(AMODE) & prime=0x10 & copop=6 & RTsrc & RD0 & zero6=0 & sel {
-	setCopReg(0:1, RD0, RTsrc, sel:1); 
+    tmp:4 = RTsrc:$(SIZETO4);
+    low:4 = RD0:4;
+    val:8 = (zext(tmp) << 32) + zext(low);
+    setCopReg(0:1, RD0, val);
 }
 
 # 0100 1000 111t tttt iiii iiii iiii iiii
@@ -528,8 +512,13 @@ define pcodeop special2;
 }        
 
 # 0111 1100 000t tttt dddd d000 0011 1011
-:rdhwr RT, RDsrc                is $(AMODE) & prime=0x1F & rs=0 & fct2=0 & fct=0x3B & RT & RDsrc {
-    RT = getHWRegister(RDsrc);
+:rdhwr RT, rd_hw                is $(AMODE) & prime=0x1F & rs=0 & fct2=0 & fct=0x3B & RT & rd_hw & rd!=4 {
+    RT = getHWRegister(rd_hw);
+}
+
+# 0111 1100 000t tttt dddd d000 0011 1011
+:rdhwr RT, rd_hw, sel_0608      is $(AMODE) & REL6=1 & prime=0x1F & rs=0 & spec2=0 & fct=0x3B & RT & rd_hw & rd=4 & sel_0608 {
+    RT = getHWRegister(rd_hw, sel_0608:1);
 }
 
 # 0100 0001 010t tttt dddd d000 0000 0000 
@@ -716,6 +705,14 @@ define pcodeop SYNC;
     syscall(tmp); 
 }
 
+# 0000 0000 0000 0000 cccc cccc cc11 0100
+# trap always
+:teq RSsrc, RTsrc               is $(AMODE) & prime=0 & fct=0x34 & RSsrc & RTsrc & code & rs=0 & rt=0 {
+	tmp:2 = code;
+    local dest:$(ADDRSIZE) = trap(tmp);
+    goto [dest];
+}
+
 # 0000 00ss ssst tttt cccc cccc cc11 0100
 :teq RSsrc, RTsrc               is $(AMODE) & prime=0 & fct=0x34 & RSsrc & RTsrc & code {
     if (RSsrc != RTsrc) goto <done>; 
@@ -723,6 +720,7 @@ define pcodeop SYNC;
     trap(tmp);
     <done>
 }
+
 # 0000 00ss ssst tttt cccc cccc cc11 0000
 :tge RSsrc, RTsrc               is $(AMODE) & prime=0 & fct=0x30 & RSsrc & RTsrc & code {
     if (RSsrc < RTsrc) goto <done>; 
@@ -754,7 +752,7 @@ define pcodeop SYNC;
     EntryHi = TLB_read_indexed_entryHi(Index);
     EntryLo0 = TLB_read_indexed_entryLo0(Index);
     EntryLo1 = TLB_read_indexed_entryLo1(Index);
-    PageMask = TLB_read_indexed_entryLo1(Index);
+    PageMask = TLB_read_indexed_entryPageMask(Index);
 }
 
 :tlbwi		is $(AMODE) & prime=0x10  & bit25=1 & copfill=0x00 & fct=0x02 {
@@ -995,13 +993,13 @@ define pcodeop SYNC;
 # 0111 00ss ssst tttt dddd d000 0010 0001
 :clo RD, RSsrc                  is $(AMODE) & REL6=0 & prime=0x1C & sa=0x0 & fct=0x21 & RD & RSsrc {
     # Count leading ones in a word
-    RD = countLeadingOnes( RSsrc );
+    RD = lzcount( ~RSsrc );
 }
 
 # 0111 00ss ssst tttt dddd d000 0010 0000
 :clz RD, RSsrc                  is $(AMODE) & REL6=0 & prime=0x1C & sa=0x0 & fct=0x20 & RD & RSsrc {
     # Count leading zeros in a word
-    RD = countLeadingZeros( RSsrc );
+    RD = lzcount( RSsrc );
 }
 
 # 0000 00ss ssst tttt 0000 0000 0001 1010
@@ -1020,6 +1018,7 @@ define pcodeop SYNC;
     ra = inst_next; 
     delayslot( 1 );
     ISAModeSwitch = 1;
+    setISAMode(ISAModeSwitch);
     call Abs26; 
 }
 @endif
@@ -1134,7 +1133,7 @@ define pcodeop SYNC;
 @endif
 
 # 0111 00ss ssst tttt 000a a000 0000 0000
-:madd RS32src, RT32src              is $(AMODE) & REL6=0 & prime=0x1C & zero1315=0x0 & fct2=0x0 & fct=0x0 & RS32src & RT32src & achi & aclo {
+:madd RS32src, RT32src              is $(AMODE) & REL6=0 & prime=0x1C & zero1315=0x0 & fct2=0x0 & fct=0x0 & RS32src & RT32src & ac=0 & achi & aclo {
     tmp1:8 = sext(RS32src);
     tmp2:8 = sext(RT32src);
     prod:8 = tmp1 * tmp2;
@@ -1146,7 +1145,7 @@ define pcodeop SYNC;
 }
 
 # 0111 00ss ssst tttt 000a a000 0000 0001
-:maddu RS32src, RT32src             is $(AMODE) & REL6=0 & prime=0x1C & zero1315=0x0 & fct2=0x0 & fct=0x01 & RS32src & RT32src & achi & aclo {
+:maddu RS32src, RT32src             is $(AMODE) & REL6=0 & prime=0x1C & zero1315=0x0 & fct2=0x0 & fct=0x01 & RS32src & RT32src & ac=0 & achi & aclo {
     tmp1:8 = zext(RS32src);
     tmp2:8 = zext(RT32src);
     prod:8 = tmp1 * tmp2;
@@ -1158,12 +1157,12 @@ define pcodeop SYNC;
 }
 
 # 0000 0000 0aa0 0000 dddd d000 0001 0000
-:mfhi RD                        is $(AMODE) & REL6=0 & prime=0 & fct=0x10 & RD & zero5=0 & zero1620=0 & zero2325=0 & acfhi {
+:mfhi RD                        is $(AMODE) & REL6=0 & prime=0 & fct=0x10 & RD & zero5=0 & zero1620=0 & zero2325=0 & acf=0 & acfhi {
     RD = acfhi;
 }
 
 # 0000 0000 0aa0 0000 dddd d000 0001 0010
-:mflo RD                        is $(AMODE) & REL6=0 & prime=0 & fct=0x12 & RD & zero5=0 & zero1620=0 & zero2325=0 & acflo {
+:mflo RD                        is $(AMODE) & REL6=0 & prime=0 & fct=0x12 & RD & zero5=0 & zero1620=0 & zero2325=0 & acf=0 & acflo {
     RD = acflo;
 }
 
@@ -1195,7 +1194,7 @@ define pcodeop SYNC;
 }
 
 # 0111 00ss ssst tttt 000a a000 0000 0101
-:msubu RS32src, RT32src             is $(AMODE) & REL6=0 & prime=0x1C & fct2=0 & fct=0x05 & RS32src & RT32src & zero1315=0 & aclo & achi {
+:msubu RS32src, RT32src             is $(AMODE) & REL6=0 & prime=0x1C & fct2=0 & fct=0x05 & RS32src & RT32src & zero1315=0 & ac=0 & aclo & achi {
     tmp1:8 = zext(RS32src);
     tmp2:8 = zext(RT32src);
     prod:8 = tmp1 * tmp2;
@@ -1207,12 +1206,12 @@ define pcodeop SYNC;
 }
 
 # 0000 00ss sss0 0000 000a a000 0001 0001
-:mthi RSsrc                     is $(AMODE) & REL6=0 & prime=0 & fct=0x11 & RSsrc & zero5=0 & zero1320=0 & achi {
+:mthi RSsrc                     is $(AMODE) & REL6=0 & prime=0 & fct=0x11 & RSsrc & zero5=0 & zero1320=0 & ac=0 & achi {
     achi = RSsrc;
 }
 
 # 0000 00ss sss0 0000 000a a000 0001 0011
-:mtlo RSsrc                     is $(AMODE) & REL6=0 & prime=0 & fct=0x13 & RSsrc & zero5=0 & zero1320=0 & aclo {
+:mtlo RSsrc                     is $(AMODE) & REL6=0 & prime=0 & fct=0x13 & RSsrc & zero5=0 & zero1320=0 & ac=0 & aclo {
     aclo = RSsrc;
 }
 
@@ -1588,11 +1587,11 @@ define pcodeop SYNC;
 }
 
 :clo RD, RSsrc                  	is $(AMODE) & REL6=1 & prime=0x00 & op=0 & sa=0x1 & fct=0x11 & RD & RSsrc {
-    RD = countLeadingOnes( RSsrc );
+    RD = lzcount( ~RSsrc );
 }
 
 :clz RD, RSsrc                  	is $(AMODE) & REL6=1 & prime=0x00 & op=0 & sa=0x1 & fct=0x10 & RD & RSsrc {
-    RD = countLeadingZeros( RSsrc );
+    RD = lzcount( RSsrc );
 }
 
 :div RD, RS32src, RT32src           is $(AMODE) & REL6=1 & prime=0x00 & fct=0x1A & fct2=0x02 & RD & RS32src & RT32src {
@@ -1637,7 +1636,13 @@ define pcodeop SYNC;
 	build RTsrc;
 	tmp:$(REGSIZE) = sext(simmed:2) + RTsrc;	
 	JXWritePC(tmp); 
-    call [pc];
+    goto [pc];
+}
+
+:jic RTsrc, simmed                                      is $(AMODE) & REL6=1 & prime=0x36 & jsub=0x00 & RTsrc & simmed & immed=0x00 & rt=0x1f {
+        build RTsrc;
+        JXWritePC(ra);
+	return [pc];
 }
 
 @ifndef COPR_C
@@ -1749,5 +1754,224 @@ define pcodeop SYNC;
 	signalReservedInstruction(immed:2);
 }
 
+rsRa:							is svrs_ra=0 {}
+rsRa: ra						is svrs_ra=1 & ra {
+	tsp = tsp-$(REGSIZE);
+	MemSrcCast(ra,tsp);
+}
 
+svRa: 							is svrs_ra=0 {}
+svRa: ra						is svrs_ra=1 & ra {
+	tsp = tsp-$(REGSIZE);
+	MemDestCast(tsp,ra);
+}
+
+rs_statReg:							is svrs_areg {}
+rs_statReg:	",a3"					is (svrs_areg=1 | svrs_areg=5 | svrs_areg=9 |svrs_areg=0xd) {
+ 	tsp = tsp-4;
+	MemSrcCast(a3,tsp);
+}
+rs_statReg:	",a2-a3"				is (svrs_areg=2 | svrs_areg=6 | svrs_areg=0xa) {
+ 	tsp = tsp-4;
+	MemSrcCast(a3,tsp);
+ 	tsp = tsp-4;
+	MemSrcCast(a2,tsp);
+}
+rs_statReg:	",a1-a3"				is (svrs_areg=3 | svrs_areg=7) {
+ 	tsp = tsp-4;
+	MemSrcCast(a3,tsp);
+ 	tsp = tsp-4;
+	MemSrcCast(a2,tsp);
+ 	tsp = tsp-4;
+	MemSrcCast(a1,tsp);
+}
+rs_statReg:	",a0-a3"				is svrs_areg=0xb {
+ 	tsp = tsp-4;
+	MemSrcCast(a3,tsp);
+ 	tsp = tsp-4;
+	MemSrcCast(a2,tsp);
+ 	tsp = tsp-4;
+	MemSrcCast(a1,tsp);
+ 	tsp = tsp-4;
+	MemSrcCast(a0,tsp);
+}
+
+rsStat:							is svrs_areg=0 | svrs_areg=4 | svrs_areg=8 | svrs_areg=0xc | svrs_areg=0xe {}
+rsStat: rs_statReg				is rs_statReg {
+	build rs_statReg;
+}
+
+
+sv_statReg:							is svrs_areg {}
+sv_statReg:	",a3"					is (svrs_areg=1 | svrs_areg=5 | svrs_areg=9 | svrs_areg=0xd) {
+ 	tsp = tsp-4;
+	MemDestCast(tsp,a3);
+}
+sv_statReg:	",a2-a3"					is (svrs_areg=2 | svrs_areg=6 | svrs_areg=0xa) {
+ 	tsp = tsp-4;
+	MemDestCast(tsp,a3);
+ 	tsp = tsp-4;
+	MemDestCast(tsp,a2);
+}
+sv_statReg:	",a1-a3"				is (svrs_areg=3 | svrs_areg=7) {
+ 	tsp = tsp-4;
+	MemDestCast(tsp,a3);
+ 	tsp = tsp-4;
+	MemDestCast(tsp,a2);
+ 	tsp = tsp-4;
+	MemDestCast(tsp,a1);
+}
+sv_statReg:	",a0-a3"				is svrs_areg=0xb { 
+ 	tsp = tsp-4;
+	MemDestCast(tsp,a3);
+ 	tsp = tsp-4;
+	MemDestCast(tsp,a2);
+ 	tsp = tsp-4;
+	MemDestCast(tsp,a1);
+ 	tsp = tsp-4;
+	MemDestCast(tsp,a0);
+}
+
+svStat:							is svrs_areg=0 | svrs_areg=4 | svrs_areg=8 | svrs_areg=0xc | svrs_areg=0xe {}
+svStat: sv_statReg				is sv_statReg {
+	build sv_statReg;
+}
+
+sv_areg1:							is svrs_aregb2=0 {}
+sv_areg1:	"a0,"					is svrs_aregb2=1 {
+  ptr:$(REGSIZE) = sp;
+  MemDestCast(ptr,a0);
+}
+
+sv_areg2:	sv_areg1				is sv_areg1 { build sv_areg1; }
+sv_areg2:	"a0-a1,"				is svrs_aregb3=1 & svrs_aregb2=0 & (svrs_aregb1=0 | svrs_aregb0=0) {
+  ptr:$(REGSIZE) = sp;
+  MemDestCast(ptr,a0);
+  ptr = sp+4;
+  MemDestCast(ptr,a1);
+}
+
+sv_areg3:	sv_areg2				is sv_areg2 { build sv_areg2; }
+sv_areg3:	"a0-a2,"				is svrs_aregb3=1 & svrs_aregb2=1 & svrs_aregb1=0 {
+  ptr:$(REGSIZE) = sp;
+  MemDestCast(ptr,a0);
+  ptr = sp+4;
+  MemDestCast(ptr,a1);
+  ptr = sp+8;
+  MemDestCast(ptr,a2);
+}
+
+sv_areg4:	sv_areg3				is sv_areg3 { build sv_areg3; }
+sv_areg4:	"a0-a3,"				is svrs_areg=0xe {
+  ptr:$(REGSIZE) = sp;
+  MemDestCast(ptr,a0);
+  ptr = sp+4;
+  MemDestCast(ptr,a1);
+  ptr = sp+8;
+  MemDestCast(ptr,a2);
+  ptr = sp+12;
+  MemDestCast(ptr,a3);
+}
+
+svAregs:						is svrs_aregb3=0 | svrs_areg=0xb | svrs_areg=0xf  {}
+svAregs: sv_areg4				is sv_areg4 {
+	build sv_areg4;
+}
+
+rs_s0:			is svrs_s0		{}
+rs_s0:			is svrs_s0=1	{ tsp = tsp-$(REGSIZE); MemSrcCast(s0,tsp); }
+
+rs_s1:			is svrs_s1 		{}
+rs_s1:			is svrs_s1=1	{ tsp = tsp-$(REGSIZE); MemSrcCast(s1,tsp); }
+
+rs_s8:			is svrs_xreg=6	{}
+rs_s8:			is svrs_xreg	{ tsp = tsp-$(REGSIZE); MemSrcCast(s8,tsp); }
+
+rs_s7:			is svrs_xreg=5	{}
+rs_s7:			is rs_s8		{ build rs_s8; tsp = tsp-$(REGSIZE); MemSrcCast(s7,tsp); }
+
+rs_s6:			is svrs_xreg=4	{}
+rs_s6:			is rs_s7		{ build rs_s7; tsp = tsp-$(REGSIZE); MemSrcCast(s6,tsp); }
+
+rs_s5:			is svrs_xreg=3	{}
+rs_s5:			is rs_s6		{ build rs_s6; tsp = tsp-$(REGSIZE); MemSrcCast(s5,tsp); }
+
+rs_s4:			is svrs_xreg=2	{}
+rs_s4:			is rs_s5		{ build rs_s5; tsp = tsp-$(REGSIZE); MemSrcCast(s4,tsp); }
+
+rs_s3:			is svrs_xreg=1	{}
+rs_s3:			is rs_s4		{ build rs_s4; tsp = tsp-$(REGSIZE); MemSrcCast(s3,tsp); }
+
+rs_s2:			is svrs_xreg=0	{}
+rs_s2:			is rs_s3		{ build rs_s3; tsp = tsp-$(REGSIZE); MemSrcCast(s2,tsp); }
+
+rsXsregs:				is svrs_s0=0 & svrs_s1=0 & svrs_xreg=0 {}
+rsXsregs: ","svrs_xreg	is svrs_s0 & svrs_s1 & svrs_xreg & rs_s2 & rs_s1 & rs_s0 {
+	build rs_s2;
+	build rs_s1;
+	build rs_s0;
+}
+
+sv_s0:			is svrs_s0		{}
+sv_s0:			is svrs_s0=1	{ tsp = tsp-$(REGSIZE); MemDestCast(tsp,s0);}
+
+sv_s1:			is svrs_s1		{}
+sv_s1:			is svrs_s1=1	{ tsp = tsp-$(REGSIZE); MemDestCast(tsp,s1); }
+
+sv_s8:			is svrs_xreg=6	{}
+sv_s8:			is 	svrs_xreg	{ tsp = tsp-$(REGSIZE); MemDestCast(tsp,s8); }
+
+sv_s7:			is svrs_xreg=5	{}
+sv_s7:			is sv_s8 		{ build sv_s8; tsp = tsp-$(REGSIZE); MemDestCast(tsp,s7); }
+
+sv_s6:			is svrs_xreg=4	{}
+sv_s6:			is sv_s7		{ build sv_s7; tsp = tsp-$(REGSIZE); MemDestCast(tsp,s6); }
+
+sv_s5:			is svrs_xreg=3	{}
+sv_s5:			is sv_s6		{ build sv_s6; tsp = tsp-$(REGSIZE); MemDestCast(tsp,s5); }
+
+sv_s4:			is svrs_xreg=2	{}
+sv_s4:			is sv_s5		{ build sv_s5; tsp = tsp-$(REGSIZE); MemDestCast(tsp,s4); }
+
+sv_s3:			is svrs_xreg=1	{}
+sv_s3:			is sv_s4		{ build sv_s4; tsp = tsp-$(REGSIZE); MemDestCast(tsp,s3); }
+
+sv_s2:			is svrs_xreg=0	{}
+sv_s2:			is sv_s3		{ build sv_s3; tsp = tsp-$(REGSIZE); MemDestCast(tsp,s2); }
+
+svXsregs:						is svrs_s0=0 & svrs_s0=0 & svrs_xreg=0 {}
+svXsregs: ","svrs_xreg			is svrs_s0 & svrs_s1 & svrs_xreg & sv_s0 & sv_s1 & sv_s2 {
+	build sv_s2;
+	build sv_s1;
+	build sv_s0;
+}
+
+svFramesize: ,val						is svrs_frame_hi=0 & svrs_frame_low=0 [val = 128; ] {export *[const]:2 val;}
+svFramesize: ,val						is svrs_frame_hi & svrs_frame_low [val = ((svrs_frame_hi << 4) | svrs_frame_low) << 3;] {export *[const]:2 val;}
+
+
+:save svRa^svXsregs^svAregs^svFramesize		is $(AMODE) & prime=0x1c & fct=0x1f & save=0x01 & svRa & svXsregs & svAregs & svStat & svFramesize {
+	tsp = sp;
+	build svAregs;
+	build svRa;
+	build svXsregs;
+	build svStat;
+	build svFramesize;
+	
+	tmp:2 = svFramesize;
+	sp = sp - zext(tmp);
+}
+
+:restore rsRa^rsXsregs^rsStat^svFramesize	is $(AMODE) & prime=0x1c & fct=0x1f & save=0x00 & rsRa & rsXsregs & rsStat & svFramesize {
+	build svFramesize;
+
+	tmp:2 = svFramesize;
+	tsp = sp+zext(tmp);
+
+	build rsRa;
+	build rsXsregs;
+	build rsStat;
+	
+	sp = sp+zext(tmp);
+}
 @include "mipsfloat.sinc"

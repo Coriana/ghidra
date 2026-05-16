@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,15 +15,18 @@
  */
 package ghidra.app.plugin.core.colorizer;
 
+import static ghidra.program.util.ProgramEvent.*;
+
 import java.awt.Color;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.jdom.Element;
+import org.jdom2.Element;
 
 import docking.ActionContext;
 import docking.action.DockingAction;
 import docking.action.MenuData;
+import generic.theme.GColor;
 import ghidra.app.CorePluginPackage;
 import ghidra.app.context.ListingActionContext;
 import ghidra.app.plugin.PluginCategoryNames;
@@ -31,16 +34,15 @@ import ghidra.app.plugin.ProgramPlugin;
 import ghidra.app.plugin.core.navigation.NavigationOptions;
 import ghidra.app.services.*;
 import ghidra.framework.cmd.Command;
-import ghidra.framework.model.DomainObjectChangedEvent;
-import ghidra.framework.model.DomainObjectListener;
+import ghidra.framework.model.*;
 import ghidra.framework.options.SaveState;
 import ghidra.framework.plugintool.PluginInfo;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.framework.plugintool.util.PluginStatus;
 import ghidra.program.model.address.*;
 import ghidra.program.model.listing.Program;
-import ghidra.program.util.ChangeManager;
 import ghidra.program.util.ProgramSelection;
+import ghidra.util.ColorUtils;
 import ghidra.util.HelpLocation;
 import ghidra.util.task.SwingUpdateManager;
 
@@ -61,7 +63,7 @@ public class ColorizingPlugin extends ProgramPlugin implements DomainObjectListe
 
 	private static final String MARKER_DESCRIPTION = "Shows the location of user-applied colors";
 	private static final int PRIORITY = MarkerService.CHANGE_PRIORITY - 1; // lowest priority
-	private static final Color MARKER_COLOR = Color.PINK;
+	private static final Color MARKER_COLOR = new GColor("color.bg.plugin.colorizer.marker");
 	private static final String COLOR_HISTORY_XML_NAME = "COLOR_HISTORY";
 	private static final String COLOR_HISTORY_LIST_XML_NAME = "COLOR_HISTORY";
 
@@ -80,15 +82,10 @@ public class ColorizingPlugin extends ProgramPlugin implements DomainObjectListe
 	private NextColorRangeAction nextAction;
 	private PreviousColorRangeAction previousAction;
 
-	private SwingUpdateManager updateManager = new SwingUpdateManager(1000, new Runnable() {
-		@Override
-		public void run() {
-			doUpdate();
-		}
-	});
+	private SwingUpdateManager updateManager = new SwingUpdateManager(1000, () -> doUpdate());
 
 	public ColorizingPlugin(PluginTool tool) {
-		super(tool, true, true);
+		super(tool);
 
 		service = new ColorizingServiceProvider(tool);
 		registerServiceProvided(ColorizingService.class, service);
@@ -108,12 +105,12 @@ public class ColorizingPlugin extends ProgramPlugin implements DomainObjectListe
 	public void readConfigState(SaveState saveState) {
 		Element xmlElement = saveState.getXmlElement(COLOR_HISTORY_XML_NAME);
 		if (xmlElement != null) {
-			List<Color> savedColorHistory = new ArrayList<Color>();
+			List<Color> savedColorHistory = new ArrayList<>();
 			List<Element> colorElements = xmlElement.getChildren("COLOR");
 			for (Element element : colorElements) {
 				String rgbString = element.getAttributeValue("RGB");
-				int rgb = Integer.parseInt(rgbString);
-				savedColorHistory.add(new Color(rgb, true));
+				int rgba = Integer.parseInt(rgbString);
+				savedColorHistory.add(ColorUtils.getColor(rgba));
 			}
 
 			service.setColorHistory(savedColorHistory);
@@ -153,15 +150,15 @@ public class ColorizingPlugin extends ProgramPlugin implements DomainObjectListe
 	}
 
 	@Override
-	public void serviceAdded(Class<?> interfaceClass, Object service) {
+	public void serviceAdded(Class<?> interfaceClass, Object newService) {
 		if (interfaceClass.equals(MarkerService.class)) {
-			markerService = (MarkerService) service;
+			markerService = (MarkerService) newService;
 		}
 
 	}
 
 	@Override
-	public void serviceRemoved(Class<?> interfaceClass, Object service) {
+	public void serviceRemoved(Class<?> interfaceClass, Object removedService) {
 		if (interfaceClass.equals(MarkerService.class)) {
 			markerService = null;
 		}
@@ -193,7 +190,7 @@ public class ColorizingPlugin extends ProgramPlugin implements DomainObjectListe
 					return;
 				}
 
-				Command command = null;
+				Command<DomainObject> command = null;
 				ProgramSelection selection = listingContext.getSelection();
 				if (selection != null && !selection.isEmpty()) {
 					command = new SetColorCommand(color, service, selection);
@@ -269,8 +266,9 @@ public class ColorizingPlugin extends ProgramPlugin implements DomainObjectListe
 				return !set.isEmpty();
 			}
 		};
-		clearAllAction.setPopupMenuData(new MenuData(new String[] { MENU_PULLRIGHT,
-			"Clear All Colors" }, null, group, MenuData.NO_MNEMONIC, Integer.toString(subgroup++)));
+		clearAllAction
+				.setPopupMenuData(new MenuData(new String[] { MENU_PULLRIGHT, "Clear All Colors" },
+					null, group, MenuData.NO_MNEMONIC, Integer.toString(subgroup++)));
 		clearAllAction.setHelpLocation(helpLocation);
 
 		//
@@ -302,9 +300,8 @@ public class ColorizingPlugin extends ProgramPlugin implements DomainObjectListe
 
 	@Override
 	public void domainObjectChanged(DomainObjectChangedEvent ev) {
-		if (ev.containsEvent(ChangeManager.DOCR_INT_ADDRESS_SET_PROPERTY_MAP_ADDED) ||
-			ev.containsEvent(ChangeManager.DOCR_INT_ADDRESS_SET_PROPERTY_MAP_REMOVED) ||
-			ev.containsEvent(ChangeManager.DOCR_INT_ADDRESS_SET_PROPERTY_MAP_CHANGED)) {
+		if (ev.contains(INT_PROPERTY_MAP_ADDED, INT_PROPERTY_MAP_REMOVED,
+			INT_PROPERTY_MAP_CHANGED)) {
 			updateManager.update();
 		}
 	}
@@ -343,9 +340,8 @@ public class ColorizingPlugin extends ProgramPlugin implements DomainObjectListe
 				color = MARKER_COLOR;
 			}
 
-			markerSet =
-				markerService.createPointMarker(MARKER_NAME, MARKER_DESCRIPTION, currentProgram,
-					PRIORITY, false, true, false, color, null);
+			markerSet = markerService.createPointMarker(MARKER_NAME, MARKER_DESCRIPTION,
+				currentProgram, PRIORITY, false, true, false, color, null);
 		}
 		else {
 			markerSet.clearAll();

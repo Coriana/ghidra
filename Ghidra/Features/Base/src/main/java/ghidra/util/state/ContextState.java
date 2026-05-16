@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -29,7 +29,6 @@ import ghidra.util.NumericUtilities;
 import ghidra.util.exception.AssertException;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
-import ghidra.util.task.TaskMonitorAdapter;
 
 public class ContextState {
 
@@ -492,7 +491,7 @@ public class ContextState {
 	 */
 	public Varnode get(int spaceID, Varnode offsetValue, int size) {
 		try {
-			return get(spaceID, offsetValue, size, TaskMonitorAdapter.DUMMY_MONITOR);
+			return get(spaceID, offsetValue, size, TaskMonitor.DUMMY);
 		}
 		catch (CancelledException e) {
 			throw new AssertException(e); // unexpected
@@ -585,7 +584,7 @@ public class ContextState {
 	 */
 	public Varnode get(Varnode varnode) {
 		try {
-			return get(varnode, TaskMonitorAdapter.DUMMY_MONITOR);
+			return get(varnode, TaskMonitor.DUMMY);
 		}
 		catch (CancelledException e) {
 			throw new AssertException(e); // unexpected
@@ -692,7 +691,7 @@ public class ContextState {
 
 	/**
 	 * Combine byte values into a single varnode value.
-	 * @param byteValues bytes stored with LSB in bytes[0] and MSB in bytes[bytes.length-1] with correct endianess.
+	 * @param byteValues bytes stored with LSB in bytes[0] and MSB in bytes[bytes.length-1] with correct endianness.
 	 * @return varnode or null
 	 */
 	private Varnode combineByteValues(Varnode[] byteValues, TaskMonitor monitor)

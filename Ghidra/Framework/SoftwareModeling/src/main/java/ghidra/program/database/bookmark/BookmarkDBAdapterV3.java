@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,15 +15,14 @@
  */
 package ghidra.program.database.bookmark;
 
-import ghidra.program.database.map.AddressMap;
-import ghidra.program.database.util.EmptyRecordIterator;
-import ghidra.program.model.address.*;
-import ghidra.util.exception.VersionException;
-
 import java.io.IOException;
 import java.util.HashSet;
 
 import db.*;
+import ghidra.program.database.map.AddressMap;
+import ghidra.program.database.util.EmptyRecordIterator;
+import ghidra.program.model.address.*;
+import ghidra.util.exception.VersionException;
 
 public class BookmarkDBAdapterV3 extends BookmarkDBAdapter {
 
@@ -35,8 +33,9 @@ public class BookmarkDBAdapterV3 extends BookmarkDBAdapter {
 	static final int V3_COMMENT_COL = 2;
 
 	static final int VERSION = 3;
-	static final Schema V3_SCHEMA = new Schema(VERSION, "ID", new Class[] { LongField.class,
-		StringField.class, StringField.class }, new String[] { "Address", "Category", "Comment" });
+	static final Schema V3_SCHEMA = new Schema(VERSION, "ID",
+		new Field[] { LongField.INSTANCE, StringField.INSTANCE, StringField.INSTANCE },
+		new String[] { "Address", "Category", "Comment" });
 
 	static int[] INDEXED_COLUMNS = new int[] { V3_ADDRESS_COL, V3_CATEGORY_COL };
 
@@ -72,27 +71,21 @@ public class BookmarkDBAdapterV3 extends BookmarkDBAdapter {
 				throw new VersionException(true);
 			}
 			else if (typeIDs.length != 0) {
+				int version = -1;
 				for (int i = 0; i < typeIDs.length; i++) {
 					int id = typeIDs[i];
-					tables[id] = handle.getTable(BOOKMARK_TABLE_NAME + id);
-				}
-				boolean noTables = (tables[typeIDs[0]] == null);
-				int version = noTables ? -1 : tables[typeIDs[0]].getSchema().getVersion();
-				for (int i = 1; i < typeIDs.length; i++) {
-					int id = typeIDs[i];
-					if (noTables) {
-						if (tables[id] != null) {
-							throw new IOException("Missing bookmark table");
+					String tableName = BOOKMARK_TABLE_NAME + id;
+					Table table = handle.getTable(tableName);
+					if (table != null) {
+						int schemaVersion = table.getSchema().getVersion();
+						if (version >= 0 && schemaVersion != version) {
+							throw new IOException("Inconsistent bookmark table versions");
 						}
+						version = schemaVersion;
 					}
-					else if (tables[id].getSchema().getVersion() != version) {
-						throw new IOException("Inconsistent bookmark table versions");
-					}
+					tables[id] = table;
 				}
-				if (noTables) {
-					throw new VersionException(true);
-				}
-				else if (version != VERSION) {
+				if (version >= 0 && version != VERSION) {
 					throw new VersionException(false);
 				}
 			}
@@ -108,7 +101,7 @@ public class BookmarkDBAdapterV3 extends BookmarkDBAdapter {
 	}
 
 	@Override
-	Record getRecord(long id) throws IOException {
+	DBRecord getRecord(long id) throws IOException {
 		Table table = getTable(id);
 		if (table == null) {
 			return null;
@@ -161,7 +154,7 @@ public class BookmarkDBAdapterV3 extends BookmarkDBAdapter {
 // TODO: This is very inefficient but is just as fast as using the index iterator
 // Employing a separate category table would be faster
 		while (it.hasNext()) {
-			Record rec = it.next();
+			DBRecord rec = it.next();
 			String cat = rec.getString(V3_CATEGORY_COL);
 			if (cat != null && cat.length() != 0) {
 				set.add(cat);
@@ -176,7 +169,7 @@ public class BookmarkDBAdapterV3 extends BookmarkDBAdapter {
 		AddressSet set = new AddressSet();
 		RecordIterator recordIter = getRecordsByType(typeID);
 		while (recordIter.hasNext()) {
-			Record rec = recordIter.next();
+			DBRecord rec = recordIter.next();
 			Address addr = addressMap.decodeAddress(rec.getLongValue(V3_ADDRESS_COL));
 			set.addRange(addr, addr);
 		}
@@ -201,17 +194,22 @@ public class BookmarkDBAdapterV3 extends BookmarkDBAdapter {
 	}
 
 	@Override
-	Record createBookmark(int typeID, String category, long index, String comment)
+	DBRecord createBookmark(int typeID, String category, long index, String comment)
 			throws IOException {
 		if (!hasTable(typeID)) {
 			return null;
 		}
 
+		if (category == null)
+			category = "";
+		if (comment == null)
+			comment = "";
+
 		Table table = tables[typeID];
 		long nextId = table.getKey() + 1;
 		long id = ((long) typeID << TYPE_ID_OFFSET) | nextId;
 
-		Record rec = V3_SCHEMA.createRecord(id);
+		DBRecord rec = V3_SCHEMA.createRecord(id);
 		rec.setLongValue(V3_ADDRESS_COL, index);
 		rec.setString(V3_CATEGORY_COL, category);
 		rec.setString(V3_COMMENT_COL, comment);
@@ -226,7 +224,7 @@ public class BookmarkDBAdapterV3 extends BookmarkDBAdapter {
 	}
 
 	@Override
-	void updateRecord(Record rec) throws IOException {
+	void updateRecord(DBRecord rec) throws IOException {
 		Table table = getTable(rec.getKey());
 		table.putRecord(rec);
 	}

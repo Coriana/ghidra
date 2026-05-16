@@ -23,7 +23,7 @@ import ghidra.program.model.address.*;
 import ghidra.program.model.mem.*;
 import ghidra.test.AbstractGhidraHeadedIntegrationTest;
 import ghidra.test.TestEnv;
-import ghidra.util.task.TaskMonitorAdapter;
+import ghidra.util.task.TaskMonitor;
 
 public class OverlayAddressSpaceTest extends AbstractGhidraHeadedIntegrationTest {
 	private TestEnv env;
@@ -130,7 +130,7 @@ public class OverlayAddressSpaceTest extends AbstractGhidraHeadedIntegrationTest
 		space3 = factory.getAddressSpace(space3.getName());
 
 		OverlayAddressSpace space1Overlay =
-			new OverlayAddressSpace("Overlay1", space1, 4, 0x20, 0x30);
+			new SingleRangeOverlayAddressSpace("Overlay1", space1, 4, 0x20, 0x30, "Overlay1");
 
 		Address space1Address = space1.getAddress(0x20);
 		Address space1OverlayAddress = space1Overlay.getAddress(0x22);
@@ -192,7 +192,7 @@ public class OverlayAddressSpaceTest extends AbstractGhidraHeadedIntegrationTest
 		space1 = factory.getAddressSpace(space1.getName());
 
 		OverlayAddressSpace space1Overlay =
-			new OverlayAddressSpace("Overlay1", space1, 4, 0x20, 0x30);
+			new SingleRangeOverlayAddressSpace("Overlay1", space1, 4, 0x20, 0x30, "Overlay1");
 
 		assertEquals(0x25, space1Overlay.truncateOffset(0x25));
 		assertEquals(0x40, space1Overlay.truncateOffset(0x40));
@@ -222,6 +222,69 @@ public class OverlayAddressSpaceTest extends AbstractGhidraHeadedIntegrationTest
 
 	}
 
+	@Test
+	public void testOverlayRenameAndDelete() throws Exception {
+
+		ProgramBuilder builder = new ProgramBuilder("Test", ProgramBuilder._TOY, this);
+		program = builder.getProgram();
+
+		AddressFactory af = program.getAddressFactory();
+
+		int transactionID = program.startTransaction(testName.getMethodName());
+		try {
+			MemoryBlock overlayBlock1 = program.getMemory()
+					.createInitializedBlock("my overlay x", af.getAddress("1000"), 0x100,
+						(byte) 0x11, TaskMonitor.DUMMY, true);
+			MemoryBlock overlayBlock2 = program.getMemory()
+					.createInitializedBlock("my overlay:x", af.getAddress("1000"), 0x100,
+						(byte) 0x11, TaskMonitor.DUMMY, true);
+
+			assertEquals("my_overlay_x", overlayBlock1.getStart().getAddressSpace().getName());
+			assertEquals("my_overlay_x.1", overlayBlock2.getStart().getAddressSpace().getName());
+
+			overlayBlock1.setName("my new name"); // does not rename overlay space
+			assertEquals("my new name", overlayBlock1.getName());
+			assertEquals("my_overlay_x", overlayBlock1.getStart().getAddressSpace().getName());
+			assertNotNull(af.getAddressSpace("my_overlay_x"));
+			assertNull(af.getAddressSpace("my_new_name"));
+
+			overlayBlock2.setName("my new name"); // does not rename overlay space
+			assertEquals("my new name", overlayBlock2.getName());
+			assertEquals("my_overlay_x.1", overlayBlock2.getStart().getAddressSpace().getName());
+			assertNotNull(af.getAddressSpace("my_overlay_x.1"));
+			assertNull(af.getAddressSpace("my_new_name.1"));
+
+			overlayBlock2.setName("my overlay:x"); // restore non-duplicate block name
+
+			program.renameOverlaySpace("my_overlay_x", "my_overlay_x2");
+			program.renameOverlaySpace("my_overlay_x.1", "my_overlay_x2.1");
+
+			// must reacquire block instances due to imposed memory reload/restore
+
+			overlayBlock1 = program.getMemory().getBlock("my new name");
+			assertEquals("my_overlay_x2", overlayBlock1.getStart().getAddressSpace().getName());
+			assertNull(af.getAddressSpace("my_overlay_x"));
+			assertNotNull(af.getAddressSpace("my_overlay_x2"));
+
+			overlayBlock2 = program.getMemory().getBlock("my overlay:x");
+			assertEquals("my_overlay_x2.1", overlayBlock2.getStart().getAddressSpace().getName());
+			assertNull(af.getAddressSpace("my_overlay_x.1"));
+			assertNotNull(af.getAddressSpace("my_overlay_x2.1"));
+
+			// Overlay Space removal will occur after block removal
+
+			assertFalse(
+				program.removeOverlaySpace(overlayBlock1.getStart().getAddressSpace().getName()));
+			assertNotNull(af.getAddressSpace("my_overlay_x2"));
+			program.getMemory().removeBlock(overlayBlock1, TaskMonitor.DUMMY); // should remove space
+			assertNull(af.getAddressSpace("my_overlay_x2"));
+		}
+		finally {
+			program.endTransaction(transactionID, true);
+		}
+
+	}
+
 	private void doTest() throws Exception {
 		AddressFactory af = program.getAddressFactory();
 
@@ -231,8 +294,9 @@ public class OverlayAddressSpaceTest extends AbstractGhidraHeadedIntegrationTest
 		int transactionID = program.startTransaction(testName.getMethodName());
 		MemoryBlock overlayBlock1 = null;
 		try {
-			overlayBlock1 = program.getMemory().createInitializedBlock(".overlay1",
-				af.getAddress("1000"), 0x100, (byte) 0x11, TaskMonitorAdapter.DUMMY_MONITOR, true);
+			overlayBlock1 = program.getMemory()
+					.createInitializedBlock(".overlay1", af.getAddress("1000"), 0x100, (byte) 0x11,
+						TaskMonitor.DUMMY, true);
 		}
 		finally {
 			program.endTransaction(transactionID, true);
@@ -248,7 +312,7 @@ public class OverlayAddressSpaceTest extends AbstractGhidraHeadedIntegrationTest
 		transactionID = program.startTransaction(testName.getMethodName());
 		try {
 			overlayBlock1 = program.getMemory().getBlock(overlayBlock1.getName());
-			program.getMemory().removeBlock(overlayBlock1, TaskMonitorAdapter.DUMMY_MONITOR);
+			program.getMemory().removeBlock(overlayBlock1, TaskMonitor.DUMMY);
 		}
 		finally {
 			program.endTransaction(transactionID, true);
@@ -266,27 +330,40 @@ public class OverlayAddressSpaceTest extends AbstractGhidraHeadedIntegrationTest
 		MemoryBlock overlayBlock3 = null;
 		MemoryBlock overlayBlock4 = null;
 		try {
-			overlayBlock2 = program.getMemory().createInitializedBlock(".overlay2",
-				af.getAddress("2000"), 0x200, (byte) 0x22, TaskMonitorAdapter.DUMMY_MONITOR, true);
-			overlayBlock3 = program.getMemory().createInitializedBlock(".overlay3",
-				af.getAddress("3000"), 0x300, (byte) 0x33, TaskMonitorAdapter.DUMMY_MONITOR, true);
-			overlayBlock4 = program.getMemory().createInitializedBlock(".overlay4",
-				af.getAddress("4000"), 0x400, (byte) 0x44, TaskMonitorAdapter.DUMMY_MONITOR, true);
+			overlayBlock2 = program.getMemory()
+					.createInitializedBlock(".overlay2", af.getAddress("2000"), 0x200, (byte) 0x22,
+						TaskMonitor.DUMMY, true);
+			overlayBlock3 = program.getMemory()
+					.createInitializedBlock("my_overlay_x", af.getAddress("3000"), 0x300,
+						(byte) 0x33, TaskMonitor.DUMMY, true);
+			overlayBlock4 = program.getMemory()
+					.createInitializedBlock("my overlay:x", af.getAddress("4000"), 0x400,
+						(byte) 0x44, TaskMonitor.DUMMY, true);
 		}
 		finally {
 			program.endTransaction(transactionID, true);
 		}
 		assertEquals(origSpaceCount + 4, af.getNumAddressSpaces());
 		MemoryBlock[] blocks = program.getMemory().getBlocks();
-		assertEquals(overlayBlock1.getName(), blocks[origBlockCount + 0].getName());
-		assertEquals(overlayBlock2.getName(), blocks[origBlockCount + 1].getName());
-		assertEquals(overlayBlock3.getName(), blocks[origBlockCount + 2].getName());
-		assertEquals(overlayBlock4.getName(), blocks[origBlockCount + 3].getName());
+		assertEquals(".overlay1", blocks[origBlockCount + 0].getName());
+		assertEquals(".overlay2", blocks[origBlockCount + 1].getName());
+		assertEquals("my_overlay_x", blocks[origBlockCount + 2].getName());
+		assertEquals("my_overlay_x",
+			blocks[origBlockCount + 2].getStart().getAddressSpace().getName());
+		assertEquals("my overlay:x", blocks[origBlockCount + 3].getName());
+		assertEquals("my_overlay_x.1",
+			blocks[origBlockCount + 3].getStart().getAddressSpace().getName());
+
+		AddressSpace ovSpace3 = program.getAddressFactory().getAddressSpace("my_overlay_x");
+		assertNotNull(ovSpace3);
+
+		AddressSpace ovSpace4 = program.getAddressFactory().getAddressSpace("my_overlay_x.1");
+		assertNotNull(ovSpace4);
 
 		transactionID = program.startTransaction(testName.getMethodName());
 		try {
-			program.getMemory().removeBlock(overlayBlock2, TaskMonitorAdapter.DUMMY_MONITOR);
-			program.getMemory().removeBlock(overlayBlock3, TaskMonitorAdapter.DUMMY_MONITOR);
+			program.getMemory().removeBlock(overlayBlock2, TaskMonitor.DUMMY);
+			program.getMemory().removeBlock(overlayBlock3, TaskMonitor.DUMMY);
 		}
 		finally {
 			program.endTransaction(transactionID, true);
@@ -295,6 +372,12 @@ public class OverlayAddressSpaceTest extends AbstractGhidraHeadedIntegrationTest
 		blocks = program.getMemory().getBlocks();
 		assertEquals(overlayBlock1.getName(), blocks[origBlockCount + 0].getName());
 		assertEquals(overlayBlock4.getName(), blocks[origBlockCount + 1].getName());
+
+		ovSpace3 = program.getAddressFactory().getAddressSpace("my_overlay_x");
+		assertNull(ovSpace3);
+
+		ovSpace4 = program.getAddressFactory().getAddressSpace("my_overlay_x.1");
+		assertNotNull(ovSpace4);
 
 		program.undo();
 		assertEquals(origSpaceCount + 4, af.getNumAddressSpaces());
@@ -308,6 +391,12 @@ public class OverlayAddressSpaceTest extends AbstractGhidraHeadedIntegrationTest
 		assertEquals(overlayBlock3.getName(), blocks[origBlockCount + 2].getName());
 		assertEquals(overlayBlock4.getName(), blocks[origBlockCount + 3].getName());
 
+		ovSpace3 = program.getAddressFactory().getAddressSpace("my_overlay_x");
+		assertNotNull(ovSpace3);
+
+		ovSpace4 = program.getAddressFactory().getAddressSpace("my_overlay_x.1");
+		assertNotNull(ovSpace4);
+
 		program.redo();
 		assertEquals(origSpaceCount + 2, af.getNumAddressSpaces());
 		blocks = program.getMemory().getBlocks();
@@ -317,5 +406,6 @@ public class OverlayAddressSpaceTest extends AbstractGhidraHeadedIntegrationTest
 		overlayBlock4 = program.getMemory().getBlock(overlayBlock4.getName());
 		assertEquals(overlayBlock1.getName(), blocks[origBlockCount + 0].getName());
 		assertEquals(overlayBlock4.getName(), blocks[origBlockCount + 1].getName());
+
 	}
 }

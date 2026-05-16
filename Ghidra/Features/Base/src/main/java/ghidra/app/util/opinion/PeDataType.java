@@ -17,7 +17,6 @@ package ghidra.app.util.opinion;
 
 import java.io.IOException;
 
-import generic.continues.RethrowContinuesFactory;
 import ghidra.app.util.bin.ByteArrayProvider;
 import ghidra.app.util.bin.format.mz.DOSHeader;
 import ghidra.app.util.bin.format.pe.*;
@@ -31,7 +30,6 @@ import ghidra.util.exception.DuplicateNameException;
  * A datatype for creating portable executable data structures.
  */
 public class PeDataType extends FactoryStructureDataType {
-    private final static long serialVersionUID = 1;
 
     /**
      * Constructs a new PE datatype.
@@ -53,14 +51,6 @@ public class PeDataType extends FactoryStructureDataType {
     public String getDescription() { 
         return "Windows Portable Executable Data Type";
     }
-    
-    /**
-	 * @see ghidra.program.model.data.DataType#isDynamicallySized()
-	 */
-	@Override
-	public boolean isDynamicallySized() {
-		return true;
-	}
 
     @Override
 	protected void populateDynamicStructure(MemBuffer buf, Structure struct) {
@@ -75,8 +65,7 @@ public class PeDataType extends FactoryStructureDataType {
 
 			ByteArrayProvider bap = new ByteArrayProvider(bytes);
 
-			PortableExecutable pe = PortableExecutable.createPortableExecutable(
-				RethrowContinuesFactory.INSTANCE, bap, SectionLayout.FILE);
+			PortableExecutable pe = new PortableExecutable(bap, SectionLayout.FILE);
 
 			DOSHeader dosHeader = pe.getDOSHeader();
 			addComponent(struct, dosHeader.toDataType(), DOSHeader.NAME);

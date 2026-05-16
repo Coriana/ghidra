@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -51,6 +51,9 @@ public class RepositoryServerAdapter {
 
 	// Keeps track of whether the connection attempt was cancelled by the user
 	private boolean connectCancelled = false;
+
+	// Keep track of last connect error
+	private Throwable lastConnectError;
 
 	private WeakSet<RemoteAdapterListener> listenerList =
 		WeakDataStructureFactory.createCopyOnWriteWeakSet();
@@ -106,6 +109,14 @@ public class RepositoryServerAdapter {
 	}
 
 	/**
+	 * Returns the last error associated with a failed connection attempt.
+	 * @return last connect error or null
+	 */
+	public Throwable getLastConnectError() {
+		return lastConnectError;
+	}
+
+	/**
 	 * Notify listeners of a connection state change.
 	 */
 	private void fireStateChanged() {
@@ -135,9 +146,15 @@ public class RepositoryServerAdapter {
 			}
 		}
 
-		Throwable cause = null;
+		lastConnectError = null;
 		try {
-			serverHandle = ClientUtil.connect(server);
+			try {
+				serverHandle = ClientUtil.connect(server);
+			}
+			catch (CancelledException e) {
+				// ignore
+				Msg.debug(this, "Server connect cancelled by user");
+			}
 			unexpectedDisconnect = false;
 			if (serverHandle != null) {
 				Msg.info(this, "Connected to Ghidra Server at " + serverInfoStr);
@@ -156,22 +173,22 @@ public class RepositoryServerAdapter {
 		catch (LoginException e) {
 			Msg.showError(this, null, "Server Error",
 				"Server access denied (" + serverInfoStr + ").");
-			cause = e;
+			lastConnectError = e;
 		}
 		catch (GeneralSecurityException e) {
 			Msg.showError(this, null, "Server Error",
 				"Server access denied (" + serverInfoStr + "): " + e.getMessage());
-			cause = e;
+			lastConnectError = e;
 		}
 		catch (SocketTimeoutException | java.net.ConnectException | java.rmi.ConnectException e) {
 			Msg.showError(this, null, "Server Error",
 				"Connection to server failed (" + server + ").");
-			cause = e;
+			lastConnectError = e;
 		}
 		catch (java.net.UnknownHostException | java.rmi.UnknownHostException e) {
 			Msg.showError(this, null, "Server Error",
 				"Server Not Found (" + server.getServerName() + ").");
-			cause = e;
+			lastConnectError = e;
 		}
 		catch (RemoteException e) {
 			String msg = e.getMessage();
@@ -179,10 +196,10 @@ public class RepositoryServerAdapter {
 			while ((t = t.getCause()) != null) {
 				String err = t.getMessage();
 				msg = err != null ? err : t.toString();
-				cause = t;
+				lastConnectError = t;
 			}
 			Msg.showError(this, null, "Server Error",
-				"An error occurred on the server (" + serverInfoStr + ").\n" + msg, e);
+				"An error occurred on the server (" + serverInfoStr + ").\n" + msg);
 		}
 		catch (IOException e) {
 			String err = e.getMessage();
@@ -191,10 +208,10 @@ public class RepositoryServerAdapter {
 			}
 			String msg = err != null ? err : e.toString();
 			Msg.showError(this, null, "Server Error",
-				"An error occurred while connecting to the server (" + serverInfoStr + ").\n" + msg,
-				e);
+				"An error occurred while connecting to the server (" + serverInfoStr + ").\n" +
+					msg);
 		}
-		throw new NotConnectedException("Not connected to repository server", cause);
+		throw new NotConnectedException("Not connected to repository server", lastConnectError);
 	}
 
 	private void checkPasswordExpiration() {
@@ -469,7 +486,7 @@ public class RepositoryServerAdapter {
 	 * @throws IOException if user data can't be written to file
 	 * @throws NotConnectedException if server connection is down (user already informed)
 	 * @see ghidra.framework.remote.RemoteRepositoryServerHandle#setPassword(char[])
-	 * @see ghidra.util.HashUtilities#getSaltedHash(String, char[])  HashUtilities.getSaltedHash("SHA-256", char[])
+	 * @see generic.hash.HashUtilities#getSaltedHash(String, char[])  HashUtilities.getSaltedHash("SHA-256", char[])
 	 */
 	public synchronized boolean setPassword(char[] saltedSHA256PasswordHash)
 			throws IOException, NotConnectedException {

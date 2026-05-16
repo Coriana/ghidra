@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -28,6 +28,8 @@ import org.apache.commons.lang3.StringUtils;
 
 import docking.framework.DockingApplicationConfiguration;
 import docking.widgets.label.GDLabel;
+import generic.theme.GThemeDefaults.Colors.Messages;
+import generic.theme.Gui;
 import ghidra.GhidraApplicationLayout;
 import ghidra.GhidraLaunchable;
 import ghidra.framework.Application;
@@ -35,17 +37,18 @@ import ghidra.framework.ApplicationConfiguration;
 import ghidra.program.model.data.*;
 import ghidra.program.model.data.Composite;
 import ghidra.program.model.data.Enum;
+import ghidra.program.model.data.StandAloneDataTypeManager.ArchiveWarning;
 import ghidra.util.*;
 import ghidra.util.classfinder.ClassSearcher;
 import ghidra.util.exception.*;
 import ghidra.util.task.*;
 
 /**
- * DataTypeArchiveTransformer changes (transforms) a new archive file so that it appears to be 
+ * DataTypeArchiveTransformer changes (transforms) a new archive file so that it appears to be
  * an updated copy of a previously existing data type archive. This allows us to parse a new
  * version of each standard GDT file we supply. This class changes the IDs on the data types
- * so they will match the previous version's IDs. This allows the new data type archive and 
- * its data types to become the associated data types where the previous version data types 
+ * so they will match the previous version's IDs. This allows the new data type archive and
+ * its data types to become the associated data types where the previous version data types
  * were applied.
  */
 public class DataTypeArchiveTransformer implements GhidraLaunchable {
@@ -61,8 +64,27 @@ public class DataTypeArchiveTransformer implements GhidraLaunchable {
 		FileDataTypeManager newFileArchive = null;
 		try {
 			monitor.initialize(100);
+
 			oldFileArchive = FileDataTypeManager.openFileArchive(oldFile, false);
+			ArchiveWarning warning = oldFileArchive.getWarning();
+			if (warning == ArchiveWarning.LANGUAGE_UPGRADE_REQURED) {
+				throw new IOException("Archive requires language upgrade: " + oldFile);
+			}
+			if (warning != ArchiveWarning.NONE) {
+				throw new IOException("Archive language error occured: " + oldFile,
+					oldFileArchive.getWarningDetail());
+			}
+
 			newFileArchive = FileDataTypeManager.openFileArchive(newFile, true);
+			warning = newFileArchive.getWarning();
+			if (warning == ArchiveWarning.LANGUAGE_UPGRADE_REQURED) {
+				throw new IOException("Archive requires language upgrade: " + newFile);
+			}
+			if (warning != ArchiveWarning.NONE) {
+				throw new IOException("Archive language error occured: " + newFile,
+					newFileArchive.getWarningDetail());
+			}
+
 			UniversalID oldUniversalID = oldFileArchive.getUniversalID();
 			UniversalID newUniversalID = newFileArchive.getUniversalID();
 			Msg.info(DataTypeArchiveTransformer.class, "Old file ID = " + oldUniversalID);
@@ -155,10 +177,10 @@ public class DataTypeArchiveTransformer implements GhidraLaunchable {
 			// anonymous data types that matched by matching components.
 			Iterator<DataType> allDataTypes = newFileArchive.getAllDataTypes();
 			while (allDataTypes.hasNext()) {
-				monitor.checkCanceled();
+				monitor.checkCancelled();
 				DataType newDataType = allDataTypes.next();
 				if (isAnonymousType(newDataType)) {
-					// Skip anonymous types, they are matched as components of composites or 
+					// Skip anonymous types, they are matched as components of composites or
 					// later unmatched enums are matched in categories.
 					continue;
 				}
@@ -169,7 +191,7 @@ public class DataTypeArchiveTransformer implements GhidraLaunchable {
 				DataType oldDataType =
 					transformDataType(newDataType, oldFileArchive, newFileArchive);
 
-				// Now process children anonymous data types for composites. 
+				// Now process children anonymous data types for composites.
 				processAnonymous(oldDataType, newDataType, oldFileArchive, newFileArchive);
 
 //				monitor.incrementProgress(1);
@@ -191,7 +213,7 @@ public class DataTypeArchiveTransformer implements GhidraLaunchable {
 
 		Iterator<DataType> allDataTypes = newFileArchive.getAllDataTypes();
 		while (allDataTypes.hasNext()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			DataType newDataType = allDataTypes.next();
 			if (newDataType instanceof DataTypeDB) {
 				((DataTypeDB) newDataType).setUniversalID(UniversalIdGenerator.nextID());
@@ -202,12 +224,12 @@ public class DataTypeArchiveTransformer implements GhidraLaunchable {
 	private static void processUnmatchedEnums(FileDataTypeManager oldFileArchive,
 			FileDataTypeManager newFileArchive, TaskMonitor monitor) throws CancelledException {
 
-		// Find all anonymous enums and if not already matched to a data type in the old 
-		// archive, then try to match with an anonymous enum in the same category of the 
+		// Find all anonymous enums and if not already matched to a data type in the old
+		// archive, then try to match with an anonymous enum in the same category of the
 		// old archive.
 		Iterator<DataType> allDataTypes = newFileArchive.getAllDataTypes();
 		while (allDataTypes.hasNext()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			DataType newDataType = allDataTypes.next();
 			if (newDataType instanceof Enum && isAnonymousType(newDataType)) {
 
@@ -287,9 +309,9 @@ public class DataTypeArchiveTransformer implements GhidraLaunchable {
 	private static void processAnonymous(DataType oldDataType, DataType newDataType,
 			FileDataTypeManager oldFileArchive, FileDataTypeManager newFileArchive) {
 
-		// If we have composites, then get any component with an anonymous data type in the 
-		// newDataType, and look for it by matching field name in the old composite. 
-		// If the composites are anonymous then look for matching components by ordinal 
+		// If we have composites, then get any component with an anonymous data type in the
+		// newDataType, and look for it by matching field name in the old composite.
+		// If the composites are anonymous then look for matching components by ordinal
 		// if the number of components matches.
 		if (newDataType instanceof Composite && oldDataType instanceof Composite) {
 			Composite newComposite = (Composite) newDataType;
@@ -346,7 +368,7 @@ public class DataTypeArchiveTransformer implements GhidraLaunchable {
 		if (isAnonymousType(newCompDt) || anonymousPointerDepth > 0 ||
 			anonymousArrayNumElements > 0 || anonymousTypeDefDepth > 0) {
 
-			// Found an anonymous type, anonymous pointer, or anonymous array, 
+			// Found an anonymous type, anonymous pointer, or anonymous array,
 			// so get the matching component by field name or ordinal.
 			DataTypeComponent matchingComponent =
 				getAnonymousMatch(oldComposite, newComposite, newComponent);
@@ -388,7 +410,7 @@ public class DataTypeArchiveTransformer implements GhidraLaunchable {
 					// Got a match so set the ID.
 					transformDataType(newCompDt, newFileArchive, oldCompDt);
 
-					// Now process children anonymous data types for anonymous composites. 
+					// Now process children anonymous data types for anonymous composites.
 					processAnonymous(oldCompDt, newCompDt, oldFileArchive, newFileArchive);
 				}
 			}
@@ -405,7 +427,7 @@ public class DataTypeArchiveTransformer implements GhidraLaunchable {
 			transformDataType(newDataType, newFileArchive, oldDataType);
 		}
 
-		// Now process children anonymous data types for anonymous composites. 
+		// Now process children anonymous data types for anonymous composites.
 		processAnonymous(oldDataType, newDataType, oldFileArchive, newFileArchive);
 	}
 
@@ -675,7 +697,7 @@ public class DataTypeArchiveTransformer implements GhidraLaunchable {
 		try {
 			Iterator<DataType> allDataTypes = newFileArchive.getAllDataTypes();
 			while (allDataTypes.hasNext()) {
-				monitor.checkCanceled();
+				monitor.checkCancelled();
 				DataType newDataType = allDataTypes.next();
 				fixDataTypeTimestamp(newDataType, oldFileArchive, newFileArchive);
 //				monitor.incrementProgress(1);
@@ -693,7 +715,7 @@ public class DataTypeArchiveTransformer implements GhidraLaunchable {
 		UniversalID universalID = newDataType.getUniversalID();
 		SourceArchive sourceArchive = newDataType.getSourceArchive();
 		if (sourceArchive == newFileArchive.getLocalSourceArchive()) {
-			// Use the the old file archive as the source archive since local.
+			// Use the old file archive as the source archive since local.
 			sourceArchive = oldFileArchive.getLocalSourceArchive();
 		}
 		DataType oldDataType;
@@ -737,12 +759,10 @@ public class DataTypeArchiveTransformer implements GhidraLaunchable {
 
 		FileDataTypeManager destinationFileArchive =
 			FileDataTypeManager.openFileArchive(destinationFile, false);
-		if (destinationFileArchive != null) {
-			UniversalID destinationUniversalID = destinationFileArchive.getUniversalID();
-			destinationFileArchive.close();
-			Msg.info(DataTypeArchiveTransformer.class,
-				"Resulting file ID = " + destinationUniversalID.getValue());
-		}
+		UniversalID destinationUniversalID = destinationFileArchive.getUniversalID();
+		destinationFileArchive.close();
+		Msg.info(DataTypeArchiveTransformer.class,
+			"Resulting file ID = " + destinationUniversalID.getValue());
 	}
 
 	static File myOldFile = null;
@@ -753,7 +773,7 @@ public class DataTypeArchiveTransformer implements GhidraLaunchable {
 	public void launch(GhidraApplicationLayout layout, String[] args) {
 		ApplicationConfiguration appConfig = new DockingApplicationConfiguration();
 		Application.initializeApplication(layout, appConfig);
-		// Perform Class searching so we load data type classes that may have moved or 
+		// Perform Class searching so we load data type classes that may have moved or
 		// changed name. This is needed to map a data type's old path name to the new one.
 		performClassSearching(appConfig.getTaskMonitor());
 
@@ -818,7 +838,7 @@ public class DataTypeArchiveTransformer implements GhidraLaunchable {
 					statusLabel.setToolTipText(inProgressMessage);
 					filePanel.transform(monitor);
 					File destinationFile = filePanel.getDestinationFile();
-					statusLabel.setForeground(Color.blue);
+					statusLabel.setForeground(Messages.NORMAL);
 					String message = "Transformation successfully created " +
 						destinationFile.getAbsolutePath() + ".";
 					statusLabel.setText(message);
@@ -830,7 +850,7 @@ public class DataTypeArchiveTransformer implements GhidraLaunchable {
 					statusLabel.setToolTipText(cancelMessage);
 				}
 				catch (Exception exc) {
-					statusLabel.setForeground(Color.red);
+					statusLabel.setForeground(Messages.ERROR);
 					statusLabel.setText(exc.getMessage());
 					statusLabel.setToolTipText(exc.getMessage());
 					exc.printStackTrace();
@@ -874,7 +894,7 @@ public class DataTypeArchiveTransformer implements GhidraLaunchable {
 		// The class searcher searches the classpath, and Ghidra's classpath should be complete
 		// for this configuration at this point.
 		try {
-			ClassSearcher.search(false, monitor);
+			ClassSearcher.search(monitor);
 		}
 		catch (CancelledException e) {
 			Msg.debug(this, "Class searching unexpectedly cancelled.");
@@ -894,7 +914,7 @@ public class DataTypeArchiveTransformer implements GhidraLaunchable {
 		});
 
 		// Fix up the default fonts that Java 1.5.0 changed to Courier, which looked terrible.
-		Font f = new Font("Monospaced", Font.PLAIN, 12);
+		Font f = Gui.getFont("font.monospaced");
 		UIManager.put("PasswordField.font", f);
 		UIManager.put("TextArea.font", f);
 	}

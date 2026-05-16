@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -25,12 +25,13 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import generic.jar.ResourceFile;
-import ghidra.app.plugin.core.osgi.BundleHost;
-import ghidra.app.plugin.core.osgi.OSGiException;
+import ghidra.app.plugin.core.osgi.*;
 import ghidra.app.plugin.core.script.GhidraScriptMgrPlugin;
+import ghidra.app.util.headless.HeadlessAnalyzer;
 import ghidra.framework.Application;
 import ghidra.util.Msg;
-import ghidra.util.classfinder.ClassSearcher;
+import ghidra.util.classfinder.*;
+import utilities.util.FileUtilities;
 
 /**
  * A utility class for managing script directories and ScriptInfo objects.
@@ -62,37 +63,21 @@ public class GhidraScriptUtil {
 	}
 
 	/**
-	 * set the bundle host and start the framework
+	 * Initialize state of GhidraScriptUtil with user and system paths
 	 * 
-	 * @param aBundleHost the bundle host
+	 * @param aBundleHost the host to use
 	 */
-	private static void setBundleHost(BundleHost aBundleHost) {
+	private static void initialize(BundleHost aBundleHost) {
 		if (bundleHost != null) {
 			throw new RuntimeException("GhidraScriptUtil initialized multiple times!");
 		}
 
-		try {
+		try (OSGiParallelLock lock = new OSGiParallelLock()) {
 			bundleHost = aBundleHost;
 			bundleHost.startFramework();
 		}
 		catch (OSGiException | IOException e) {
 			Msg.error(GhidraScriptUtil.class, "Failed to initialize BundleHost", e);
-		}
-	}
-
-	/**
-	 * initialize state of GhidraScriptUtil with user, system paths, and optional extra system paths.
-	 * 
-	 * @param aBundleHost the host to use 
-	 * @param extraSystemPaths additional system paths for this run, can be null 
-	 * 
-	 */
-	public static void initialize(BundleHost aBundleHost, List<String> extraSystemPaths) {
-		setBundleHost(aBundleHost);
-		if (extraSystemPaths != null) {
-			for (String path : extraSystemPaths) {
-				bundleHost.add(new ResourceFile(path), true, true);
-			}
 		}
 
 		bundleHost.add(getUserScriptDirectory(), true, false);
@@ -102,9 +87,9 @@ public class GhidraScriptUtil {
 	/**
 	 * dispose of the bundle host and providers list
 	 */
-	public static void dispose() {
+	private static void dispose() {
 		if (bundleHost != null) {
-			bundleHost.dispose();
+			bundleHost.stopFramework();
 			bundleHost = null;
 		}
 		providers = null;
@@ -122,26 +107,30 @@ public class GhidraScriptUtil {
 	}
 
 	/**
+	 * Returns a list of the current enabled script directories.
+	 * @return a list of the current enabled script directories
+	 */
+	public static List<ResourceFile> getEnabledScriptSourceDirectories() {
+		return bundleHost.getEnabledBundleFiles()
+				.stream()
+				.filter(ResourceFile::isDirectory)
+				.collect(Collectors.toList());
+	}
+
+	/**
 	 * Search the currently managed source directories for the given script file.
 	 * 
 	 * @param sourceFile the source file
 	 * @return the source directory if found, or null if not
 	 */
 	public static ResourceFile findSourceDirectoryContaining(ResourceFile sourceFile) {
-		String sourcePath;
-		try {
-			sourcePath = sourceFile.getCanonicalPath();
-			for (ResourceFile sourceDir : getScriptSourceDirectories()) {
-				if (sourcePath.startsWith(sourceDir.getCanonicalPath() + File.separatorChar)) {
-					return sourceDir;
-				}
+		for (ResourceFile sourceDir : getScriptSourceDirectories()) {
+			if (FileUtilities.relativizePath(sourceDir, sourceFile) != null) {
+				return sourceDir;
 			}
 		}
-		catch (IOException e) {
-			Msg.error(GhidraScriptUtil.class,
-				"Failed to find script in any script directory: " + sourceFile.toString(),
-				e);
-		}
+		Msg.error(GhidraScriptUtil.class,
+			"Failed to find script in any script directory: " + sourceFile.toString());
 		return null;
 	}
 
@@ -241,6 +230,7 @@ public class GhidraScriptUtil {
 	 */
 	@Deprecated
 	public static List<ResourceFile> getExplodedCompiledSourceBundlePaths() {
+
 		try (Stream<Path> pathStream = Files.list(BundleHost.getOsgiDir())) {
 			return pathStream.filter(Files::isDirectory)
 					.map(x -> new ResourceFile(x.toFile()))
@@ -270,36 +260,31 @@ public class GhidraScriptUtil {
 	}
 
 	/**
-	 * Returns a list of all Ghidra script providers
+	 * Returns a list of all supported Ghidra script providers.
+	 * <p>
+	 * NOTE: The list is {@link ExtensionPointProperties#priority() priority-sorted}
 	 * 
-	 * @return a list of all Ghidra script providers
+	 * @return a list of all supported Ghidra script providers
+	 * @apiNote this method is synchronized so that two threads do not try to create the list when 
+	 *   null
 	 */
-	// Note: this method is synchronized so that two threads do not try to create the list when null
 	public static synchronized List<GhidraScriptProvider> getProviders() {
 		if (providers == null) {
-			List<GhidraScriptProvider> newProviders =
-				new ArrayList<>(ClassSearcher.getInstances(GhidraScriptProvider.class));
-			Collections.sort(newProviders);
-			providers = newProviders;
+			providers = ClassSearcher.getInstances(GhidraScriptProvider.class,
+				new ClassExclusionFilter(UnsupportedScriptProvider.class));
 		}
 		return providers;
 	}
 
 	/**
-	 * Returns the corresponding Ghidra script providers
-	 * for the specified script file.
+	 * Returns the corresponding Ghidra script provider for the specified script file.
+	 * 
 	 * @param scriptFile the script file
-	 * @return the Ghidra script provider
+	 * @return the Ghidra script provider or {@link UnsupportedScriptProvider} if the script file
+	 *   does not exist or no provider matches
 	 */
 	public static GhidraScriptProvider getProvider(ResourceFile scriptFile) {
-		String scriptFileName = scriptFile.getName().toLowerCase();
-
-		for (GhidraScriptProvider provider : getProviders()) {
-			if (scriptFileName.endsWith(provider.getExtension().toLowerCase())) {
-				return provider;
-			}
-		}
-		return null;
+		return findProvider(scriptFile);
 	}
 
 	/**
@@ -309,13 +294,58 @@ public class GhidraScriptUtil {
 	 * @return true if a provider exists that can process the specified file
 	 */
 	public static boolean hasScriptProvider(ResourceFile scriptFile) {
-		String scriptFileName = scriptFile.getName().toLowerCase();
+		return findProvider(scriptFile) != null;
+	}
+
+	/**
+	 * Find the first provider whose extension matches the given file's extension and whose 
+	 * {@link ScriptInfo#AT_RUNTIME} matches 
+	 * 
+	 * @param scriptFile the script file (not guaranteed to exist if this method is called because
+	 *   the script manager is creating a new script and all it has to go off of initially is
+	 *   the desired file extension...in this case there will not be a @runtime tag yet)
+	 * @return the matching provider or null if no provider matches
+	 */
+	private static GhidraScriptProvider findProvider(ResourceFile scriptFile) {
+		GhidraScriptProvider baseProvider = null;
+		String fileName = scriptFile.getName().toLowerCase();
 		for (GhidraScriptProvider provider : getProviders()) {
-			if (scriptFileName.endsWith(provider.getExtension().toLowerCase())) {
-				return true;
+			String extension = provider.getExtension().toLowerCase();
+			if (fileName.endsWith(extension)) {
+				baseProvider = provider;
+				if (!scriptFile.exists()) {
+					// Use UnsupportedScriptProvider. The provider will be updated later when
+					// the file actually exists and we can properly look for an @runtime tag 
+					// (or confirm that one is not defined)
+					break;
+				}
+				String runtime = new ScriptInfo(provider, scriptFile).getRuntimeEnvironmentName();
+				if (runtime == null ||
+					runtime.equalsIgnoreCase(provider.getRuntimeEnvironmentName())) {
+					return provider;
+				}
 			}
 		}
-		return false;
+		if (baseProvider != null) {
+			return new UnsupportedScriptProvider(baseProvider);
+		}
+		return null;
+	}
+
+	/**
+	 * Find the first provider whose extension matches the given filename extension.
+	 * 
+	 * @param fileName name of script file
+	 * @return the first matching provider or null if no provider matches
+	 */
+	private static GhidraScriptProvider findProvider(String fileName) {
+		fileName = fileName.toLowerCase();
+		for (GhidraScriptProvider provider : getProviders()) {
+			if (fileName.endsWith(provider.getExtension().toLowerCase())) {
+				return provider;
+			}
+		}
+		return null;
 	}
 
 	/**
@@ -361,31 +391,35 @@ public class GhidraScriptUtil {
 	}
 
 	/**
-	 * Fixup name issues, such as package parts in the name and inner class names.
+	 * Fix script name issues for searching in script directories.
+	 * If no provider can be identified, Java is assumed.
 	 * 
-	 * <p>This method can handle names with or without '.java' at the end; names with 
-	 * '$' (inner classes) and names with '.' characters for package separators
+	 * <p>This method is part of a poorly specified behavior that is due for future amendment.
 	 * 
+	 * <p>It is used by {@link GhidraScript#runScript(String)} methods, 
+	 * {@link #createNewScript(String, String, ResourceFile, List)}, and by {@link HeadlessAnalyzer} for 
+	 * {@code preScript} and {@code postScript}.  The intent was to allow some freedom in how a user specifies
+	 * a script in two ways: 1) if the extension is omitted ".java" is assumed and 2) if a Java class name is
+	 * given it's converted to a relative path.
+	 *  
 	 * @param name the name of the script
-	 * @return the name as a '.java' file path (with '/'s and not '.'s)
+	 * @return the name as a file path
 	 */
+	@Deprecated
 	static String fixupName(String name) {
-		if (name.endsWith(".java")) {
-			name = name.substring(0, name.length() - 5);
+		GhidraScriptProvider provider = findProvider(name);
+		// assume Java if no provider matched
+		if (provider == null) {
+			name = name + ".java";
+			provider = findProvider(".java");
 		}
-
-		String path = name.replace('.', '/');
-		int innerClassIndex = path.indexOf('$');
-		if (innerClassIndex != -1) {
-			path = path.substring(0, innerClassIndex);
-		}
-		return path + ".java";
+		return provider.fixupName(name);
 	}
 
 	static ResourceFile findScriptFileInPaths(Collection<ResourceFile> scriptDirectories,
-			String filename) {
+			String name) {
 
-		String validatedName = fixupName(filename);
+		String validatedName = fixupName(name);
 
 		for (ResourceFile resourceFile : scriptDirectories) {
 			if (resourceFile.isDirectory()) {
@@ -405,7 +439,7 @@ public class GhidraScriptUtil {
 	 */
 	public static BundleHost acquireBundleHostReference() {
 		if (referenceCount.getAndIncrement() == 0) {
-			initialize(new BundleHost(), null);
+			initialize(new BundleHost());
 		}
 		return bundleHost;
 	}

@@ -9,7 +9,7 @@
     <META name="ProgId" content="FrontPage.Editor.Document">
 
     <TITLE>Symbol Tree</TITLE>
-    <LINK rel="stylesheet" type="text/css" href="../../shared/Frontpage.css">
+    <LINK rel="stylesheet" type="text/css" href="help/shared/DefaultStyle.css">
   </HEAD>
 
   <BODY>
@@ -21,7 +21,7 @@
 
     <P align="left">To display the Symbol Tree, select the icon <IMG alt="" src=
     "images/sitemap_color.png"> on the tool bar, OR select the option <B>Window</B><IMG alt="" src=
-    "../../shared/arrow.gif"> <IMG alt="" src="images/sitemap_color.png"> <B>Symbol Tree</B>.</P>
+    "help/shared/arrow.gif"> <IMG alt="" src="images/sitemap_color.png"> <B>Symbol Tree</B>.</P>
 
     <P align="center"><IMG alt="" src="images/SymbolTree.png"></P>
 
@@ -78,16 +78,21 @@
         </LI>
       </UL>
 
-      <P align="left"><A name="GroupNode"></A>When a category or symbol has many elements, the
+      <P align="left"><A name="GroupNode"></A>When the label or function category has many elements, the
       Symbol Tree will show <I>group nodes</I> that represent groups of symbols in order to reduce
       the "clutter" in the tree. In the sample image above, the <I>Labels</I> category contains a
       group node (indicated by the <IMG alt="" src="images/openFolderGroup.png"> icon). The
-      <I>group node</I> shows the names of the first and last symbols in the group. Long names are
-      truncated and are displayed with "..." to indicate this. The tool tip for the node shows the
-      complete names for the first and last symbols in the group.</P>
+      <I>group node</I> shows the common prefix for all the symbols in the group. The tool tip
+      will display the total number of nodes in the group.</P>
+      <P>The group nodes can become out of balance if enough symbols are added/deleted/renamed. The
+      entire category can be reorganized by closing and reopening the category node (Functions, Labels). 
+      Also, the tree will detect if the organization becomes too far out of balance. In this case, the
+      category node (Functions, Labels) will automatically close. Typically, this would be caused by
+      a long running bulk operation such as analysis. This has the added benefit of 
+      speeding up the bulk operation as it will no longer have to keep updating the nodes in the tree.</P> 
 
       <BLOCKQUOTE>
-        <P align="left"><IMG alt="" src="../../shared/note.png"> The Symbol Tree does not show
+        <P align="left"><IMG alt="" src="help/shared/note.png"> The Symbol Tree does not show
         <I>dynamic</I> symbols, i.e., those symbols that are created due to references. Use the <A
         href="help/topics/SymbolTablePlugin/symbol_table.htm">Symbol Table</A> display to view
         dynamic symbols; turn off the <A href=
@@ -184,6 +189,13 @@
       <P>Shows all locations that reference the given symbol.</P>
     </BLOCKQUOTE>
 
+    <H2><A name="Convert_to_Class"></A>Convert Namespace to Class</H2>
+
+    <BLOCKQUOTE>
+      <P>You can convert a <I>Namespace</I> to a <I>Class</I>. 
+      Right mouse click on a namespace and choose the <B>Convert To Class</B> option.</P>
+    </BLOCKQUOTE>
+
     <H2><A name="Create_Class"></A>Create a Class</H2>
 
     <BLOCKQUOTE>
@@ -217,7 +229,7 @@
       <B>Rename</B> option. Enter the new name in the cell editor in the tree.</P>
 
       <BLOCKQUOTE>
-        <P><IMG alt="" src="../../shared/note.png">Category names and group nodes are not editable;
+        <P><IMG alt="" src="help/shared/note.png">Category names and group nodes are not editable;
         they exist only for organizational purposes.</P>
       </BLOCKQUOTE>
     </BLOCKQUOTE>
@@ -262,7 +274,7 @@
         click and select the <B>Cut</B> option; select a destination symbol, right mouse click and
         select the <B>Paste</B> option.</P>
 
-        <P><IMG alt="" src="../../shared/note.png">Other points of interest on moving symbols:</P>
+        <P><IMG alt="" src="help/shared/note.png">Other points of interest on moving symbols:</P>
 
         <OL>
           <LI>Parameters and stack variables within a function cannot be moved.</LI>
@@ -284,10 +296,6 @@
       <P>To delete a symbol, make a selection of symbols, right mouse click and choose the
       <B>Delete</B> option.</P>
 
-      <BLOCKQUOTE>
-        <P><IMG alt="" src="../../shared/warning.png">If you select a <A href="#GroupNode">group
-        node</A> to delete, <I><B>all</B></I> the symbols in that group are deleted.</P>
-      </BLOCKQUOTE>
     </BLOCKQUOTE>
 
     <H2><A name="Make_Selection"></A>Make a Selection</H2>
@@ -303,27 +311,37 @@
     <H2><A name="Navigate_To"></A>Navigation <IMG alt="" src="images/locationIn.gif"></H2>
 
     <BLOCKQUOTE>
-      <H3><A name="Navigation"></A>Navigating to Locations within the Program</H3>
+		
+      <H3><A name="Navigate_on_Incoming"></A>Navigating on Program Location Changes</H3>
 
       <BLOCKQUOTE>
-        <P>The <IMG alt="" src="images/locationIn.gif"> &nbsp; button controls whether a symbol is
-        selected in the Symbol Tree when you click in the Code Browser.&nbsp; While the <IMG alt=""
-        src="images/locationIn.gif"> &nbsp; button is selected, if the location from the Code
+        <P>The <IMG alt="" src="icon.navigate.in"> button controls whether a symbol is
+        selected in the Symbol Tree when you click in the Code Browser. While the <IMG alt=""
+        src="icon.navigate.in">  button is selected, if the location from the Code
         Browser can be interpreted as a symbol, the symbol is automatically selected in the Symbol
-        Tree.&nbsp; This toggle state is off by default; to turn on this feature, click on the
-        icon.&nbsp; The state of the <IMG alt="" src="images/locationIn.gif"> &nbsp; button is
+        Tree. This action is off by default. The state of the 
+		<IMG alt="" src="icon.navigate.in"> button is
         saved when you close the project or exit Ghidra and restored when you reopen the
         project.</P>
-
-        <P>The Symbol Tree allows you to navigate within the Code Browser when you mouse click on a
-        symbol in the tree. The <IMG alt="" src="images/locationIn.gif"> &nbsp; button applies only
-        to locations coming from the Code Browser and has no effect when you click in the tree.</P>
       </BLOCKQUOTE>
+	  
+	  
+	  <H3><A name="Navigate_on_Outgoing"></A>Navigating on Symbol Changes</H3>
+
+        <BLOCKQUOTE>
+          <P>The <IMG alt="" src="icon.navigate.out"> button controls whether a Code Browser 
+			navigation happens when symbol is selected. This action is on by default. 
+			The state of the <IMG alt="" src="icon.navigate.out"> button is saved when you close the
+		    project or exit Ghidra and restored when you reopen the project.</P>
+	      </P>
+        </BLOCKQUOTE>
+	  
+	  
 
       <H3><A name="Go_To_External_Location"></A>Navigating to External Locations</H3>
 
       <BLOCKQUOTE>
-        <P>If you select an external symbol (under the <I>Externals</I> folder in the the symbol
+        <P>If you select an external symbol (under the <I>Externals</I> folder in the symbol
         tree), you will navigate to an external <I>reference</I> <I>source</I> which has a
         <I>destination</I> corresponding to the external symbol (i.e., where it is being called
         from). To actually <B>go to</B> the external location, right mouse click on the external
@@ -340,10 +358,10 @@
     </BLOCKQUOTE>
 
     <H2>View Qualified Names in Code Browser</H2>
-
+	
     <BLOCKQUOTE>
       <P>To include namespace names in the display of labels and names within the Code Browser,
-      select <B>Edit</B> <IMG alt="" src="../../shared/arrow.gif"> <B>Tool Options...</B> from the
+      select <B>Edit</B> <IMG alt="" src="help/shared/arrow.gif"> <B>Tool Options...</B> from the
       tool menu. &nbsp; This will display the <I>Options</I> dialog. &nbsp;Within the
       <I><B>Options</B></I> tree, navigate to the folder node <B><I>Listing Fields</I></B>.
       &nbsp;The <I><B>Display Namespace</B></I> option in the right-hand panel should be checked to
@@ -351,6 +369,57 @@
       "help/topics/CodeBrowserPlugin/CodeBrowserOptions.htm">CodeBrowser Options</A>).<BR>
       </P>
     </BLOCKQUOTE>
+    
+    
+    <H2><A NAME="Create_Table"></A>Create Table From Selection</H2>
+    
+    <BLOCKQUOTE>
+    	<P>Create a new temporary 
+    	<A HREF="help/topics/SymbolTablePlugin/symbol_table_transient.htm">Symbol Table</A> with the symbols 
+    	in the current selection.  The table's features are similar to the 
+    	<A HREF="help/topics/Search/Query_Results_Dialog.htm">search results table.</A>
+    	</P>
+    </BLOCKQUOTE>
+    
+    
+    
+    <H2>Symbol Tree Snapshots</H2>
+
+    <BLOCKQUOTE>
+    	<P>Pressing the <IMG SRC="icon.provider.clone" /> action will create a copy of the current 
+    	Symbol Tree in a new window.  The new disconnected Symbol Tree will not respond to program 
+    	activation events.	This allows users to keep the new window open while working with various
+    	 programs, without affecting the contents.
+    	</P>
+
+		<H3><A name="Symbol_Tree_Clone"></A>Symbol Tree Clone Action <IMG SRC="icon.provider.clone" /></H3>
+	
+	      <BLOCKQUOTE>
+	      	<P>Creates a new disconnected snapshot (cloned) view of the Symbol Tree.  This action is on
+	      	 the primary Symbol Tree, as well as any cloned symbol trees.</P>
+	      </BLOCKQUOTE>
+	
+		<H3><A name="Disable_Category"></A>Disable Category</H3>
+	
+	    <BLOCKQUOTE>
+	    	<P>When working in a snapshot Symbol Tree, you can choose to disable a root-level folder
+	    	by right-clicking and selected <B>Disable Category</B>.  Once disabled, the node will remain
+	    	in the tree with a disabled icon.  A disabled node will no longer show any children.
+	    	</P>
+	    </BLOCKQUOTE>
+	
+		<H3><A name="Enable_Category"></A>Enable Category</H3>
+	
+	    <BLOCKQUOTE>
+	    	<P>This action is used to re-enable categories that were previously disabled.
+	    	</P>
+	    </BLOCKQUOTE>
+    
+     </BLOCKQUOTE>
+    
+
+
+
 
     <P class="providedbyplugin">Provided By: <I>SymbolTreePlugin</I></P>
 

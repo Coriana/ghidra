@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,15 +15,18 @@
  */
 package ghidra.app.plugin.core.navigation;
 
-import javax.swing.*;
+import java.awt.event.ActionEvent;
+
+import javax.swing.Icon;
+import javax.swing.KeyStroke;
 
 import docking.action.KeyBindingData;
 import docking.action.ToolBarData;
 import docking.tool.ToolConstants;
+import generic.util.image.ImageUtils;
 import ghidra.app.context.NavigatableActionContext;
+import ghidra.app.context.NavigatableContextAction;
 import ghidra.app.nav.Navigatable;
-import ghidra.app.plugin.core.codebrowser.CodeViewerActionContext;
-import ghidra.app.plugin.core.codebrowser.actions.CodeViewerContextAction;
 import ghidra.app.services.GoToService;
 import ghidra.app.util.HelpTopics;
 import ghidra.framework.plugintool.PluginTool;
@@ -31,25 +34,42 @@ import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Program;
 import ghidra.program.util.AddressFieldLocation;
 import ghidra.util.HelpLocation;
+import ghidra.util.Swing;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.*;
+import resources.*;
 
-public abstract class AbstractNextPreviousAction extends CodeViewerContextAction {
+public abstract class AbstractNextPreviousAction extends NavigatableContextAction {
+
+	private static final Icon INVERTED_OVERLAY_ICON =
+		ImageUtils.makeTransparent(Icons.NOT_ALLOWED_ICON, .5f);
 
 	private boolean isForward = true;
 	private PluginTool tool;
 
+	protected boolean isInverted;
+	private Icon invertedIcon;
+
 	public AbstractNextPreviousAction(PluginTool tool, String name, String owner, String subGroup) {
 		super(name, owner);
 		this.tool = tool;
-		setSupportsDefaultToolContext(true);
-
 		ToolBarData toolBarData =
 			new ToolBarData(getIcon(), ToolConstants.TOOLBAR_GROUP_FOUR);
 		toolBarData.setToolBarSubGroup(subGroup);
 		setToolBarData(toolBarData);
 		setKeyBindingData(new KeyBindingData(getKeyStroke()));
 		setHelpLocation(new HelpLocation(HelpTopics.NAVIGATION, name));
+		setDescription(getDescriptionString());
+		addToWindowWhen(NavigatableActionContext.class);
+
+		MultiIconBuilder builder = new MultiIconBuilder(getIcon());
+		builder.addIcon(INVERTED_OVERLAY_ICON, 10, 10, QUADRANT.LR);
+		invertedIcon = builder.build();
+	}
+
+	protected void setInverted(boolean isInverted) {
+		this.isInverted = isInverted;
+		getToolBarData().setIcon(isInverted ? invertedIcon : getIcon());
 		setDescription(getDescriptionString());
 	}
 
@@ -58,38 +78,64 @@ public abstract class AbstractNextPreviousAction extends CodeViewerContextAction
 	protected abstract KeyStroke getKeyStroke();
 
 	@Override
-	public void actionPerformed(final CodeViewerActionContext context) {
-		Task t = new Task("Searching for " + getNavigationTypeName() + "...", true, false, true) {
+	public void actionPerformed(NavigatableActionContext context) {
+		Task t = new Task("Searching for " + doGetNavigationTypeName(), true, false, true) {
 			@Override
 			public void run(TaskMonitor monitor) {
 				gotoNextPrevious(monitor, context);
 			}
 		};
-		new TaskLauncher(t, tool.getToolFrame(), 500);
+		new TaskLauncher(t);
 	}
 
-	void gotoNextPrevious(TaskMonitor monitor, final CodeViewerActionContext context) {
+	private void gotoNextPrevious(TaskMonitor monitor, NavigatableActionContext context) {
 
 		try {
-			final Address address =
-				isForward ? getNextAddress(monitor, context.getProgram(), context.getAddress())
-						: getPreviousAddress(monitor, context.getProgram(), context.getAddress());
+			boolean direction = isForward;
+			if (context.hasAnyEventClickModifiers(ActionEvent.SHIFT_MASK)) {
+				direction = !direction;
+			}
 
-			SwingUtilities.invokeLater(new Runnable() {
-				@Override
-				public void run() {
-					gotoAddress(context, address);
-				}
-			});
+			Address address = direction
+					? getNextAddress(monitor, context)
+					: getPreviousAddress(monitor, context);
 
+			Swing.runLater(() -> gotoAddress(context, address));
 		}
 		catch (CancelledException e) {
+			// cancelled
 		}
 	}
+
+	protected Address getNextAddress(TaskMonitor monitor, NavigatableActionContext context)
+			throws CancelledException {
+
+		// default for clients that do not need the context
+		Program program = context.getProgram();
+		Address address = context.getAddress();
+		return getNextAddress(monitor, program, address);
+	}
+
+	protected Address getPreviousAddress(TaskMonitor monitor, NavigatableActionContext context)
+			throws CancelledException {
+
+		// default for clients that do not need the context
+		Program program = context.getProgram();
+		Address address = context.getAddress();
+		return getPreviousAddress(monitor, program, address);
+	}
+
+	abstract protected Address getNextAddress(TaskMonitor monitor, Program program, Address address)
+			throws CancelledException;
+
+	abstract protected Address getPreviousAddress(TaskMonitor monitor, Program program,
+			Address address) throws CancelledException;
+
+	abstract protected String getNavigationTypeName();
 
 	private void gotoAddress(NavigatableActionContext actionContext, Address address) {
 		if (address == null) {
-			tool.setStatusInfo("Unable to locate another \"" + getNavigationTypeName() +
+			tool.setStatusInfo("Unable to locate another \"" + doGetNavigationTypeName() +
 				"\" past the current range, in the current direction.");
 			return;
 		}
@@ -100,7 +146,6 @@ public abstract class AbstractNextPreviousAction extends CodeViewerContextAction
 			Navigatable navigatable = actionContext.getNavigatable();
 			gotoAddress(service, navigatable, address);
 		}
-
 	}
 
 	protected void gotoAddress(GoToService service, Navigatable navigatable, Address address) {
@@ -115,14 +160,18 @@ public abstract class AbstractNextPreviousAction extends CodeViewerContextAction
 
 	private String getDescriptionString() {
 		String prefix = isForward ? "Go To Next " : "Go To Previous ";
-		return prefix + getNavigationTypeName();
+		return prefix + doGetNavigationTypeName() + " (shift-click inverts direction)";
 	}
 
-	abstract protected String getNavigationTypeName();
+	private String doGetNavigationTypeName() {
+		if (isInverted) {
+			return getInvertedNavigationTypeName();
+		}
+		return getNavigationTypeName();
+	}
 
-	abstract protected Address getNextAddress(TaskMonitor monitor, Program program, Address address)
-			throws CancelledException;
+	protected String getInvertedNavigationTypeName() {
+		return "Non-" + getNavigationTypeName();
+	}
 
-	abstract protected Address getPreviousAddress(TaskMonitor monitor, Program program,
-			Address address) throws CancelledException;
 }

@@ -15,20 +15,21 @@
  */
 package ghidra.program.database.symbol;
 
-import ghidra.program.database.map.AddressMap;
-import ghidra.util.exception.*;
-import ghidra.util.task.TaskMonitor;
-
 import java.io.IOException;
 
 import db.*;
+import ghidra.framework.data.OpenMode;
+import ghidra.program.database.map.AddressMap;
+import ghidra.util.exception.*;
+import ghidra.util.task.TaskMonitor;
 
 abstract class VariableStorageDBAdapter {
 
 	static final String VARIABLE_STORAGE_TABLE_NAME = "Variable Storage";
 
-	static final Schema VARIABLE_STORAGE_SCHEMA = new Schema(2, "Key", new Class[] {
-		LongField.class, StringField.class }, new String[] { "Hash", "Storage" });
+	static final Schema VARIABLE_STORAGE_SCHEMA =
+		new Schema(2, "Key", new Field[] { LongField.INSTANCE, StringField.INSTANCE },
+			new String[] { "Hash", "Storage" });
 
 	static final int HASH_COL = 0;
 	static final int STORAGE_COL = 1;
@@ -39,14 +40,16 @@ abstract class VariableStorageDBAdapter {
 	 * @param openMode the openmode
 	 * @param addrMap the address map
 	 * @param monitor the progress monitor.
+	 * @return variable storage table adapter
 	 * @throws VersionException if the database table does not match the adapter.
 	 * @throws CancelledException if the user cancels an upgrade.
 	 * @throws IOException if a database io error occurs.
 	 */
-	static VariableStorageDBAdapter getAdapter(DBHandle dbHandle, int openMode, AddressMap addrMap,
-			TaskMonitor monitor) throws VersionException, IOException, CancelledException {
+	static VariableStorageDBAdapter getAdapter(DBHandle dbHandle, OpenMode openMode,
+			AddressMap addrMap, TaskMonitor monitor)
+			throws VersionException, IOException, CancelledException {
 
-		if (openMode == DBConstants.CREATE) {
+		if (openMode == OpenMode.CREATE) {
 			return new VariableStorageDBAdapterV2(dbHandle, true);
 		}
 
@@ -55,11 +58,11 @@ abstract class VariableStorageDBAdapter {
 			return adapter;
 		}
 		catch (VersionException e) {
-			if (!e.isUpgradable() || openMode == DBConstants.UPDATE) {
+			if (!e.isUpgradable() || openMode == OpenMode.UPDATE) {
 				throw e;
 			}
-			VariableStorageDBAdapter adapter = findReadOnlyAdapter(dbHandle, addrMap, openMode);
-			if (openMode == DBConstants.UPGRADE) {
+			VariableStorageDBAdapter adapter = findReadOnlyAdapter(dbHandle, addrMap);
+			if (openMode == OpenMode.UPGRADE) {
 				adapter = VariableStorageDBAdapterV2.upgrade(dbHandle, adapter, monitor);
 			}
 			return adapter;
@@ -67,7 +70,7 @@ abstract class VariableStorageDBAdapter {
 	}
 
 	private static VariableStorageDBAdapter findReadOnlyAdapter(DBHandle dbHandle,
-			AddressMap addrMap, int openMode) {
+			AddressMap addrMap) {
 		Table table = dbHandle.getTable(VARIABLE_STORAGE_TABLE_NAME);
 		if (table == null) {
 			return new VariableStorageDBAdapterNoTable();
@@ -75,15 +78,15 @@ abstract class VariableStorageDBAdapter {
 		throw new AssertException("Variable storage table is from newer version");
 	}
 
-	abstract void updateRecord(Record record) throws IOException;
+	abstract void updateRecord(DBRecord record) throws IOException;
 
-	abstract Record getRecord(long key) throws IOException;
+	abstract DBRecord getRecord(long key) throws IOException;
 
 	/**
 	 * Locate the record key which corresponds to the specified hash value.
-	 * @param hash
+	 * @param hash record hash value
 	 * @return record key or -1 if not found
-	 * @throws IOException
+	 * @throws IOException if IO error occurs
 	 */
 	abstract long findRecordKey(long hash) throws IOException;
 
@@ -94,5 +97,7 @@ abstract class VariableStorageDBAdapter {
 	abstract RecordIterator getRecords() throws IOException;
 
 	abstract int getRecordCount();
+
+	abstract void deleteTable() throws IOException;
 
 }

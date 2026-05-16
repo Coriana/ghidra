@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,7 +30,12 @@ public class FloatDataType extends AbstractFloatDataType {
 	}
 
 	public FloatDataType(DataTypeManager dtm) {
-		super("float", dtm);
+		super("float", getDataOrganization(dtm).getFloatSize(), dtm);
+	}
+
+	@Override
+	protected String buildDescription() {
+		return "Compiler-defined 'float' " + super.buildDescription();
 	}
 
 	@Override
@@ -43,13 +47,8 @@ public class FloatDataType extends AbstractFloatDataType {
 	}
 
 	@Override
-	public boolean isDynamicallySized() {
+	public boolean hasLanguageDependantLength() {
 		return true;
-	}
-
-	@Override
-	public int getLength() {
-		return getDataOrganization().getFloatSize();
 	}
 
 }

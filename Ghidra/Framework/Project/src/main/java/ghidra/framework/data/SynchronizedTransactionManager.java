@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,9 +16,10 @@
 package ghidra.framework.data;
 
 import java.io.IOException;
-import java.util.LinkedList;
+import java.util.*;
 
 import ghidra.framework.model.*;
+import ghidra.framework.model.TransactionInfo.Status;
 import ghidra.framework.store.LockException;
 import ghidra.util.Msg;
 
@@ -59,8 +60,8 @@ class SynchronizedTransactionManager extends AbstractTransactionManager {
 			if (!(mgr instanceof DomainObjectTransactionManager)) {
 				throw new IllegalArgumentException("domain object has invalid transaction manager");
 			}
-			if (isLocked() || mgr.isLocked() || getCurrentTransaction() != null ||
-				mgr.getCurrentTransaction() != null) {
+			if (isLocked() || mgr.isLocked() || getCurrentTransactionInfo() != null ||
+				mgr.getCurrentTransactionInfo() != null) {
 				throw new LockException("domain object(s) are busy/locked");
 			}
 			if (!mgr.lock("Transaction manager join")) {
@@ -86,9 +87,9 @@ class SynchronizedTransactionManager extends AbstractTransactionManager {
 	}
 
 	synchronized void removeDomainObject(DomainObjectAdapterDB domainObj) throws LockException {
-		if (getCurrentTransaction() != null) {
-			throw new LockException(
-				"domain object has open transaction: " + getCurrentTransaction().getDescription());
+		if (getCurrentTransactionInfo() != null) {
+			throw new LockException("domain object has open transaction: " +
+				getCurrentTransactionInfo().getDescription());
 		}
 		if (isLocked()) {
 			throw new LockException("domain object is locked!");
@@ -151,11 +152,12 @@ class SynchronizedTransactionManager extends AbstractTransactionManager {
 	synchronized int startTransaction(DomainObjectAdapterDB object, String description,
 			AbortedTransactionListener listener, boolean force, boolean notify) {
 
-		if (!force) {
-			verifyNoLock();
-		}
-
 		if (transaction == null) {
+
+			if (!force) {
+				verifyNoLock();
+			}
+
 			transactionTerminated = false;
 			transaction = new SynchronizedTransaction(domainObjectTransactionManagers);
 			int txId = transaction.addEntry(object, description, listener);
@@ -177,15 +179,15 @@ class SynchronizedTransactionManager extends AbstractTransactionManager {
 	}
 
 	@Override
-	synchronized Transaction endTransaction(DomainObjectAdapterDB object, int transactionID,
+	synchronized TransactionInfo endTransaction(DomainObjectAdapterDB object, int transactionID,
 			boolean commit, boolean notify) {
 		if (transaction == null) {
 			throw new IllegalStateException("No transaction is open");
 		}
-		Transaction returnedTransaction = transaction;
+		TransactionInfo returnedTransaction = transaction;
 		transaction.endEntry(object, transactionID, commit && !transactionTerminated);
-		int status = transaction.getStatus();
-		if (status == Transaction.COMMITTED) {
+		Status status = transaction.getStatus();
+		if (status == Status.COMMITTED) {
 			boolean committed = transaction.endAll(true);
 			if (committed) {
 				redoList.clear();
@@ -199,7 +201,7 @@ class SynchronizedTransactionManager extends AbstractTransactionManager {
 				notifyEndTransaction();
 			}
 		}
-		else if (status == Transaction.ABORTED) {
+		else if (status == Status.ABORTED) {
 			if (!transactionTerminated) {
 				transaction.endAll(false);
 			}
@@ -249,7 +251,7 @@ class SynchronizedTransactionManager extends AbstractTransactionManager {
 	@Override
 	synchronized String getRedoName() {
 		if (redoList.size() > 0) {
-			Transaction t = redoList.getLast();
+			TransactionInfo t = redoList.getLast();
 			return t.getDescription();
 		}
 		return "";
@@ -258,14 +260,34 @@ class SynchronizedTransactionManager extends AbstractTransactionManager {
 	@Override
 	synchronized String getUndoName() {
 		if (undoList.size() > 0) {
-			Transaction t = undoList.getLast();
+			TransactionInfo t = undoList.getLast();
 			return t.getDescription();
 		}
 		return "";
 	}
 
 	@Override
-	Transaction getCurrentTransaction() {
+	List<String> getAllUndoNames() {
+		List<String> descriptions = new ArrayList<>();
+		for (SynchronizedTransaction tx : undoList) {
+			descriptions.add(tx.getDescription());
+		}
+		Collections.reverse(descriptions);
+		return descriptions;
+	}
+
+	@Override
+	List<String> getAllRedoNames() {
+		List<String> descriptions = new ArrayList<>();
+		for (SynchronizedTransaction tx : redoList) {
+			descriptions.add(tx.getDescription());
+		}
+		Collections.reverse(descriptions);
+		return descriptions;
+	}
+
+	@Override
+	TransactionInfo getCurrentTransactionInfo() {
 		return transaction;
 	}
 

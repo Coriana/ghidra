@@ -25,15 +25,19 @@ import docking.*;
 import docking.action.DockingAction;
 import docking.action.MenuData;
 import docking.widgets.table.GFilterTable;
+import generic.theme.GColor;
+import generic.theme.GIcon;
+import generic.theme.GThemeDefaults.Colors;
 import ghidra.bitpatterns.info.*;
 import ghidra.util.HelpLocation;
 import ghidra.util.bytesearch.DittedBitSequence;
-import resources.ResourceManager;
 
 /**
  * This is a base class for providers which allow the user to analyze sequences of bytes.
  */
 public abstract class ByteSequenceAnalyzerProvider extends DialogComponentProvider {
+
+	private static final Color BG_DISABLED = new GColor("color.bg.uneditable");
 
 	protected ByteSequenceTableModel byteSequenceTable;
 	protected FunctionBitPatternsExplorerPlugin plugin;
@@ -95,6 +99,8 @@ public abstract class ByteSequenceAnalyzerProvider extends DialogComponentProvid
 		panel.add(infoPanel, BorderLayout.NORTH);
 		GFilterTable<ByteSequenceRowObject> filterTable = new GFilterTable<>(byteSequenceTable);
 		panel.add(filterTable, BorderLayout.CENTER);
+
+		panel.getAccessibleContext().setAccessibleName("Byte Sequence Analyzer");
 		return panel;
 	}
 
@@ -104,21 +110,26 @@ public abstract class ByteSequenceAnalyzerProvider extends DialogComponentProvid
 		mergedSeqTextField.setEditable(false);
 		TitledBorder lubBorder = new TitledBorder("Merged Selections");
 		mergedSeqTextField.setBorder(lubBorder);
+		mergedSeqTextField.getAccessibleContext().setAccessibleName("Merged Selections");
 
 		bitsOfCheckField = new JTextField(5);
 		bitsOfCheckField.setEditable(false);
 		TitledBorder bitsOfCheckBorder = new TitledBorder("Bits of Check");
 		bitsOfCheckField.setBorder(bitsOfCheckBorder);
+		bitsOfCheckField.getAccessibleContext().setAccessibleName("Bits of Check");
 
 		noteField = new JTextField(60);
 		noteField.setText(note);
 		noteField.setEditable(true);
 		TitledBorder noteBorder = new TitledBorder("Note");
 		noteField.setBorder(noteBorder);
+		noteField.getAccessibleContext().setAccessibleName("Note");
 
 		panel.add(mergedSeqTextField, BorderLayout.NORTH);
 		panel.add(bitsOfCheckField, BorderLayout.CENTER);
 		panel.add(noteField, BorderLayout.SOUTH);
+
+		panel.getAccessibleContext().setAccessibleName("Info");
 		return panel;
 	}
 
@@ -154,12 +165,12 @@ public abstract class ByteSequenceAnalyzerProvider extends DialogComponentProvid
 			}
 		};
 
-		ImageIcon icon = ResourceManager.loadImage("images/2rightarrow.png");
+		Icon icon = new GIcon("icon.bytepatterns.send.to.clipboard");
 		sendSelectedToClipboardAction.setPopupMenuData(
 			new MenuData(new String[] { "Send Selected to Clipboard" }, icon));
-		sendSelectedToClipboardAction.setDescription(
-			"Creates patterns for the currently-selected strings of " +
-				"bytes and sends them to the clipboard");
+		sendSelectedToClipboardAction
+				.setDescription("Creates patterns for the currently-selected strings of " +
+					"bytes and sends them to the clipboard");
 		sendSelectedToClipboardAction.setHelpLocation(
 			new HelpLocation("FunctionBitPatternsExplorerPlugin", "Analyzing_Byte_Sequences"));
 		this.addAction(sendSelectedToClipboardAction);
@@ -175,9 +186,9 @@ public abstract class ByteSequenceAnalyzerProvider extends DialogComponentProvid
 				}
 				mergedSeqTextField.setText(merged.getHexString());
 				bitsOfCheckField.setText(Integer.toString(merged.getNumFixedBits()));
-				mergedSeqTextField.setBackground(Color.WHITE);
-				bitsOfCheckField.setBackground(Color.WHITE);
-				noteField.setBackground(Color.WHITE);
+				mergedSeqTextField.setBackground(Colors.BACKGROUND);
+				bitsOfCheckField.setBackground(Colors.BACKGROUND);
+				noteField.setBackground(Colors.BACKGROUND);
 				mergedToSend = true;
 			}
 
@@ -192,7 +203,7 @@ public abstract class ByteSequenceAnalyzerProvider extends DialogComponentProvid
 			}
 
 		};
-		ImageIcon icon = ResourceManager.loadImage("images/xor.png");
+		Icon icon = new GIcon("icon.bytepatterns.byte.sequence.analyzer.merge");
 		mergeAction.setPopupMenuData(new MenuData(new String[] { "Merge Selected Rows" }, icon));
 		mergeAction.setDescription("Merges the currently selected rows");
 		mergeAction.setHelpLocation(
@@ -211,9 +222,9 @@ public abstract class ByteSequenceAnalyzerProvider extends DialogComponentProvid
 					mergedInfo.setNote(note);
 					plugin.addPattern(mergedInfo);
 					plugin.updateClipboard();
-					mergedSeqTextField.setBackground(Color.lightGray);
-					bitsOfCheckField.setBackground(Color.LIGHT_GRAY);
-					noteField.setBackground(Color.LIGHT_GRAY);
+					mergedSeqTextField.setBackground(BG_DISABLED);
+					bitsOfCheckField.setBackground(BG_DISABLED);
+					noteField.setBackground(BG_DISABLED);
 					mergedToSend = false;
 				}
 			}
@@ -230,9 +241,9 @@ public abstract class ByteSequenceAnalyzerProvider extends DialogComponentProvid
 			}
 
 		};
-		ImageIcon icon = ResourceManager.loadImage("images/smallRightArrow.png");
-		sendMergedToClipboardAction.setPopupMenuData(
-			new MenuData(new String[] { "Send Merged to Clipboard" }, icon));
+		Icon icon = new GIcon("icon.bytepatterns.byte.sequence.analyzer.clipboard.merged");
+		sendMergedToClipboardAction
+				.setPopupMenuData(new MenuData(new String[] { "Send Merged to Clipboard" }, icon));
 		sendMergedToClipboardAction.setDescription("Sends the Merge Patterns to the Clipboard");
 		sendMergedToClipboardAction.setHelpLocation(
 			new HelpLocation("FunctionBitPatternsExplorerPlugin", "Analyzing_Byte_Sequences"));
@@ -244,7 +255,7 @@ public abstract class ByteSequenceAnalyzerProvider extends DialogComponentProvid
 	 * Creates the table to byte sequences to analyze
 	 * @param FBPplugin plugin
 	 * @param rows row objects containing sequences to analyze
-	 * @return
+	 * @return the model
 	 */
 	abstract ByteSequenceTableModel createByteSequenceTable(
 			FunctionBitPatternsExplorerPlugin FBPplugin, List<ByteSequenceRowObject> rows);

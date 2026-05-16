@@ -15,33 +15,37 @@
  */
 package ghidra.app.util.bin.format.pdb2.pdbreader;
 
+import java.util.Objects;
+
 import ghidra.app.util.datatype.microsoft.GUID;
 
 /**
  * This class holds fields used to identify a PDB.
  * <P>
- * These are Version, Signature, Age, and GUID. Som identifiers can be null if not found in
+ * These are Version, Signature, Age, and GUID. Some identifiers can be null if not found in
  * the specific version of the PDB. 
  */
 public class PdbIdentifiers {
 
-	private int version;
-	private int signature;
-	private int age;
-	private GUID guid;
+	private final int version;
+	private final int signature;
+	private final int age;
+	private final GUID guid;
+	private final Processor processor;
 
 	/**
 	 * Constructor.
 	 * @param version The version number.
 	 * @param signature The signature.
-	 * @param age The age.
+	 * @param age age used to verify PDB against age stored in program
 	 * @param guid The GUID (can be null for older PDBs).
 	 */
-	PdbIdentifiers(int version, int signature, int age, GUID guid) {
+	public PdbIdentifiers(int version, int signature, int age, GUID guid, Processor processor) {
 		this.version = version;
 		this.signature = signature;
 		this.age = age;
 		this.guid = guid;
+		this.processor = processor == null ? Processor.UNKNOWN : processor;
 	}
 
 	/**
@@ -74,6 +78,35 @@ public class PdbIdentifiers {
 	 */
 	public GUID getGuid() {
 		return guid;
+	}
+
+
+	@Override
+	public String toString() {
+		return ((guid != null) ? guid.toString() : String.format("%08X", signature)) + ", " + age +
+			", " + version + ", " + processor;
+	}
+
+	@Override
+	public int hashCode() {
+		return Objects.hash(age, guid, processor, signature, version);
+	}
+
+	@Override
+	public boolean equals(Object obj) {
+		if (this == obj) {
+			return true;
+		}
+		if (obj == null) {
+			return false;
+		}
+		if (getClass() != obj.getClass()) {
+			return false;
+		}
+		PdbIdentifiers other = (PdbIdentifiers) obj;
+		return age == other.age && Objects.equals(guid, other.guid) &&
+			processor == other.processor && signature == other.signature &&
+			version == other.version;
 	}
 
 }

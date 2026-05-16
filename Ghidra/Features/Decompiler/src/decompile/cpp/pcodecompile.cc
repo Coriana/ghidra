@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 #include "pcodecompile.hh"
+
+namespace ghidra {
 
 string Location::format(void) const
 
@@ -350,10 +352,7 @@ void PcodeCompile::newLocalDefinition(string *varname,uint4 size)
 
 { // Create a new temporary symbol (without generating any pcode)
   VarnodeSymbol *sym;
-  VarnodeTpl *tmpvn = buildTemporary();
-  if (size != 0)
-    tmpvn->setSize(ConstTpl(ConstTpl::real,size)); // Size was explicitly specified
-  sym = new VarnodeSymbol(*varname,tmpvn->getSpace().getSpace(),tmpvn->getOffset().getReal(),tmpvn->getSize().getReal());
+  sym = new VarnodeSymbol(*varname,uniqspace,allocateTemp(),size);
   addSymbol(sym);
   delete varname;
 }
@@ -584,9 +583,6 @@ VarnodeTpl *PcodeCompile::buildTruncatedVarnode(VarnodeTpl *basevn,uint4 bitoffs
   if ((bitoffset % 8) != 0) return (VarnodeTpl *)0;
   if ((numbits % 8) != 0) return (VarnodeTpl *)0;
 
-  if (basevn->getSpace().isUniqueSpace()) // Do we really want to prevent truncated uniques??
-    return (VarnodeTpl *)0;
-
   ConstTpl::const_type offset_type = basevn->getOffset().getType();
   if ((offset_type != ConstTpl::real)&&(offset_type != ConstTpl::handle))
     return (VarnodeTpl *)0;
@@ -781,3 +777,5 @@ VarnodeTpl *PcodeCompile::addressOf(VarnodeTpl *var,uint4 size)
   delete var;
   return res;
 }
+
+} // End namespace ghidra

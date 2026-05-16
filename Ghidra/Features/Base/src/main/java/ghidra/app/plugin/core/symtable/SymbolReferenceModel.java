@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,12 +15,8 @@
  */
 package ghidra.app.plugin.core.symtable;
 
-import java.awt.Component;
-import java.util.Iterator;
-
-import javax.swing.JLabel;
-
-import docking.widgets.table.*;
+import docking.widgets.table.DiscoverableTableUtils;
+import docking.widgets.table.TableColumnDescriptor;
 import ghidra.app.services.BlockModelService;
 import ghidra.docking.settings.Settings;
 import ghidra.framework.plugintool.PluginTool;
@@ -34,8 +30,6 @@ import ghidra.program.util.ProgramLocation;
 import ghidra.util.datastruct.Accumulator;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.table.AddressBasedTableModel;
-import ghidra.util.table.column.AbstractGhidraColumnRenderer;
-import ghidra.util.table.column.GColumnRenderer;
 import ghidra.util.table.field.*;
 import ghidra.util.task.TaskMonitor;
 
@@ -47,7 +41,6 @@ public class SymbolReferenceModel extends AddressBasedTableModel<Reference> {
 	static final int ACCESS_COL = 3;
 	static final int PREVIEW_COL = 4;
 
-	static final String ADDR_COL_NAME = "Address";
 	static final String LABEL_COL_NAME = "Label";
 	static final String SUBROUTINE_COL_NAME = "Subroutine";
 	static final String ACCESS_COL_NAME = "Access";
@@ -57,11 +50,10 @@ public class SymbolReferenceModel extends AddressBasedTableModel<Reference> {
 	static final int INSTR_REFS_FROM = 1;
 	static final int DATA_REFS_FROM = 2;
 
-	private Symbol currentSymbol;
+	private volatile Symbol currentSymbol;
 	private ReferenceManager refManager;
 	private int showRefMode = REFS_TO;
 	private BlockModelService blockModelService;
-	private boolean isDisposed;
 
 	SymbolReferenceModel(BlockModelService bms, PluginTool tool) {
 		super("Symbol References", tool, null, null);
@@ -71,7 +63,7 @@ public class SymbolReferenceModel extends AddressBasedTableModel<Reference> {
 
 	@Override
 	protected TableColumnDescriptor<Reference> createTableColumnDescriptor() {
-		TableColumnDescriptor<Reference> descriptor = new TableColumnDescriptor<Reference>();
+		TableColumnDescriptor<Reference> descriptor = new TableColumnDescriptor<>();
 
 		descriptor.addVisibleColumn(
 			DiscoverableTableUtils.adaptColumForModel(this, new ReferenceFromAddressTableColumn()),
@@ -79,7 +71,7 @@ public class SymbolReferenceModel extends AddressBasedTableModel<Reference> {
 		descriptor.addVisibleColumn(
 			DiscoverableTableUtils.adaptColumForModel(this, new ReferenceFromLabelTableColumn()));
 		descriptor.addVisibleColumn(new SubroutineTableColumn());
-		descriptor.addVisibleColumn(new AccessTableColumn());
+		descriptor.addVisibleColumn(new ReferenceTypeTableColumn());
 		descriptor.addVisibleColumn(
 			DiscoverableTableUtils.adaptColumForModel(this, new ReferenceFromPreviewTableColumn()));
 
@@ -97,19 +89,17 @@ public class SymbolReferenceModel extends AddressBasedTableModel<Reference> {
 		int count = filteredData.size();
 		description += count + " Reference";
 		if (count != 1) {
-			description += "s";//make plural...
+			description += "s"; // make plural...
 		}
 		return description;
 	}
 
 	@Override
-	public void dispose() {
-		isDisposed = true;
-		super.dispose();
-	}
-
-	@Override
 	public void setProgram(Program prog) {
+		if (isDisposed) {
+			return;
+		}
+
 		if (prog == null) {
 			super.setProgram(null);
 			refManager = null;
@@ -131,24 +121,21 @@ public class SymbolReferenceModel extends AddressBasedTableModel<Reference> {
 		checkRefs(symbol);
 	}
 
-	void symbolRemoved(Symbol symbol) {
-		if (currentSymbol != null && currentSymbol.getID() == symbol.getID()) {
+	void symbolRemoved(long symbolId) {
+		if (currentSymbol != null && currentSymbol.getID() == symbolId) {
 			setCurrentSymbol(null);
 		}
 	}
 
 	void symbolChanged(Symbol symbol) {
 		if (currentSymbol != null && currentSymbol.equals(symbol)) {
-			setCurrentSymbol(symbol);
 			return;
 		}
 		checkRefs(symbol);
 	}
 
 	private void checkRefs(Symbol symbol) {
-		Iterator<Reference> iter = filteredData.iterator();
-		while (iter.hasNext()) {
-			Reference ref = iter.next();
+		for (Reference ref : filteredData) {
 			if (ref.getFromAddress().equals(symbol.getAddress())) {
 				reload();
 				return;
@@ -174,6 +161,7 @@ public class SymbolReferenceModel extends AddressBasedTableModel<Reference> {
 	@Override
 	protected void doLoad(Accumulator<Reference> accumulator, TaskMonitor monitor)
 			throws CancelledException {
+
 		if (currentSymbol == null || getProgram() == null) {
 			return;
 		}
@@ -199,7 +187,7 @@ public class SymbolReferenceModel extends AddressBasedTableModel<Reference> {
 
 		Reference[] refs = currentSymbol.getReferences(monitor);
 		for (Reference ref : refs) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			accumulator.add(ref);
 		}
 	}
@@ -214,7 +202,7 @@ public class SymbolReferenceModel extends AddressBasedTableModel<Reference> {
 		}
 		InstructionIterator ii = getProgram().getListing().getInstructions(block, true);
 		while (ii.hasNext()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			Instruction instr = ii.next();
 			Reference[] references = instr.getReferencesFrom();
 			for (Reference reference : references) {
@@ -235,32 +223,6 @@ public class SymbolReferenceModel extends AddressBasedTableModel<Reference> {
 				}
 			}
 		}
-	}
-
-	private static String getReferenceType(RefType type) {
-		if (type == RefType.THUNK) {
-			return "Thunk";
-		}
-
-		if (type.isRead() && type.isWrite()) {
-			return "RW";
-		}
-		if (type.isRead()) {
-			return "Read";
-		}
-		if (type.isWrite()) {
-			return "Write";
-		}
-		if (type.isData()) {
-			return "Data";
-		}
-		if (type.isCall()) {
-			return "Call";
-		}
-		if (type.isJump()) {
-			return (type.isConditional() ? "Branch" : "Jump");
-		}
-		return "Unknown";
 	}
 
 	private static Symbol getSymbol(Address fromAddress, String symbolName,
@@ -369,57 +331,6 @@ public class SymbolReferenceModel extends AddressBasedTableModel<Reference> {
 			}
 
 			return null;
-		}
-	}
-
-	private static class AccessTableColumn
-			extends AbstractProgramBasedDynamicTableColumn<Reference, RefType> {
-
-		private AccessCellRenderer accessRenderer = new AccessCellRenderer();
-
-		@Override
-		public String getColumnName() {
-			return "Access";
-		}
-
-		@Override
-		public RefType getValue(Reference rowObject, Settings settings, Program program,
-				ServiceProvider serviceProvider) throws IllegalArgumentException {
-
-			Listing listing = program.getListing();
-			RefType referenceType = rowObject.getReferenceType();
-			if (referenceType == RefType.INDIRECTION) {
-				Instruction instruction = listing.getInstructionAt(rowObject.getFromAddress());
-				if (instruction != null) {
-					FlowType flowType = instruction.getFlowType();
-					return flowType;
-				}
-			}
-			return referenceType;
-		}
-
-		@Override
-		public GColumnRenderer<RefType> getColumnRenderer() {
-			return accessRenderer;
-		}
-
-		private class AccessCellRenderer extends AbstractGhidraColumnRenderer<RefType> {
-
-			@Override
-			public Component getTableCellRendererComponent(GTableCellRenderingData data) {
-
-				JLabel label = (JLabel) super.getTableCellRendererComponent(data);
-
-				RefType refType = (RefType) data.getValue();
-				label.setText(getReferenceType(refType));
-
-				return label;
-			}
-
-			@Override
-			public String getFilterString(RefType t, Settings settings) {
-				return getReferenceType(t);
-			}
 		}
 	}
 }

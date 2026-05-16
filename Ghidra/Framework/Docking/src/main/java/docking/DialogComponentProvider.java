@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -27,15 +27,19 @@ import org.jdesktop.animation.timing.Animator;
 import org.jdesktop.animation.timing.TimingTargetAdapter;
 
 import docking.action.*;
-import docking.actions.KeyBindingUtils;
+import docking.action.builder.ActionBuilder;
+import docking.actions.SharedActionRegistry;
+import docking.actions.ToolActions;
 import docking.event.mouse.GMouseListenerAdapter;
-import docking.help.HelpService;
 import docking.menu.DialogToolbarButton;
 import docking.util.AnimationUtils;
 import docking.widgets.label.GDHtmlLabel;
+import generic.theme.GColor;
+import generic.theme.GThemeDefaults.Colors.Messages;
 import ghidra.util.*;
 import ghidra.util.exception.AssertException;
 import ghidra.util.task.*;
+import help.HelpService;
 import utility.function.Callback;
 
 /**
@@ -45,28 +49,35 @@ import utility.function.Callback;
 public class DialogComponentProvider
 		implements ActionContextProvider, StatusListener, TaskListener {
 
-	private static final Color WARNING_COLOR = new Color(0xff9900);
+	private static final String CLOSE_ACTION_NAME = "Close Dialog";
+	private static final Color FG_COLOR_ALERT = new GColor("color.fg.dialog.status.alert");
+	private static final Color FG_COLOR_ERROR = new GColor("color.fg.dialog.status.error");
+	private static final Color FG_COLOR_WARNING = new GColor("color.fg.dialog.status.warning");
+	private static final Color FG_COLOR_NORMAL = new GColor("color.fg.dialog.status.normal");
 
 	private final static int DEFAULT_DELAY = 750;
 
 	private static final String PROGRESS = "Progress";
 	private static final String DEFAULT = "No Progress";
 
-	protected JPanel rootPanel;
+	private static int idCounter;
+
+	private int id = ++idCounter;
 
 	private boolean modal;
 	private String title;
 
+	protected JPanel rootPanel;
 	private JPanel mainPanel;
 	private JComponent workPanel;
-	private JPanel buttonPanel;
+	protected JPanel buttonPanel;
 	private JPanel statusPanel;
 	protected JButton okButton;
 	protected JButton applyButton;
 	protected JButton cancelButton;
 	protected JButton dismissButton;
 	private boolean isAlerting;
-	private JLabel statusLabel;
+	private GDHtmlLabel statusLabel;
 	private JPanel statusProgPanel; // contains status panel and progress panel
 	private Timer showTimer;
 	private TaskScheduler taskScheduler;
@@ -77,15 +88,18 @@ public class DialogComponentProvider
 	private CardLayout progressCardLayout;
 	private JButton defaultButton;
 
-	private DockingDialog dialog;
+	DockingDialog dialog;
 	private Component focusComponent;
 	private JPanel toolbar;
 
-	private final Map<DockingActionIf, DialogToolbarButton> actionMap = new HashMap<>();
-	private final DialogComponentProviderPopupActionManager popupManager =
+	private Map<DockingActionIf, DialogToolbarButton> toolbarButtonsByAction = new HashMap<>();
+	private DialogComponentProviderPopupActionManager popupManager =
 		new DialogComponentProviderPopupActionManager(this);
-	private final PopupHandler popupHandler = new PopupHandler();
-	private final Set<DockingActionIf> dialogActions = new HashSet<>();
+	private PopupHandler popupHandler = new PopupHandler();
+	private Set<DockingActionIf> dialogActions = new HashSet<>();
+
+	// we track these separately so that we can remove them on dispose
+	private Set<DialogActionProxy> keyBindingProxyActions = new HashSet<>();
 
 	private Point initialLocation;
 	private boolean resizeable = true;
@@ -95,9 +109,11 @@ public class DialogComponentProvider
 	private boolean isTransient = false;
 
 	private Dimension defaultSize;
+	private String accessibleDescription;
+	private Tool tool;
 
 	/**
-	 * Constructor for a GhidraDialogComponent that be modal and will include a status line and
+	 * Constructor for a DialogComponentProvider that will be modal and will include a status line and
 	 * a button panel. Its title will be the same as its name.
 	 * @param title the dialog title.
 	 */
@@ -106,8 +122,7 @@ public class DialogComponentProvider
 	}
 
 	/**
-	 * Constructor for a GhidraDialogComponent that will include a status line and
-	 * a button panel.
+	 * Constructor for a DialogComponentProvider that will include a status line and a button panel.
 	 * @param title the title for this dialog.
 	 * @param modal true if this dialog should be modal.
 	 */
@@ -116,7 +131,7 @@ public class DialogComponentProvider
 	}
 
 	/**
-	 * Constructs a new GhidraDialogComponent.
+	 * Constructs a new DialogComponentProvider.
 	 * @param title the title for this dialog.
 	 * @param modal true if this dialog should be modal.
 	 * @param includeStatus true if this dialog should include a status line.
@@ -167,26 +182,54 @@ public class DialogComponentProvider
 			panel.add(buttonPanel);
 			rootPanel.add(panel, BorderLayout.SOUTH);
 		}
-		installEscapeAction();
 
 		doInitialize();
 	}
 
-	private void installEscapeAction() {
-		Action escAction = new AbstractAction("ESCAPE") {
-			@Override
-			public void actionPerformed(ActionEvent ev) {
-				escapeCallback();
-			}
-		};
+	/**
+	 * Called by the framework during startup to register actions that are shared throughout the 
+	 * tool.  See {@link SharedActionRegistry}.
+	 * @param tool the tool
+	 * @param toolActions the class to which the actions should be added
+	 * @param owner the shared action owner
+	 */
+	public static void createSharedActions(Tool tool, ToolActions toolActions, String owner) {
 
-		KeyBindingUtils.registerAction(rootPanel, ESC_KEYSTROKE, escAction,
-			JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT);
+		DockingAction closeAction = new ActionBuilder(CLOSE_ACTION_NAME, owner)
+				.sharedKeyBinding()
+				.keyBinding(ESC_KEYSTROKE)
+				.enabledWhen(c -> c.getContextProvider() instanceof DialogComponentProvider)
+				.onAction(c -> {
+					DialogComponentProvider dcp = (DialogComponentProvider) c.getContextProvider();
+					dcp.escapeCallback();
+				})
+				.build();
+		toolActions.addGlobalAction(closeAction);
 	}
 
 	/** a callback mechanism for children to do work */
 	protected void doInitialize() {
 		// may be overridden by subclasses
+	}
+
+	/**
+	 * Returns true if the given action is one that has been registered by this dialog.
+	 * @param action the action 
+	 * @return true if the given action is one that has been registered by this dialog
+	 */
+	public boolean isDialogKeyBindingAction(DockingActionIf action) {
+		if (action instanceof DockingActionProxy proxy) {
+			return keyBindingProxyActions.contains(proxy);
+		}
+		String name = action.getName();
+		if (name.equals(CLOSE_ACTION_NAME)) {
+			return true;
+		}
+		return false;
+	}
+
+	public int getId() {
+		return id;
 	}
 
 	public JComponent getComponent() {
@@ -361,8 +404,8 @@ public class DialogComponentProvider
 	 * </ul>
 	 * To change this behavior, call {@link #setDefaultButton(JButton)} with the desired
 	 * default button.
-	 * 
-	 * @param button the button 
+	 *
+	 * @param button the button
 	 */
 	protected void addButton(JButton button) {
 		if (defaultButton == null && buttonPanel.getComponentCount() == 0) {
@@ -444,6 +487,7 @@ public class DialogComponentProvider
 		okButton = new JButton("OK");
 		okButton.setMnemonic('K');
 		okButton.setName("OK");
+		okButton.getAccessibleContext().setAccessibleName("OK");
 		okButton.addActionListener(e -> okCallback());
 		addButton(okButton);
 	}
@@ -456,6 +500,7 @@ public class DialogComponentProvider
 		cancelButton = new JButton("Cancel");
 		cancelButton.setMnemonic('C');
 		cancelButton.setName("Cancel");
+		cancelButton.getAccessibleContext().setAccessibleName("Cancel");
 		cancelButton.addActionListener(e -> cancelCallback());
 		addButton(cancelButton);
 	}
@@ -468,6 +513,7 @@ public class DialogComponentProvider
 		dismissButton = new JButton("Dismiss");
 		dismissButton.setMnemonic('D');
 		dismissButton.setName("Dismiss");
+		dismissButton.getAccessibleContext().setAccessibleName("Dismiss");
 		dismissButton.addActionListener(e -> dismissCallback());
 		addButton(dismissButton);
 	}
@@ -480,6 +526,7 @@ public class DialogComponentProvider
 		applyButton = new JButton("Apply");
 		applyButton.setMnemonic('A');
 		applyButton.setName("Apply");
+		applyButton.getAccessibleContext().setAccessibleName("Apply");
 		applyButton.addActionListener(e -> applyCallback());
 		addButton(applyButton);
 	}
@@ -601,7 +648,7 @@ public class DialogComponentProvider
 
 	/**
 	 * Sets the text in the dialog's status line using the default color
-	 * 
+	 *
 	 * @param text the text to display in the status line
 	 */
 	@Override
@@ -628,10 +675,19 @@ public class DialogComponentProvider
 		Swing.runIfSwingOrRunLater(() -> doSetStatusText(text, type, alert));
 	}
 
+	/**
+	 * Sets a description of the dialog that will be read by screen readers when the dialog
+	 * is made visible.
+	 * @param description a description of the dialog
+	 */
+	public void setAccessibleDescription(String description) {
+		this.accessibleDescription = description;
+	}
+
 	private void doSetStatusText(String text, MessageType type, boolean alert) {
 
-		SystemUtilities.assertThisIsTheSwingThread(
-			"Setting text must be performed on the Swing thread");
+		SystemUtilities
+				.assertThisIsTheSwingThread("Setting text must be performed on the Swing thread");
 
 		statusLabel.setText(text);
 		statusLabel.setForeground(getStatusColor(type));
@@ -665,41 +721,50 @@ public class DialogComponentProvider
 	private void doAlertMessage(Callback alertFinishedCallback) {
 
 		// must be on Swing; this allows us to synchronize the 'alerting' flag
-		SystemUtilities.assertThisIsTheSwingThread(
-			"Alerting must be performed on the Swing thread");
+		SystemUtilities
+				.assertThisIsTheSwingThread("Alerting must be performed on the Swing thread");
 
 		if (isAlerting) {
 			return;
 		}
 
+		Callback animatorFinishedCallback = () -> {
+			statusLabel.setVisible(true);
+			alertFinishedCallback.call();
+			isAlerting = false;
+		};
+
 		isAlerting = true;
 
-		// Note: manually call validate() so the 'statusLabel' updates its bounds after 
+		// Note: manually call validate() so the 'statusLabel' updates its bounds after
 		//       the text has been setStatusText() (validation is buffered which means the
 		//       normal Swing mechanism may not have yet happened).
 		mainPanel.validate();
 		statusLabel.setVisible(false); // disable painting in this dialog so we don't see double
 		Animator animator = AnimationUtils.pulseComponent(statusLabel, 1);
-		animator.addTarget(new TimingTargetAdapter() {
-			@Override
-			public void end() {
-				statusLabel.setVisible(true);
-				alertFinishedCallback.call();
-				isAlerting = false;
-			}
-		});
+		if (animator == null) {
+			animatorFinishedCallback.call();
+		}
+		else {
+			animator.addTarget(new TimingTargetAdapter() {
+				@Override
+				public void end() {
+					animatorFinishedCallback.call();
+				}
+			});
+		}
 	}
 
-	private Color getStatusColor(MessageType type) {
+	protected Color getStatusColor(MessageType type) {
 		switch (type) {
 			case ALERT:
-				return Color.orange;
+				return FG_COLOR_ALERT;
 			case WARNING:
-				return WARNING_COLOR;
+				return FG_COLOR_WARNING;
 			case ERROR:
-				return Color.red;
+				return FG_COLOR_ERROR;
 			default:
-				return Color.blue;
+				return FG_COLOR_NORMAL;
 		}
 	}
 
@@ -755,7 +820,7 @@ public class DialogComponentProvider
 	private void showProgressBar(String localTitle, boolean hasProgress, boolean canCancel) {
 
 		if (!isVisible()) {
-			// It doesn't make any sense to show the task monitor when the dialog is not 
+			// It doesn't make any sense to show the task monitor when the dialog is not
 			// visible, so show the dialog
 			DockingWindowManager.showDialog(getParent(), this);
 		}
@@ -779,15 +844,10 @@ public class DialogComponentProvider
 	 * If the status message fits then there is no tool tip.
 	 */
 	private void updateStatusToolTip() {
-		String text = statusLabel.getText();
-		// Get the width of the message.
-		FontMetrics fm = statusLabel.getFontMetrics(statusLabel.getFont());
-		int messageWidth = 0;
-		if ((fm != null) && (text != null)) {
-			messageWidth = fm.stringWidth(text);
-		}
-		if (messageWidth > statusLabel.getWidth()) {
-			statusLabel.setToolTipText(text);
+		Dimension preferredSize = statusLabel.getPreferredSize();
+		Dimension size = statusLabel.getSize();
+		if (preferredSize.width > size.width || preferredSize.height > size.height) {
+			statusLabel.setToolTipText(statusLabel.getOriginalText());
 		}
 		else {
 			statusLabel.setToolTipText(null);
@@ -807,7 +867,7 @@ public class DialogComponentProvider
 
 	/**
 	 * Returns the current status in the dialogs status line
-	 * 
+	 *
 	 * @return the status text
 	 */
 	public String getStatusText() {
@@ -870,9 +930,36 @@ public class DialogComponentProvider
 	}
 
 	public void close() {
-		if (dialog != null) {
+		closeDialog();
+		dispose();
+	}
+
+	protected void closeDialog() {
+		if (isShowing()) {
+			cancelCurrentTask();
 			dialog.close();
 		}
+	}
+
+	/**
+	 * Disposes this dialog.  Only call this when the dialog is no longer used.  Calling this method
+	 * will close the dialog if it is open.
+	 */
+	public void dispose() {
+
+		closeDialog();
+
+		if (tool != null) {
+			keyBindingProxyActions.forEach(a -> tool.removeAction(a));
+		}
+		keyBindingProxyActions.clear();
+
+		popupManager.dispose();
+
+		dialogActions.forEach(DockingActionIf::dispose);
+
+		toolbarButtonsByAction.clear();
+		dialogActions.clear();
 	}
 
 	/**
@@ -896,7 +983,7 @@ public class DialogComponentProvider
 		statusLabel = new GDHtmlLabel(" ");
 		statusLabel.setName("statusLabel");
 		statusLabel.setHorizontalAlignment(SwingConstants.CENTER);
-		statusLabel.setForeground(Color.blue);
+		statusLabel.setForeground(Messages.NORMAL);
 		statusLabel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 5));
 		statusLabel.addComponentListener(new ComponentAdapter() {
 			@Override
@@ -993,7 +1080,7 @@ public class DialogComponentProvider
 	 * Returns the help location for this dialog
 	 * @return the help location
 	 */
-	public HelpLocation getHelpLocatdion() {
+	public HelpLocation getHelpLocation() {
 		HelpService helpService = DockingWindowManager.getHelpService();
 		return helpService.getHelpLocation(rootPanel);
 	}
@@ -1063,13 +1150,16 @@ public class DialogComponentProvider
 
 	void setDialog(DockingDialog dialog) {
 		this.dialog = dialog;
+		if (dialog != null) {
+			dialog.getAccessibleContext().setAccessibleDescription(accessibleDescription);
+		}
 	}
 
 	DockingDialog getDialog() {
 		return dialog;
 	}
 
-	private Component getParent() {
+	protected Component getParent() {
 		if (dialog == null) {
 			return null;
 		}
@@ -1082,6 +1172,38 @@ public class DialogComponentProvider
 
 	public boolean isShowing() {
 		return ((dialog != null) && dialog.isShowing());
+	}
+
+	/**
+	 * Called each time the dialog is show.  The given tool is the parent tool of the dialog.
+	 * @param t the tool
+	 */
+	void dialogShown(Tool t) {
+		setTool(t);
+		dialogShown();
+	}
+
+	private void setTool(Tool tool) {
+
+		if (this.tool != null) {
+			return;
+		}
+
+		// initialize the first time we are shown
+		this.tool = tool;
+
+		if (tool == null) {
+			// The tool can be null for dialogs shown before the framework is initialized, like 
+			// dialogs shown over the splash screen.  Without a tool, we cannot add key binding
+			// actions.
+			return;
+		}
+
+		// Any actions in this list already were added before we had a tool.  Add them now.  Any
+		// future calls to addKeyBindingAction() will get added to the tool at that time.
+		for (DockingActionIf proxy : keyBindingProxyActions) {
+			tool.addAction(proxy);
+		}
 	}
 
 	/**
@@ -1111,7 +1233,7 @@ public class DialogComponentProvider
 	 * Returns the initial location for the dialog or null if none was set
 	 * @return the point
 	 */
-	public Point getIntialLocation() {
+	public Point getInitialLocation() {
 		return initialLocation;
 	}
 
@@ -1130,7 +1252,7 @@ public class DialogComponentProvider
 	/**
 	 * An optional extension point for subclasses to provider action context for the actions used by
 	 * this provider.
-	 *
+	 * 
 	 * @param event The mouse event used (may be null) to generate a popup menu
 	 */
 	@Override
@@ -1144,14 +1266,17 @@ public class DialogComponentProvider
 		}
 
 		if (event == null) {
-			return new ActionContext(null, c);
+			return new DialogActionContext(this, c);
 		}
 
 		Component sourceComponent = event.getComponent();
 		if (sourceComponent != null) {
 			c = sourceComponent;
 		}
-		return new ActionContext(null, c).setSourceObject(event.getSource());
+
+		DialogActionContext context = new DialogActionContext(this, c);
+		context.setSourceObject(event.getSource());
+		return context;
 	}
 
 	/**
@@ -1161,9 +1286,12 @@ public class DialogComponentProvider
 	protected void notifyContextChanged() {
 		ActionContext context = getActionContext(null);
 		if (context == null) {
-			context = new ActionContext();
+			context = new DefaultActionContext();
 		}
-		Set<DockingActionIf> keySet = actionMap.keySet();
+
+		context.setContextProvider(this);
+
+		Set<DockingActionIf> keySet = toolbarButtonsByAction.keySet();
 		for (DockingActionIf action : keySet) {
 			action.setEnabled(action.isEnabledForContext(context));
 		}
@@ -1186,16 +1314,16 @@ public class DialogComponentProvider
 
 		DialogToolbarButton button = new DialogToolbarButton(action, this);
 		toolbar.add(button);
-		actionMap.put(action, button);
+		toolbarButtonsByAction.put(action, button);
 	}
 
 	/**
 	 * Add an action to this dialog.  Only actions with icons are added to the toolbar.
-	 * Note, if you add an action to this dialog, do not also add the action to 
+	 * Note, if you add an action to this dialog, do not also add the action to
 	 * the tool, as this dialog will do that for you.
 	 * @param action the action
 	 */
-	public void addAction(final DockingActionIf action) {
+	public void addAction(DockingActionIf action) {
 		dialogActions.add(action);
 		addToolbarAction(action);
 		popupManager.addAction(action);
@@ -1204,24 +1332,48 @@ public class DialogComponentProvider
 
 	private void addKeyBindingAction(DockingActionIf action) {
 
-		// add the action to the tool in order get key event management (key bindings 
-		// options and key event processing)
-		DockingWindowManager dwm = DockingWindowManager.getActiveInstance();
-		if (dwm == null) {
-			// This implies the client dialog has been shown outside of the plugin framework. In
-			// that case, the client will not get key event processing for dialog actions.
-			return;
-		}
+		DialogActionProxy proxy = new DialogActionProxy(this, action);
+		keyBindingProxyActions.add(proxy);
 
-		Tool tool = dwm.getTool();
-		tool.addAction(new DialogActionProxy(action));
+		// The tool will be null when clients add actions to this dialog before it has been shown.
+		// This is different than ComponentProviders, which require a Tool at construction.  The
+		// DialogComponentProvider did not originally require a Tool at construction.  Rather than
+		// refactor the dialog to require a Tool, it was easier to simply delay adding actions until
+		// the Tool is set when the dialog is first shown.
+		if (tool != null) {
+			tool.addAction(proxy);
+		}
 	}
 
 	public void removeAction(DockingActionIf action) {
 		dialogActions.remove(action);
-		JButton button = actionMap.remove(action);
+		JButton button = toolbarButtonsByAction.remove(action);
 		if (button != null && toolbar != null) {
 			toolbar.remove(button);
+		}
+
+		popupManager.removeAction(action);
+
+		removeKeyBindingAction(action);
+	}
+
+	private void removeKeyBindingAction(DockingActionIf action) {
+
+		DialogActionProxy proxy = null;
+		for (DialogActionProxy actionProxy : keyBindingProxyActions) {
+			if (action == actionProxy.getAction()) {
+				proxy = actionProxy;
+				break;
+			}
+		}
+
+		if (proxy == null) {
+			return;
+		}
+
+		keyBindingProxyActions.remove(proxy);
+		if (tool != null) {
+			tool.removeAction(proxy);
 		}
 	}
 
@@ -1255,7 +1407,7 @@ public class DialogComponentProvider
 	 * Returns true if this dialog remembers its size from one invocation to the next.
 	 * @return true if this dialog remembers its size from one invocation to the next.
 	 */
-	public boolean getRemberSize() {
+	public boolean getRememberSize() {
 		return rememberSize;
 	}
 
@@ -1273,7 +1425,7 @@ public class DialogComponentProvider
 	 * size) no matter which window this dialog is launched from.  The default is not to use
 	 * shared location and size, which means that there is a remembered location and size for this
 	 * dialog for each window that has launched it (i.e. the window is the parent of the dialog).
-	 * 
+	 *
 	 * @param useSharedLocation true to share locations
 	 */
 	public void setUseSharedLocation(boolean useSharedLocation) {
@@ -1284,7 +1436,7 @@ public class DialogComponentProvider
 	 * Returns true if this dialog is intended to be shown and hidden relatively quickly.  This
 	 * is used to determine if this dialog should be allowed to parent other components.   The
 	 * default is false.
-	 * 
+	 *
 	 * @return true if this dialog is transient
 	 */
 	public boolean isTransient() {
@@ -1293,7 +1445,7 @@ public class DialogComponentProvider
 
 	/**
 	 * Sets this dialog to be transient (see {@link #isTransient()}
-	 * 
+	 *
 	 * @param isTransient true for transient; false is the default
 	 */
 	public void setTransient(boolean isTransient) {
@@ -1313,8 +1465,11 @@ public class DialogComponentProvider
 
 		@Override
 		public void popupTriggered(MouseEvent e) {
-			ActionContext actionContext = getActionContext(e);
-			popupManager.popupMenu(actionContext, e);
+			ActionContext context = getActionContext(e);
+			if (context != null) {
+				context.setContextProvider(DialogComponentProvider.this);
+			}
+			popupManager.popupMenu(context, e);
 		}
 
 		@Override
@@ -1334,8 +1489,11 @@ public class DialogComponentProvider
 	 */
 	private class DialogActionProxy extends DockingActionProxy {
 
-		public DialogActionProxy(DockingActionIf dockingAction) {
+		private DialogComponentProvider provider;
+
+		public DialogActionProxy(DialogComponentProvider provider, DockingActionIf dockingAction) {
 			super(dockingAction);
+			this.provider = provider;
 		}
 
 		@Override
@@ -1346,6 +1504,12 @@ public class DialogComponentProvider
 		@Override
 		public ToolBarData getToolBarData() {
 			return null;
+		}
+
+		@Override
+		public boolean isEnabledForContext(ActionContext context) {
+			ActionContextProvider contextProvider = context.getContextProvider();
+			return provider == contextProvider;
 		}
 	}
 }

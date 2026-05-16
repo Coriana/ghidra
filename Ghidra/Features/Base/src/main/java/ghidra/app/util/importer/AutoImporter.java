@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,213 +17,813 @@ package ghidra.app.util.importer;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Predicate;
 
 import generic.stl.Pair;
-import ghidra.app.util.Option;
 import ghidra.app.util.bin.ByteProvider;
-import ghidra.app.util.bin.RandomAccessByteProvider;
 import ghidra.app.util.opinion.*;
-import ghidra.framework.model.DomainFolder;
-import ghidra.framework.model.DomainObject;
-import ghidra.program.model.address.AddressFactory;
-import ghidra.program.model.lang.*;
+import ghidra.formats.gfilesystem.FSRL;
+import ghidra.framework.model.*;
+import ghidra.program.model.lang.CompilerSpec;
+import ghidra.program.model.lang.Language;
 import ghidra.program.model.listing.Program;
-import ghidra.program.util.DefaultLanguageService;
 import ghidra.util.InvalidNameException;
-import ghidra.util.Msg;
 import ghidra.util.exception.*;
 import ghidra.util.task.TaskMonitor;
 
 /**
- * Utility methods to do imports automatically (without requiring user interaction).
+ * Utility methods to do {@link Program} imports automatically (without requiring user interaction)
+ * 
+ * @deprecated Use {@link ProgramLoader}
  */
+@Deprecated(since = "12.0", forRemoval = true)
 public final class AutoImporter {
 	private AutoImporter() {
 		// service class; cannot instantiate
 	}
 
-	public static Program importByUsingBestGuess(File file, DomainFolder programFolder,
-			Object consumer, MessageLog messageLog, TaskMonitor monitor) throws IOException,
-			CancelledException, DuplicateNameException, InvalidNameException, VersionException {
-		List<Program> programs = importFresh(file, programFolder, consumer, messageLog, monitor,
-			LoaderService.ACCEPT_ALL, LoadSpecChooser.CHOOSE_THE_FIRST_PREFERRED, null,
-			OptionChooser.DEFAULT_OPTIONS, MultipleProgramsStrategy.ONE_PROGRAM_OR_NULL);
-		if (programs != null && programs.size() == 1) {
-			return programs.get(0);
-		}
-		return null;
+	/**
+	 * Automatically imports the given {@link File} with the best matching {@link Loader} for the
+	 * {@link File}'s format.
+	 * <p>
+	 * Note that when the import completes, the returned {@link Loaded} {@link Program}s are not 
+	 * saved to a project.  That is the responsibility of the caller (see 
+	 * {@link LoadResults#save(TaskMonitor)}).
+	 * <p>
+	 * It is also the responsibility of the caller to close the returned {@link Loaded} 
+	 * {@link Program}s with {@link LoadResults#close()} when they are no longer needed.
+	 * 
+	 * @param file The {@link File} to import
+	 * @param project The {@link Project}.  Loaders can use this to take advantage of existing
+	 *   {@link DomainFolder}s and {@link DomainFile}s to do custom behaviors such as loading
+	 *   libraries. Could be null if there is no project.
+	 * @param projectFolderPath A suggested project folder path for the {@link Loaded} 
+	 *   {@link Program}s. This is just a suggestion, and a {@link Loader} implementation 
+	 *   reserves the right to change it for each {@link Loaded} result. The {@link Loaded} results 
+	 *   should be queried for their true project folder paths using 
+	 *   {@link Loaded#getProjectFolderPath()}.
+	 * @param consumer A reference to the object "consuming" the returned {@link LoadResults}, used
+	 *   to ensure the underlying {@link Program}s are only closed when every consumer is done
+	 *   with it (see {@link LoadResults#close()}).
+	 * @param messageLog The log
+	 * @param monitor A task monitor
+	 * @return The {@link LoadResults} which contains one or more {@link Loaded} {@link Program}s 
+	 *   (created but not saved)
+	 * @throws IOException if there was an IO-related problem loading
+	 * @throws CancelledException if the operation was cancelled 
+	 * @throws DuplicateNameException if the load resulted in a {@link Program} naming conflict
+	 * @throws InvalidNameException if an invalid {@link Program} name was used during load
+	 * @throws VersionException if there was an issue with database versions, probably due to a 
+	 *   failed language upgrade
+	 * @throws LoadException if nothing was loaded
+	 * @deprecated Use {@link ProgramLoader}
+	 */
+	@Deprecated(since = "12.0", forRemoval = true)
+	public static LoadResults<Program> importByUsingBestGuess(File file, Project project,
+			String projectFolderPath, Object consumer, MessageLog messageLog, TaskMonitor monitor)
+			throws IOException, CancelledException, DuplicateNameException, InvalidNameException,
+			VersionException, LoadException {
+		return ProgramLoader.builder()
+				.source(file)
+				.project(project)
+				.projectFolderPath(projectFolderPath)
+				.log(messageLog)
+				.monitor(monitor)
+				.load(consumer);
 	}
 
-	public static Program importByUsingBestGuess(ByteProvider provider, DomainFolder programFolder,
-			Object consumer, MessageLog messageLog, TaskMonitor monitor) throws IOException,
-			CancelledException, DuplicateNameException, InvalidNameException, VersionException {
-		List<Program> programs = importFresh(provider, programFolder, consumer, messageLog, monitor,
-			LoaderService.ACCEPT_ALL, LoadSpecChooser.CHOOSE_THE_FIRST_PREFERRED, null,
-			OptionChooser.DEFAULT_OPTIONS, MultipleProgramsStrategy.ONE_PROGRAM_OR_NULL);
-		if (programs != null && programs.size() == 1) {
-			return programs.get(0);
-		}
-		return null;
+	/**
+	 * Automatically imports the given {@link FSRL} with the best matching {@link Loader} for the
+	 * {@link File}'s format.
+	 * <p>
+	 * Note that when the import completes, the returned {@link Loaded} {@link Program}s are not 
+	 * saved to a project.  That is the responsibility of the caller (see 
+	 * {@link LoadResults#save(TaskMonitor)}).
+	 * <p>
+	 * It is also the responsibility of the caller to close the returned {@link Loaded} 
+	 * {@link Program}s with {@link LoadResults#close()} when they are no longer needed.
+	 * 
+	 * @param fsrl The {@link FSRL} to import
+	 * @param project The {@link Project}.  Loaders can use this to take advantage of existing
+	 *   {@link DomainFolder}s and {@link DomainFile}s to do custom behaviors such as loading
+	 *   libraries. Could be null if there is no project.
+	 * @param projectFolderPath A suggested project folder path for the {@link Loaded} 
+	 *   {@link Program}s. This is just a suggestion, and a {@link Loader} implementation 
+	 *   reserves the right to change it for each {@link Loaded} result. The {@link Loaded} results 
+	 *   should be queried for their true project folder paths using 
+	 *   {@link Loaded#getProjectFolderPath()}.
+	 * @param consumer A reference to the object "consuming" the returned {@link LoadResults}, used
+	 *   to ensure the underlying {@link Program}s are only closed when every consumer is done
+	 *   with it (see {@link LoadResults#close()}).
+	 * @param messageLog The log
+	 * @param monitor A task monitor
+	 * @return The {@link LoadResults} which contains one or more {@link Loaded} {@link Program}s 
+	 *   (created but not saved)
+	 * @throws IOException if there was an IO-related problem loading
+	 * @throws CancelledException if the operation was cancelled 
+	 * @throws DuplicateNameException if the load resulted in a {@link Program} naming conflict
+	 * @throws InvalidNameException if an invalid {@link Program} name was used during load
+	 * @throws VersionException if there was an issue with database versions, probably due to a 
+	 *   failed language upgrade
+	 * @throws LoadException if nothing was loaded
+	 * @deprecated Use {@link ProgramLoader}
+	 */
+	@Deprecated(since = "12.0", forRemoval = true)
+	public static LoadResults<Program> importByUsingBestGuess(FSRL fsrl, Project project,
+			String projectFolderPath, Object consumer, MessageLog messageLog, TaskMonitor monitor)
+			throws IOException, CancelledException, DuplicateNameException, InvalidNameException,
+			VersionException, LoadException {
+		return ProgramLoader.builder()
+				.source(fsrl)
+				.project(project)
+				.projectFolderPath(projectFolderPath)
+				.log(messageLog)
+				.monitor(monitor)
+				.load(consumer);
 	}
 
-	public static Program importByUsingSpecificLoaderClass(File file, DomainFolder programFolder,
-			Class<? extends Loader> loaderClass, List<Pair<String, String>> loaderArgs,
-			Object consumer, MessageLog messageLog, TaskMonitor monitor) throws IOException,
-			CancelledException, DuplicateNameException, InvalidNameException, VersionException {
-		SingleLoaderFilter loaderFilter = new SingleLoaderFilter(loaderClass, loaderArgs);
-		List<Program> programs = importFresh(file, programFolder, consumer, messageLog, monitor,
-			loaderFilter, LoadSpecChooser.CHOOSE_THE_FIRST_PREFERRED, null,
-			new LoaderArgsOptionChooser(loaderFilter),
-			MultipleProgramsStrategy.ONE_PROGRAM_OR_NULL);
-		if (programs != null && programs.size() == 1) {
-			return programs.get(0);
-		}
-		return null;
-	}
-
-	public static Program importByLookingForLcs(File file, DomainFolder programFolder,
-			Language language, CompilerSpec compilerSpec, Object consumer, MessageLog messageLog,
+	/**
+	 * Automatically imports the give {@link ByteProvider bytes} with the best matching 
+	 * {@link Loader} for the {@link ByteProvider}'s format.
+	 * <p>
+	 * Note that when the import completes, the returned {@link Loaded} {@link Program}s are not 
+	 * saved to a project.  That is the responsibility of the caller (see 
+	 * {@link LoadResults#save(TaskMonitor)}).
+	 * <p>
+	 * It is also the responsibility of the caller to close the returned {@link Loaded} 
+	 * {@link Program}s with {@link LoadResults#close()} when they are no longer needed.
+	 * 
+	 * @param provider The bytes to import
+	 * @param project The {@link Project}.  Loaders can use this to take advantage of existing
+	 *   {@link DomainFolder}s and {@link DomainFile}s to do custom behaviors such as loading
+	 *   libraries. Could be null if there is no project.
+	 * @param projectFolderPath A suggested project folder path for the {@link Loaded} 
+	 *   {@link Program}s. This is just a suggestion, and a {@link Loader} implementation 
+	 *   reserves the right to change it for each {@link Loaded} result. The {@link Loaded} results 
+	 *   should be queried for their true project folder paths using 
+	 *   {@link Loaded#getProjectFolderPath()}.
+	 * @param consumer A reference to the object "consuming" the returned {@link LoadResults}, used
+	 *   to ensure the underlying {@link Program}s are only closed when every consumer is done
+	 *   with it (see {@link LoadResults#close()}).
+	 * @param messageLog The log
+	 * @param monitor A task monitor
+	 * @return The {@link LoadResults} which contains one or more {@link Loaded} {@link Program}s 
+	 *   (created but not saved)
+	 * @throws IOException if there was an IO-related problem loading
+	 * @throws CancelledException if the operation was cancelled 
+	 * @throws DuplicateNameException if the load resulted in a {@link Program} naming conflict
+	 * @throws InvalidNameException if an invalid {@link Program} name was used during load
+	 * @throws VersionException if there was an issue with database versions, probably due to a 
+	 *   failed language upgrade
+	 * @throws LoadException if nothing was loaded
+	 * @deprecated Use {@link ProgramLoader}
+	 */
+	@Deprecated(since = "12.0", forRemoval = true)
+	public static LoadResults<Program> importByUsingBestGuess(ByteProvider provider,
+			Project project, String projectFolderPath, Object consumer, MessageLog messageLog,
 			TaskMonitor monitor) throws IOException, CancelledException, DuplicateNameException,
-			InvalidNameException, VersionException {
-		List<Program> programs = importFresh(file, programFolder, consumer, messageLog, monitor,
-			LoaderService.ACCEPT_ALL, new LcsHintLoadSpecChooser(language, compilerSpec), null,
-			OptionChooser.DEFAULT_OPTIONS, MultipleProgramsStrategy.ONE_PROGRAM_OR_NULL);
-		if (programs != null && programs.size() == 1) {
-			return programs.get(0);
-		}
-		return null;
+			InvalidNameException, VersionException, LoadException {
+		return ProgramLoader.builder()
+				.source(provider)
+				.project(project)
+				.projectFolderPath(projectFolderPath)
+				.log(messageLog)
+				.monitor(monitor)
+				.load(consumer);
 	}
 
-	public static Program importByUsingSpecificLoaderClassAndLcs(File file,
-			DomainFolder programFolder, Class<? extends Loader> loaderClass,
+	/**
+	 * Automatically imports the given {@link File} with the given type of {@link Loader}.
+	 * <p>
+	 * Note that when the import completes, the returned {@link Loaded} {@link Program}s are not 
+	 * saved to a project.  That is the responsibility of the caller (see 
+	 * {@link LoadResults#save(TaskMonitor)}).
+	 * <p>
+	 * It is also the responsibility of the caller to close the returned {@link Loaded} 
+	 * {@link Program}s with {@link LoadResults#close()} when they are no longer needed.
+	 * 
+	 * @param file The {@link File} to import
+	 * @param project The {@link Project}.  Loaders can use this to take advantage of existing
+	 *   {@link DomainFolder}s and {@link DomainFile}s to do custom behaviors such as loading
+	 *   libraries. Could be null if there is no project.
+	 * @param projectFolderPath A suggested project folder path for the {@link Loaded} 
+	 *   {@link Program}s. This is just a suggestion, and a {@link Loader} implementation 
+	 *   reserves the right to change it for each {@link Loaded} result. The {@link Loaded} results 
+	 *   should be queried for their true project folder paths using 
+	 *   {@link Loaded#getProjectFolderPath()}.
+	 * @param loaderClass The {@link Loader} class to use
+	 * @param loaderArgs A {@link List} of optional {@link Loader}-specific arguments
+	 * @param consumer A reference to the object "consuming" the returned {@link LoadResults}, used
+	 *   to ensure the underlying {@link Program}s are only closed when every consumer is done
+	 *   with it (see {@link LoadResults#close()}).
+	 * @param messageLog The log
+	 * @param monitor A task monitor
+	 * @return The {@link LoadResults} which contains one or more {@link Loaded} {@link Program}s 
+	 *   (created but not saved)
+	 * @throws IOException if there was an IO-related problem loading
+	 * @throws CancelledException if the operation was cancelled 
+	 * @throws DuplicateNameException if the load resulted in a {@link Program} naming conflict
+	 * @throws InvalidNameException if an invalid {@link Program} name was used during load
+	 * @throws VersionException if there was an issue with database versions, probably due to a 
+	 *   failed language upgrade
+	 * @throws LoadException if nothing was loaded
+	 * @deprecated Use {@link ProgramLoader}
+	 */
+	@Deprecated(since = "12.0", forRemoval = true)
+	public static LoadResults<Program> importByUsingSpecificLoaderClass(File file,
+			Project project, String projectFolderPath, Class<? extends Loader> loaderClass,
+			List<Pair<String, String>> loaderArgs, Object consumer, MessageLog messageLog,
+			TaskMonitor monitor) throws IOException, CancelledException, DuplicateNameException,
+			InvalidNameException, VersionException, LoadException {
+		return ProgramLoader.builder()
+				.source(file)
+				.project(project)
+				.projectFolderPath(projectFolderPath)
+				.loaders(loaderClass)
+				.loaderArgs(loaderArgs)
+				.log(messageLog)
+				.monitor(monitor)
+				.load(consumer);
+	}
+
+	/**
+	 * Automatically imports the given {@link FSRL} with the given type of {@link Loader}.
+	 * <p>
+	 * Note that when the import completes, the returned {@link Loaded} {@link Program}s are not 
+	 * saved to a project.  That is the responsibility of the caller (see 
+	 * {@link LoadResults#save(TaskMonitor)}).
+	 * <p>
+	 * It is also the responsibility of the caller to close the returned {@link Loaded} 
+	 * {@link Program}s with {@link LoadResults#close()} when they are no longer needed.
+	 * 
+	 * @param fsrl The {@link FSRL} to import
+	 * @param project The {@link Project}.  Loaders can use this to take advantage of existing
+	 *   {@link DomainFolder}s and {@link DomainFile}s to do custom behaviors such as loading
+	 *   libraries. Could be null if there is no project.
+	 * @param projectFolderPath A suggested project folder path for the {@link Loaded} 
+	 *   {@link Program}s. This is just a suggestion, and a {@link Loader} implementation 
+	 *   reserves the right to change it for each {@link Loaded} result. The {@link Loaded} results 
+	 *   should be queried for their true project folder paths using 
+	 *   {@link Loaded#getProjectFolderPath()}.
+	 * @param loaderClass The {@link Loader} class to use
+	 * @param loaderArgs A {@link List} of optional {@link Loader}-specific arguments
+	 * @param consumer A reference to the object "consuming" the returned {@link LoadResults}, used
+	 *   to ensure the underlying {@link Program}s are only closed when every consumer is done
+	 *   with it (see {@link LoadResults#close()}).
+	 * @param messageLog The log
+	 * @param monitor A task monitor
+	 * @return The {@link LoadResults} which contains one or more {@link Loaded} {@link Program}s 
+	 *   (created but not saved)
+	 * @throws IOException if there was an IO-related problem loading
+	 * @throws CancelledException if the operation was cancelled 
+	 * @throws DuplicateNameException if the load resulted in a {@link Program} naming conflict
+	 * @throws InvalidNameException if an invalid {@link Program} name was used during load
+	 * @throws VersionException if there was an issue with database versions, probably due to a 
+	 *   failed language upgrade
+	 * @throws LoadException if nothing was loaded
+	 * @deprecated Use {@link ProgramLoader}
+	 */
+	@Deprecated(since = "12.0", forRemoval = true)
+	public static LoadResults<Program> importByUsingSpecificLoaderClass(FSRL fsrl, Project project,
+			String projectFolderPath, Class<? extends Loader> loaderClass,
+			List<Pair<String, String>> loaderArgs, Object consumer, MessageLog messageLog,
+			TaskMonitor monitor) throws IOException, CancelledException, DuplicateNameException,
+			InvalidNameException, VersionException, LoadException {
+		return ProgramLoader.builder()
+				.source(fsrl)
+				.project(project)
+				.projectFolderPath(projectFolderPath)
+				.loaders(loaderClass)
+				.loaderArgs(loaderArgs)
+				.log(messageLog)
+				.monitor(monitor)
+				.load(consumer);
+	}
+
+	/**
+	 * Automatically imports the given {@link File} with the best matching {@link Loader} that
+	 * supports the given language and compiler specification.
+	 * <p>
+	 * Note that when the import completes, the returned {@link Loaded} {@link Program}s are not 
+	 * saved to a project.  That is the responsibility of the caller (see 
+	 * {@link LoadResults#save(TaskMonitor)}).
+	 * <p>
+	 * It is also the responsibility of the caller to close the returned {@link Loaded} 
+	 * {@link Program}s with {@link LoadResults#close()} when they are no longer needed.
+	 * 
+	 * @param file The {@link File} to import
+	 * @param project The {@link Project}.  Loaders can use this to take advantage of existing
+	 *   {@link DomainFolder}s and {@link DomainFile}s to do custom behaviors such as loading
+	 *   libraries. Could be null if there is no project.
+	 * @param projectFolderPath A suggested project folder path for the {@link Loaded} 
+	 *   {@link Program}s. This is just a suggestion, and a {@link Loader} implementation 
+	 *   reserves the right to change it for each {@link Loaded} result. The {@link Loaded} results 
+	 *   should be queried for their true project folder paths using 
+	 *   {@link Loaded#getProjectFolderPath()}.
+	 * @param language The desired {@link Language}
+	 * @param compilerSpec The desired {@link CompilerSpec compiler specification}
+	 * @param consumer A reference to the object "consuming" the returned {@link LoadResults}, used
+	 *   to ensure the underlying {@link Program}s are only closed when every consumer is done
+	 *   with it (see {@link LoadResults#close()}).
+	 * @param messageLog The log
+	 * @param monitor A task monitor
+	 * @return The {@link LoadResults} which contains one or more {@link Loaded} {@link Program}s 
+	 *   (created but not saved)
+	 * @throws IOException if there was an IO-related problem loading
+	 * @throws CancelledException if the operation was cancelled 
+	 * @throws DuplicateNameException if the load resulted in a {@link Program} naming conflict
+	 * @throws InvalidNameException if an invalid {@link Program} name was used during load
+	 * @throws VersionException if there was an issue with database versions, probably due to a 
+	 *   failed language upgrade
+	 * @throws LoadException if nothing was loaded
+	 * @deprecated Use {@link ProgramLoader}
+	 */
+	@Deprecated(since = "12.0", forRemoval = true)
+	public static LoadResults<Program> importByLookingForLcs(File file, Project project,
+			String projectFolderPath, Language language, CompilerSpec compilerSpec, Object consumer,
+			MessageLog messageLog, TaskMonitor monitor) throws IOException, CancelledException,
+			DuplicateNameException, InvalidNameException, VersionException, LoadException {
+		return ProgramLoader.builder()
+				.source(file)
+				.project(project)
+				.projectFolderPath(projectFolderPath)
+				.language(language)
+				.compiler(compilerSpec)
+				.log(messageLog)
+				.monitor(monitor)
+				.load(consumer);
+	}
+
+	/**
+	 * Automatically imports the given {@link FSRL} with the best matching {@link Loader} that
+	 * supports the given language and compiler specification.
+	 * <p>
+	 * Note that when the import completes, the returned {@link Loaded} {@link Program}s are not 
+	 * saved to a project.  That is the responsibility of the caller (see 
+	 * {@link LoadResults#save(TaskMonitor)}).
+	 * <p>
+	 * It is also the responsibility of the caller to close the returned {@link Loaded} 
+	 * {@link Program}s with {@link LoadResults#close()} when they are no longer needed.
+	 * 
+	 * @param fsrl The {@link FSRL} to import
+	 * @param project The {@link Project}.  Loaders can use this to take advantage of existing
+	 *   {@link DomainFolder}s and {@link DomainFile}s to do custom behaviors such as loading
+	 *   libraries. Could be null if there is no project.
+	 * @param projectFolderPath A suggested project folder path for the {@link Loaded} 
+	 *   {@link Program}s. This is just a suggestion, and a {@link Loader} implementation 
+	 *   reserves the right to change it for each {@link Loaded} result. The {@link Loaded} results 
+	 *   should be queried for their true project folder paths using 
+	 *   {@link Loaded#getProjectFolderPath()}.
+	 * @param language The desired {@link Language}
+	 * @param compilerSpec The desired {@link CompilerSpec compiler specification}
+	 * @param consumer A reference to the object "consuming" the returned {@link LoadResults}, used
+	 *   to ensure the underlying {@link Program}s are only closed when every consumer is done
+	 *   with it (see {@link LoadResults#close()}).
+	 * @param messageLog The log
+	 * @param monitor A task monitor
+	 * @return The {@link LoadResults} which contains one or more {@link Loaded} {@link Program}s 
+	 *   (created but not saved)
+	 * @throws IOException if there was an IO-related problem loading
+	 * @throws CancelledException if the operation was cancelled 
+	 * @throws DuplicateNameException if the load resulted in a {@link Program} naming conflict
+	 * @throws InvalidNameException if an invalid {@link Program} name was used during load
+	 * @throws VersionException if there was an issue with database versions, probably due to a 
+	 *   failed language upgrade
+	 * @throws LoadException if nothing was loaded
+	 * @deprecated Use {@link ProgramLoader}
+	 */
+	@Deprecated(since = "12.0", forRemoval = true)
+	public static LoadResults<Program> importByLookingForLcs(FSRL fsrl, Project project,
+			String projectFolderPath, Language language, CompilerSpec compilerSpec, Object consumer,
+			MessageLog messageLog, TaskMonitor monitor) throws IOException, CancelledException,
+			DuplicateNameException, InvalidNameException, VersionException, LoadException {
+		return ProgramLoader.builder()
+				.source(fsrl)
+				.project(project)
+				.projectFolderPath(projectFolderPath)
+				.language(language)
+				.compiler(compilerSpec)
+				.log(messageLog)
+				.monitor(monitor)
+				.load(consumer);
+	}
+
+	/**
+	 * Automatically imports the given {@link File} with the given type of {@link Loader}, language,
+	 * and compiler specification.
+	 * <p>
+	 * Note that when the import completes, the returned {@link Loaded} {@link Program}s are not 
+	 * saved to a project.  That is the responsibility of the caller (see 
+	 * {@link LoadResults#save(TaskMonitor)}).
+	 * <p>
+	 * It is also the responsibility of the caller to close the returned {@link Loaded} 
+	 * {@link Program}s with {@link LoadResults#close()} when they are no longer needed.
+	 * 
+	 * @param file The {@link File} to import
+	 * @param project The {@link Project}.  Loaders can use this to take advantage of existing
+	 *   {@link DomainFolder}s and {@link DomainFile}s to do custom behaviors such as loading
+	 *   libraries. Could be null if there is no project.
+	 * @param projectFolderPath A suggested project folder path for the {@link Loaded} 
+	 *   {@link Program}s. This is just a suggestion, and a {@link Loader} implementation 
+	 *   reserves the right to change it for each {@link Loaded} result. The {@link Loaded} results 
+	 *   should be queried for their true project folder paths using 
+	 *   {@link Loaded#getProjectFolderPath()}.
+	 * @param loaderClass The {@link Loader} class to use
+	 * @param loaderArgs A {@link List} of optional {@link Loader}-specific arguments
+	 * @param language The desired {@link Language}
+	 * @param compilerSpec The desired {@link CompilerSpec compiler specification}
+	 * @param consumer A reference to the object "consuming" the returned {@link LoadResults}, used
+	 *   to ensure the underlying {@link Program}s are only closed when every consumer is done
+	 *   with it (see {@link LoadResults#close()}).
+	 * @param messageLog The log
+	 * @param monitor A task monitor
+	 * @return The {@link LoadResults} which contains one or more {@link Loaded} {@link Program}s 
+	 *   (created but not saved)
+	 * @throws IOException if there was an IO-related problem loading
+	 * @throws CancelledException if the operation was cancelled 
+	 * @throws DuplicateNameException if the load resulted in a {@link Program} naming conflict
+	 * @throws InvalidNameException if an invalid {@link Program} name was used during load
+	 * @throws VersionException if there was an issue with database versions, probably due to a 
+	 *   failed language upgrade
+	 * @deprecated Use {@link ProgramLoader}
+	 */
+	@Deprecated(since = "12.0", forRemoval = true)
+	public static LoadResults<Program> importByUsingSpecificLoaderClassAndLcs(File file,
+			Project project, String projectFolderPath, Class<? extends Loader> loaderClass,
 			List<Pair<String, String>> loaderArgs, Language language, CompilerSpec compilerSpec,
 			Object consumer, MessageLog messageLog, TaskMonitor monitor) throws IOException,
 			CancelledException, DuplicateNameException, InvalidNameException, VersionException {
-		SingleLoaderFilter loaderFilter = new SingleLoaderFilter(loaderClass, loaderArgs);
-		List<Program> programs = importFresh(file, programFolder, consumer, messageLog, monitor,
-			loaderFilter, new LcsHintLoadSpecChooser(language, compilerSpec), null,
-			new LoaderArgsOptionChooser(loaderFilter),
-			MultipleProgramsStrategy.ONE_PROGRAM_OR_NULL);
-		if (programs != null && programs.size() == 1) {
-			return programs.get(0);
-		}
-		return null;
+		return ProgramLoader.builder()
+				.source(file)
+				.project(project)
+				.projectFolderPath(projectFolderPath)
+				.loaders(loaderClass)
+				.loaderArgs(loaderArgs)
+				.language(language)
+				.compiler(compilerSpec)
+				.log(messageLog)
+				.monitor(monitor)
+				.load(consumer);
 	}
 
-	private static final Predicate<Loader> BINARY_LOADER =
-		new SingleLoaderFilter(BinaryLoader.class);
-
-	public static Program importAsBinary(File file, DomainFolder programFolder, Language language,
-			CompilerSpec compilerSpec, Object consumer, MessageLog messageLog, TaskMonitor monitor)
-			throws IOException, CancelledException, DuplicateNameException, InvalidNameException,
-			VersionException {
-		List<Program> programs = importFresh(file, programFolder, consumer, messageLog, monitor,
-			BINARY_LOADER, new LcsHintLoadSpecChooser(language, compilerSpec), null,
-			OptionChooser.DEFAULT_OPTIONS, MultipleProgramsStrategy.ONE_PROGRAM_OR_NULL);
-		if (programs != null && programs.size() == 1) {
-			return programs.get(0);
-		}
-		return null;
-	}
-
-	public static Program importAsBinary(ByteProvider bytes, DomainFolder programFolder,
-			Language language, CompilerSpec compilerSpec, Object consumer, MessageLog messageLog,
-			TaskMonitor monitor) throws IOException, CancelledException, DuplicateNameException,
-			InvalidNameException, VersionException {
-		List<Program> programs = importFresh(bytes, programFolder, consumer, messageLog, monitor,
-			BINARY_LOADER, new LcsHintLoadSpecChooser(language, compilerSpec), null,
-			OptionChooser.DEFAULT_OPTIONS, MultipleProgramsStrategy.ONE_PROGRAM_OR_NULL);
-		if (programs != null && programs.size() == 1) {
-			return programs.get(0);
-		}
-		return null;
-	}
-
-	public static List<Program> importFresh(File file, DomainFolder programFolder, Object consumer,
-			MessageLog messageLog, TaskMonitor monitor, Predicate<Loader> loaderFilter,
-			LoadSpecChooser loadSpecChooser, String programNameOverride,
-			OptionChooser optionChooser, MultipleProgramsStrategy multipleProgramsStrategy)
-			throws IOException, CancelledException, DuplicateNameException, InvalidNameException,
-			VersionException {
-		if (file == null) {
-			return null;
-		}
-
-		try (ByteProvider provider = new RandomAccessByteProvider(file)) {
-			return importFresh(provider, programFolder, consumer, messageLog, monitor, loaderFilter,
-				loadSpecChooser, programNameOverride, optionChooser, multipleProgramsStrategy);
-		}
-	}
-
-	public static List<Program> importFresh(ByteProvider provider, DomainFolder programFolder,
-			Object consumer, MessageLog messageLog, TaskMonitor monitor,
-			Predicate<Loader> loaderFilter, LoadSpecChooser loadSpecChooser,
-			String programNameOverride, OptionChooser optionChooser,
-			MultipleProgramsStrategy multipleProgramsStrategy) throws IOException,
+	/**
+	 * Automatically imports the given {@link FSRL} with the given type of {@link Loader}, language,
+	 * and compiler specification.
+	 * <p>
+	 * Note that when the import completes, the returned {@link Loaded} {@link Program}s are not 
+	 * saved to a project.  That is the responsibility of the caller (see 
+	 * {@link LoadResults#save(TaskMonitor)}).
+	 * <p>
+	 * It is also the responsibility of the caller to close the returned {@link Loaded} 
+	 * {@link Program}s with {@link LoadResults#close()} when they are no longer needed.
+	 * 
+	 * @param fsrl The {@link FSRL} to import
+	 * @param project The {@link Project}.  Loaders can use this to take advantage of existing
+	 *   {@link DomainFolder}s and {@link DomainFile}s to do custom behaviors such as loading
+	 *   libraries. Could be null if there is no project.
+	 * @param projectFolderPath A suggested project folder path for the {@link Loaded} 
+	 *   {@link Program}s. This is just a suggestion, and a {@link Loader} implementation 
+	 *   reserves the right to change it for each {@link Loaded} result. The {@link Loaded} results 
+	 *   should be queried for their true project folder paths using 
+	 *   {@link Loaded#getProjectFolderPath()}.
+	 * @param loaderClass The {@link Loader} class to use
+	 * @param loaderArgs A {@link List} of optional {@link Loader}-specific arguments
+	 * @param language The desired {@link Language}
+	 * @param compilerSpec The desired {@link CompilerSpec compiler specification}
+	 * @param consumer A reference to the object "consuming" the returned {@link LoadResults}, used
+	 *   to ensure the underlying {@link Program}s are only closed when every consumer is done
+	 *   with it (see {@link LoadResults#close()}).
+	 * @param messageLog The log
+	 * @param monitor A task monitor
+	 * @return The {@link LoadResults} which contains one or more {@link Loaded} {@link Program}s 
+	 *   (created but not saved)
+	 * @throws IOException if there was an IO-related problem loading
+	 * @throws CancelledException if the operation was cancelled 
+	 * @throws DuplicateNameException if the load resulted in a {@link Program} naming conflict
+	 * @throws InvalidNameException if an invalid {@link Program} name was used during load
+	 * @throws VersionException if there was an issue with database versions, probably due to a 
+	 *   failed language upgrade
+	 * @deprecated Use {@link ProgramLoader}
+	 */
+	@Deprecated(since = "12.0", forRemoval = true)
+	public static LoadResults<Program> importByUsingSpecificLoaderClassAndLcs(FSRL fsrl,
+			Project project, String projectFolderPath, Class<? extends Loader> loaderClass,
+			List<Pair<String, String>> loaderArgs, Language language, CompilerSpec compilerSpec,
+			Object consumer, MessageLog messageLog, TaskMonitor monitor) throws IOException,
 			CancelledException, DuplicateNameException, InvalidNameException, VersionException {
-		if (provider == null) {
-			return null;
-		}
-
-		// Get the load spec
-		LoadSpec loadSpec = getLoadSpec(loaderFilter, loadSpecChooser, provider);
-		if (loadSpec == null) {
-			return null;
-		}
-
-		// Get the program name
-		String programName = loadSpec.getLoader().getPreferredFileName(provider);
-		if (programNameOverride != null) {
-			programName = programNameOverride;
-		}
-
-		// Collect options
-		LanguageCompilerSpecPair languageCompilerSpecPair = loadSpec.getLanguageCompilerSpec();
-		AddressFactory addrFactory = null;// Address type options not permitted if null
-		if (languageCompilerSpecPair != null) {
-			// It is assumed that if languageCompilerSpecPair exists, then language will be found
-			addrFactory = DefaultLanguageService.getLanguageService().getLanguage(
-				languageCompilerSpecPair.languageID).getAddressFactory();
-		}
-		List<Option> loaderOptions = optionChooser.choose(
-			loadSpec.getLoader().getDefaultOptions(provider, loadSpec, null, false), addrFactory);
-		if (loaderOptions == null) {
-			return null;
-		}
-
-		// Import program
-		List<DomainObject> domainObjects = loadSpec.getLoader().load(provider, programName,
-			programFolder, loadSpec, loaderOptions, messageLog, consumer, monitor);
-
-		return multipleProgramsStrategy.handlePrograms(getPrograms(domainObjects), consumer);
+		return ProgramLoader.builder()
+				.source(fsrl)
+				.project(project)
+				.projectFolderPath(projectFolderPath)
+				.loaders(loaderClass)
+				.loaderArgs(loaderArgs)
+				.language(language)
+				.compiler(compilerSpec)
+				.log(messageLog)
+				.monitor(monitor)
+				.load(consumer);
 	}
 
-	private static LoadSpec getLoadSpec(Predicate<Loader> loaderFilter,
-			LoadSpecChooser loadSpecChooser, ByteProvider provider) {
-		LoaderMap loaderMap = LoaderService.getSupportedLoadSpecs(provider, loaderFilter);
-
-		LoadSpec loadSpec = loadSpecChooser.choose(loaderMap);
-		if (loadSpec != null) {
-			return loadSpec;
-		}
-
-		File f = provider.getFile();
-		String name = f != null ? f.getAbsolutePath() : provider.getName();
-		Msg.info(AutoImporter.class, "No load spec found for import file: " + name);
-		return null;
+	/**
+	 * Automatically imports the given {@link File} with the {@link BinaryLoader}, using the given
+	 * language and compiler specification.
+	 * <p>
+	 * Note that when the import completes, the returned {@link Loaded} {@link Program} is 
+	 * not saved to a project.  That is the responsibility of the caller (see 
+	 * {@link Loaded#save(TaskMonitor)}).
+	 * <p>
+	 * It is also the responsibility of the caller to close the returned {@link Loaded} 
+	 * {@link Program} with {@link Loaded#close()} when it is no longer needed.
+	 * 
+	 * @param file The {@link File} to import
+	 * @param project The {@link Project}.  Loaders can use this to take advantage of existing
+	 *   {@link DomainFolder}s and {@link DomainFile}s to do custom behaviors such as loading
+	 *   libraries. Could be null if there is no project.
+	 * @param projectFolderPath A suggested project folder path for the {@link Loaded} 
+	 *   {@link Program}. This is just a suggestion, and a {@link Loader} implementation 
+	 *   reserves the right to change it for the {@link Loaded} result. The {@link Loaded} result 
+	 *   should be queried for its true project folder paths using 
+	 *   {@link Loaded#getProjectFolderPath()}.
+	 * @param language The desired {@link Language}
+	 * @param compilerSpec The desired {@link CompilerSpec compiler specification}
+	 * @param consumer A reference to the object "consuming" the returned {@link Loaded} 
+	 *   {@link Program}, used to ensure the underlying {@link Program} is only closed when every 
+	 *   consumer is done with it (see {@link Loaded#close()}).
+	 * @param messageLog The log
+	 * @param monitor A task monitor
+	 * @return The {@link Loaded} {@link Program} (created but not saved)
+	 * @throws IOException if there was an IO-related problem loading
+	 * @throws CancelledException if the operation was cancelled 
+	 * @throws DuplicateNameException if the load resulted in a {@link Program} naming conflict
+	 * @throws InvalidNameException if an invalid {@link Program} name was used during load
+	 * @throws VersionException if there was an issue with database versions, probably due to a 
+	 *   failed language upgrade
+	 * @throws LoadException if nothing was loaded
+	 * @deprecated Use {@link ProgramLoader}
+	 */
+	@Deprecated(since = "12.0", forRemoval = true)
+	public static Loaded<Program> importAsBinary(File file, Project project,
+			String projectFolderPath, Language language, CompilerSpec compilerSpec, Object consumer,
+			MessageLog messageLog, TaskMonitor monitor) throws IOException, CancelledException,
+			DuplicateNameException, InvalidNameException, VersionException, LoadException {
+		LoadResults<Program> loadResults = ProgramLoader.builder()
+				.source(file)
+				.project(project)
+				.projectFolderPath(projectFolderPath)
+				.loaders(BinaryLoader.class)
+				.language(language)
+				.compiler(compilerSpec)
+				.log(messageLog)
+				.monitor(monitor)
+				.load(consumer);
+		loadResults.getNonPrimary().forEach(Loaded::close);
+		return loadResults.getPrimary();
 	}
 
-	private static List<Program> getPrograms(List<DomainObject> domainObjects) {
-		List<Program> programs = new ArrayList<Program>();
-		for (DomainObject domainObject : domainObjects) {
-			if (domainObject instanceof Program) {
-				programs.add((Program) domainObject);
-			}
-		}
+	/**
+	 * Automatically imports the given {@link ByteProvider} bytes with the {@link BinaryLoader}, 
+	 * using the given language and compiler specification.
+	 * <p>
+	 * Note that when the import completes, the returned {@link Loaded} {@link Program} is 
+	 * not saved to a project.  That is the responsibility of the caller (see 
+	 * {@link Loaded#save(TaskMonitor)}).
+	 * <p>
+	 * It is also the responsibility of the caller to close the returned {@link Loaded} 
+	 * {@link Program} with {@link Loaded#close()} when it is no longer needed.
+	 * 
+	 * @param bytes The bytes to import
+	 * @param project The {@link Project}.  Loaders can use this to take advantage of existing
+	 *   {@link DomainFolder}s and {@link DomainFile}s to do custom behaviors such as loading
+	 *   libraries. Could be null if there is no project.
+	 * @param projectFolderPath A suggested project folder path for the {@link Loaded} 
+	 *   {@link Program}. This is just a suggestion, and a {@link Loader} implementation 
+	 *   reserves the right to change it the {@link Loaded} result. The {@link Loaded} result 
+	 *   should be queried for its true project folder paths using 
+	 *   {@link Loaded#getProjectFolderPath()}.
+	 * @param language The desired {@link Language}
+	 * @param compilerSpec The desired {@link CompilerSpec compiler specification}
+	 * @param consumer A reference to the object "consuming" the returned {@link Loaded} 
+	 *   {@link Program}, used to ensure the underlying {@link Program} is only closed when every 
+	 *   consumer is done with it (see {@link Loaded#close()}).
+	 * @param messageLog The log
+	 * @param monitor A task monitor
+	 * @return The {@link Loaded} {@link Program} (created but not saved)
+	 * @throws IOException if there was an IO-related problem loading
+	 * @throws CancelledException if the operation was cancelled 
+	 * @throws DuplicateNameException if the load resulted in a {@link Program} naming conflict
+	 * @throws InvalidNameException if an invalid {@link Program} name was used during load
+	 * @throws VersionException if there was an issue with database versions, probably due to a 
+	 *   failed language upgrade
+	 * @throws LoadException if nothing was loaded
+	 * @deprecated Use {@link ProgramLoader}
+	 */
+	@Deprecated(since = "12.0", forRemoval = true)
+	public static Loaded<Program> importAsBinary(ByteProvider bytes, Project project,
+			String projectFolderPath, Language language, CompilerSpec compilerSpec,
+			Object consumer, MessageLog messageLog, TaskMonitor monitor) throws IOException,
+			CancelledException, DuplicateNameException, InvalidNameException, VersionException,
+			LoadException {
+		LoadResults<Program> loadResults = ProgramLoader.builder()
+				.source(bytes)
+				.project(project)
+				.projectFolderPath(projectFolderPath)
+				.loaders(BinaryLoader.class)
+				.language(language)
+				.compiler(compilerSpec)
+				.log(messageLog)
+				.monitor(monitor)
+				.load(consumer);
+		loadResults.getNonPrimary().forEach(Loaded::close);
+		return loadResults.getPrimary();
+	}
 
-		return programs;
+	/**
+	 * Automatically imports the given {@link File} with advanced options.
+	 * <p>
+	 * Note that when the import completes, the returned {@link Loaded} {@link Program}s are not 
+	 * saved to a project.  That is the responsibility of the caller (see 
+	 * {@link LoadResults#save(TaskMonitor)}).
+	 * <p>
+	 * It is also the responsibility of the caller to release the returned {@link Loaded} 
+	 * {@link Program}s with {@link LoadResults#close()} when they are no longer needed.
+	 * 
+	 * @param file The {@link File} to import
+	 * @param project The {@link Project}.  Loaders can use this to take advantage of existing
+	 *   {@link DomainFolder}s and {@link DomainFile}s to do custom behaviors such as loading
+	 *   libraries. Could be null if there is no project.
+	 * @param projectFolderPath A suggested project folder path for the {@link Loaded} 
+	 *   {@link Program}s. This is just a suggestion, and a {@link Loader} implementation 
+	 *   reserves the right to change it for each {@link Loaded} result. The {@link Loaded} results 
+	 *   should be queried for their true project folder paths using 
+	 *   {@link Loaded#getProjectFolderPath()}.
+	 * @param loaderFilter A {@link Predicate} used to choose what {@link Loader}(s) get used
+	 * @param loadSpecChooser A {@link LoadSpecChooser} used to choose what {@link LoadSpec}(s) get
+	 *   used
+	 * @param importNameOverride The name to use for the imported thing.  Null to use the 
+	 *   {@link Loader}'s preferred name.
+	 * @param optionChooser A {@link OptionChooser} used to choose what {@link Loader} options get
+	 *   used
+	 * @param consumer A reference to the object "consuming" the returned {@link LoadResults}, used
+	 *   to ensure the underlying {@link Program}s are only closed when every consumer is done
+	 *   with it (see {@link LoadResults#close()}).
+	 * @param messageLog The log
+	 * @param monitor A task monitor
+	 * @return The {@link LoadResults} which contains one or more {@link Loaded} {@link Program}s 
+	 *   (created but not saved)
+	 * @throws IOException if there was an IO-related problem loading
+	 * @throws CancelledException if the operation was cancelled 
+	 * @throws DuplicateNameException if the load resulted in a {@link Program} naming conflict
+	 * @throws InvalidNameException if an invalid {@link Program} name was used during load
+	 * @throws VersionException if there was an issue with database versions, probably due to a 
+	 *   failed language upgrade
+	 * @throws LoadException if nothing was loaded
+	 * @deprecated Use {@link ProgramLoader}
+	 */
+	@Deprecated(since = "12.0", forRemoval = true)
+	public static LoadResults<Program> importFresh(File file, Project project,
+			String projectFolderPath, Object consumer, MessageLog messageLog, TaskMonitor monitor,
+			Predicate<Loader> loaderFilter, LoadSpecChooser loadSpecChooser,
+			String importNameOverride, OptionChooser optionChooser) throws IOException,
+			CancelledException, DuplicateNameException, InvalidNameException, VersionException,
+			LoadException {
+		return ProgramLoader.builder()
+				.source(file)
+				.project(project)
+				.projectFolderPath(projectFolderPath)
+				.name(importNameOverride)
+				.loaders(loaderFilter)
+				.loaderArgs(optionChooser.getArgs())
+				.language(loadSpecChooser.getLanguageId())
+				.compiler(loadSpecChooser.getCompilerSpecId())
+				.log(messageLog)
+				.monitor(monitor)
+				.load(consumer);
+	}
+
+	/**
+	 * Automatically imports the given {@link FSRL} with advanced options.
+	 * <p>
+	 * Note that when the import completes, the returned {@link Loaded} {@link Program}s are not 
+	 * saved to a project.  That is the responsibility of the caller (see 
+	 * {@link LoadResults#save(TaskMonitor)}).
+	 * <p>
+	 * It is also the responsibility of the caller to release the returned {@link Loaded} 
+	 * {@link Program}s with {@link LoadResults#close()} when they are no longer needed.
+	 * 
+	 * @param fsrl The {@link FSRL} to import
+	 * @param project The {@link Project}.  Loaders can use this to take advantage of existing
+	 *   {@link DomainFolder}s and {@link DomainFile}s to do custom behaviors such as loading
+	 *   libraries. Could be null if there is no project.
+	 * @param projectFolderPath A suggested project folder path for the {@link Loaded} 
+	 *   {@link Program}s. This is just a suggestion, and a {@link Loader} implementation 
+	 *   reserves the right to change it for each {@link Loaded} result. The {@link Loaded} results 
+	 *   should be queried for their true project folder paths using 
+	 *   {@link Loaded#getProjectFolderPath()}.
+	 * @param loaderFilter A {@link Predicate} used to choose what {@link Loader}(s) get used
+	 * @param loadSpecChooser A {@link LoadSpecChooser} used to choose what {@link LoadSpec}(s) get
+	 *   used
+	 * @param importNameOverride The name to use for the imported thing.  Null to use the 
+	 *   {@link Loader}'s preferred name.
+	 * @param optionChooser A {@link OptionChooser} used to choose what {@link Loader} options get
+	 *   used
+	 * @param consumer A reference to the object "consuming" the returned {@link LoadResults}, used
+	 *   to ensure the underlying {@link Program}s are only closed when every consumer is done
+	 *   with it (see {@link LoadResults#close()}).
+	 * @param messageLog The log
+	 * @param monitor A task monitor
+	 * @return The {@link LoadResults} which contains one or more {@link Loaded} {@link Program}s 
+	 *   (created but not saved)
+	 * @throws IOException if there was an IO-related problem loading
+	 * @throws CancelledException if the operation was cancelled 
+	 * @throws DuplicateNameException if the load resulted in a {@link Program} naming conflict
+	 * @throws InvalidNameException if an invalid {@link Program} name was used during load
+	 * @throws VersionException if there was an issue with database versions, probably due to a 
+	 *   failed language upgrade
+	 * @throws LoadException if nothing was loaded
+	 * @deprecated Use {@link ProgramLoader}
+	 */
+	@Deprecated(since = "12.0", forRemoval = true)
+	public static LoadResults<Program> importFresh(FSRL fsrl, Project project,
+			String projectFolderPath, Object consumer, MessageLog messageLog, TaskMonitor monitor,
+			Predicate<Loader> loaderFilter, LoadSpecChooser loadSpecChooser,
+			String importNameOverride, OptionChooser optionChooser)
+			throws IOException, CancelledException, DuplicateNameException, InvalidNameException,
+			VersionException, LoadException {
+		return ProgramLoader.builder()
+				.source(fsrl)
+				.project(project)
+				.projectFolderPath(projectFolderPath)
+				.name(importNameOverride)
+				.loaders(loaderFilter)
+				.loaderArgs(optionChooser.getArgs())
+				.language(loadSpecChooser.getLanguageId())
+				.compiler(loadSpecChooser.getCompilerSpecId())
+				.log(messageLog)
+				.monitor(monitor)
+				.load(consumer);
+	}
+
+	/**
+	 * Automatically imports the given {@link ByteProvider bytes} with advanced options.
+	 * <p>
+	 * Note that when the import completes, the returned {@link Loaded} {@link Program}s are not 
+	 * saved to a project.  That is the responsibility of the caller (see 
+	 * {@link LoadResults#save(TaskMonitor)}).
+	 * <p>
+	 * It is also the responsibility of the caller to release the returned {@link Loaded} 
+	 * {@link Program}s with {@link LoadResults#close()} when they are no longer needed.
+	 * 
+	 * @param provider The bytes to import
+	 * @param project The {@link Project}.  Loaders can use this to take advantage of existing
+	 *   {@link DomainFolder}s and {@link DomainFile}s to do custom behaviors such as loading
+	 *   libraries. Could be null if there is no project.
+	 * @param projectFolderPath A suggested project folder path for the {@link Loaded} 
+	 *   {@link Program}s. This is just a suggestion, and a {@link Loader} implementation 
+	 *   reserves the right to change it for each {@link Loaded} result. The {@link Loaded} results 
+	 *   should be queried for their true project folder paths using 
+	 *   {@link Loaded#getProjectFolderPath()}.
+	 * @param loaderFilter A {@link Predicate} used to choose what {@link Loader}(s) get used
+	 * @param loadSpecChooser A {@link LoadSpecChooser} used to choose what {@link LoadSpec}(s) get
+	 *   used
+	 * @param importNameOverride The name to use for the imported thing.  Null to use the 
+	 *   {@link Loader}'s preferred name.
+	 * @param optionChooser A {@link OptionChooser} used to choose what {@link Loader} options get
+	 *   used
+	 * @param consumer A reference to the object "consuming" the returned {@link LoadResults}, used
+	 *   to ensure the underlying {@link Program}s are only closed when every consumer is done
+	 *   with it (see {@link LoadResults#close()}).
+	 * @param messageLog The log
+	 * @param monitor A task monitor
+	 * @return The {@link LoadResults} which contains one or more {@link Loaded} {@link Program}s 
+	 *   (created but not saved)
+	 * @throws IOException if there was an IO-related problem loading
+	 * @throws CancelledException if the operation was cancelled 
+	 * @throws DuplicateNameException if the load resulted in a {@link Program} naming conflict
+	 * @throws InvalidNameException if an invalid {@link Program} name was used during load
+	 * @throws VersionException if there was an issue with database versions, probably due to a 
+	 *   failed language upgrade
+	 * @throws LoadException if nothing was loaded
+	 * @deprecated Use {@link ProgramLoader}
+	 */
+	@Deprecated(since = "12.0", forRemoval = true)
+	public static LoadResults<Program> importFresh(ByteProvider provider, Project project,
+			String projectFolderPath, Object consumer, MessageLog messageLog, TaskMonitor monitor,
+			Predicate<Loader> loaderFilter, LoadSpecChooser loadSpecChooser,
+			String importNameOverride, OptionChooser optionChooser) throws IOException,
+			CancelledException, DuplicateNameException, InvalidNameException, VersionException,
+			LoadException {
+		return ProgramLoader.builder()
+				.source(provider)
+				.project(project)
+				.projectFolderPath(projectFolderPath)
+				.name(importNameOverride)
+				.loaders(loaderFilter)
+				.loaderArgs(optionChooser.getArgs())
+				.language(loadSpecChooser.getLanguageId())
+				.compiler(loadSpecChooser.getCompilerSpecId())
+				.log(messageLog)
+				.monitor(monitor)
+				.load(consumer);
 	}
 }

@@ -13,10 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#ifndef __CPUI_CODEDATA__
-#define __CPUI_CODEDATA__
+#ifndef __CODEDATA_HH__
+#define __CODEDATA_HH__
 
 #include "ifacedecomp.hh"
+
+namespace ghidra {
 
 class IfaceCodeDataCapability : public IfaceCapability {
   static IfaceCodeDataCapability ifaceCodeDataCapability;	// Singleton instance
@@ -77,6 +79,8 @@ public:
   Address codeaddr;		// Address of instruction refering to target call
   Address thunkaddr;		// The target call
   uint4 mask;			// Mask associated with this target
+  TargetHit(const Address &func,const Address &code,const Address &thunk,uint4 m) :
+    funcstart(func), codeaddr(code), thunkaddr(thunk) { mask = m; }
   bool operator<(const TargetHit &op2) const { return (funcstart < op2.funcstart); }
 };
 
@@ -192,4 +196,5 @@ public:
   virtual void execute(istream &s);
 };
 
+} // End namespace ghidra
 #endif

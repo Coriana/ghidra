@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,27 +15,26 @@
  */
 package ghidra.feature.vt.db;
 
-import static ghidra.feature.vt.db.VTTestUtils.addr;
+import static ghidra.feature.vt.db.VTTestUtils.*;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
 import ghidra.program.database.map.AddressMap;
 import ghidra.program.model.address.*;
-import ghidra.program.model.lang.Language;
-import ghidra.program.util.LanguageTranslator;
+import ghidra.program.model.listing.Program;
 
 public class AddressMapTestDummy implements AddressMap {
 
-	@Override
-	public Address decodeAddress(long value) {
-		return addr(value);
+	private Program program;
+
+	public AddressMapTestDummy(Program p) {
+		program = p;
 	}
 
 	@Override
-	public void deleteOverlaySpace(String name) throws IOException {
-		throw new RuntimeException("Unimplmented!");
+	public Address decodeAddress(long value) {
+		return addr(value, program);
 	}
 
 	@Override
@@ -93,53 +92,12 @@ public class AddressMapTestDummy implements AddressMap {
 	}
 
 	@Override
-	public int getModCount() {
-		throw new RuntimeException("Unimplmented!");
-	}
-
-	@Override
 	public AddressMap getOldAddressMap() {
 		throw new RuntimeException("Unimplmented!");
 	}
 
 	@Override
-	public boolean hasSameKeyBase(long addrKey1, long addrKey2) {
-		throw new RuntimeException("Unimplmented!");
-	}
-
-	@Override
-	public void invalidateCache() throws IOException {
-		throw new RuntimeException("Unimplmented!");
-	}
-
-	@Override
-	public boolean isKeyRangeMax(long addrKey) {
-		throw new RuntimeException("Unimplmented!");
-	}
-
-	@Override
-	public boolean isKeyRangeMin(long addrKey) {
-		throw new RuntimeException("Unimplmented!");
-	}
-
-	@Override
 	public boolean isUpgraded() {
-		throw new RuntimeException("Unimplmented!");
-	}
-
-	@Override
-	public void renameOverlaySpace(String oldName, String newName) throws IOException {
-		throw new RuntimeException("Unimplmented!");
-	}
-
-	@Override
-	public void setImageBase(Address base) {
-		throw new RuntimeException("Unimplmented!");
-	}
-
-	@Override
-	public void setLanguage(Language newLanguage, AddressFactory addrFactory,
-			LanguageTranslator translator) throws IOException {
 		throw new RuntimeException("Unimplmented!");
 	}
 

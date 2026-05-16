@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,15 +19,12 @@ import java.io.IOException;
 import java.util.*;
 
 import db.*;
-import ghidra.framework.data.ContentHandler;
 import ghidra.framework.data.DomainObjectAdapterDB;
+import ghidra.framework.data.OpenMode;
 import ghidra.framework.store.FileSystem;
-import ghidra.framework.store.LockException;
 import ghidra.program.database.map.AddressMapDB;
-import ghidra.program.database.mem.MemoryMapDB;
 import ghidra.program.database.properties.*;
 import ghidra.program.model.address.Address;
-import ghidra.program.model.address.AddressFactory;
 import ghidra.program.model.lang.*;
 import ghidra.program.model.listing.ProgramUserData;
 import ghidra.program.model.util.*;
@@ -36,7 +33,6 @@ import ghidra.util.Msg;
 import ghidra.util.Saveable;
 import ghidra.util.exception.*;
 import ghidra.util.task.TaskMonitor;
-import ghidra.util.task.TaskMonitorAdapter;
 
 /**
  * <code>ProgramUserDataDB</code> stores user data associated with a specific program.
@@ -47,9 +43,14 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 
 // TODO: WARNING! This implementation does not properly handle undo/redo in terms of cache invalidation
 
+	private static ProgramContentHandler programContentHandler = new ProgramContentHandler();
+
 	/**
 	 * DB_VERSION should be incremented any time a change is made to the overall
 	 * database schema associated with any of the managers.
+	 * 
+	 * NOTE: 19-Jun-2020 Corrections to DB index tables should have no impact on user data 
+	 *                   PropertyMaps which are not indexed.                   
 	 */
 	static final int DB_VERSION = 1;
 
@@ -62,10 +63,10 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 	private static final int UPGRADE_REQUIRED_BEFORE_VERSION = 1;
 
 	private static final String TABLE_NAME = "ProgramUserData";
-	private final static Class<?>[] COL_CLASS = new Class[] { StringField.class };
+	private final static Field[] COL_FIELDS = new Field[] { StringField.INSTANCE };
 	private final static String[] COL_NAMES = new String[] { "Value" };
 	private final static Schema SCHEMA =
-		new Schema(0, StringField.class, "Key", COL_CLASS, COL_NAMES);
+		new Schema(0, StringField.INSTANCE, "Key", COL_FIELDS, COL_NAMES);
 	private static final int VALUE_COL = 0;
 
 	private static final String STORED_DB_VERSION = "DB Version";
@@ -73,12 +74,12 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 	private static final String LANGUAGE_ID = "Language ID";
 
 	private static final String REGISTRY_TABLE_NAME = "PropertyRegistry";
-	private final static Class<?>[] REGISTRY_COL_CLASS =
-		new Class[] { StringField.class, StringField.class, IntField.class, StringField.class };
+	private final static Field[] REGISTRY_COL_FIELDS = new Field[] { StringField.INSTANCE,
+		StringField.INSTANCE, IntField.INSTANCE, StringField.INSTANCE };
 	private final static String[] REGISTRY_COL_NAMES =
 		new String[] { "Owner", "PropertyName", "PropertyType", "SaveableClass" };
 	private final static Schema REGISTRY_SCHEMA =
-		new Schema(0, "ID", REGISTRY_COL_CLASS, REGISTRY_COL_NAMES);
+		new Schema(0, "ID", REGISTRY_COL_FIELDS, REGISTRY_COL_NAMES);
 	private static final int PROPERTY_OWNER_COL = 0;
 	private static final int PROPERTY_NAME_COL = 1;
 	private static final int PROPERTY_TYPE_COL = 2;
@@ -101,8 +102,8 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 	private int languageVersion;
 	private Language language;
 	private LanguageTranslator languageUpgradeTranslator;
-	private AddressFactory addressFactory;
-	private HashMap<Long, PropertyMap> propertyMaps = new HashMap<Long, PropertyMap>();
+	private ProgramAddressFactory addressFactory;
+	private HashMap<Long, PropertyMap<?>> propertyMaps = new HashMap<Long, PropertyMap<?>>();
 	private HashSet<String> propertyMapOwners = null;
 
 	private final ChangeManager changeMgr = new ChangeManagerAdapter() {
@@ -118,14 +119,19 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 		return program.getName() + "_UserData";
 	}
 
+	/**
+	 * Create a new program user data store.
+	 * @param program related program
+	 * @throws IOException if an IO error occurs
+	 */
 	public ProgramUserDataDB(ProgramDB program) throws IOException {
-		super(new DBHandle(), getName(program), 500, 1000, program);
+		super(new DBHandle(), getName(program), 500, program);
 		this.program = program;
 		this.language = program.getLanguage();
 		languageID = language.getLanguageID();
 		languageVersion = language.getVersion();
 
-		addressFactory = language.getAddressFactory();
+		addressFactory = program.getAddressFactory();
 
 		setEventsEnabled(false); // events not support
 
@@ -134,7 +140,7 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 			int id = startTransaction("create user data");
 
 			createDatabase();
-			if (createManagers(CREATE, program, TaskMonitorAdapter.DUMMY_MONITOR) != null) {
+			if (createManagers(OpenMode.CREATE, program, TaskMonitor.DUMMY) != null) {
 				throw new AssertException("Unexpected version exception on create");
 			}
 			//initManagers(CREATE, TaskMonitorAdapter.DUMMY_MONITOR);
@@ -156,13 +162,27 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 		}
 	}
 
+	/**
+	 * Open existing program user data store.
+	 * If a major language change is detected the instance will automatically attempt to upgrade
+	 * its internal address map.
+	 * @param dbh user data storage DB handle
+	 * @param program related program
+	 * @param monitor task monitor
+	 * @throws IOException if an IO error occurs
+	 * @throws VersionException if a DB version error occurs
+	 * @throws LanguageNotFoundException if language was not found
+	 * @throws CancelledException if instantiation was cancelled
+	 * @throws IllegalStateException if data store is bad or incmopatible with program
+	 */
 	public ProgramUserDataDB(DBHandle dbh, ProgramDB program, TaskMonitor monitor)
-			throws IOException, VersionException, LanguageNotFoundException, CancelledException {
+			throws IOException, VersionException, LanguageNotFoundException, CancelledException,
+			IllegalStateException {
 
-		super(dbh, getName(program), 500, 1000, program);
+		super(dbh, getName(program), 500, program);
 		this.program = program;
 		if (monitor == null) {
-			monitor = TaskMonitorAdapter.DUMMY_MONITOR;
+			monitor = TaskMonitor.DUMMY;
 		}
 
 		setEventsEnabled(false); // events not support
@@ -183,9 +203,9 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 				languageVersionExc = checkForLanguageChange(e);
 			}
 
-			addressFactory = language.getAddressFactory();
+			addressFactory = program.getAddressFactory();
 
-			VersionException versionExc = createManagers(UPGRADE, program, monitor);
+			VersionException versionExc = createManagers(OpenMode.UPGRADE, program, monitor);
 			if (dbVersionExc != null) {
 				versionExc = dbVersionExc.combine(versionExc);
 			}
@@ -199,9 +219,12 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 			upgradeDatabase();
 
 			if (languageVersionExc != null) {
+				if (languageUpgradeTranslator == null) {
+					throw new LanguageNotFoundException(languageID + ":" + languageVersion);
+				}
 				try {
 					setLanguage(languageUpgradeTranslator, monitor);
-					addressMap.memoryMapChanged((MemoryMapDB) program.getMemory());
+					addressMap.memoryMapChanged(program.getMemory());
 				}
 				catch (IllegalStateException e) {
 					if (e.getCause() instanceof CancelledException) {
@@ -209,9 +232,16 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 					}
 					throw e;
 				}
-				catch (LockException e) {
-					throw new AssertException("Upgrade mode requires exclusive access", e);
-				}
+			}
+
+			if (!program.getLanguageID().equals(languageID)) {
+				throw new IllegalStateException(
+					"User data and program have inconsistent language ID");
+			}
+
+			if (program.getLanguage().getVersion() != languageVersion) {
+				throw new IllegalStateException(
+					"User data language version does not match program's");
 			}
 
 			endTransaction(id, true);
@@ -230,7 +260,7 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 	/**
 	 * Language corresponding to languageId was found.  Check language version
 	 * for language upgrade situation.
-	 * @throws LanguageNotFoundException
+	 * @throws LanguageNotFoundException if language version has changed
 	 * @return VersionException if language upgrade required
 	 */
 	private VersionException checkLanguageVersion() throws LanguageNotFoundException {
@@ -239,8 +269,8 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 
 			Language newLanguage = language;
 
-			Language oldLanguage = OldLanguageFactory.getOldLanguageFactory().getOldLanguage(
-				languageID, languageVersion);
+			Language oldLanguage = OldLanguageFactory.getOldLanguageFactory()
+					.getOldLanguage(languageID, languageVersion);
 			if (oldLanguage == null) {
 				// Assume minor version behavior - old language does not exist for current major version
 				Msg.error(this, "Old language specification not found: " + languageID +
@@ -249,9 +279,8 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 			}
 
 			// Ensure that we can upgrade the language
-			languageUpgradeTranslator =
-				LanguageTranslatorFactory.getLanguageTranslatorFactory().getLanguageTranslator(
-					oldLanguage, newLanguage);
+			languageUpgradeTranslator = LanguageTranslatorFactory.getLanguageTranslatorFactory()
+					.getLanguageTranslator(oldLanguage, newLanguage);
 			if (languageUpgradeTranslator == null) {
 				throw new LanguageNotFoundException(language.getLanguageID(),
 					"(Ver " + languageVersion + ".x" + " -> " + newLanguage.getVersion() + "." +
@@ -269,21 +298,17 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 
 	/**
 	 * Language specified by languageName was not found.  Check for
-	 * valid language translation/migration.  Old langauge version specified by
+	 * valid language translation/migration.  Old language version specified by
 	 * languageVersion.
-	 * @param openMode one of:
-	 * 		READ_ONLY: the original database will not be modified
-	 * 		UPDATE: the database can be written to.
-	 * 		UPGRADE: the database is upgraded to the lastest schema as it is opened.
+	 * @param e language not found exception
 	 * @return true if language upgrade required
 	 * @throws LanguageNotFoundException if a suitable replacement language not found
 	 */
 	private VersionException checkForLanguageChange(LanguageNotFoundException e)
 			throws LanguageNotFoundException {
 
-		languageUpgradeTranslator =
-			LanguageTranslatorFactory.getLanguageTranslatorFactory().getLanguageTranslator(
-				languageID, languageVersion);
+		languageUpgradeTranslator = LanguageTranslatorFactory.getLanguageTranslatorFactory()
+				.getLanguageTranslator(languageID, languageVersion);
 		if (languageUpgradeTranslator == null) {
 			throw e;
 		}
@@ -321,7 +346,7 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 		registryTable =
 			dbh.createTable(REGISTRY_TABLE_NAME, REGISTRY_SCHEMA, new int[] { PROPERTY_OWNER_COL });
 
-		Record record = SCHEMA.createRecord(new StringField(LANGUAGE_ID));
+		DBRecord record = SCHEMA.createRecord(new StringField(LANGUAGE_ID));
 		record.setString(VALUE_COL, languageID.getIdAsString());
 		table.putRecord(record);
 
@@ -344,7 +369,7 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 			throw new IOException("Unsupported User Data File Content");
 		}
 
-		Record record = table.getRecord(new StringField(LANGUAGE_ID));
+		DBRecord record = table.getRecord(new StringField(LANGUAGE_ID));
 		languageID = new LanguageID(record.getString(VALUE_COL));
 
 		record = table.getRecord(new StringField(LANGUAGE_VERSION));
@@ -362,6 +387,7 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 			storedVersion = Integer.parseInt(record.getString(VALUE_COL));
 		}
 		catch (NumberFormatException e) {
+			// assume version 1 - value not stored
 		}
 		if (storedVersion > DB_VERSION) {
 			throw new VersionException(VersionException.NEWER_VERSION, false);
@@ -369,22 +395,23 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 		if (storedVersion < UPGRADE_REQUIRED_BEFORE_VERSION) {
 			requiresUpgrade = true;
 		}
+		loadMetadata();
 		return requiresUpgrade ? new VersionException(true) : null;
 	}
 
 	private void upgradeDatabase() throws IOException {
 		table = dbh.getTable(TABLE_NAME);
-		Record record = SCHEMA.createRecord(new StringField(STORED_DB_VERSION));
+		DBRecord record = SCHEMA.createRecord(new StringField(STORED_DB_VERSION));
 		record.setString(VALUE_COL, Integer.toString(DB_VERSION));
 		table.putRecord(record);
 	}
 
-	private VersionException createManagers(int openMode, ProgramDB program1, TaskMonitor monitor)
-			throws CancelledException, IOException {
+	private VersionException createManagers(OpenMode openMode, ProgramDB program1,
+			TaskMonitor monitor) throws CancelledException, IOException {
 
 		VersionException versionExc = null;
 
-		monitor.checkCanceled();
+		monitor.checkCancelled();
 
 		// the memoryManager should always be created first because it is needed to resolve
 		// segmented addresses from longs that other manages may need while upgrading.
@@ -395,8 +422,8 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 		catch (VersionException e) {
 			versionExc = e.combine(versionExc);
 			try {
-				addressMap =
-					new AddressMapDB(dbh, READ_ONLY, addressFactory, baseImageOffset, monitor);
+				addressMap = new AddressMapDB(dbh, OpenMode.IMMUTABLE, addressFactory,
+					baseImageOffset, monitor);
 			}
 			catch (VersionException e1) {
 				if (e1.isUpgradable()) {
@@ -407,8 +434,8 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 				return versionExc;
 			}
 		}
-		addressMap.memoryMapChanged((MemoryMapDB) program1.getMemory());
-		monitor.checkCanceled();
+		addressMap.memoryMapChanged(program1.getMemory());
+		monitor.checkCancelled();
 
 		return versionExc;
 	}
@@ -416,46 +443,43 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 	/**
 	 * Translate language
 	 * @param translator language translator, if null only re-disassembly will occur.
-	 * @param monitor
-	 * @throws LockException
+	 * @param monitor task monitor
 	 */
-	private void setLanguage(LanguageTranslator translator, TaskMonitor monitor)
-			throws LockException {
-		lock.acquire();
+	private void setLanguage(LanguageTranslator translator, TaskMonitor monitor) {
+		//setEventsEnabled(false);
 		try {
-			//setEventsEnabled(false);
-			try {
 
-				language = translator.getNewLanguage();
-				languageID = language.getLanguageID();
-				languageVersion = language.getVersion();
+			language = translator.getNewLanguage();
+			languageID = language.getLanguageID();
+			languageVersion = language.getVersion();
 
-				addressFactory = language.getAddressFactory();
-				addressMap.setLanguage(language, addressFactory, translator);
+			// AddressFactory need not change since we are using the instance from the
+			// Program which would have already been subject to an upgrade
+			addressMap.setLanguage(language, addressFactory, translator);
 
-				clearCache(true);
+			clearCache(true);
 
-				Record record = SCHEMA.createRecord(new StringField(LANGUAGE_ID));
-				record.setString(VALUE_COL, languageID.getIdAsString());
-				table.putRecord(record);
+			DBRecord record = SCHEMA.createRecord(new StringField(LANGUAGE_ID));
+			record.setString(VALUE_COL, languageID.getIdAsString());
+			table.putRecord(record);
 
-				setChanged(true);
-				clearCache(true);
+			record = SCHEMA.createRecord(new StringField(LANGUAGE_VERSION));
+			record.setString(VALUE_COL, Integer.toString(languageVersion));
+			table.putRecord(record);
 
-				//invalidate();
+			setChanged(true);
+			clearCache(true);
 
-			}
-			catch (Throwable t) {
-				throw new IllegalStateException(
-					"Set language aborted - program user data is now in an unusable state!", t);
-			}
+			//invalidate();
+
+		}
+		catch (Throwable t) {
+			throw new IllegalStateException(
+				"Set language aborted - program user data is now in an unusable state!", t);
+		}
 //			finally {
 //				setEventsEnabled(true);
 //			}
-		}
-		finally {
-			lock.release();
-		}
 	}
 
 	@Override
@@ -463,12 +487,18 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 		return dbh.canUpdate();
 	}
 
-	private PropertyMap getPropertyMap(String owner, String propertyName, int propertyType,
+	@Override
+	protected void setChanged(boolean b) {
+		super.setChanged(b);
+	}
+	
+	private PropertyMap<?> getPropertyMap(String owner, String propertyName, int propertyType,
 			Class<?> saveableClass, boolean create) throws PropertyTypeMismatchException {
 
 		try {
-			for (long key : registryTable.findRecords(new StringField(owner), PROPERTY_OWNER_COL)) {
-				Record rec = registryTable.getRecord(key);
+			for (Field key : registryTable.findRecords(new StringField(owner),
+				PROPERTY_OWNER_COL)) {
+				DBRecord rec = registryTable.getRecord(key);
 				if (propertyName.equals(rec.getString(PROPERTY_NAME_COL))) {
 					int type = rec.getIntValue(PROPERTY_TYPE_COL);
 					if (propertyType != type) {
@@ -491,14 +521,14 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 			}
 
 			long key = registryTable.getKey();
-			Record rec = REGISTRY_SCHEMA.createRecord(key);
+			DBRecord rec = REGISTRY_SCHEMA.createRecord(key);
 			rec.setString(PROPERTY_OWNER_COL, owner);
 			rec.setString(PROPERTY_NAME_COL, propertyName);
 			rec.setIntValue(PROPERTY_TYPE_COL, propertyType);
 			if (saveableClass != null) {
 				rec.setString(PROPERTY_CLASS_COL, saveableClass.getName());
 			}
-			PropertyMap map = null;
+			PropertyMap<?> map = null;
 			boolean success = false;
 			try {
 				map = getPropertyMap(rec);
@@ -522,38 +552,33 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 		return null;
 	}
 
-	private PropertyMap getPropertyMap(Record rec) throws IOException {
+	private PropertyMap<?> getPropertyMap(DBRecord rec) throws IOException {
 		try {
-			PropertyMap map;
+			PropertyMap<?> map;
 			int type = rec.getIntValue(PROPERTY_TYPE_COL);
 			switch (type) {
 				case PROPERTY_TYPE_STRING:
-					map = new StringPropertyMapDB(dbh, DBConstants.UPGRADE, this, changeMgr,
-						addressMap, rec.getString(PROPERTY_NAME_COL),
-						TaskMonitorAdapter.DUMMY_MONITOR);
+					map = new StringPropertyMapDB(dbh, OpenMode.UPGRADE, this, changeMgr,
+						addressMap, rec.getString(PROPERTY_NAME_COL), TaskMonitor.DUMMY);
 					break;
 				case PROPERTY_TYPE_LONG:
-					map =
-						new LongPropertyMapDB(dbh, DBConstants.UPGRADE, this, changeMgr, addressMap,
-							rec.getString(PROPERTY_NAME_COL), TaskMonitorAdapter.DUMMY_MONITOR);
+					map = new LongPropertyMapDB(dbh, OpenMode.UPGRADE, this, changeMgr, addressMap,
+						rec.getString(PROPERTY_NAME_COL), TaskMonitor.DUMMY);
 					break;
 				case PROPERTY_TYPE_INT:
-					map =
-						new IntPropertyMapDB(dbh, DBConstants.UPGRADE, this, changeMgr, addressMap,
-							rec.getString(PROPERTY_NAME_COL), TaskMonitorAdapter.DUMMY_MONITOR);
+					map = new IntPropertyMapDB(dbh, OpenMode.UPGRADE, this, changeMgr, addressMap,
+						rec.getString(PROPERTY_NAME_COL), TaskMonitor.DUMMY);
 					break;
 				case PROPERTY_TYPE_BOOLEAN:
-					map =
-						new VoidPropertyMapDB(dbh, DBConstants.UPGRADE, this, changeMgr, addressMap,
-							rec.getString(PROPERTY_NAME_COL), TaskMonitorAdapter.DUMMY_MONITOR);
+					map = new VoidPropertyMapDB(dbh, OpenMode.UPGRADE, this, changeMgr, addressMap,
+						rec.getString(PROPERTY_NAME_COL), TaskMonitor.DUMMY);
 					break;
 				case PROPERTY_TYPE_SAVEABLE:
 					String className = rec.getString(PROPERTY_CLASS_COL);
 					Class<? extends Saveable> c =
 						ObjectPropertyMapDB.getSaveableClassForName(className);
-					return new ObjectPropertyMapDB(dbh, DBConstants.UPGRADE, this, changeMgr,
-						addressMap, rec.getString(PROPERTY_NAME_COL), c,
-						TaskMonitorAdapter.DUMMY_MONITOR, true);
+					return new ObjectPropertyMapDB<>(dbh, OpenMode.UPGRADE, this, changeMgr,
+						addressMap, rec.getString(PROPERTY_NAME_COL), c, TaskMonitor.DUMMY, true);
 				default:
 					throw new IllegalArgumentException("Unsupported property type: " + type);
 			}
@@ -570,11 +595,12 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 	}
 
 	@Override
-	public synchronized List<PropertyMap> getProperties(String owner) {
-		List<PropertyMap> list = new ArrayList<PropertyMap>();
+	public synchronized List<PropertyMap<?>> getProperties(String owner) {
+		List<PropertyMap<?>> list = new ArrayList<PropertyMap<?>>();
 		try {
-			for (long key : registryTable.findRecords(new StringField(owner), PROPERTY_OWNER_COL)) {
-				Record rec = registryTable.getRecord(key);
+			for (Field key : registryTable.findRecords(new StringField(owner),
+				PROPERTY_OWNER_COL)) {
+				DBRecord rec = registryTable.getRecord(key);
 				list.add(getPropertyMap(rec));
 			}
 		}
@@ -591,7 +617,7 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 				propertyMapOwners = new HashSet<String>();
 				RecordIterator recIter = registryTable.iterator();
 				while (recIter.hasNext()) {
-					Record rec = recIter.next();
+					DBRecord rec = recIter.next();
 					propertyMapOwners.add(rec.getString(PROPERTY_OWNER_COL));
 				}
 			}
@@ -631,11 +657,12 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 			create);
 	}
 
+	@SuppressWarnings("unchecked")
 	@Override
-	public synchronized ObjectPropertyMap getObjectProperty(String owner, String propertyName,
-			Class<? extends Saveable> saveableObjectClass, boolean create)
+	public synchronized <T extends Saveable> ObjectPropertyMap<T> getObjectProperty(String owner,
+			String propertyName, Class<T> saveableObjectClass, boolean create)
 			throws PropertyTypeMismatchException {
-		return (ObjectPropertyMap) getPropertyMap(owner, propertyName, PROPERTY_TYPE_SAVEABLE,
+		return (ObjectPropertyMap<T>) getPropertyMap(owner, propertyName, PROPERTY_TYPE_SAVEABLE,
 			saveableObjectClass, create);
 	}
 
@@ -644,6 +671,11 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 		changed = true;
 		program.userDataChanged(propertyName, oldValue, newValue);
 		return true;
+	}
+
+	@Override
+	public Transaction openTransaction() {
+		return openTransaction("Property Change");
 	}
 
 	@Override
@@ -669,16 +701,36 @@ class ProgramUserDataDB extends DomainObjectAdapterDB implements ProgramUserData
 			else {
 				FileSystem userfs = program.getAssociatedUserFilesystem();
 				if (userfs != null) {
-					ContentHandler contentHandler = getContentHandler(program);
-					if (contentHandler != null) {
-						contentHandler.saveUserDataFile(program, dbh, userfs, monitor);
-					}
+					programContentHandler.saveUserDataFile(program, dbh, userfs, monitor);
 					setChanged(false);
 				}
 			}
 		}
 
 		// fireEvent(new DomainObjectChangeRecord(DomainObject.DO_OBJECT_SAVED));
+	}
+
+	@Override
+	public synchronized void setStringProperty(String propertyName, String value) {
+		metadata.put(propertyName, value);
+		changed = true;
+	}
+
+	@Override
+	public synchronized String getStringProperty(String propertyName, String defaultValue) {
+		String value = metadata.get(propertyName);
+		return value == null ? defaultValue : value;
+	}
+
+	@Override
+	public synchronized Set<String> getStringPropertyNames() {
+		return new HashSet<String>(metadata.keySet());
+	}
+
+	@Override
+	public synchronized String removeStringProperty(String propertyName) {
+		changed = true;
+		return metadata.remove(propertyName);
 	}
 
 }

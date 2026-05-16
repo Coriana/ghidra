@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -36,6 +36,8 @@ public class ObjectChooserDialog<T> extends DialogComponentProvider {
 		this.objectClass = objectClass;
 		this.choosableObjects = choosableObjects;
 		this.methodsForColumns = methodsForColumns;
+
+		setTransient(true);
 		addWorkPanel(buildWorkPanel());
 		addOKButton();
 		addCancelButton();
@@ -68,7 +70,7 @@ public class ObjectChooserDialog<T> extends DialogComponentProvider {
 		table.addSelectionListener(t -> objectSelected(t));
 
 		table.setItemPickListener(t -> objectPicked(t));
-
+		table.getAccessibleContext().setAccessibleName("Object Chooser");
 		return table;
 	}
 
@@ -86,7 +88,17 @@ public class ObjectChooserDialog<T> extends DialogComponentProvider {
 		return selectedObject;
 	}
 
+	public void setSelectedObject(T t) {
+		table.selectRowObject(t);
+	}
+
 	public void setFilterText(String text) {
 		table.setFilterText(text);
+	}
+
+	@Override
+	public void close() {
+		table.dispose();
+		super.close();
 	}
 }

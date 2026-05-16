@@ -15,24 +15,24 @@
  */
 package ghidra.app.plugin.core.reachability;
 
-import ghidra.app.CorePluginPackage;
-import ghidra.app.context.ListingActionContext;
-import ghidra.app.plugin.PluginCategoryNames;
-import ghidra.app.plugin.ProgramPlugin;
-import ghidra.framework.plugintool.*;
-import ghidra.framework.plugintool.util.PluginStatus;
-import ghidra.program.util.*;
-import ghidra.util.HelpLocation;
-
 import java.util.ArrayList;
 import java.util.List;
 
 import javax.swing.Icon;
 
-import resources.ResourceManager;
-import resources.icons.RotateIcon;
 import docking.ActionContext;
 import docking.action.*;
+import docking.tool.ToolConstants;
+import generic.theme.GIcon;
+import ghidra.app.CorePluginPackage;
+import ghidra.app.context.ListingActionContext;
+import ghidra.app.plugin.PluginCategoryNames;
+import ghidra.app.plugin.ProgramPlugin;
+import ghidra.framework.plugintool.PluginInfo;
+import ghidra.framework.plugintool.PluginTool;
+import ghidra.framework.plugintool.util.PluginStatus;
+import ghidra.program.util.*;
+import ghidra.util.HelpLocation;
 
 //@formatter:off
 @PluginInfo(
@@ -48,15 +48,14 @@ import docking.action.*;
 public class FunctionReachabilityPlugin extends ProgramPlugin {
 
 	// TODO
-	static final Icon ICON = new RotateIcon(
-		ResourceManager.loadImage("images/function_graph_curvey.png"), 90);
+	static final Icon ICON = new GIcon("icon.plugin.reachability.provider");
 
 	private DockingAction showProviderAction;
 	private List<FunctionReachabilityProvider> providers =
-		new ArrayList<FunctionReachabilityProvider>();
+		new ArrayList<>();
 
 	public FunctionReachabilityPlugin(PluginTool tool) {
-		super(tool, true, true);
+		super(tool);
 
 		createActions();
 	}
@@ -86,7 +85,7 @@ public class FunctionReachabilityPlugin extends ProgramPlugin {
 			"Function Reachability" }, ICON, "ShowReferences"));
 
 // TODO graph menu?...it is a graph, but not a UI graph		
-		showProviderAction.setMenuBarData(new MenuData(new String[] { "Graph",
+		showProviderAction.setMenuBarData(new MenuData(new String[] { ToolConstants.MENU_GRAPH,
 			"Function Reachability" }, ICON));
 
 // TODO in toolbar menu?		

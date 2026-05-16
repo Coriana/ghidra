@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -29,25 +29,25 @@ import ghidra.util.exception.*;
  * <a id="examples"></a>
  * Example string format:
  * <ul>
- *     <li>global{@link Namespace#DELIMITER ::}child1{@link Namespace#DELIMITER ::}child2
- *     <li>child1
+ *     <li>global{@link Namespace#DELIMITER ::}child1{@link Namespace#DELIMITER ::}child2</li>
+ *     <li>child1</li>
  * </ul>
  * <a id="assumptions"></a>
  * <b>Assumptions for creating namespaces from a path string: </b>
  * <ul>
  *     <li>All elements of a namespace path should be namespace symbols and not other
- *         symbol types.         
- *     <li>Absolute paths can optionally start with the global namespace.
+ *         symbol types.</li>
+ *     <li>Absolute paths can optionally start with the global namespace.</li>
  *     <li>You can provide a relative path that will start at the given
- *         parent namespace (or global if there is no parent provided).
+ *         parent namespace (or global if there is no parent provided).</li>
  *     <li>You can provide a path that has as its first entry the name of the
  *         given parent.  In this case, the first entry will not be created,
- *         but rather the provided parent will be used.
+ *         but rather the provided parent will be used.</li>
  *     <li>If you provide a path and a parent, but the first element of the
  *         path is the global namespace, then the global namespace will be
- *         used as the parent namespace and not the one that was provided.
+ *         used as the parent namespace and not the one that was provided.</li>
  *     <li>You cannot embed the global namespace in a path, but it can be at
- *         the root.
+ *         the root.</li>
  * </ul>
  *
  *
@@ -97,20 +97,6 @@ public class NamespaceUtils {
 	}
 
 	/**
-	 * Provide a standard method for splitting a symbol path into its
-	 * various namespace and symbol name elements.  While the current implementation
-	 * uses a very simplistic approach, this may be improved upon in the future
-	 * to handle various grouping concepts.
-	 * @param path symbol namespace path (path will be trimmed before parse)
-	 * @return order list of namespace names
-	 * @deprecated use SymbolPath instead
-	 */
-	@Deprecated
-	public static List<String> splitNamespacePath(String path) {
-		return Arrays.asList(path.trim().split(Namespace.DELIMITER));
-	}
-
-	/**
 	 * Get the library associated with the specified namespace
 	 * @param namespace namespace
 	 * @return associated library or null if not associated with a library
@@ -134,9 +120,12 @@ public class NamespaceUtils {
 	 *        if null, the global namespace will be used
 	 * @param namespaceName the name of the namespaces to retrieve
 	 * @return a list of all namespaces that match the given name in the given parent namespace.
+	 * An empty list is returned if none found.
+	 * @throws IllegalArgumentException if specified parent Namespace is not valid for 
+	 *         specified program.
 	 */
 	public static List<Namespace> getNamespacesByName(Program program, Namespace parent,
-			String namespaceName) {
+			String namespaceName) throws IllegalArgumentException {
 		validate(program, parent);
 		List<Namespace> namespaceList = new ArrayList<>();
 		List<Symbol> symbols = program.getSymbolTable().getSymbols(namespaceName, parent);
@@ -159,10 +148,13 @@ public class NamespaceUtils {
 	 * @param parent the namespace to use as the root for relative paths. If null, the
 	 * 		  global namespace will be used
 	 * @param pathString the path to the desired namespace
-	 * @return a list of namespaces that match the given path
+	 * @return a list of namespaces that match the given path.  An empty list is returned 
+	 *         if none found.
+	 * @throws IllegalArgumentException if specified parent Namespace is not valid for 
+	 *         specified program.
 	 */
 	public static List<Namespace> getNamespaceByPath(Program program, Namespace parent,
-			String pathString) {
+			String pathString) throws IllegalArgumentException {
 
 		validate(program, parent);
 
@@ -174,18 +166,31 @@ public class NamespaceUtils {
 		}
 
 		List<String> namespaceNames = path.asList();
-		List<Namespace> namespaces = doGetNamespaces(namespaceNames, parent, program);
+		List<Namespace> namespaces = doGetNamespaces(namespaceNames, parent, program, false);
 		return namespaces;
 	}
 
 	private static List<Namespace> doGetNamespaces(List<String> namespaceNames,
-			Namespace root, Program program) {
+			Namespace root, Program program, boolean searchWithinAllLibraries) {
 
 		if (root == null) {
 			root = program.getGlobalNamespace();
 		}
 
 		List<Namespace> parents = Arrays.asList(root);
+
+		if (searchWithinAllLibraries && root.isGlobal() && !namespaceNames.isEmpty()) {
+			ExternalManager extMgr = program.getExternalManager();
+			String ns = namespaceNames.get(0); // only consider if first namespace is not Library
+			if (extMgr.getExternalLibrary(ns) == null) {
+				parents = new ArrayList<>();
+				parents.add(root);
+				for (String libraryName : extMgr.getExternalLibraryNames()) {
+					parents.add(extMgr.getExternalLibrary(libraryName));
+				}
+			}
+		}
+
 		for (String name : namespaceNames) {
 			List<Namespace> matches = getMatchingNamespaces(name, parents, program);
 			parents = matches;
@@ -199,10 +204,12 @@ public class NamespaceUtils {
 	 * @param childName the name of the namespaces to retrieve
 	 * @param parents a list of all namespaces to search for child namespaces with the given name
 	 * @param program the program to search
-	 * @return a list all namespaces that have the given name in any of the given namespaces
+	 * @return a list all namespaces that have the given name in any of the given namespaces.
+	 * Empty list if none found.
+	 * @throws IllegalArgumentException if one or more invalid parent namespaces were specified
 	 */
 	public static List<Namespace> getMatchingNamespaces(String childName, List<Namespace> parents,
-			Program program) {
+			Program program) throws IllegalArgumentException {
 		validate(program, parents);
 		List<Namespace> list = new ArrayList<>();
 		for (Namespace parent : parents) {
@@ -234,14 +241,32 @@ public class NamespaceUtils {
 	}
 
 	/**
+	 * Returns a list of all symbols that match the given path within the global namespace. 
+	 * The path consists of a series of namespaces names separated by "::" followed by a label 
+	 * or function name.
+	 *
+	 * @param symbolPath the names of namespaces and symbol separated by "::".
+	 * @param program the program to search
+	 * @return the list of symbols that match the given symbolPath.  An empty list is returned
+	 * if none found.
+	 */
+	public static List<Symbol> getSymbols(String symbolPath, Program program) {
+		return getSymbols(symbolPath, program, false);
+	}
+
+	/**
 	 * Returns a list of all symbols that match the given path. The path consists of a series
 	 * of namespaces names separated by "::" followed by a label or function name.
 	 *
 	 * @param symbolPath the names of namespaces and symbol separated by "::".
 	 * @param program the program to search
-	 * @return the list of symbols that match the given
+	 * @param searchWithinAllLibraries if true all libraries will be searched provided first element 
+	 * of symbolPath is not a library name, else search symbolPath within global namespace only.
+	 * @return the list of symbols that match the given symbolPath.  An empty list is returned
+	 * if none found.
 	 */
-	public static List<Symbol> getSymbols(String symbolPath, Program program) {
+	public static List<Symbol> getSymbols(String symbolPath, Program program,
+			boolean searchWithinAllLibraries) {
 
 		List<String> namespaceNames = new SymbolPath(symbolPath).asList();
 		if (namespaceNames.isEmpty()) {
@@ -250,8 +275,21 @@ public class NamespaceUtils {
 
 		String symbolName = namespaceNames.remove(namespaceNames.size() - 1);
 		List<Namespace> parents =
-			doGetNamespaces(namespaceNames, program.getGlobalNamespace(), program);
+			doGetNamespaces(namespaceNames, program.getGlobalNamespace(), program,
+				searchWithinAllLibraries);
 		return searchForAllSymbolsInAnyOfTheseNamespaces(parents, symbolName, program);
+	}
+
+	/**
+	 * Returns a list of Symbol that match the given symbolPath within the global namespace.
+	 *
+	 * @param symbolPath the symbol path that specifies a series of namespace and symbol names.
+	 * @param program the program to search for symbols with the given path.
+	 * @return  a list of Symbol that match the given symbolPath.  An empty list is returned
+	 * if none found.
+	 */
+	public static List<Symbol> getSymbols(SymbolPath symbolPath, Program program) {
+		return getSymbols(symbolPath, program, false);
 	}
 
 	/**
@@ -259,14 +297,19 @@ public class NamespaceUtils {
 	 *
 	 * @param symbolPath the symbol path that specifies a series of namespace and symbol names.
 	 * @param program the program to search for symbols with the given path.
-	 * @return  a list of Symbol that match the given symbolPath.
+	 * @param searchWithinAllLibraries if true all libraries will be searched provided first element 
+	 * of symbolPath is not a library name, else search symbolPath within global namespace only.
+	 * @return  a list of Symbol that match the given symbolPath.  An empty list is returned
+	 * if none found.
 	 */
-	public static List<Symbol> getSymbols(SymbolPath symbolPath, Program program) {
+	public static List<Symbol> getSymbols(SymbolPath symbolPath, Program program,
+			boolean searchWithinAllLibraries) {
 		SymbolPath parentPath = symbolPath.getParent();
 		if (parentPath == null) {
 			return program.getSymbolTable().getGlobalSymbols(symbolPath.getName());
 		}
-		List<Namespace> parents = doGetNamespaces(parentPath.asList(), null, program);
+		List<Namespace> parents =
+			doGetNamespaces(parentPath.asList(), null, program, searchWithinAllLibraries);
 		return searchForAllSymbolsInAnyOfTheseNamespaces(parents, symbolPath.getName(), program);
 	}
 
@@ -279,9 +322,11 @@ public class NamespaceUtils {
 	 * @param namespaceName the name of the namespace to find
 	 * @param program the program to search.
 	 * @return the first namespace that matches, or null if no match.
+	 * @throws IllegalArgumentException if specified parent Namespace is not valid for 
+	 *         specified program.
 	 */
 	public static Namespace getFirstNonFunctionNamespace(Namespace parent, String namespaceName,
-			Program program) {
+			Program program) throws IllegalArgumentException {
 		validate(program, parent);
 		List<Symbol> symbols = program.getSymbolTable().getSymbols(namespaceName, parent);
 		for (Symbol symbol : symbols) {
@@ -333,8 +378,8 @@ public class NamespaceUtils {
 	 * 
 	 * <p>The root namespace can be a function.
 	 * 
-	 * <p>If an address is passed, then the path can contain a function name provided the 
-	 * address is in the body of the function; otherwise the names must all be namespaces other 
+	 * <p>If an address is passed, then the path can contain a function name provided the
+	 * address is in the body of the function; otherwise the names must all be namespaces other
 	 * than functions.
 	 *
 	 * @param  namespacePath The namespace name or path string to be parsed
@@ -353,10 +398,13 @@ public class NamespaceUtils {
 	 *         invalid format and this method attempts to create that
 	 *         namespace, or if the namespace string contains the global
 	 *         namespace name in a position other than the root.
+	 * @throws IllegalArgumentException if specified rootNamespace is not valid for 
+	 *         specified program.
 	 * @see    <a href="#assumptions">assumptions</a>
 	 */
 	public static Namespace createNamespaceHierarchy(String namespacePath, Namespace rootNamespace,
-			Program program, Address address, SourceType source) throws InvalidInputException {
+			Program program, Address address, SourceType source)
+			throws InvalidInputException, IllegalArgumentException {
 		validate(program, rootNamespace);
 		rootNamespace = adjustForNullRootNamespace(rootNamespace, namespacePath, program);
 		if (namespacePath == null) {
@@ -387,11 +435,11 @@ public class NamespaceUtils {
 
 	/**
 	 * Returns the existing Function at the given address if its {@link SymbolPath} matches the
-	 * given path  
+	 * given path
 	 *
 	 * @param program the program
 	 * @param symbolPath the path of namespace
-	 * @param address the address 
+	 * @param address the address
 	 * @return the namespace represented by the given path, or null if no such namespace exists
 	 */
 	public static Namespace getFunctionNamespaceAt(Program program, SymbolPath symbolPath,
@@ -401,7 +449,7 @@ public class NamespaceUtils {
 			return null;
 		}
 
-		Symbol[] symbols = program.getSymbolTable().getSymbols(address);
+		SymbolIterator symbols = program.getSymbolTable().getSymbolsAsIterator(address);
 		for (Symbol symbol : symbols) {
 			if (symbol.getSymbolType() == SymbolType.FUNCTION &&
 				symbolPath.matchesPathOf(symbol)) {
@@ -412,12 +460,12 @@ public class NamespaceUtils {
 	}
 
 	/**
-	 * Returns the existing Function containing the given address if its 
-	 * {@link SymbolPath} matches the given path  
+	 * Returns the existing Function containing the given address if its
+	 * {@link SymbolPath} matches the given path
 	 *
 	 * @param program the program
 	 * @param symbolPath the path of namespace
-	 * @param address the address 
+	 * @param address the address
 	 * @return the namespace represented by the given path, or null if no such namespace exists
 	 */
 	public static Namespace getFunctionNamespaceContaining(Program program, SymbolPath symbolPath,
@@ -506,7 +554,8 @@ public class NamespaceUtils {
 		return globalNamespace;
 	}
 
-	private static void validate(Program program, Namespace namespace) {
+	private static void validate(Program program, Namespace namespace)
+			throws IllegalArgumentException {
 		if (namespace != null && !namespace.isGlobal()) {
 			if (program != namespace.getSymbol().getProgram()) {
 				throw new IllegalArgumentException(
@@ -515,7 +564,8 @@ public class NamespaceUtils {
 		}
 	}
 
-	private static void validate(Program program, List<Namespace> parents) {
+	private static void validate(Program program, List<Namespace> parents)
+			throws IllegalArgumentException {
 		for (Namespace namespace : parents) {
 			validate(program, namespace);
 		}
@@ -534,53 +584,25 @@ public class NamespaceUtils {
 			throws InvalidInputException {
 
 		Symbol namespaceSymbol = namespace.getSymbol();
-		String name = namespaceSymbol.getName();
-		SourceType originalSource = namespaceSymbol.getSource();
-
 		SymbolTable symbolTable = namespaceSymbol.getProgram().getSymbolTable();
+		return symbolTable.convertNamespaceToClass(namespace);
+	}
 
-		// Temporarily rename old namespace (it will be removed at the end)
-		int count = 1;
-		while (true) {
-			String n = name + "_" + count++;
-			try {
-				namespaceSymbol.setName(n, SourceType.ANALYSIS);
-				break;
-			}
-			catch (DuplicateNameException e) {
-				// continue
-			}
-			catch (InvalidInputException e) {
-				throw new AssertException(e);
-			}
+	/**
+	 * Returns a list of namespaces, where each element is a component of the original specified
+	 * namespace, excluding the global root namespace.
+	 * <p>
+	 * Namespace "ns1::ns2::ns3" returns [ "ns1", "ns1::ns2", "ns1::ns2::ns3" ]
+	 * 
+	 * @param namespace namespace to process
+	 * @return list of namespaces
+	 */
+	public static List<Namespace> getNamespaceParts(Namespace namespace) {
+		List<Namespace> result = new ArrayList<>();
+		while (!namespace.isGlobal()) {
+			result.add(0, namespace);
+			namespace = namespace.getParentNamespace();
 		}
-
-		// create new class namespace
-		GhidraClass classNamespace = null;
-		try {
-			classNamespace =
-				symbolTable.createClass(namespace.getParentNamespace(), name, originalSource);
-		}
-		catch (DuplicateNameException e) {
-			throw new AssertException(e);
-		}
-		catch (InvalidInputException e) {
-			// The only cause of this exception can be assumed but we need to
-			// avoid showing the user a temporary name
-			throw new InvalidInputException(
-				"Namespace contained within Function may not be converted to a class: " + name);
-		}
-
-		// move everything from old namespace into new class namespace
-		try {
-			for (Symbol s : symbolTable.getSymbols(namespace)) {
-				s.setNamespace(classNamespace);
-			}
-			namespaceSymbol.delete();
-		}
-		catch (DuplicateNameException | InvalidInputException | CircularDependencyException e) {
-			throw new AssertException(e);
-		}
-		return classNamespace;
+		return result;
 	}
 }

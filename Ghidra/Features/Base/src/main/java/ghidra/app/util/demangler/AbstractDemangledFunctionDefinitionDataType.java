@@ -18,6 +18,9 @@ package ghidra.app.util.demangler;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.apache.commons.lang3.StringUtils;
+
+import ghidra.app.util.DataTypeNamingUtil;
 import ghidra.program.model.data.*;
 import ghidra.program.model.symbol.Namespace;
 
@@ -40,9 +43,6 @@ public abstract class AbstractDemangledFunctionDefinitionDataType extends Demang
 	protected boolean isTrailingUnaligned;
 	protected boolean isTrailingRestrict;
 
-	/** display parens in front of parameter list */
-	protected boolean displayFunctionPointerParens = true;
-
 	AbstractDemangledFunctionDefinitionDataType(String mangled, String originalDemangled) {
 		super(mangled, originalDemangled, DEFAULT_NAME_PREFIX + nextId());
 	}
@@ -52,7 +52,7 @@ public abstract class AbstractDemangledFunctionDefinitionDataType extends Demang
 	}
 
 	/**
-	 * Returns the string for this type of reference (e.g., * or &)
+	 * Returns the string for this type of reference (e.g., * or &amp;)
 	 * @return the string
 	 */
 	abstract protected String getTypeString();
@@ -134,10 +134,6 @@ public abstract class AbstractDemangledFunctionDefinitionDataType extends Demang
 		isTrailingRestrict = true;
 	}
 
-	public void setDisplayFunctionPointerParens(boolean b) {
-		this.displayFunctionPointerParens = b;
-	}
-
 	/**
 	 * Adds a parameters to the end of the parameter list for this demangled function
 	 * @param parameter the new parameter to add
@@ -158,13 +154,8 @@ public abstract class AbstractDemangledFunctionDefinitionDataType extends Demang
 		StringBuilder buffer = new StringBuilder();
 		StringBuilder buffer1 = new StringBuilder();
 		String s = getConventionPointerNameString(name);
-		if (s.contains(" ") || s.isEmpty()) {
-			// spaces--add parens
-			addFunctionPointerParens(buffer1, s);
-		}
-		else { // this allows the '__cdecl' in templates to not have parens
-			buffer1.append(s);
-		}
+
+		addFunctionPointerParens(buffer1, s);
 
 		buffer1.append('(');
 		for (int i = 0; i < parameters.size(); ++i) {
@@ -234,25 +225,35 @@ public abstract class AbstractDemangledFunctionDefinitionDataType extends Demang
 		StringBuilder buffer = new StringBuilder();
 		buffer.append(callingConvention == null ? EMPTY_STRING : callingConvention);
 
+		StringBuilder typeBuffer = new StringBuilder();
 		int pointerLevels = getPointerLevels();
-		if (pointerLevels > 0) {
-			if (callingConvention != null) {
-				buffer.append(SPACE);
-			}
+		if (pointerLevels > 0 || isReference()) {
 
-			addParentName(buffer);
+			addParentName(typeBuffer);
 
 			for (int i = 0; i < pointerLevels; ++i) {
-				buffer.append(getTypeString());
+				typeBuffer.append(getTypeString());
+			}
+			// kludge for now... current type-emitting mechanism in DemangledObject hierarchy
+			//  lacks a lot... needs revamped.
+			if (isLValueReference()) {
+				typeBuffer.append(" &");
+			}
+			else if (isRValueReference()) {
+				typeBuffer.append(" &&");
 			}
 		}
 
-		if ((modifier != null) && (modifier.length() != 0)) {
-			if (buffer.length() > 2) {
+		if (!StringUtils.isBlank(typeBuffer)) {
+
+			if (!StringUtils.isBlank(callingConvention)) {
 				buffer.append(SPACE);
 			}
-			buffer.append(modifier);
+
+			buffer.append(typeBuffer);
 		}
+
+		addModifier(buffer);
 
 		if (isConstPointer) {
 			buffer.append(CONST);
@@ -266,7 +267,7 @@ public abstract class AbstractDemangledFunctionDefinitionDataType extends Demang
 		}
 
 		if (name != null) {
-			if ((buffer.length() > 2) && (buffer.charAt(buffer.length() - 1) != SPACE)) {
+			if ((buffer.length() > 0) && (buffer.charAt(buffer.length() - 1) != SPACE)) {
 				buffer.append(SPACE);
 			}
 			buffer.append(name);
@@ -275,11 +276,29 @@ public abstract class AbstractDemangledFunctionDefinitionDataType extends Demang
 		return buffer.toString();
 	}
 
-	protected void addFunctionPointerParens(StringBuilder buffer, String s) {
-		if (!displayFunctionPointerParens) {
+	private void addModifier(StringBuilder buffer) {
+		if (StringUtils.isBlank(modifier)) {
 			return;
 		}
 
+		//
+		// Guilty knowledge: in many cases the 'modifier' is the same as the type string.  Further,
+		// when we print signatures, we will print the type string if there are pointer levels. To
+		// prevent duplication, do not print the modifier when it matches the type string and we
+		// will be printing the type string (which is printed when there are pointer levels).
+		//
+		if (modifier.equals(getTypeString()) &&
+			getPointerLevels() > 0) {
+			return;
+		}
+
+		if (buffer.length() > 2) {
+			buffer.append(SPACE);
+		}
+		buffer.append(modifier);
+	}
+
+	protected void addFunctionPointerParens(StringBuilder buffer, String s) {
 		buffer.append('(').append(s).append(')');
 	}
 
@@ -304,27 +323,63 @@ public abstract class AbstractDemangledFunctionDefinitionDataType extends Demang
 	@Override
 	public DataType getDataType(DataTypeManager dataTypeManager) {
 
-		FunctionDefinitionDataType fddt = new FunctionDefinitionDataType(getName());
+		FunctionDefinitionDataType fddt =
+			new FunctionDefinitionDataType(DEMANGLER_ANONYMOUS_FUNCTION_CATEGORY_PATH, getName());
 
 		if (returnType != null) {
 			fddt.setReturnType(returnType.getDataType(dataTypeManager));
 		}
 
-		if (parameters.size() != 1 ||
-			!(parameters.get(0).getDataType(dataTypeManager) instanceof VoidDataType)) {
-			ParameterDefinition[] params = new ParameterDefinition[parameters.size()];
-			for (int i = 0; i < parameters.size(); ++i) {
-				params[i] = new ParameterDefinitionImpl(null,
-					parameters.get(i).getDataType(dataTypeManager), null);
-			}
-			fddt.setArguments(params);
-		}
+		setParameters(fddt, dataTypeManager);
+
+		DataTypeNamingUtil.setMangledAnonymousFunctionName(fddt);
 
 		DataType dt = DemangledDataType.findDataType(dataTypeManager, namespace, getName());
 		if (dt == null || !(dt instanceof FunctionDefinitionDataType)) {
 			dt = fddt;
 		}
 
-		return new PointerDataType(dt, dataTypeManager);
+		// This was also totally wonked in terms of type-emitting.  Whole mangled type needs
+		//  gone through and revamped;  not sure it is good to have pointer levels or reference
+		//  information in a FunctionPointer... need to investigate more.
+		int numPointers = getPointerLevels();
+
+		for (int i = 0; i < numPointers; ++i) {
+			dt = PointerDataType.getPointer(dt, dataTypeManager);
+		}
+
+		if (isLValueReference()) {
+			// Placeholder in prep for more lref work
+			dt = PointerDataType.getPointer(dt, dataTypeManager);
+		}
+		else if (isRValueReference()) {
+			// Placeholder in prep for more rref work
+			dt = PointerDataType.getPointer(dt, dataTypeManager);
+		}
+
+		return dt;
+	}
+
+	private void setParameters(FunctionDefinitionDataType fddt, DataTypeManager dataTypeManager) {
+		if (hasSingleVoidParameter(dataTypeManager)) {
+			return;
+		}
+
+		ParameterDefinition[] params = new ParameterDefinition[parameters.size()];
+		for (int i = 0; i < parameters.size(); ++i) {
+			params[i] = new ParameterDefinitionImpl(null,
+				parameters.get(i).getDataType(dataTypeManager), null);
+		}
+		fddt.setArguments(params);
+	}
+
+	private boolean hasSingleVoidParameter(DataTypeManager dataTypeManager) {
+		if (parameters.size() != 1) {
+			return false;
+		}
+
+		DemangledDataType parameter = parameters.get(0);
+		DataType dt = parameter.getDataType(dataTypeManager);
+		return dt instanceof VoidDataType;
 	}
 }

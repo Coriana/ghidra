@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,9 +15,9 @@
  */
 package ghidra.app.plugin.core.highlight;
 
-import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 
+import docking.DockingUtils;
 import docking.action.*;
 import docking.tool.ToolConstants;
 import ghidra.app.CorePluginPackage;
@@ -66,6 +66,7 @@ public class SetHighlightPlugin extends Plugin {
 
 	/**
 	 * Constructor
+	 * 
 	 * @param tool
 	 */
 	public SetHighlightPlugin(PluginTool tool) {
@@ -100,7 +101,9 @@ public class SetHighlightPlugin extends Plugin {
 		setHighlightFromSelectionAction.setPopupMenuData(new MenuData(SET_HIGHLIGHT_POPUPPATH,
 			HIGHLIGHT_GROUP));
 		setHighlightFromSelectionAction.setKeyBindingData(new KeyBindingData(KeyEvent.VK_H,
-			InputEvent.CTRL_DOWN_MASK));
+			DockingUtils.CONTROL_KEY_MODIFIER_MASK));
+		setHighlightFromSelectionAction
+				.addToWindowWhen(NavigatableActionContext.class);
 		tool.addAction(setHighlightFromSelectionAction);
 
 		clearHighlightAction = new NavigatableContextAction("Remove Highlight", getName()) {
@@ -121,6 +124,7 @@ public class SetHighlightPlugin extends Plugin {
 		clearHighlightAction.setMenuBarData(menuData);
 		clearHighlightAction.setPopupMenuData(new MenuData(CLEAR_HIGHLIGHT_POPUPPATH,
 			HIGHLIGHT_GROUP));
+		clearHighlightAction.addToWindowWhen(NavigatableActionContext.class);
 		tool.addAction(clearHighlightAction);
 
 		addSelectionAction = new NavigatableContextAction("Add Selection To Highlight", getName()) {
@@ -142,7 +146,7 @@ public class SetHighlightPlugin extends Plugin {
 		menuData.setMenuSubGroup(Integer.toString(programHighlightSubMenuPosition++));
 		addSelectionAction.setMenuBarData(menuData);
 		addSelectionAction.setPopupMenuData(new MenuData(ADD_SELECTION_POPUPPATH, HIGHLIGHT_GROUP));
-
+		addSelectionAction.addToWindowWhen(NavigatableActionContext.class);
 		tool.addAction(addSelectionAction);
 
 		subtractSelectionAction =
@@ -163,6 +167,7 @@ public class SetHighlightPlugin extends Plugin {
 			new MenuData(new String[] { ToolConstants.MENU_SELECTION, MENU_HIGHLIGHT,
 				"Subtract Selection" }, HIGHLIGHT_GROUP);
 		menuData.setMenuSubGroup(Integer.toString(programHighlightSubMenuPosition++));
+		subtractSelectionAction.addToWindowWhen(NavigatableActionContext.class);
 		subtractSelectionAction.setMenuBarData(menuData);
 		subtractSelectionAction.setPopupMenuData(new MenuData(SUBTRACT_SELECTION_POPUPPATH,
 			HIGHLIGHT_GROUP));
@@ -185,11 +190,11 @@ public class SetHighlightPlugin extends Plugin {
 			ToolConstants.MENU_SELECTION, "From Highlight" }, HIGHLIGHT_GROUP));
 		setSelectionFromHighlightAction.setPopupMenuData(new MenuData(SET_SELECTION_POPUPPATH,
 			HIGHLIGHT_GROUP));
-
+		setSelectionFromHighlightAction
+				.addToWindowWhen(NavigatableActionContext.class);
 		tool.addAction(setSelectionFromHighlightAction);
 
-		tool.setMenuGroup(new String[] { MENU_HIGHLIGHT }, HIGHLIGHT_GROUP);
-		tool.setMenuGroup(new String[] { MENU_SELECTION }, HIGHLIGHT_GROUP);
+		tool.setMenuGroup(new String[] { MENU_SELECTION, MENU_HIGHLIGHT }, HIGHLIGHT_GROUP);
 	}
 
 	protected void setHighlight(Navigatable navigatable, ProgramSelection highlight) {

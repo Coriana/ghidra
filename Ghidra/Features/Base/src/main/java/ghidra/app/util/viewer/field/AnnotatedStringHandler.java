@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,17 +15,17 @@
  */
 package ghidra.app.util.viewer.field;
 
+import java.awt.event.MouseEvent;
+import java.util.Objects;
+
+import docking.widgets.fieldpanel.field.AttributedString;
+import docking.widgets.fieldpanel.field.FieldElement;
 import ghidra.app.nav.Navigatable;
 import ghidra.framework.plugintool.ServiceProvider;
 import ghidra.program.model.listing.Program;
 import ghidra.program.util.ProgramLocation;
 import ghidra.util.bean.field.AnnotatedTextFieldElement;
 import ghidra.util.classfinder.ExtensionPoint;
-
-import java.awt.event.MouseEvent;
-
-import docking.widgets.fieldpanel.field.AttributedString;
-import docking.widgets.fieldpanel.field.FieldElement;
 
 /**
  * NOTE:  ALL AnnotatedStringHandler CLASSES MUST END IN "StringHandler".  If not,
@@ -36,7 +36,27 @@ import docking.widgets.fieldpanel.field.FieldElement;
  */
 public interface AnnotatedStringHandler extends ExtensionPoint {
 
-	public static final AnnotatedMouseHandler DUMMY_MOUSE_HANDLER = new AnnotatedMouseHandler() {
+	/**
+	 * Escape a string that is intended to be used as a annotated string portion.
+	 * <p>
+	 * Quotes are escaped, '}' and ' ' are placed inside quotes. 
+	 *  
+	 * @param s string to escape
+	 * @return escaped string
+	 */
+	static String escapeAnnotationPart(String s) {
+		s = Objects.requireNonNullElse(s, "");
+		String origStr = s;
+		if (s.indexOf('"') >= 0) {
+			s = s.replace("\"", "\\\"");
+		}
+		if (origStr != s || s.indexOf('}') != -1 || s.indexOf(' ') != -1) {
+			s = "\"" + s + "\"";
+		}
+		return s;
+	}
+
+	AnnotatedMouseHandler DUMMY_MOUSE_HANDLER = new AnnotatedMouseHandler() {
 		@Override
 		public boolean handleMouseClick(ProgramLocation location, MouseEvent mouseEvent,
 				ServiceProvider serviceProvider) {
@@ -60,7 +80,7 @@ public interface AnnotatedStringHandler extends ExtensionPoint {
 	 * @throws AnnotationException if the given text data does not fit the expected format for
 	 *         the given handler implementation.
 	 */
-	public AttributedString createAnnotatedString(AttributedString prototypeString, String[] text,
+	AttributedString createAnnotatedString(AttributedString prototypeString, String[] text,
 			Program program) throws AnnotationException;
 
 	/**
@@ -69,7 +89,7 @@ public interface AnnotatedStringHandler extends ExtensionPoint {
 	 *
 	 * @return the annotation string names that this AnnotatedStringHandler supports.
 	 */
-	public String[] getSupportedAnnotations();
+	String[] getSupportedAnnotations();
 
 	/**
 	 * A method that is notified when an annotation is clicked.  Returns true if this annotation
@@ -81,18 +101,41 @@ public interface AnnotatedStringHandler extends ExtensionPoint {
 	 * @return true if this annotation handles the click; return false if this annotation does 
 	 *         not do anything with the click.
 	 */
-	public boolean handleMouseClick(String[] annotationParts, Navigatable sourceNavigatable,
+	boolean handleMouseClick(String[] annotationParts, Navigatable sourceNavigatable,
 			ServiceProvider serviceProvider);
 
 	/**
 	 * Returns the String that represents the GUI presence of this option
 	 * @return the String to display in GUI components.
 	 */
-	public String getDisplayString();
+	String getDisplayString();
 
 	/**
 	 * Returns an example string of how the annotation is used
 	 * @return the example of how this is used.
 	 */
-	public String getPrototypeString();
+	String getPrototypeString();
+
+	/**
+	 * Returns an example string of how the annotation is used
+	 * @param displayText The text that may be wrapped, cannot be null
+	 * @return the example of how this is used.
+	 */
+	default String getPrototypeString(String displayText) {
+		return getPrototypeString();
+	}
+
+	/**
+	 * Returns an array with modifications by the annotation; null otherwise.  This method will be 
+	 * called by the framework when comments are created, before they are applied.  This allows the
+	 * handler to perform fixups on the input text before it is saved to the database.
+	 * 
+	 * @param text the array of annotation parts to modify
+	 * @param program the program
+	 * @return the modified array; null otherwise
+	 */
+	default String[] modify(String[] text, Program program) {
+		return null;
+	}
+
 }

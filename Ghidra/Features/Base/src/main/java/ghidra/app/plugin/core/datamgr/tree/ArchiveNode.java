@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,28 +21,76 @@ import javax.swing.Icon;
 
 import docking.widgets.tree.GTree;
 import docking.widgets.tree.GTreeNode;
+import generic.theme.GColor;
+import generic.theme.GThemeDefaults.Colors.Messages;
 import ghidra.app.plugin.core.datamgr.archive.Archive;
 import ghidra.program.model.data.*;
+import ghidra.program.model.data.StandAloneDataTypeManager.ArchiveWarning;
+import ghidra.program.model.data.StandAloneDataTypeManager.ArchiveWarningLevel;
+import ghidra.util.HTMLUtilities;
 import ghidra.util.task.SwingUpdateManager;
 
 public class ArchiveNode extends CategoryNode {
+
+	protected static final String DEFAULT_DATA_ORG_DESCRIPTION =
+		"[Using Default Data Organization]";
 
 	protected Archive archive;
 	protected ArchiveNodeCategoryChangeListener listener;
 	private DataTypeManager dataTypeManager; // may be null
 
-	public ArchiveNode(Archive archive, ArrayPointerFilterState filterState) {
+	public ArchiveNode(Archive archive, DtFilterState filterState) {
 		this(archive, archive.getDataTypeManager() == null ? null
 				: archive.getDataTypeManager().getRootCategory(),
 			filterState);
 		this.dataTypeManager = archive.getDataTypeManager();
-		installDataTypeManagerListener();
+		updateDataTypeManager();
 	}
 
 	protected ArchiveNode(Archive archive, Category rootCategory,
-			ArrayPointerFilterState filterState) {
+			DtFilterState filterState) {
 		super(rootCategory, filterState);
 		this.archive = archive;
+	}
+
+	protected String buildTooltip(String path) {
+		DataTypeManager dtm = archive.getDataTypeManager();
+		if (dtm == null) {
+			return null;
+		}
+		StringBuilder buf = new StringBuilder(HTMLUtilities.HTML);
+		buf.append(HTMLUtilities.escapeHTML(path));
+		buf.append(HTMLUtilities.BR);
+		String programArchSummary = dtm.getProgramArchitectureSummary();
+		if (programArchSummary != null) {
+			buf.append(HTMLUtilities.HTML_SPACE);
+			buf.append(HTMLUtilities.HTML_SPACE);
+			buf.append(HTMLUtilities.escapeHTML(programArchSummary));
+		}
+		else {
+			buf.append(DEFAULT_DATA_ORG_DESCRIPTION);
+		}
+		addArchiveWarnings(dtm, buf);
+		return buf.toString();
+	}
+
+	private void addArchiveWarnings(DataTypeManager dtm, StringBuilder buf) {
+		if (dtm instanceof StandAloneDataTypeManager archiveDtm) {
+			ArchiveWarning warning = archiveDtm.getWarning();
+			if (warning != ArchiveWarning.NONE) {
+				GColor c = Messages.NORMAL;
+				ArchiveWarningLevel level = warning.level();
+				if (level == ArchiveWarningLevel.ERROR) {
+					c = Messages.ERROR;
+				}
+				else if (level == ArchiveWarningLevel.WARN) {
+					c = Messages.WARNING;
+				}
+				String msg = archiveDtm.getWarningMessage(false);
+				buf.append(HTMLUtilities.BR);
+				buf.append("<font color=\"" + c + "\">** " + msg + " **</font>");
+			}
+		}
 	}
 
 	protected void archiveStateChanged() {
@@ -50,22 +98,33 @@ public class ArchiveNode extends CategoryNode {
 	}
 
 	protected void dataTypeManagerChanged() {
-		installDataTypeManagerListener();
-		// old children are no longer valid--clear the cache and fire a node structure changed event
-		setChildren(null);
-		nodeChanged(); // notify that this nodes display data has changed
-		structureChanged(); // notify that his children have been refreshed and the tree cache needs to be wiped.
+		updateDataTypeManager();
 
+		// old children are no longer valid--clear the cache and fire a node structure changed event
+		structureChanged(); // notify children have been refreshed; tree cache needs to be cleared
+		nodeChanged(); // notify that this nodes display data has changed
 	}
 
 	protected void installDataTypeManagerListener() {
 		if (dataTypeManager == null) {
 			return; // some nodes do not have DataTypeManagers, like InvalidFileArchives
 		}
-		dataTypeManager.removeDataTypeManagerListener(listener);
-		dataTypeManager = archive.getDataTypeManager();
 		listener = new ArchiveNodeCategoryChangeListener();
 		dataTypeManager.addDataTypeManagerListener(listener);
+	}
+
+	protected void updateDataTypeManager() {
+		if (dataTypeManager == null) {
+			return; // some nodes do not have DataTypeManagers, like InvalidFileArchives
+		}
+
+		if (listener != null) {
+			dataTypeManager.removeDataTypeManagerListener(listener);
+			listener.dispose();
+		}
+
+		dataTypeManager = archive.getDataTypeManager();
+		installDataTypeManagerListener();
 		setCategory(dataTypeManager.getRootCategory());
 	}
 
@@ -116,7 +175,7 @@ public class ArchiveNode extends CategoryNode {
 	}
 
 	public void nodeChanged() {
-		fireNodeChanged(getParent(), this);
+		fireNodeChanged();
 
 		GTree tree = getTree();
 		if (tree != null) {
@@ -139,9 +198,8 @@ public class ArchiveNode extends CategoryNode {
 
 	@Override
 	/**
-	 * The equals must not be based on the name since it can change
-	 * based upon the underlying archive.  This must be consistent with
-	 * the hashCode method implementation.
+	 * The equals must not be based on the name since it can change based upon the underlying
+	 * archive. This must be consistent with the hashCode method implementation.
 	 */
 	public boolean equals(Object o) {
 		if (this == o) {
@@ -162,12 +220,11 @@ public class ArchiveNode extends CategoryNode {
 		return -1; // All ArchiveNodes are before any other types of nodes
 	}
 
-	@Override
 	/**
-	 * The hashcode must not be based on the name since it can change
-	 * based upon the underlying archive.  This must be consistent with
-	 * the equals method implementation.
+	 * The hashcode must not be based on the name since it can change based upon the underlying
+	 * archive. This must be consistent with the equals method implementation.
 	 */
+	@Override
 	public int hashCode() {
 		return getArchive().hashCode();
 	}
@@ -183,10 +240,11 @@ public class ArchiveNode extends CategoryNode {
 	}
 
 	/**
-	 * Finds the node that represents the given category.  
+	 * Finds the node that represents the given category.
 	 * 
-	 * <P>Children <b>will not</b> be loaded when searching for the node.  This allows clients
-	 * to search for data types of interest, only updating the tree when the nodes are loaded.
+	 * <P>
+	 * Children <b>will not</b> be loaded when searching for the node. This allows clients to search
+	 * for data types of interest, only updating the tree when the nodes are loaded.
 	 * 
 	 * @param localCategory the category of interest
 	 * @return the node if loaded; null if not loaded
@@ -251,6 +309,10 @@ public class ArchiveNode extends CategoryNode {
 
 		@Override
 		public void categoryAdded(DataTypeManager dtm, CategoryPath path) {
+			if (!isLoaded()) {
+				return;
+			}
+
 			Category newCategory = dtm.getCategory(path);
 			if (newCategory == null) {
 				return;
@@ -268,6 +330,10 @@ public class ArchiveNode extends CategoryNode {
 
 		@Override
 		public void categoryMoved(DataTypeManager dtm, CategoryPath oldPath, CategoryPath newPath) {
+			if (!isLoaded()) {
+				return;
+			}
+
 			Category newCategory = dtm.getCategory(newPath);
 			Category oldParent = dtm.getCategory(oldPath.getParent());
 			CategoryNode categoryNode = findCategoryNode(oldParent);
@@ -282,6 +348,10 @@ public class ArchiveNode extends CategoryNode {
 
 		@Override
 		public void categoryRemoved(DataTypeManager dtm, CategoryPath path) {
+			if (!isLoaded()) {
+				return;
+			}
+
 			Category parentCategory = dtm.getCategory(path.getParent());
 			CategoryNode categoryNode = findCategoryNode(parentCategory);
 			if (categoryNode != null) {
@@ -292,8 +362,12 @@ public class ArchiveNode extends CategoryNode {
 		@Override
 		public void categoryRenamed(DataTypeManager dtm, CategoryPath oldPath,
 				CategoryPath newPath) {
+			if (!isLoaded()) {
+				return;
+			}
+
 			if (oldPath.getParent() == null) { // root has no parent
-				fireNodeChanged(null, ArchiveNode.this); // fire that the root changed
+				ArchiveNode.this.fireNodeChanged(); // fire that the root changed
 				return;
 			}
 			Category parentCategory = dtm.getCategory(oldPath.getParent());
@@ -307,6 +381,10 @@ public class ArchiveNode extends CategoryNode {
 
 		@Override
 		public void dataTypeAdded(DataTypeManager dtm, DataTypePath path) {
+			if (!isLoaded()) {
+				return;
+			}
+
 			Category parentCategory = dtm.getCategory(path.getCategoryPath());
 			CategoryNode categoryNode = findCategoryNode(parentCategory);
 			if (categoryNode != null) {
@@ -321,6 +399,10 @@ public class ArchiveNode extends CategoryNode {
 
 		@Override
 		public void favoritesChanged(DataTypeManager dtm, DataTypePath path, boolean isFavorite) {
+			if (!isLoaded()) {
+				return;
+			}
+
 			DataType dataType = dtm.getDataType(path);
 			Category category = dtm.getCategory(path.getCategoryPath());
 			CategoryNode categoryNode = findCategoryNode(category);
@@ -341,6 +423,10 @@ public class ArchiveNode extends CategoryNode {
 
 		@Override
 		public void dataTypeChanged(DataTypeManager dtm, DataTypePath path) {
+			if (!isLoaded()) {
+				return;
+			}
+
 			Category dtmCategory = dtm.getCategory(path.getCategoryPath());
 			CategoryNode categoryNode = findCategoryNode(dtmCategory);
 			if (categoryNode != null) {
@@ -355,6 +441,10 @@ public class ArchiveNode extends CategoryNode {
 
 		@Override
 		public void dataTypeMoved(DataTypeManager dtm, DataTypePath oldPath, DataTypePath newPath) {
+			if (!isLoaded()) {
+				return;
+			}
+
 			Category oldParent = dtm.getCategory(oldPath.getCategoryPath());
 			CategoryNode categoryNode = findCategoryNode(oldParent);
 			if (categoryNode != null) {
@@ -375,6 +465,10 @@ public class ArchiveNode extends CategoryNode {
 
 		@Override
 		public void dataTypeRemoved(DataTypeManager dtm, DataTypePath path) {
+			if (!isLoaded()) {
+				return;
+			}
+
 			Category oldParent = dtm.getCategory(path.getCategoryPath());
 			CategoryNode categoryNode = findCategoryNode(oldParent);
 			if (categoryNode != null) {
@@ -385,6 +479,10 @@ public class ArchiveNode extends CategoryNode {
 		@Override
 		public void dataTypeRenamed(DataTypeManager dtm, DataTypePath oldPath,
 				DataTypePath newPath) {
+			if (!isLoaded()) {
+				return;
+			}
+
 			Category dtmCategory = dtm.getCategory(newPath.getCategoryPath());
 			CategoryNode categoryNode = findCategoryNode(dtmCategory);
 			if (categoryNode != null) {
@@ -412,6 +510,22 @@ public class ArchiveNode extends CategoryNode {
 
 		@Override
 		public void sourceArchiveChanged(DataTypeManager manager, SourceArchive sourceArchive) {
+			nodeChangedUpdater.update();
+		}
+
+		@Override
+		public void programArchitectureChanged(DataTypeManager manager) {
+			// need to force all cached datatype tooltips to be cleared 
+			// due to change in data organization
+			unloadChildren();
+			nodeChangedUpdater.update();
+		}
+
+		@Override
+		public void restored(DataTypeManager manager) {
+			// need to force all cached datatype tooltips to be cleared 
+			// due to potential changes (e.g., undo/redo)
+			unloadChildren();
 			nodeChangedUpdater.update();
 		}
 	}

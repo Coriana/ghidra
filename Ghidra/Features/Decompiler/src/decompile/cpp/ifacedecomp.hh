@@ -4,47 +4,49 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-// Interface to the decompilation routines
+/// \file ifacedecomp.hh
+/// \brief Console interface commands for the decompiler engine
 
-#ifndef __IFACE_DECOMP__
-#define __IFACE_DECOMP__
+#ifndef __IFACEDECOMP_HH__
+#define __IFACEDECOMP_HH__
 
-#include "ifaceterm.hh"
 #include "graph.hh"
 #include "grammar.hh"
 #include "callgraph.hh"
 #include "paramid.hh"
+#include "testfunction.hh"
 #ifdef CPUI_RULECOMPILE
 #include "rulecompile.hh"
 #endif
 
+namespace ghidra {
+
+/// \brief Interface capability point for all decompiler commands
 class IfaceDecompCapability : public IfaceCapability {
-  static IfaceDecompCapability ifaceDecompCapability;		// Singleton instance
-  IfaceDecompCapability(void);	// Singleton
-  IfaceDecompCapability(const IfaceDecompCapability &op2);	// Not implemented
-  IfaceDecompCapability &operator=(const IfaceDecompCapability &op2);	// Not implemented
+  static IfaceDecompCapability ifaceDecompCapability;		///< Singleton instance
+  IfaceDecompCapability(void);					///< Singleton constructor
+  IfaceDecompCapability(const IfaceDecompCapability &op2);	///< Not implemented
+  IfaceDecompCapability &operator=(const IfaceDecompCapability &op2);	///< Not implemented
 public:
   virtual void registerCommands(IfaceStatus *status);
 };
 
+/// \brief Common data shared by decompiler commands
 class IfaceDecompData : public IfaceData {
 public:
-  Funcdata *fd;		// Current function data
-  Architecture *conf;
-  CallGraph *cgraph;
-
-  map<Funcdata*,PrototypePieces> prototypePieces;
-  void storePrototypePieces( Funcdata *fd_in, PrototypePieces pp_in ) { prototypePieces.insert(pair<Funcdata*,PrototypePieces>(fd_in,pp_in)); }
-  PrototypePieces findPrototypePieces( Funcdata *fd_in ) { return (*prototypePieces.find(fd_in)).second; }
+  Funcdata *fd;		///< Current function active in the console
+  Architecture *conf;	///< Current architecture/program active in the console
+  CallGraph *cgraph;	///< Call-graph information for the program
+  FunctionTestCollection *testCollection;		///< Executable environment from a datatest
 
 #ifdef CPUI_RULECOMPILE
   string experimental_file;	// File containing experimental rules
@@ -52,18 +54,25 @@ public:
 #ifdef OPACTION_DEBUG
   bool jumptabledebug;
 #endif
-  IfaceDecompData(void);
+  IfaceDecompData(void);		///< Constructor
   virtual ~IfaceDecompData(void);
-  void allocateCallGraph(void);
-  void abortFunction(ostream &s);
-  void clearArchitecture(void);
+  void allocateCallGraph(void);		///< Allocate the call-graph object
+  void abortFunction(ostream &s);	///< Clear references to current function
+  void clearArchitecture(void);		///< Free all resources for the current architecture/program
+  void followFlow(ostream &s,int4 size);
+  Varnode *readVarnode(istream &s);	///< Read a varnode from the given stream
+  void readSymbol(const string &name,vector<Symbol *> &res);	///< Find a symbol by name
 };
 
+/// \brief Disassembly emitter that prints to a console stream
+///
+/// An instruction is printed to a stream simply, as an address
+/// followed by the mnemonic and then column aligned operands.
 class IfaceAssemblyEmit : public AssemblyEmit {
-  int4 mnemonicpad;		// How much to pad the mnemonic
-  ostream *s;
+  int4 mnemonicpad;		///< How much to pad the mnemonic
+  ostream *s;			///< The current stream to write to
 public:
-  IfaceAssemblyEmit(ostream *val,int4 mp) { s = val; mnemonicpad=mp; }
+  IfaceAssemblyEmit(ostream *val,int4 mp) { s = val; mnemonicpad=mp; }	///< Constructor
   virtual void dump(const Address &addr,const string &mnem,const string &body) {
     addr.printRaw(*s);
     *s << ": " << mnem;
@@ -72,22 +81,31 @@ public:
   }
 };
 
-extern void execute(IfaceStatus *status,IfaceDecompData *dcp);
-extern void mainloop(IfaceStatus *status);
+extern void execute(IfaceStatus *status,IfaceDecompData *dcp);	///< Execute one command for the console
+extern void mainloop(IfaceStatus *status);			///< Execute commands as they become available
 
+/// \brief Root class for all decompiler specific commands
+///
+/// Commands share the data object IfaceDecompData and are capable of
+/// iterating over all functions in the program/architecture.
 class IfaceDecompCommand : public IfaceCommand {
 protected:
-  IfaceStatus *status;
-  IfaceDecompData *dcp;
-  void iterateScopesRecursive(Scope *scope);
-  void iterateFunctionsAddrOrder(Scope *scope);
+  IfaceStatus *status;			///< The console owning \b this command
+  IfaceDecompData *dcp;			///< Data common to decompiler commands
+  void iterateScopesRecursive(Scope *scope);	///< Iterate recursively over all functions in given scope
+  void iterateFunctionsAddrOrder(Scope *scope);	///< Iterate over all functions in a given scope
 public:
   virtual void setData(IfaceStatus *root,IfaceData *data) { status = root; dcp = (IfaceDecompData *)data; }
   virtual string getModule(void) const { return "decompile"; }
   virtual IfaceData *createData(void) { return new IfaceDecompData(); }
+
+  /// \brief Perform the per-function aspect of \b this command.
+  ///
+  /// \param fd is the particular function to operate on
   virtual void iterationCallback(Funcdata *fd) {}
-  void iterateFunctionsAddrOrder(void);
-  void iterateFunctionsLeafOrder(void);
+
+  void iterateFunctionsAddrOrder(void);		///< Iterate command over all functions in all scopes
+  void iterateFunctionsLeafOrder(void);		///< Iterate command over all functions in a call-graph traversal
 };
 
 class IfcSource : public IfaceDecompCommand {
@@ -145,6 +163,16 @@ public:
   virtual void execute(istream &s);
 };
 
+class IfcMapParam : public IfaceDecompCommand {
+public:
+  virtual void execute(istream &s);
+};
+
+class IfcMapReturn : public IfaceDecompCommand {
+public:
+  virtual void execute(istream &s);
+};
+
 class IfcMapfunction : public IfaceDecompCommand {
 public:
   virtual void execute(istream &s);
@@ -156,6 +184,16 @@ public:
 };
 
 class IfcMaplabel : public IfaceDecompCommand {
+public:
+  virtual void execute(istream &s);
+};
+
+class IfcMapconvert : public IfaceDecompCommand {
+public:
+  virtual void execute(istream &s);
+};
+
+class IfcMapunionfacet : public IfaceDecompCommand {
 public:
   virtual void execute(istream &s);
 };
@@ -257,11 +295,6 @@ public:
   virtual void execute(istream &s);
 };
 
-class IfcBreakjump : public IfaceDecompCommand {
-public:
-  virtual void execute(istream &s);
-};
-
 class IfcPrintTree : public IfaceDecompCommand {
 public:
   virtual void execute(istream &s);
@@ -282,15 +315,7 @@ public:
   virtual void execute(istream &s);
 };
 
-class IfcParamIDAnalysis : public IfaceDecompCommand {
-public:
-  virtual void execute(istream &s);
-};
 class IfcPrintParamMeasures : public IfaceDecompCommand {
-public:
-  virtual void execute(istream &s);
-};
-class IfcPrintParamMeasuresXml : public IfaceDecompCommand {
 public:
   virtual void execute(istream &s);
 };
@@ -306,6 +331,11 @@ public:
 };
 
 class IfcRemove : public IfaceDecompCommand {
+public:
+  virtual void execute(istream &s);
+};
+
+class IfcIsolate : public IfaceDecompCommand {
 public:
   virtual void execute(istream &s);
 };
@@ -345,12 +375,12 @@ public:
   virtual void execute(istream &s);
 };
 
-class IfcForceHex : public IfaceDecompCommand {
+class IfcForceFormat : public IfaceDecompCommand {
 public:
   virtual void execute(istream &s);
 };
 
-class IfcForceDec : public IfaceDecompCommand {
+class IfcForceDatatypeFormat : public IfaceDecompCommand {
 public:
   virtual void execute(istream &s);
 };
@@ -403,6 +433,10 @@ public:
 class IfcPrintInputs : public IfaceDecompCommand {
 public:
   virtual void execute(istream &s);
+  static bool nonTrivialUse(Varnode *vn);		///< Check for non-trivial use of given Varnode
+  static int4 checkRestore(Varnode *vn);		///< Check if a Varnode is \e restored to its original input value
+  static bool findRestore(Varnode *vn,Funcdata *fd);	///< Check if storage is \e restored
+  static void print(Funcdata *fd,ostream &s);		///< Print information about function inputs
 };
 
 class IfcPrintInputsAll : public IfaceDecompCommand {
@@ -465,6 +499,8 @@ class IfcDuplicateHash : public IfaceDecompCommand {
 public:
   virtual void execute(istream &s);
   virtual void iterationCallback(Funcdata *fd);
+  static void check(Funcdata *fd,ostream &s);		///< Check for duplicate hashes in given function
+
 };
 
 class IfcCallGraphDump : public IfaceDecompCommand {
@@ -474,7 +510,7 @@ public:
 
 class IfcCallGraphBuild : public IfaceDecompCommand {
 protected:
-  bool quick;
+  bool quick;		///< Set to \b true if a quick analysis is desired
 public:
   virtual void execute(istream &s);
   virtual void iterationCallback(Funcdata *fd);
@@ -490,8 +526,6 @@ public:
 };
 
 class IfcCallGraphList : public IfaceDecompCommand {
-protected:
-  bool quick;
 public:
   virtual void execute(istream &s);
   virtual void iterationCallback(Funcdata *fd);
@@ -505,9 +539,16 @@ public:
 class IfcCallFixup : public IfaceDecompCommand {
 public:
   virtual void execute(istream &s);
+  static void readPcodeSnippet(istream &s,string &name,string &outname,vector<string> &inname,
+			       string &pcodestring);
 };
 
 class IfcCallOtherFixup : public IfaceDecompCommand {
+public:
+  virtual void execute(istream &s);
+};
+
+class IfcFixupApply : public IfaceDecompCommand {
 public:
   virtual void execute(istream &s);
 };
@@ -537,6 +578,11 @@ public:
   virtual void execute(istream &s);
 };
 
+class IfcPointerSetting : public IfaceDecompCommand {
+public:
+  virtual void execute(istream &s);
+};
+
 class IfcPreferSplit : public IfaceDecompCommand {
 public:
   virtual void execute(istream &s);
@@ -552,17 +598,32 @@ public:
   virtual void execute(istream &s);
 };
 
+class IfcLoadTestFile : public IfaceDecompCommand {
+public:
+  virtual void execute(istream &s);
+};
+
+class IfcListTestCommands : public IfaceDecompCommand {
+public:
+  virtual void execute(istream &s);
+};
+
+class IfcExecuteTestCommand : public IfaceDecompCommand {
+public:
+  virtual void execute(istream &s);
+};
+
 #ifdef CPUI_RULECOMPILE
 class IfcParseRule : public IfaceDecompCommand {
 public:
   virtual void execute(istream &s);
 };
-#endif
 
 class IfcExperimentalRules : public IfaceDecompCommand {
 public:
   virtual void execute(istream &s);
 };
+#endif
 
 #ifdef OPACTION_DEBUG
 class IfcDebugAction : public IfaceDecompCommand {
@@ -600,6 +661,21 @@ public:
   virtual void execute(istream &s);
 };
 
+class IfcBreakjump : public IfaceDecompCommand {
+public:
+  virtual void execute(istream &s);
+};
+
 #endif
 
+#ifdef TYPEPROP_DEBUG
+
+class IfcTracePropagation : public IfaceDecompCommand {
+public:
+  virtual void execute(istream &s);
+};
+
+#endif
+
+} // End namespace ghidra
 #endif

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -26,6 +26,7 @@ import javax.swing.KeyStroke;
 import org.junit.*;
 
 import generic.stl.Pair;
+import generic.theme.GThemeDefaults.Colors.Palette;
 import ghidra.app.plugin.core.codebrowser.CodeBrowserPlugin;
 import ghidra.app.plugin.core.gotoquery.GoToServicePlugin;
 import ghidra.app.plugin.core.progmgr.ProgramManagerPlugin;
@@ -91,7 +92,7 @@ public class ToolPluginOptionsTest extends AbstractGhidraHeadedIntegrationTest {
 		String optionName = " Highlight Color";
 		Color highlightColor = options.getColor(optionName, null);
 		assertNotNull("Existing option has been removed--update test", highlightColor);
-		options.setColor(optionName, Color.RED);
+		options.setColor(optionName, Palette.RED);
 
 		optionName = "Highlight Search Results";
 		boolean highlightResults = options.getBoolean(optionName, true);
@@ -129,30 +130,6 @@ public class ToolPluginOptionsTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	@Test
-	public void testOptionsWithoutRegisteredOwnerGoAway() {
-		//
-		// Test that an option value that is not set or read will disappear after saving the 
-		// owning tool.
-		//
-
-		Options options = loadSearchOptions();
-
-		Pair<String, String> changedOption = changeStringTestOption(options);
-
-		//
-		// See if the options are there again after saving and reloading.  They should be there, 
-		// since the previous operation set the value.  We are careful here to simply check
-		// for the options existence, but not to retrieve it, as doing so would trigger the 
-		// option to be stored again.
-		//
-		options = saveAndLoadOptions();
-		verifyStringOptionStillChanged_WithoutUsingOptionsAPI(options, changedOption.first);
-
-		options = saveAndLoadOptions();
-		verifyUnusedOptionNoLongerHasEntry(options, changedOption.first);
-	}
-
-	@Test
 	public void testSaveOnlyNonDefaultOptions() {
 		ToolOptions options = loadSearchOptions();
 		options = saveAndLoadOptions();
@@ -176,6 +153,8 @@ public class ToolPluginOptionsTest extends AbstractGhidraHeadedIntegrationTest {
 		// Repeatedly save/load options, accessing them each time, and make sure that they 
 		// re-appear each load.
 		//
+		// Note: options removal is now controlled through use of an age-off mechanism
+		//
 
 		Options options = loadSearchOptions();
 
@@ -193,11 +172,11 @@ public class ToolPluginOptionsTest extends AbstractGhidraHeadedIntegrationTest {
 		verifyStringOptionsStillChanged_UsingTheOptionsAPI(options, changedOption);
 
 		//
-		// now save twice in a row without accessing and the untouched option should be gone
+		// now save twice in a row without accessing and the untouched option should *not* be gone
 		// 
 		options = saveAndLoadOptions();
 		options = saveAndLoadOptions();
-		verifyUnusedOptionNoLongerHasEntry(options, changedOption.first);
+		verifyStringOptionsStillChanged_UsingTheOptionsAPI(options, changedOption);
 	}
 
 	@Test
@@ -345,9 +324,13 @@ public class ToolPluginOptionsTest extends AbstractGhidraHeadedIntegrationTest {
 
 	private String clearKeyBinding(Options options) {
 		String keyBindingName = "Go To Next Function (CodeBrowserPlugin)";
-		KeyStroke ks = options.getKeyStroke(keyBindingName, null);
+		ActionTrigger actionTrigger = options.getActionTrigger(keyBindingName, null);
+		assertNotNull(actionTrigger);
+
+		KeyStroke ks = actionTrigger.getKeyStroke();
 		assertNotNull(ks);
-		options.setKeyStroke(keyBindingName, null);
+
+		options.setActionTrigger(keyBindingName, null);
 		return keyBindingName;
 	}
 
@@ -377,7 +360,12 @@ public class ToolPluginOptionsTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	private void verifyKeyBindingIsStillCleared(Options options, String optionName) {
-		KeyStroke ksValue = options.getKeyStroke(optionName, null);
+		ActionTrigger actionTrigger = options.getActionTrigger(optionName, null);
+		if (actionTrigger == null) {
+			return;
+		}
+
+		KeyStroke ksValue = actionTrigger.getKeyStroke();
 		assertNull(ksValue);
 	}
 

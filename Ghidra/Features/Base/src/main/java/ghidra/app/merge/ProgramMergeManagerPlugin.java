@@ -15,6 +15,10 @@
  */
 package ghidra.app.merge;
 
+import java.net.URL;
+
+import javax.swing.JComponent;
+
 import ghidra.app.CorePluginPackage;
 import ghidra.app.events.ProgramActivatedPluginEvent;
 import ghidra.app.plugin.PluginCategoryNames;
@@ -25,11 +29,6 @@ import ghidra.framework.plugintool.util.PluginStatus;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Program;
 
-import java.awt.Component;
-import java.net.URL;
-
-import javax.swing.JComponent;
-
 /**
  * Plugin that provides a merge component provider.
  * 
@@ -39,7 +38,7 @@ import javax.swing.JComponent;
 @PluginInfo(
 	status = PluginStatus.HIDDEN,
 	packageName = CorePluginPackage.NAME,
-	category = PluginCategoryNames.UNMANAGED,
+	category = PluginCategoryNames.COMMON,
 	shortDescription = "Program Merge Manager",
 	description = "Manage merge of Programs",
 	servicesProvided = { ProgramManager.class },
@@ -50,6 +49,7 @@ public class ProgramMergeManagerPlugin extends MergeManagerPlugin implements Pro
 
 	/**
 	 * Constructor for plugin that handles multi-user merge of programs.
+	 * 
 	 * @param tool the tool with the active program to be merged
 	 * @param mergeManager the merge manager that will control the merge process
 	 * @param program the current program
@@ -61,7 +61,8 @@ public class ProgramMergeManagerPlugin extends MergeManagerPlugin implements Pro
 
 	@Override
 	public MergeManagerProvider createProvider() {
-		return new MergeManagerProvider(this, "Merge Programs for " + currentDomainObject.getName());
+		return new MergeManagerProvider(this,
+			"Merge Programs for " + currentDomainObject.getName());
 	}
 
 	@Override
@@ -82,6 +83,7 @@ public class ProgramMergeManagerPlugin extends MergeManagerPlugin implements Pro
 
 	/**
 	 * Gets the merge manager associated with this plug-in.
+	 * 
 	 * @return the merge manager
 	 */
 	@Override
@@ -91,6 +93,7 @@ public class ProgramMergeManagerPlugin extends MergeManagerPlugin implements Pro
 
 	/**
 	 * Defines and displays a component for resolving merge conflicts.
+	 * 
 	 * @param component the component
 	 * @param componentID the identifier for this component
 	 */
@@ -101,6 +104,7 @@ public class ProgramMergeManagerPlugin extends MergeManagerPlugin implements Pro
 
 	/**
 	 * Sets the merge description at the top of the merge tool.
+	 * 
 	 * @param mergeDescription the new description
 	 */
 	@Override
@@ -110,7 +114,9 @@ public class ProgramMergeManagerPlugin extends MergeManagerPlugin implements Pro
 
 	/**
 	 * Sets the message below the progress meter in the current phase progress area.
-	 * @param progressDescription the new text message to display. If null, then the default message is displayed.
+	 * 
+	 * @param progressDescription the new text message to display. If null, then the default message
+	 *            is displayed.
 	 */
 	@Override
 	void updateProgressDetails(String progressDescription) {
@@ -118,7 +124,9 @@ public class ProgramMergeManagerPlugin extends MergeManagerPlugin implements Pro
 	}
 
 	/**
-	 * Sets the percentage of the progress meter that is filled in for the current phase progress area.
+	 * Sets the percentage of the progress meter that is filled in for the current phase progress
+	 * area.
+	 * 
 	 * @param currentPercentProgress the percentage of the progress bar to fill in from 0 to 100.
 	 */
 	@Override
@@ -135,8 +143,9 @@ public class ProgramMergeManagerPlugin extends MergeManagerPlugin implements Pro
 	}
 
 	/**
-	 * Enables/disables the Apply button at the bottom of the merge tool.
-	 * The Apply button is for applying conflicts.
+	 * Enables/disables the Apply button at the bottom of the merge tool. The Apply button is for
+	 * applying conflicts.
+	 * 
 	 * @param state true means enable the button. false means disable it.
 	 */
 	@Override
@@ -146,6 +155,7 @@ public class ProgramMergeManagerPlugin extends MergeManagerPlugin implements Pro
 
 	/**
 	 * Gets the provider for the merge.
+	 * 
 	 * @return the provider
 	 */
 	@Override
@@ -153,22 +163,27 @@ public class ProgramMergeManagerPlugin extends MergeManagerPlugin implements Pro
 		return provider;
 	}
 
+	@Override
 	public boolean closeOtherPrograms(boolean ignoreChanges) {
 		return false;
 	}
 
+	@Override
 	public boolean closeAllPrograms(boolean ignoreChanges) {
 		return false;
 	}
 
+	@Override
 	public boolean closeProgram() {
 		return false;
 	}
 
+	@Override
 	public boolean closeProgram(Program program, boolean ignoreChanges) {
 		return false;
 	}
 
+	@Override
 	public Program[] getAllOpenPrograms() {
 		ProgramMultiUserMergeManager programMergeManager =
 			(ProgramMultiUserMergeManager) mergeManager;
@@ -178,10 +193,12 @@ public class ProgramMergeManagerPlugin extends MergeManagerPlugin implements Pro
 			programMergeManager.getProgram(MergeConstants.ORIGINAL) };
 	}
 
+	@Override
 	public Program getCurrentProgram() {
 		return (Program) currentDomainObject;
 	}
 
+	@Override
 	public Program getProgram(Address addr) {
 		return null;
 	}
@@ -190,6 +207,7 @@ public class ProgramMergeManagerPlugin extends MergeManagerPlugin implements Pro
 		return 0;
 	}
 
+	@Override
 	public boolean isVisible(Program program) {
 		return false;
 	}
@@ -199,49 +217,78 @@ public class ProgramMergeManagerPlugin extends MergeManagerPlugin implements Pro
 		return null;
 	}
 
+	@Override
+	public Program openCachedProgram(URL ghidraURL, Object consumer) {
+		return null;
+	}
+
+	@Override
 	public Program openProgram(DomainFile domainFile) {
 		return null;
 	}
 
 	@Override
-	public Program openProgram(DomainFile domainFile, Component dialogParent) {
+	public Program openCachedProgram(DomainFile domainFile, Object consumer) {
 		return null;
 	}
 
+	@Override
 	public Program openProgram(DomainFile df, int version) {
 		return null;
 	}
 
+	@Override
 	public Program openProgram(DomainFile domainFile, int version, int state) {
 		return null;
 	}
 
+	@Override
 	public void openProgram(Program program) {
+		// not supported
 	}
 
-	public void openProgram(Program program, boolean current) {
-	}
-
+	@Override
 	public void openProgram(Program program, int state) {
+		// not supported
 	}
 
+	@Override
 	public void releaseProgram(Program program, Object persistentOwner) {
+		// not supported
 	}
 
+	@Override
+	public void saveProgram() {
+		// not supported
+	}
+
+	@Override
+	public void saveProgram(Program program) {
+		// not supported
+	}
+
+	@Override
+	public void saveProgramAs() {
+		// not supported
+	}
+
+	@Override
+	public void saveProgramAs(Program program) {
+		// not supported
+	}
+
+	@Override
 	public void setCurrentProgram(Program p) {
+		// not supported
 	}
 
+	@Override
 	public boolean setPersistentOwner(Program program, Object owner) {
 		return false;
 	}
 
 	public void setSearchPriority(Program p, int priority) {
+		// not supported
 	}
 
-	public boolean isLocked() {
-		return false;
-	}
-
-	public void lockDown(boolean state) {
-	}
 }

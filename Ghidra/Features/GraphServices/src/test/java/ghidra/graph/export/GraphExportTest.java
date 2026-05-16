@@ -30,11 +30,13 @@ import ghidra.app.services.BlockModelService;
 import ghidra.app.services.GraphDisplayBroker;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.framework.plugintool.util.PluginException;
+import ghidra.graph.exporter.*;
 import ghidra.program.database.ProgramDB;
 import ghidra.service.graph.*;
 import ghidra.test.AbstractGhidraHeadedIntegrationTest;
 import ghidra.test.TestEnv;
 import ghidra.util.Msg;
+import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
 import utilities.util.FileUtilities;
 
@@ -60,8 +62,20 @@ public class GraphExportTest extends AbstractGhidraHeadedIntegrationTest {
 
 		AttributedGraph graph = createGraph();
 		GraphDisplay exporter = exportProvider.getGraphDisplay(false, TaskMonitor.DUMMY);
-		exporter.setGraph(graph, "Test", false, TaskMonitor.DUMMY);
+		// run in swing so the test is not blocked when we mess with the dialog.
+		runSwing(() -> setGraph(graph, exporter), false);
 		waitForSwing();
+	}
+
+	private void setGraph(AttributedGraph graph, GraphDisplay exporter) {
+		try {
+			GraphDisplayOptions options =
+				new GraphDisplayOptionsBuilder(graph.getGraphType()).build();
+			exporter.setGraph(graph, options, "Test", false, TaskMonitor.DUMMY);
+		}
+		catch (CancelledException e) {
+			// can't happen with dummy
+		}
 	}
 
 	@After
@@ -71,137 +85,100 @@ public class GraphExportTest extends AbstractGhidraHeadedIntegrationTest {
 
 	@Test
 	public void testCSV() throws Exception {
-		List<String> lines = processDialog(GraphExportFormat.CSV);
+		List<String> lines = processDialog(new CsvEdgeListGraphExporter());
 
-		assertOutput(lines,
-			"A,B",
-			"B,C",
-			"B,D",
-			"C,E",
-			"D,E");
+		assertOutput(lines, "A,B", "B,C", "B,D", "C,E", "D,E");
 	}
 
 	@Test
 	public void testDIMACS() throws Exception {
-		List<String> lines = processDialog(GraphExportFormat.DIMACS);
-		assertOutput(lines,
-			"c",
-			"c SOURCE: Generated using the JGraphT library",
-			"c",
-			"p edge 5 5",
-			"e A B",
-			"e B C",
-			"e B D",
-			"e C E",
-			"e D E");
+		List<String> lines = processDialog(new DimacsGraphExporter());
+		assertOutput(lines, "c", "c SOURCE: Generated using the JGraphT library", "c", "p edge 5 5",
+			"e A B", "e B C", "e B D", "e C E", "e D E");
 	}
 
 	@Test
 	public void testDOT() throws Exception {
-		List<String> lines = processDialog(GraphExportFormat.DOT);
+		List<String> lines = processDialog(new DotGraphExporter());
 
-		assertOutput(lines,
-			"digraph Ghidra {",
-			"  A [ Type=\"X\" Inverted=\"true\" Name=\"A\" ];",
-			"  B [ Type=\"Y\" Name=\"B\" ];",
-			"  C [ Type=\"Y\" Name=\"C\" ];",
-			"  D [ Type=\"Y\" Name=\"D\" ];",
-			"  E [ Type=\"Z\" Name=\"E\" ];",
-			"  A -> B [ EType=\"Fall\" ];",
-			"  B -> C [ EType=\"JMP\" ];",
-			"  B -> D [ EType=\"Fall\" ];",
-			"  C -> E [ EType=\"Fall\" ];",
-			"  D -> E [ EType=\"Call\" ];",
-			"}");
+		assertOutput(lines, "digraph Ghidra {",
+			"  \"A\" [ Type=\"X\" Inverted=\"true\" label=\"A\" ];",
+			"  \"B\" [ Type=\"Y\" label=\"B\" ];", "  \"C\" [ Type=\"Y\" label=\"C\" ];",
+			"  \"D\" [ Type=\"Y\" label=\"D\" ];", "  \"E\" [ Type=\"Z\" label=\"E\" ];",
+			"  \"A\" -> \"B\" [ EType=\"Fall\" ];", "  \"B\" -> \"C\" [ EType=\"JMP\" ];",
+			"  \"B\" -> \"D\" [ EType=\"Fall\" ];", "  \"C\" -> \"E\" [ EType=\"Fall\" ];",
+			"  \"D\" -> \"E\" [ EType=\"Call\" ];", "}");
 	}
 
 	@Test
 	public void testGML() throws Exception {
-		List<String> lines = processDialog(GraphExportFormat.GML);
-		assertOutput(lines,
-			"Creator \"JGraphT GML Exporter\"",
-			"Version 1",
-			"graph",
-			"[",
-			"	label \"\"",
-			"	directed 1",
-			"	node",
-			"	[",
-			"		id A",
-			"	]",
-			"	node",
-			"	[",
-			"		id B",
-			"	]",
-			"	node",
-			"	[",
-			"		id C",
-			"	]",
-			"	node",
-			"	[",
-			"		id D",
-			"	]",
-			"	node",
-			"	[",
-			"		id E",
-			"	]",
-			"	edge",
-			"	[",
-			"		id 1",
-			"		source A",
-			"		target B",
-			"	]",
-			"	edge",
-			"	[",
-			"		id 2",
-			"		source B",
-			"		target C",
-			"	]",
-			"	edge",
-			"	[",
-			"		id 3",
-			"		source B",
-			"		target D",
-			"	]",
-			"	edge",
-			"	[",
-			"		id 4",
-			"		source C",
-			"		target E",
-			"	]",
-			"	edge",
-			"	[",
-			"		id 5",
-			"		source D",
-			"		target E",
-			"	]",
-			"]");
+		List<String> lines = processDialog(new GmlGraphExporter());
+		assertOutput(lines, "Creator \"JGraphT GML Exporter\"", "Version 1", "graph", "[",
+			"	label \"\"", "	directed 1", "	node", "	[", "		id A", "	]", "	node",
+			"	[", "		id B", "	]", "	node", "	[", "		id C", "	]", "	node",
+			"	[", "		id D", "	]", "	node", "	[", "		id E", "	]", "	edge",
+			"	[", "		id 1", "		source A", "		target B", "	]", "	edge",
+			"	[", "		id 2", "		source B", "		target C", "	]", "	edge",
+			"	[", "		id 3", "		source B", "		target D", "	]", "	edge",
+			"	[", "		id 4", "		source C", "		target E", "	]", "	edge",
+			"	[", "		id 5", "		source D", "		target E", "	]", "]");
 	}
 
 	@Test
 	public void testGRAPHML() throws Exception {
-		List<String> lines = processDialog(GraphExportFormat.GRAPHML);
+		List<String> lines = processDialog(new GraphMlGraphExporter());
+		// @formatter:off
 		assertOutput(lines,
 			"<?xml version=\"1.0\" encoding=\"UTF-8\"?><graphml xmlns=\"http://graphml.graphdrawing.org/xmlns\" xsi:schemaLocation=\"http://graphml.graphdrawing.org/xmlns http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">",
+			"    <key id=\"key9\" for=\"node\" attr.name=\"Type\" attr.type=\"string\"/>",
+			"    <key id=\"key1\" for=\"node\" attr.name=\"Inverted\" attr.type=\"string\"/>",
+			"    <key id=\"key10\" for=\"node\" attr.name=\"Name\" attr.type=\"string\"/>",
+			"    <key id=\"key15\" for=\"edge\" attr.name=\"EType\" attr.type=\"string\"/>",
 			"    <graph edgedefault=\"directed\">",
-			"        <node id=\"A\"/>",
-			"        <node id=\"B\"/>",
-			"        <node id=\"C\"/>",
-			"        <node id=\"D\"/>",
-			"        <node id=\"E\"/>",
-			"        <edge id=\"1\" source=\"A\" target=\"B\"/>",
-			"        <edge id=\"2\" source=\"B\" target=\"C\"/>",
-			"        <edge id=\"3\" source=\"B\" target=\"D\"/>",
-			"        <edge id=\"4\" source=\"C\" target=\"E\"/>",
-			"        <edge id=\"5\" source=\"D\" target=\"E\"/>",
+			"        <node id=\"A\">",
+			"            <data key=\"key9\">X</data>",
+			"            <data key=\"key1\">true</data>",
+			"            <data key=\"key10\">A</data>",
+			"        </node>",
+			"        <node id=\"B\">",
+			"            <data key=\"key9\">Y</data>",
+			"            <data key=\"key10\">B</data>",
+			"        </node>",
+			"        <node id=\"C\">",
+			"            <data key=\"key9\">Y</data>",
+			"            <data key=\"key10\">C</data>",
+			"        </node>",
+			"        <node id=\"D\">",
+			"            <data key=\"key9\">Y</data>",
+			"            <data key=\"key10\">D</data>",
+			"        </node>",
+			"        <node id=\"E\">",
+			"            <data key=\"key9\">Z</data>",
+			"            <data key=\"key10\">E</data>",
+			"        </node>",
+			"        <edge id=\"1\" source=\"A\" target=\"B\">",
+			"            <data key=\"key15\">Fall</data>",
+			"        </edge>",
+			"        <edge id=\"2\" source=\"B\" target=\"C\">",
+			"            <data key=\"key15\">JMP</data>",
+			"        </edge>",
+			"        <edge id=\"3\" source=\"B\" target=\"D\">",
+			"            <data key=\"key15\">Fall</data>",
+			"        </edge>",
+			"        <edge id=\"4\" source=\"C\" target=\"E\">",
+			"            <data key=\"key15\">Fall</data>",
+			"        </edge>",
+			"        <edge id=\"5\" source=\"D\" target=\"E\">",
+			"            <data key=\"key15\">Call</data>",
+			"        </edge>",
 			"    </graph>",
 			"</graphml>");
-
+		// @formatter:on
 	}
 
 	@Test
 	public void testJSON() throws Exception {
-		List<String> lines = processDialog(GraphExportFormat.JSON);
+		List<String> lines = processDialog(new JsonGraphExporter());
 		assertOutput(lines,
 			"{\"creator\":\"JGraphT JSON Exporter\",\"version\":\"1\",\"nodes\":" +
 				"[{\"id\":\"A\",\"Type\":\"X\",\"Inverted\":\"true\",\"Name\":\"A\"}," +
@@ -218,55 +195,16 @@ public class GraphExportTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	@Test
-	public void testLEMON() throws Exception {
-		List<String> lines = processDialog(GraphExportFormat.LEMON);
-
-		assertOutput(lines,
-			"#Creator: JGraphT Lemon (LGF) Exporter",
-			"#Version: 1",
-			"",
-			"@nodes",
-			"label",
-			"A",
-			"B",
-			"C",
-			"D",
-			"E",
-			"",
-			"@arcs",
-			"		-",
-			"A	B",
-			"B	C",
-			"B	D",
-			"C	E",
-			"D	E",
-			"");
-	}
-
-	@Test
 	public void testMATRIX() throws Exception {
-		List<String> lines = processDialog(GraphExportFormat.MATRIX);
-		assertOutput(lines,
-			"A B 1",
-			"B C 1",
-			"B D 1",
-			"C E 1",
-			"D E 1");
+		List<String> lines = processDialog(new MatrixGraphExporter());
+		assertOutput(lines, "A B 1", "B C 1", "B D 1", "C E 1", "D E 1");
 	}
 
 	@Test
 	public void testVISIO() throws Exception {
-		List<String> lines = processDialog(GraphExportFormat.VISIO);
-		assertOutput(lines,
-			"Shape,A,,A",
-			"Shape,B,,B",
-			"Shape,C,,C",
-			"Shape,D,,D",
-			"Shape,E,,E",
-			"Link,A-->B,,,A,B",
-			"Link,B-->C,,,B,C",
-			"Link,B-->D,,,B,D",
-			"Link,C-->E,,,C,E",
+		List<String> lines = processDialog(new VisioGraphExporter());
+		assertOutput(lines, "Shape,A,,A", "Shape,B,,B", "Shape,C,,C", "Shape,D,,D", "Shape,E,,E",
+			"Link,A-->B,,,A,B", "Link,B-->C,,,B,C", "Link,B-->D,,,B,D", "Link,C-->E,,,C,E",
 			"Link,D-->E,,,D,E");
 	}
 
@@ -281,12 +219,11 @@ public class GraphExportTest extends AbstractGhidraHeadedIntegrationTest {
 		tool.addPlugin(GraphDisplayBrokerPlugin.class.getName());
 	}
 
-	private List<String> processDialog(GraphExportFormat format) throws IOException {
+	private List<String> processDialog(AttributedGraphExporter exporter) throws IOException {
 		dialog = getDialogComponent(GraphExporterDialog.class);
-		String filePath =
-			createTempFilePath("GraphExportTest", "." + format.getDefaultFileExtension());
+		String filePath = createTempFilePath("GraphExportTest", "." + exporter.getFileExtension());
 		runSwing(() -> dialog.setOutputFile(filePath));
-		dialog.setExportFormat(format);
+		dialog.setExporter(exporter);
 		pressButtonByText(dialog, "OK");
 		List<String> lines = FileUtilities.getLines(new File(filePath));
 		return lines;
@@ -294,7 +231,7 @@ public class GraphExportTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	private AttributedGraph createGraph() {
-		AttributedGraph graph = new AttributedGraph();
+		AttributedGraph graph = new AttributedGraph("Test", new EmptyGraphType());
 		AttributedVertex vA = graph.addVertex("A");
 		AttributedVertex vB = graph.addVertex("B");
 		AttributedVertex vC = graph.addVertex("C");
@@ -343,12 +280,10 @@ public class GraphExportTest extends AbstractGhidraHeadedIntegrationTest {
 			for (int i = 0; i < expected.length; i++) {
 				if (i >= actual.size()) {
 					fail(testName.getMethodName() + ": output line " + (i + 1) + ": expected :\"" +
-						expected[i] +
-						"\", got: EOF");
+						expected[i] + "\", got: EOF");
 				}
 				assertEquals(testName.getMethodName() + ": output line " + (i + 1) + ": ",
-					expected[i],
-					actual.get(i));
+					expected[i], actual.get(i));
 			}
 		}
 		catch (Throwable e) {

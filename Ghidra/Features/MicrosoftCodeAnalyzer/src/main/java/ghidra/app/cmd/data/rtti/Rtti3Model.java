@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -14,9 +14,6 @@
  * limitations under the License.
  */
 package ghidra.app.cmd.data.rtti;
-
-import static ghidra.app.util.datatype.microsoft.MSDataTypeUtils.getAlignedPack4Structure;
-import static ghidra.app.util.datatype.microsoft.MSDataTypeUtils.getReferencedAddress;
 
 import java.util.List;
 
@@ -38,7 +35,6 @@ import ghidra.util.Msg;
  * ClassHierarchyDescriptor structure.
  * <p>
  * Fields for this RunTimeTypeInformation structure can be found on http://www.openrce.org
- * <p>
  * <pre>
  * struct ClassHierarchyDescriptor {
  *     dword signature;
@@ -147,8 +143,8 @@ public class Rtti3Model extends AbstractCreateRttiDataModel {
 		boolean is64Bit = MSDataTypeUtils.is64Bit(program);
 		Structure rtti3Struct = (Structure) DataTypeUtils.getBaseDataType(rtti3Dt);
 		DataType individualRtti2EntryDt = Rtti2Model.getIndividualEntryDataType(program, rtti1Dt);
-		DataType rtti2RefDt = is64Bit ? new ImageBaseOffset32DataType(dataTypeManager)
-				: new PointerDataType(individualRtti2EntryDt);
+		DataType rtti2RefDt = is64Bit ? IBO32DataType.createIBO32PointerTypedef(individualRtti2EntryDt)
+				: new PointerDataType(individualRtti2EntryDt, dataTypeManager);
 		rtti3Struct.replace(BASE_ARRAY_PTR_ORDINAL, rtti2RefDt, rtti2RefDt.getLength(),
 			"pBaseClassArray", "ref to BaseClassArray (RTTI 2)");
 	}
@@ -165,7 +161,7 @@ public class Rtti3Model extends AbstractCreateRttiDataModel {
 
 		CategoryPath categoryPath = new CategoryPath(CATEGORY_PATH);
 		StructureDataType struct =
-			getAlignedPack4Structure(dataTypeManager, categoryPath, STRUCTURE_NAME);
+			MSDataTypeUtils.getAlignedPack4Structure(dataTypeManager, categoryPath, STRUCTURE_NAME);
 
 		// Add the components.
 		DWordDataType dWordDataType = new DWordDataType(dataTypeManager);
@@ -174,8 +170,10 @@ public class Rtti3Model extends AbstractCreateRttiDataModel {
 		struct.add(dWordDataType, "numBaseClasses", "number of base classes (i.e. rtti1Count)");
 
 		DataType rtti2Dt = Rtti2Model.getSimpleIndividualEntryDataType(program);
+		// FIXME! I don't think we should be making a pointer-to-pointer
 		DataType rtti2RefDt =
-			is64Bit ? new ImageBaseOffset32DataType(dataTypeManager) : new PointerDataType(rtti2Dt);
+			is64Bit ? IBO32DataType.createIBO32PointerTypedef(rtti2Dt)
+					: new PointerDataType(rtti2Dt, dataTypeManager);
 		struct.add(rtti2RefDt, "pBaseClassArray", "ref to BaseClassArray (RTTI 2)");
 
 		return new TypedefDataType(categoryPath, DATA_TYPE_NAME, struct, dataTypeManager);
@@ -264,7 +262,7 @@ public class Rtti3Model extends AbstractCreateRttiDataModel {
 		Memory memory = program.getMemory();
 
 		Address rtti2CompAddress = rtti3Address.add(BASE_ARRAY_PTR_OFFSET);
-		Address pointedToAddress = getReferencedAddress(program, rtti2CompAddress);
+		Address pointedToAddress = MSDataTypeUtils.getReferencedAddress(program, rtti2CompAddress);
 		if (pointedToAddress == null || !memory.contains(pointedToAddress)) {
 			return null;
 		}

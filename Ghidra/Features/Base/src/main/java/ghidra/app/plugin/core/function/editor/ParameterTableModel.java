@@ -20,6 +20,7 @@ import java.util.List;
 
 import docking.widgets.table.AbstractGTableModel;
 import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.VoidDataType;
 import ghidra.program.model.listing.VariableStorage;
 
 class ParameterTableModel extends AbstractGTableModel<FunctionVariableData> {
@@ -108,6 +109,14 @@ class ParameterTableModel extends AbstractGTableModel<FunctionVariableData> {
 		}
 		fireTableDataChanged();
 	}
+
+	public void setAllowStorageEditing(boolean canCustomizeStorage) {
+		this.canCustomizeStorage = canCustomizeStorage;
+	}
+
+//==================================================================================================
+// Inner Classes
+//==================================================================================================
 
 	private abstract class ParamCol {
 		private String name;
@@ -215,7 +224,15 @@ class ParameterTableModel extends AbstractGTableModel<FunctionVariableData> {
 
 		@Override
 		public boolean isCellEditable(int rowIndex) {
-			return canCustomizeStorage;
+			FunctionVariableData rowData = getRowObject(rowIndex);
+			if (rowData == null || !canCustomizeStorage) {
+				return false;
+			}
+			if (rowData.getIndex() == null) {
+				// return parameter - don't permit storage edit for void type
+				return !VoidDataType.isVoidDataType(rowData.getFormalDataType());
+			}
+			return true;
 		}
 
 		@Override
@@ -229,11 +246,7 @@ class ParameterTableModel extends AbstractGTableModel<FunctionVariableData> {
 		}
 	}
 
-	public void setAllowStorageEditing(boolean canCustomizeStorage) {
-		this.canCustomizeStorage = canCustomizeStorage;
-	}
-
-	class ParameterRowData implements FunctionVariableData {
+	private class ParameterRowData implements FunctionVariableData {
 		private ParamInfo param;
 
 		ParameterRowData(ParamInfo paramInfo) {
@@ -265,8 +278,8 @@ class ParameterTableModel extends AbstractGTableModel<FunctionVariableData> {
 		}
 
 		@Override
-		public void setFormalDataType(DataType dataType) {
-			functionModel.setParameterFormalDataType(param, dataType);
+		public boolean setFormalDataType(DataType dataType) {
+			return functionModel.setParameterFormalDataType(param, dataType);
 		}
 
 		@Override
@@ -278,9 +291,14 @@ class ParameterTableModel extends AbstractGTableModel<FunctionVariableData> {
 		public void setStorage(VariableStorage storage) {
 			functionModel.setParameterStorage(param, storage);
 		}
+
+		@Override
+		public boolean hasStorageConflict() {
+			return param.hasStorageConflict();
+		}
 	}
 
-	class ReturnRowData implements FunctionVariableData {
+	private class ReturnRowData implements FunctionVariableData {
 		private DataType formalDataType;
 		private VariableStorage storage;
 
@@ -310,8 +328,8 @@ class ParameterTableModel extends AbstractGTableModel<FunctionVariableData> {
 		}
 
 		@Override
-		public void setFormalDataType(DataType dataType) {
-			functionModel.setFormalReturnType(dataType);
+		public boolean setFormalDataType(DataType dataType) {
+			return functionModel.setFormalReturnType(dataType);
 		}
 
 		@Override
@@ -321,8 +339,12 @@ class ParameterTableModel extends AbstractGTableModel<FunctionVariableData> {
 
 		@Override
 		public void setName(String name) {
-			// TODO Auto-generated method stub
+			// no name for return type
+		}
 
+		@Override
+		public boolean hasStorageConflict() {
+			return false;
 		}
 	}
 }

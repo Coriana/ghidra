@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,16 +15,16 @@
  */
 package ghidra.program.database.bookmark;
 
-import ghidra.program.model.listing.BookmarkType;
-
 import java.awt.Color;
 
-import javax.swing.ImageIcon;
+import javax.swing.Icon;
+
+import ghidra.program.model.listing.BookmarkType;
 
 public class BookmarkTypeDB implements BookmarkType {
 	private int typeId;
 	private String type;
-	private ImageIcon icon;
+	private Icon icon;
 	private Color markerColor;
 	private int priority = -1;
 	private boolean hasMarks;	// flag to indicate if this type is stored in the program.
@@ -38,6 +37,7 @@ public class BookmarkTypeDB implements BookmarkType {
 	/*
 	 * @see ghidra.program.model.listing.BookmarkType#getTypeString()
 	 */
+	@Override
 	public String getTypeString() {
 		return type;
 	}
@@ -46,19 +46,22 @@ public class BookmarkTypeDB implements BookmarkType {
 		hasMarks = b;
 	}
 
+	@Override
 	public boolean hasBookmarks() {
 		return hasMarks;
 	}
 
+	@Override
 	public int getTypeId() {
 		return typeId;
 	}
 
-	void setIcon(ImageIcon icon) {
+	void setIcon(Icon icon) {
 		this.icon = icon;
 	}
 
-	public ImageIcon getIcon() {
+	@Override
+	public Icon getIcon() {
 		return icon;
 	}
 
@@ -66,6 +69,7 @@ public class BookmarkTypeDB implements BookmarkType {
 		this.markerColor = markerColor;
 	}
 
+	@Override
 	public Color getMarkerColor() {
 		return markerColor;
 	}
@@ -74,16 +78,13 @@ public class BookmarkTypeDB implements BookmarkType {
 		this.priority = priority;
 	}
 
+	@Override
 	public int getMarkerPriority() {
 		return priority;
 	}
 
-	/*
-	 * @see java.lang.Object#toString()
-	 */
 	@Override
 	public String toString() {
 		return type;
 	}
-
 }

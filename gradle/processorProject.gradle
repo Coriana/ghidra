@@ -1,3 +1,18 @@
+/* ###
+ * IP: GHIDRA
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 /*****************************************************************************************
 	This file is a "mix-in" gradle script that individual gradle projects should include if they
 	have processor definitions.
@@ -108,10 +123,14 @@ clean {
  *****************************************************************************************/
 task writeSleighDevBuild {
 	def templateFilePath = project(':BuildFiles').projectDir.toString() + "/sleighDevBuild.template"
+	def softwareModelingProject = project(':SoftwareModeling')
 
 	doLast {
 		// Generate build.xml with injected classpath for running sleigh compiler
-		def sleighDevClasspath = project(':SoftwareModeling').sourceSets.main.runtimeClasspath.collect { it.absolutePath }.join(':')		
+		def sleighDevClasspath = softwareModelingProject.sourceSets.main.runtimeClasspath.collect { 
+			it.absolutePath 
+		}.join(':')
+		
 		copy {
 			into "data"
 			from (templateFilePath) {
@@ -145,11 +164,11 @@ rootProject.assembleDistribution {
 task sleighCompile (type: JavaExec) {
 	dependsOn saveSleighArgs
 	group = rootProject.GHIDRA_GROUP
-	description "  Compiles all the sleigh languages.    [gradle/processorProject.gradle]\n"
+	description = "  Compiles all the sleigh languages.    [gradle/processorProject.gradle]\n"
 	 
 	// define standard parameters for JavaExec
 	classpath configurations.sleighConfig
-	main = 'ghidra.pcodeCPort.slgh_compile.SleighCompile'
+	mainClass = 'ghidra.pcodeCPort.slgh_compile.SleighCompile'
 	
 	// Delay adding the directory argument until the first part of the execution phase, so
 	// that any extra args added by a project override will be added to the arg list before
@@ -180,10 +199,10 @@ rootProject.allSleighCompile.dependsOn sleighCompile
  *
  *****************************************************************************************/
 task cleanSleigh  {
-	group rootProject.GHIDRA_GROUP
-	description "Removes all the compile sleigh language files (*.sla).   [gradle/processorProject.gradle]\n"
+	group = rootProject.GHIDRA_GROUP
+	description = "Removes all the compile sleigh language files (*.sla).   [gradle/processorProject.gradle]\n"
  	doLast {
-		def deleteTree = fileTree(dir: "data/languages", include: "*.sla")
+		def deleteTree = fileTree(dir: "data/languages", include: ["*.sla", "*.sla.lock"])
 		deleteTree.each { File file ->
 			delete file
 		}

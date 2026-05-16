@@ -313,6 +313,7 @@ void dumpFunctionLines( IDiaSymbol& symbol, IDiaSession& session )
 
 		bstr_t sourceFileName;
 		pSrc->get_fileName(sourceFileName.GetAddress());
+		std::wstring wsSourceFileName(sourceFileName.GetBSTR(), SysStringLen(sourceFileName));
 
 		DWORD addr = 0;
 		pLine->get_relativeVirtualAddress( &addr );
@@ -321,9 +322,11 @@ void dumpFunctionLines( IDiaSymbol& symbol, IDiaSession& session )
 		pLine->get_lineNumber( &start );
 		DWORD end = 0;
 		pLine->get_lineNumberEnd( &end );
+		DWORD range_length = 0;
+		pLine->get_length( &range_length );
 
-		printf("%S<line_number source_file=\"%ws\" start=\"%d\" end=\"%d\" addr=\"0x%x\" /> \n",
-					indent(12).c_str(), escapeXmlEntities(sourceFileName.GetBSTR()).data(), start, end, addr);
+		printf("%S<line_number source_file=\"%ws\" start=\"%d\" end=\"%d\" addr=\"0x%x\" length=\"%d\" /> \n",
+					indent(12).c_str(), escapeXmlEntities(wsSourceFileName).c_str(), start, end, addr, range_length);
 	}
 }
 
@@ -400,7 +403,8 @@ void iterateSourceFiles(IDiaEnumSourceFiles * pSourceFiles) {
 		bstr_t name;
 		DWORD id = 0;
 		if( (pSourceFile->get_fileName( name.GetAddress() ) == S_OK) && (pSourceFile->get_uniqueId( &id ) == S_OK) ) {
-			printf("%S<source_file name=\"%ws\" id=\"0x%x\" /> \n", indent(12).c_str(), escapeXmlEntities(name.GetBSTR()).data(), id);
+			std::wstring wsName(name.GetBSTR(), SysStringLen(name));
+			printf("%S<source_file name=\"%ws\" id=\"0x%x\" /> \n", indent(12).c_str(), escapeXmlEntities(wsName).c_str(), id);
 		}
 		pSourceFile = NULL;
 	}
@@ -490,9 +494,11 @@ void iterateInjectedSource(IDiaEnumInjectedSources * pInjectedSrcs) {
 
 		bstr_t filename;
 		pInjectedSrc->get_filename(filename.GetAddress());
+		std::wstring wsFileName(filename.GetBSTR(), SysStringLen(filename));
 
 		bstr_t objectname;
 		pInjectedSrc->get_objectFilename(objectname.GetAddress());
+		std::wstring wsObjectname(objectname.GetBSTR(), SysStringLen(objectname));
 
 		DWORD crc;
 		pInjectedSrc->get_crc(&crc);
@@ -502,8 +508,8 @@ void iterateInjectedSource(IDiaEnumInjectedSources * pInjectedSrcs) {
 
 		printf("%S<injected_source filename=\"%ws\" objectname=\"%ws\" crc=\"0x%x\" length=\"0x%I64x\" />\n",
 					indent(8).c_str(),
-					filename.GetBSTR(),
-					objectname.GetBSTR(),
+					escapeXmlEntities(wsFileName).c_str(),
+					escapeXmlEntities(wsObjectname).c_str(),
 					crc,
 					length);
 

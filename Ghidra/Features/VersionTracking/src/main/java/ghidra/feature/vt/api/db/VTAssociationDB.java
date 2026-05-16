@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,26 +19,30 @@ import static ghidra.feature.vt.api.db.VTAssociationTableDBAdapter.AssociationTa
 
 import java.util.Collection;
 
-import db.Record;
+import db.DBRecord;
 import ghidra.feature.vt.api.impl.MarkupItemManagerImpl;
-import ghidra.feature.vt.api.impl.VTChangeManager;
+import ghidra.feature.vt.api.impl.VTEvent;
 import ghidra.feature.vt.api.main.*;
 import ghidra.feature.vt.api.util.VTAssociationStatusException;
-import ghidra.program.database.DBObjectCache;
-import ghidra.program.database.DatabaseObject;
+import ghidra.program.database.DbObject;
 import ghidra.program.model.address.Address;
+import ghidra.util.Lock.Closeable;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
 
-public class VTAssociationDB extends DatabaseObject implements VTAssociation {
+public class VTAssociationDB extends DbObject implements VTAssociation {
 
-	public Record record;
+	public DBRecord record;
 	private MarkupItemManagerImpl markupManager;
 	public final AssociationDatabaseManager associationDBM;
 
-	public VTAssociationDB(AssociationDatabaseManager associationManager,
-			DBObjectCache<VTAssociationDB> cache, Record record) {
-		super(cache, record.getKey());
+	/**
+	 * Constructor
+	 * @param associationManager the association database manager
+	 * @param record the record for the association
+	 */
+	VTAssociationDB(AssociationDatabaseManager associationManager, DBRecord record) {
+		super(record.getKey());
 		this.associationDBM = associationManager;
 		this.record = record;
 		markupManager = new MarkupItemManagerImpl(this);
@@ -80,7 +84,7 @@ public class VTAssociationDB extends DatabaseObject implements VTAssociation {
 	}
 
 	@Override
-	protected boolean refresh(Record associationRecord) {
+	protected boolean refresh(DBRecord associationRecord) {
 		if (associationRecord == null) {
 			associationRecord = associationDBM.getAssociationRecord(key);
 		}
@@ -93,40 +97,28 @@ public class VTAssociationDB extends DatabaseObject implements VTAssociation {
 
 	@Override
 	public Address getSourceAddress() {
-		associationDBM.lock.acquire();
-		try {
-			checkIsValid();
-			return associationDBM.getSourceAddressFromLong(
-				record.getLongValue(SOURCE_ADDRESS_COL.column()));
-		}
-		finally {
-			associationDBM.lock.release();
+		try (Closeable c = associationDBM.lock.read()) {
+			refreshIfNeeded();
+			return associationDBM
+					.getSourceAddressFromLong(record.getLongValue(SOURCE_ADDRESS_COL.column()));
 		}
 	}
 
 	@Override
 	public Address getDestinationAddress() {
-		associationDBM.lock.acquire();
-		try {
-			checkIsValid();
+		try (Closeable c = associationDBM.lock.read()) {
+			refreshIfNeeded();
 			return associationDBM.getDestinationAddressFromLong(
 				record.getLongValue(DESTINATION_ADDRESS_COL.column()));
-		}
-		finally {
-			associationDBM.lock.release();
 		}
 	}
 
 	@Override
 	public VTAssociationType getType() {
-		associationDBM.lock.acquire();
-		try {
-			checkIsValid();
+		try (Closeable c = associationDBM.lock.read()) {
+			refreshIfNeeded();
 			byte associationTypeOrdinal = record.getByteValue(TYPE_COL.column());
 			return VTAssociationType.values()[associationTypeOrdinal];
-		}
-		finally {
-			associationDBM.lock.release();
 		}
 	}
 
@@ -136,36 +128,24 @@ public class VTAssociationDB extends DatabaseObject implements VTAssociation {
 
 	@Override
 	public VTAssociationStatus getStatus() {
-		associationDBM.lock.acquire();
-		try {
-			checkIsValid();
+		try (Closeable c = associationDBM.lock.read()) {
+			refreshIfNeeded();
 			return VTAssociationStatus.values()[record.getByteValue(STATUS_COL.column())];
-		}
-		finally {
-			associationDBM.lock.release();
 		}
 	}
 
 	@Override
 	public VTAssociationMarkupStatus getMarkupStatus() {
-		associationDBM.lock.acquire();
-		try {
-			checkIsValid();
+		try (Closeable c = associationDBM.lock.read()) {
+			refreshIfNeeded();
 			return new VTAssociationMarkupStatus(record.getByteValue(APPLIED_STATUS_COL.column()));
-		}
-		finally {
-			associationDBM.lock.release();
 		}
 	}
 
-	Record getRecord() {
-		associationDBM.lock.acquire();
-		try {
-			checkIsValid();
+	DBRecord getRecord() {
+		try (Closeable c = associationDBM.lock.read()) {
+			refreshIfNeeded();
 			return record;
-		}
-		finally {
-			associationDBM.lock.release();
 		}
 	}
 
@@ -220,20 +200,15 @@ public class VTAssociationDB extends DatabaseObject implements VTAssociation {
 
 	@Override
 	public int getVoteCount() {
-		associationDBM.lock.acquire();
-		try {
-			checkIsValid();
+		try (Closeable c = associationDBM.lock.read()) {
+			refreshIfNeeded();
 			return record.getIntValue(VOTE_COUNT_COL.column());
-		}
-		finally {
-			associationDBM.lock.release();
 		}
 	}
 
 	@Override
 	public void setMarkupStatus(VTAssociationMarkupStatus status) {
-		associationDBM.lock.acquire();
-		try {
+		try (Closeable c = associationDBM.lock.write()) {
 			checkDeleted();
 			VTAssociationMarkupStatus existingStatus = getMarkupStatus();
 			if (status.equals(existingStatus)) {
@@ -242,18 +217,14 @@ public class VTAssociationDB extends DatabaseObject implements VTAssociation {
 
 			record.setByteValue(APPLIED_STATUS_COL.column(), (byte) status.getStatusValue());
 			associationDBM.updateAssociationRecord(record);
-			associationDBM.getSession().setObjectChanged(
-				VTChangeManager.DOCR_VT_ASSOCIATION_MARKUP_STATUS_CHANGED, this, existingStatus,
-				status);
-		}
-		finally {
-			associationDBM.lock.release();
+			associationDBM.getSession()
+					.setObjectChanged(VTEvent.ASSOCIATION_MARKUP_STATUS_CHANGED, this,
+						existingStatus, status);
 		}
 	}
 
 	public void setStatus(VTAssociationStatus status) {
-		associationDBM.lock.acquire();
-		try {
+		try (Closeable c = associationDBM.lock.write()) {
 			checkDeleted();
 			VTAssociationStatus existingStatus = getStatus();
 			if (status == existingStatus) {
@@ -262,27 +233,21 @@ public class VTAssociationDB extends DatabaseObject implements VTAssociation {
 
 			record.setByteValue(STATUS_COL.column(), (byte) status.ordinal());
 			associationDBM.updateAssociationRecord(record);
-			associationDBM.getSession().setObjectChanged(
-				VTChangeManager.DOCR_VT_ASSOCIATION_STATUS_CHANGED, this, existingStatus, status);
-		}
-		finally {
-			associationDBM.lock.release();
+			associationDBM.getSession()
+					.setObjectChanged(VTEvent.ASSOCIATION_STATUS_CHANGED, this, existingStatus,
+						status);
 		}
 	}
 
 	@Override
 	public void setVoteCount(int voteCount) {
-		associationDBM.lock.acquire();
-		try {
+		try (Closeable c = associationDBM.lock.write()) {
 			checkDeleted();
 			voteCount = Math.max(0, voteCount);
 			record.setIntValue(VOTE_COUNT_COL.column(), voteCount);
 			associationDBM.updateAssociationRecord(record);
-			associationDBM.getSession().setObjectChanged(VTChangeManager.DOCR_VT_VOTE_COUNT_CHANGED,
-				this, null, null);
-		}
-		finally {
-			associationDBM.lock.release();
+			associationDBM.getSession()
+					.setObjectChanged(VTEvent.VOTE_COUNT_CHANGED, this, null, null);
 		}
 	}
 
@@ -294,5 +259,9 @@ public class VTAssociationDB extends DatabaseObject implements VTAssociation {
 	@Override
 	public boolean hasAppliedMarkupItems() {
 		return markupManager.hasAppliedMarkupItems();
+	}
+
+	void removeMarkupItems() {
+		markupManager.removeMarkupItems();
 	}
 }

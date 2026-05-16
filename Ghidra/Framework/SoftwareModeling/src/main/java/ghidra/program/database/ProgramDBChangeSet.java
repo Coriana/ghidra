@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -34,10 +34,10 @@ import ghidra.program.model.listing.ProgramChangeSet;
 class ProgramDBChangeSet implements ProgramChangeSet, DomainObjectDBChangeSet {
 
 	private static final Schema STORED_ID_SCHEMA =
-		new Schema(0, "Key", new Class[] { LongField.class }, new String[] { "value" });
+		new Schema(0, "Key", new Field[] { LongField.INSTANCE }, new String[] { "value" });
 
 	private static final Schema STORED_ADDRESS_RANGE_SCHEMA = new Schema(0, "Key",
-		new Class[] { LongField.class, LongField.class }, new String[] { "addr1", "addr2" });
+		new Field[] { LongField.INSTANCE, LongField.INSTANCE }, new String[] { "addr1", "addr2" });
 
 	private static final String DATATYPE_ADDITIONS = "DataType Additions";
 	private static final String DATATYPE_CHANGES = "DataType Changes";
@@ -185,7 +185,7 @@ class ProgramDBChangeSet implements ProgramChangeSet, DomainObjectDBChangeSet {
 		if (!inTransaction) {
 			throw new IllegalStateException("Not in a transaction");
 		}
-		Long lid = new Long(id);
+		Long lid = Long.valueOf(id);
 		if (!addedDataTypeIds.contains(lid) && !tmpAddedDataTypeIds.contains(lid)) {
 			tmpChangedDataTypeIds.add(lid);
 		}
@@ -196,7 +196,7 @@ class ProgramDBChangeSet implements ProgramChangeSet, DomainObjectDBChangeSet {
 		if (!inTransaction) {
 			throw new IllegalStateException("Not in a transaction");
 		}
-		tmpAddedDataTypeIds.add(new Long(id));
+		tmpAddedDataTypeIds.add(Long.valueOf(id));
 	}
 
 	@Override
@@ -214,7 +214,7 @@ class ProgramDBChangeSet implements ProgramChangeSet, DomainObjectDBChangeSet {
 		if (!inTransaction) {
 			throw new IllegalStateException("Not in a transaction");
 		}
-		Long lid = new Long(id);
+		Long lid = Long.valueOf(id);
 		if (!addedCategoryIds.contains(lid) && !tmpAddedCategoryIds.contains(lid)) {
 			tmpChangedCategoryIds.add(lid);
 		}
@@ -225,7 +225,7 @@ class ProgramDBChangeSet implements ProgramChangeSet, DomainObjectDBChangeSet {
 		if (!inTransaction) {
 			throw new IllegalStateException("Not in a transaction");
 		}
-		tmpAddedCategoryIds.add(new Long(id));
+		tmpAddedCategoryIds.add(Long.valueOf(id));
 	}
 
 	@Override
@@ -243,7 +243,7 @@ class ProgramDBChangeSet implements ProgramChangeSet, DomainObjectDBChangeSet {
 		if (!inTransaction) {
 			throw new IllegalStateException("Not in a transaction");
 		}
-		Long lid = new Long(id);
+		Long lid = Long.valueOf(id);
 		if (!addedProgramTreeIds.contains(lid) && !tmpAddedProgramTreeIds.contains(lid)) {
 			tmpChangedProgramTreeIds.add(lid);
 		}
@@ -254,7 +254,7 @@ class ProgramDBChangeSet implements ProgramChangeSet, DomainObjectDBChangeSet {
 		if (!inTransaction) {
 			throw new IllegalStateException("Not in a transaction");
 		}
-		tmpAddedProgramTreeIds.add(new Long(id));
+		tmpAddedProgramTreeIds.add(Long.valueOf(id));
 	}
 
 	@Override
@@ -272,7 +272,7 @@ class ProgramDBChangeSet implements ProgramChangeSet, DomainObjectDBChangeSet {
 		if (!inTransaction) {
 			throw new IllegalStateException("Not in a transaction");
 		}
-		Long lid = new Long(id);
+		Long lid = Long.valueOf(id);
 		if (!addedSymbolIds.contains(lid) && !tmpAddedSymbolIds.contains(lid)) {
 			tmpChangedSymbolIds.add(lid);
 		}
@@ -283,7 +283,7 @@ class ProgramDBChangeSet implements ProgramChangeSet, DomainObjectDBChangeSet {
 		if (!inTransaction) {
 			throw new IllegalStateException("Not in a transaction");
 		}
-		tmpAddedSymbolIds.add(new Long(id));
+		tmpAddedSymbolIds.add(Long.valueOf(id));
 	}
 
 	@Override
@@ -301,7 +301,7 @@ class ProgramDBChangeSet implements ProgramChangeSet, DomainObjectDBChangeSet {
 		if (!inTransaction) {
 			throw new IllegalStateException("Not in a transaction");
 		}
-		Long lid = new Long(id);
+		Long lid = Long.valueOf(id);
 		if (!changedTagIds.contains(lid) && !tmpChangedTagIds.contains(lid)) {
 			tmpChangedTagIds.add(lid);
 		}
@@ -312,7 +312,7 @@ class ProgramDBChangeSet implements ProgramChangeSet, DomainObjectDBChangeSet {
 		if (!inTransaction) {
 			throw new IllegalStateException("Not in a transaction");
 		}
-		tmpAddedTagIds.add(new Long(id));
+		tmpAddedTagIds.add(Long.valueOf(id));
 	}
 
 	@Override
@@ -330,7 +330,7 @@ class ProgramDBChangeSet implements ProgramChangeSet, DomainObjectDBChangeSet {
 		if (!inTransaction) {
 			throw new IllegalStateException("Not in a transaction");
 		}
-		tmpAddedSourceArchiveIds.add(new Long(id));
+		tmpAddedSourceArchiveIds.add(Long.valueOf(id));
 	}
 
 	@Override
@@ -338,7 +338,7 @@ class ProgramDBChangeSet implements ProgramChangeSet, DomainObjectDBChangeSet {
 		if (!inTransaction) {
 			throw new IllegalStateException("Not in a transaction");
 		}
-		Long lid = new Long(id);
+		Long lid = Long.valueOf(id);
 		if (!addedSourceArchiveIds.contains(lid) && !tmpAddedSourceArchiveIds.contains(lid)) {
 			tmpChangedSourceArchiveIds.add(lid);
 		}
@@ -361,23 +361,27 @@ class ProgramDBChangeSet implements ProgramChangeSet, DomainObjectDBChangeSet {
 		}
 
 		if (!isCheckedOut) { // if not versioned, wipe out change sets
-			changedAddrsSinceCheckout.clear();
-			changedRegAddrsSinceCheckout.clear();
-			changedAddrsSinceSave.clear();
-			changedRegAddrsSinceSave.clear();
-			changedCategoryIds.clear();
-			changedDataTypeIds.clear();
-			changedProgramTreeIds.clear();
-			changedSymbolIds.clear();
-			changedSourceArchiveIds.clear();
-			addedCategoryIds.clear();
-			addedDataTypeIds.clear();
-			addedProgramTreeIds.clear();
-			addedSymbolIds.clear();
-			addedSourceArchiveIds.clear();
+			clearAll();
 		}
 
 		clearUndo();
+	}
+
+	void clearAll() {
+		changedAddrsSinceCheckout.clear();
+		changedRegAddrsSinceCheckout.clear();
+		changedAddrsSinceSave.clear();
+		changedRegAddrsSinceSave.clear();
+		changedCategoryIds.clear();
+		changedDataTypeIds.clear();
+		changedProgramTreeIds.clear();
+		changedSymbolIds.clear();
+		changedSourceArchiveIds.clear();
+		addedCategoryIds.clear();
+		addedDataTypeIds.clear();
+		addedProgramTreeIds.clear();
+		addedSymbolIds.clear();
+		addedSourceArchiveIds.clear();
 	}
 
 	@Override
@@ -542,7 +546,7 @@ class ProgramDBChangeSet implements ProgramChangeSet, DomainObjectDBChangeSet {
 			}
 			RecordIterator it = table.iterator();
 			while (it.hasNext()) {
-				Record rec = it.next();
+				DBRecord rec = it.next();
 				ids.add(rec.getLongValue(0));
 			}
 		}
@@ -557,7 +561,7 @@ class ProgramDBChangeSet implements ProgramChangeSet, DomainObjectDBChangeSet {
 			}
 			RecordIterator it = table.iterator();
 			while (it.hasNext()) {
-				Record rec = it.next();
+				DBRecord rec = it.next();
 				Address addr1 = addrMap.decodeAddress(rec.getLongValue(0));
 				Address addr2 = addrMap.decodeAddress(rec.getLongValue(1));
 				// Memory addresses or external addresses are the only ones that should be in here.
@@ -611,7 +615,7 @@ class ProgramDBChangeSet implements ProgramChangeSet, DomainObjectDBChangeSet {
 	private void writeIdRecords(DBHandle dbh, String tableName, Set<Long> ids) throws IOException {
 		if (ids.size() > 0) {
 			Table table = dbh.createTable(tableName, STORED_ID_SCHEMA);
-			Record rec = STORED_ID_SCHEMA.createRecord(0);
+			DBRecord rec = STORED_ID_SCHEMA.createRecord(0);
 			int key = 1;
 			for (long id : ids) {
 				rec.setKey(key++);
@@ -625,7 +629,7 @@ class ProgramDBChangeSet implements ProgramChangeSet, DomainObjectDBChangeSet {
 			throws IOException {
 		if (!set.isEmpty()) {
 			Table table = dbh.createTable(tableName, STORED_ADDRESS_RANGE_SCHEMA);
-			Record rec = STORED_ADDRESS_RANGE_SCHEMA.createRecord(0);
+			DBRecord rec = STORED_ADDRESS_RANGE_SCHEMA.createRecord(0);
 			int key = 1;
 			for (KeyRange range : addrMap.getKeyRanges(set, false, false)) {
 				rec.setKey(key++);
@@ -659,6 +663,7 @@ class ProgramDBChangeSet implements ProgramChangeSet, DomainObjectDBChangeSet {
 		}
 		return true;
 	}
+
 }
 
 class ChangeDiff {

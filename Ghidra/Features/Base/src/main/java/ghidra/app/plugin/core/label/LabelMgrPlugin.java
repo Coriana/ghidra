@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -43,31 +43,28 @@ import ghidra.util.Msg;
 	packageName = CorePluginPackage.NAME,
 	category = PluginCategoryNames.CODE_VIEWER,
 	shortDescription = "Edit Labels",
-	description = "This plugin provides actions and dialogs for adding, removing and editing labels in the code browser",
+	description = "This plugin provides actions and dialogs for adding, removing and editing labels",
 	servicesRequired = { GoToService.class }
 )
 //@formatter:on
 public class LabelMgrPlugin extends Plugin {
 
-	private OperandLabelDialog operandDialog;
 	private AddEditDialog addEditDialog;
-	private EditFieldNameDialog editFieldDialog;
 
 	/**
 	 * Constructor
 	 *
-	 * @param plugintool
-	 *            reference to the tool
+	 * @param tool the tool
 	 */
 	public LabelMgrPlugin(PluginTool tool) {
 		super(tool);
 		// Setup list of actions
 		setupActions();
+
+		addEditDialog = new AddEditDialog("Add/Edit Label", tool);
+		addEditDialog.setReusable(true);
 	}
 
-	/**
-	 * Creation of the Label Mgr plugin actions.
-	 */
 	private void setupActions() {
 		DockingAction addLabelAction = new AddLabelAction(this);
 		tool.addAction(addLabelAction); // add the plugin action
@@ -92,40 +89,30 @@ public class LabelMgrPlugin extends Plugin {
 		tool.addAction(allHistoryAction);
 	}
 
-	/**
-	 * Create the necessary dialogs for this plugin. The dialogs are Name Label
-	 * and Choose Alias.
-	 */
+	@Override
+	protected void dispose() {
+		addEditDialog.dispose();
+	}
+
 	AddEditDialog getAddEditDialog() {
-		if (addEditDialog == null) {
-			addEditDialog = new AddEditDialog("", tool);
-		}
 		return addEditDialog;
 	}
 
 	EditFieldNameDialog getEditFieldDialog() {
-		if (editFieldDialog == null) {
-			editFieldDialog = new EditFieldNameDialog("", tool);
-		}
-		return editFieldDialog;
-	}
-
-	OperandLabelDialog getOperandLabelDialog() {
-		if (operandDialog == null) {
-			operandDialog = new OperandLabelDialog(this);
-		}
-		return operandDialog;
+		return new EditFieldNameDialog("", tool);
 	}
 
 	/**
-	 * Removes the label or alias that the cursor is over from the current label
-	 * field. If an exception is caught during the removal of the label or
-	 * alias, a message is written to the status area.
+	 * Removes the label or alias that the cursor is over from the current label field. If an 
+	 * exception is caught during the removal of the label or alias, a message is written to the 
+	 * status area.
+	 * @param context the action context
 	 */
 	protected void removeLabelCallback(ListingActionContext context) {
 		Symbol s = getSymbol(context);
 		if (s != null) {
-			Command cmd = new DeleteLabelCmd(s.getAddress(), s.getName(), s.getParentNamespace());
+			Command<Program> cmd =
+				new DeleteLabelCmd(s.getAddress(), s.getName(), s.getParentNamespace());
 
 			if (!tool.execute(cmd, context.getProgram())) {
 				tool.setStatusInfo(cmd.getStatusMsg());
@@ -136,6 +123,7 @@ public class LabelMgrPlugin extends Plugin {
 	/**
 	 * AddLabelAction calls this method when an action occurs. At this point in
 	 * time, all we want to do is to display the Add Label Dialog.
+	 * @param context the action context
 	 */
 	protected void addLabelCallback(ListingActionContext context) {
 		getAddEditDialog().addLabel(context.getAddress(), context.getProgram());
@@ -144,6 +132,7 @@ public class LabelMgrPlugin extends Plugin {
 	/**
 	 * EditLabelAction calls this method when an action occurs. At this point in
 	 * time, all we want to do is to display the Add Label Dialog.
+	 * @param context the action context
 	 */
 	void editLabelCallback(ListingActionContext context) {
 
@@ -178,17 +167,18 @@ public class LabelMgrPlugin extends Plugin {
 	}
 
 	void setOperandLabelCallback(ListingActionContext context) {
-		getOperandLabelDialog().setOperandLabel(context);
+
+		SymbolChooserDialog dialog = new SymbolChooserDialog(this, context);
+		dialog.show();
 	}
 
 	Symbol getSymbol(ListingActionContext context) {
 		ProgramLocation location = context.getLocation();
-		if (location instanceof LabelFieldLocation) {
-			LabelFieldLocation lfl = (LabelFieldLocation) location;
+		if (location instanceof LabelFieldLocation lfl) {
 			return lfl.getSymbol();
 		}
-		else if (location instanceof OperandFieldLocation) {
-			VariableOffset variableOffset = ((OperandFieldLocation) location).getVariableOffset();
+		else if (location instanceof OperandFieldLocation ofl) {
+			VariableOffset variableOffset = ofl.getVariableOffset();
 			if (variableOffset != null) {
 				Variable var = variableOffset.getVariable();
 				if (var != null) {
@@ -275,8 +265,8 @@ public class LabelMgrPlugin extends Plugin {
 	/**
 	 * Return true if the given context has label history.
 	 *
-	 * @param contextObj
-	 * @return
+	 * @param context the action context
+	 * @return true if the given context has label history
 	 */
 	boolean hasLabelHistory(ListingActionContext context) {
 		ProgramLocation location = context.getLocation();
@@ -286,7 +276,7 @@ public class LabelMgrPlugin extends Plugin {
 			addr = loc.getAddress();
 		}
 		else if (location instanceof OperandFieldLocation) {
-			Address a = ((OperandFieldLocation) location).getRefAddress();
+			Address a = location.getRefAddress();
 			addr = (a == null) ? addr : a;
 		}
 
@@ -298,10 +288,10 @@ public class LabelMgrPlugin extends Plugin {
 		if (!(context.getLocation() instanceof OperandFieldLocation)) {
 			return null;
 		}
+
 		OperandFieldLocation opLoc = (OperandFieldLocation) context.getLocation();
 		Address address = opLoc.getAddress();
 		int opIndex = opLoc.getOperandIndex();
-
 		Data dataComp = getDataComponent(context);
 		if (dataComp != null) {
 			if (isInUnion(dataComp)) {
@@ -311,8 +301,6 @@ public class LabelMgrPlugin extends Plugin {
 		}
 
 		ReferenceManager refMgr = context.getProgram().getReferenceManager();
-		//SymbolTable st = currentProgram.getSymbolTable();
-
 		return refMgr.getPrimaryReferenceFrom(address, opIndex);
 	}
 

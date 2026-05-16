@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,29 +15,34 @@
  */
 package ghidra.program.database.function;
 
+import static ghidra.program.util.FunctionChangeRecord.FunctionChangeType.*;
+
 import java.io.IOException;
 import java.util.*;
 import java.util.function.Predicate;
 
+import org.apache.commons.lang3.StringUtils;
+
 import db.*;
 import generic.FilteredIterator;
+import ghidra.framework.data.OpenMode;
 import ghidra.program.database.*;
 import ghidra.program.database.code.CodeManager;
-import ghidra.program.database.external.ExternalLocationDB;
+import ghidra.program.database.data.DataTypeManagerDB;
 import ghidra.program.database.map.AddressMap;
 import ghidra.program.database.symbol.*;
 import ghidra.program.model.address.*;
 import ghidra.program.model.data.*;
 import ghidra.program.model.lang.*;
 import ghidra.program.model.listing.*;
-import ghidra.program.model.mem.MemoryBlock;
 import ghidra.program.model.pcode.HighFunction;
 import ghidra.program.model.symbol.*;
 import ghidra.program.model.util.PropertyMapManager;
 import ghidra.program.model.util.StringPropertyMap;
-import ghidra.program.util.ChangeManager;
-import ghidra.program.util.LanguageTranslator;
+import ghidra.program.util.*;
+import ghidra.program.util.FunctionChangeRecord.FunctionChangeType;
 import ghidra.util.Lock;
+import ghidra.util.Lock.Closeable;
 import ghidra.util.Msg;
 import ghidra.util.exception.*;
 import ghidra.util.task.TaskMonitor;
@@ -48,23 +53,21 @@ import ghidra.util.task.TaskMonitor;
  * all function related calls are routed to this class.
  *
  */
-public class FunctionManagerDB implements ManagerDB, FunctionManager {
+public class FunctionManagerDB implements FunctionManager {
 
 	private final String CALLFIXUP_MAP = "CallFixup"; // string map used to store call-fixup name
 
 	private ProgramDB program;
 	private DBHandle dbHandle;
 	private AddressMap addrMap;
-	private DBObjectCache<FunctionDB> cache;
+	private DbCache<FunctionDB> cache;
 	private FunctionAdapter adapter;
 	private ThunkFunctionAdapter thunkAdapter;
-	private CallingConventionDBAdapter callingConventionAdapter;
-	private Map<String, Byte> callingConventionNameToIDMap = new HashMap<>();
-	private Map<Byte, String> callingConventionIDToNameMap = new HashMap<>();
 	private NamespaceManager namespaceMgr;
 	private SymbolManager symbolMgr;
 	private CodeManager codeMgr;
-	private FunctionTagManager functionTagManager;
+	private DataTypeManagerDB dtMgr;
+	private FunctionTagManagerDB functionTagManager;
 	private Namespace globalNamespace;
 
 	private Predicate<Function> functionFilter = f -> {
@@ -77,12 +80,6 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 		return false;
 	};
 
-	/**
-	 * TODO: use of StringPropertyMap for callFixupMap lacks the ability to listen for changes
-	 * which may be made to the map directly (e.g., diff/merge)
-	 */
-	private StringPropertyMap callFixupMap;
-
 	private long lastFuncID = -1;
 
 	Lock lock;
@@ -92,8 +89,7 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 	 * Construct a new FunctionManager
 	 * @param dbHandle data base handle
 	 * @param addrMap address map for the program
-	 * @param openMode CREATE, UPDATE, READ_ONLY, or UPGRADE defined in
-	 * db.DBConstants
+	 * @param openMode CREATE, UPDATE, READ_ONLY, or UPGRADE
 	 * @param lock the program synchronization lock
 	 * @param monitor
 	 * @throws VersionException if function manager's version does not match
@@ -102,17 +98,17 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 	 * and the user canceled the upgrade process
 	 * @throws IOException if there was a problem accessing the database
 	 */
-	public FunctionManagerDB(DBHandle dbHandle, AddressMap addrMap, int openMode, Lock lock,
+	public FunctionManagerDB(DBHandle dbHandle, AddressMap addrMap, OpenMode openMode, Lock lock,
 			TaskMonitor monitor) throws VersionException, CancelledException, IOException {
 		this.dbHandle = dbHandle;
 		this.addrMap = addrMap;
 		this.lock = lock;
-		cache = new DBObjectCache<>(20);
+		cache = new DbCache<>(new FunctionFactory(), lock, 10);
 		initializeAdapters(openMode, monitor);
 		functionTagManager = new FunctionTagManagerDB(dbHandle, openMode, lock, monitor);
 	}
 
-	private void initializeAdapters(int openMode, TaskMonitor monitor)
+	private void initializeAdapters(OpenMode openMode, TaskMonitor monitor)
 			throws VersionException, CancelledException, IOException {
 		try {
 			FunctionAdapter oldAdapter = FunctionAdapter.findReadOnlyAdapter(dbHandle, addrMap);
@@ -123,8 +119,6 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 		}
 		adapter = FunctionAdapter.getAdapter(dbHandle, openMode, addrMap, monitor);
 		thunkAdapter = ThunkFunctionAdapter.getAdapter(dbHandle, openMode, addrMap, monitor);
-		callingConventionAdapter =
-			CallingConventionDBAdapter.getAdapter(dbHandle, openMode, monitor);
 	}
 
 	@Override
@@ -136,177 +130,60 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 		return adapter;
 	}
 
-	/**
-	 * Get calling convention name corresponding to existing ID.  If id is no longer valid,
-	 * null will be returned.
-	 * @param id
-	 * @return
-	 */
-	String getCallingConventionName(byte id) {
-		if (id == CallingConventionDBAdapter.DEFAULT_CALLING_CONVENTION_ID) {
-			return Function.DEFAULT_CALLING_CONVENTION_STRING;
-		}
-		else if (id == CallingConventionDBAdapter.UNKNOWN_CALLING_CONVENTION_ID) {
-			return null;
-		}
-		String name = callingConventionIDToNameMap.get(id);
-		if (name != null) {
-			return name;
-		}
-		try {
-			Record record = callingConventionAdapter.getCallingConventionRecord(id);
-			if (record == null) {
-				return null;
-			}
-
-			name = record.getString(CallingConventionDBAdapter.CALLING_CONVENTION_NAME_COL);
-			CompilerSpec compilerSpec = program.getCompilerSpec();
-			PrototypeModel callingConvention = compilerSpec.getCallingConvention(name);
-			if (callingConvention != null) {
-				callingConventionIDToNameMap.put(id, name);
-				callingConventionNameToIDMap.put(name, id);
-				return name;
-			}
-		}
-		catch (IOException e) {
-			dbError(e);
-		}
-		return null;
-	}
-
-	/**
-	 * Get (and assign if needed) the ID associated with the specified calling convention name.
-	 * @param name calling convention name
-	 * @return calling convention ID
-	 * @throws IOException
-	 * @throws InvalidInputException
-	 */
-	byte getCallingConventionID(String name) throws InvalidInputException, IOException {
-		if (name == null || name.equals(Function.UNKNOWN_CALLING_CONVENTION_STRING)) {
-			return CallingConventionDBAdapter.UNKNOWN_CALLING_CONVENTION_ID;
-		}
-		else if (name.equals(Function.DEFAULT_CALLING_CONVENTION_STRING)) {
-			return CallingConventionDBAdapter.DEFAULT_CALLING_CONVENTION_ID;
-		}
-		Byte id = callingConventionNameToIDMap.get(name);
-		if (id != null) {
-			return id;
-		}
-		CompilerSpec compilerSpec = program.getCompilerSpec();
-		PrototypeModel callingConvention = compilerSpec.getCallingConvention(name);
-		if (callingConvention == null) {
-			throw new InvalidInputException("Invalid calling convention name: " + name);
-		}
-		Record record = callingConventionAdapter.getCallingConventionRecord(name);
-		if (record == null) {
-			record = callingConventionAdapter.createCallingConventionRecord(name);
-		}
-		byte newId = record.getKeyField().getByteValue();
-		callingConventionIDToNameMap.put(newId, name);
-		callingConventionNameToIDMap.put(name, newId);
-		return newId;
-	}
-
 	@Override
-	public List<String> getCallingConventionNames() {
-		CompilerSpec compilerSpec = program.getCompilerSpec();
-		PrototypeModel[] namedCallingConventions = compilerSpec.getNamedCallingConventions();
-		List<String> names = new ArrayList<>(namedCallingConventions.length + 2);
-		names.add(Function.UNKNOWN_CALLING_CONVENTION_STRING);
-		names.add(Function.DEFAULT_CALLING_CONVENTION_STRING);
-		for (PrototypeModel model : namedCallingConventions) {
-			names.add(model.getName());
-		}
-		return names;
+	public Collection<String> getCallingConventionNames() {
+		return dtMgr.getDefinedCallingConventionNames();
 	}
 
 	@Override
 	public PrototypeModel getDefaultCallingConvention() {
 		CompilerSpec compilerSpec = program.getCompilerSpec();
-		if (compilerSpec == null) {
-			return null;
-		}
 		return compilerSpec.getDefaultCallingConvention();
 	}
 
 	@Override
 	public PrototypeModel getCallingConvention(String name) {
 		CompilerSpec compilerSpec = program.getCompilerSpec();
-		if (compilerSpec == null) {
-			return null;
-		}
-		if (Function.UNKNOWN_CALLING_CONVENTION_STRING.equals(name)) {
-			return null;
-		}
-		if (Function.DEFAULT_CALLING_CONVENTION_STRING.equals(name)) {
-			return getDefaultCallingConvention();
-		}
-		PrototypeModel[] models = compilerSpec.getCallingConventions();
-		for (PrototypeModel model : models) {
-			String modelName = model.getName();
-			if (modelName != null && modelName.equals(name)) {
-				return model;
-			}
-		}
-		return null;
-	}
-
-	@Override
-	public PrototypeModel[] getCallingConventions() {
-		CompilerSpec compilerSpec = program.getCompilerSpec();
-		if (compilerSpec == null) {
-			return new PrototypeModel[0];
-		}
-		ArrayList<PrototypeModel> namedList = new ArrayList<>();
-		PrototypeModel[] models = compilerSpec.getCallingConventions();
-		for (PrototypeModel model : models) {
-			String name = model.getName();
-			if (name != null && name.length() > 0) {
-				namedList.add(model);
-			}
-		}
-		return namedList.toArray(new PrototypeModel[namedList.size()]);
+		return compilerSpec.getCallingConvention(name);
 	}
 
 	/**
 	 * Transform an existing external symbol into an external function.
-	 * This method should only be invoked by an ExternalSymbol
-	 * @param extSpaceAddr the external space address to use when creating this external.
-	 * @param name
-	 * @param nameSpace
-	 * @param extData3 internal symbol-data-3 string (see {@link ExternalLocationDB})
+	 * This method should only be invoked by the Function Manager.
+	 * The {@link ExternalLocation#getOriginalImportedName() original imported name} will initially 
+	 * be null.
+	 * 
+	 * @param extSpaceAddr the external space address to use when creating this external.  Any 
+	 * other symbol using this address must first be deleted.  Results are unpredictable if this is 
+	 * not done.
+	 * @param name the external function name
+	 * @param nameSpace the external function namespace
+	 * @param externalProgramAddress the external program address (may be null)
+	 * @param originalImportName the original imported name if different from name (may be null)
 	 * @param source the source of this external.
 	 * @return external function
-	 * @throws InvalidInputException
-	 * @throws DuplicateNameException
+	 * @throws InvalidInputException if the name is invalid
 	 */
-	public Function createExternalFunction(Address extSpaceAddr, String name, Namespace nameSpace,
-			String extData3, SourceType source)
-			throws DuplicateNameException, InvalidInputException {
-		lock.acquire();
-		try {
+	public FunctionDB createExternalFunction(Address extSpaceAddr, String name, Namespace nameSpace,
+			String originalImportName, Address externalProgramAddress, SourceType source)
+			throws InvalidInputException {
 
-			Symbol symbol = symbolMgr.createSpecialSymbol(extSpaceAddr, name, nameSpace,
-				SymbolType.FUNCTION, -1, -1, extData3, source);
+		try (Closeable c = lock.write()) {
+			FunctionSymbol symbol = symbolMgr.createExternalFunctionSymbol(extSpaceAddr, name,
+				nameSpace, source, originalImportName, externalProgramAddress);
 
 			long returnDataTypeId = program.getDataTypeManager().getResolvedID(DataType.DEFAULT);
 
-			try {
-				Record rec = adapter.createFunctionRecord(symbol.getID(), returnDataTypeId);
+			DBRecord rec = adapter.createFunctionRecord(symbol.getID(), returnDataTypeId);
+			FunctionDB function = new FunctionDB(this, addrMap, rec);
+			cache.add(function);
 
-				FunctionDB funcDB = new FunctionDB(this, cache, addrMap, rec);
-
-				program.setObjChanged(ChangeManager.DOCR_FUNCTION_ADDED, extSpaceAddr, funcDB, null,
-					null);
-				return funcDB;
-			}
-			catch (IOException e) {
-				dbError(e);
-			}
-			return null;
+			program.setObjChanged(ProgramEvent.FUNCTION_ADDED, extSpaceAddr, function, null, null);
+			return function;
 		}
-		finally {
-			lock.release();
+		catch (IOException e) {
+			dbError(e); // will not return
+			return null;
 		}
 	}
 
@@ -335,29 +212,41 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 		}
 	}
 
+	static void checkSingleAddressSpaceOnly(AddressSetView set) throws IllegalArgumentException {
+		AddressSpace addressSpace = set.getMinAddress().getAddressSpace();
+		for (AddressRange range : set.getAddressRanges()) {
+			if (range.getMinAddress().getAddressSpace() != addressSpace) {
+				throw new IllegalArgumentException(
+					"Function body must contain single address space only");
+			}
+		}
+	}
+
 	private Function createFunction(String name, Namespace nameSpace, Address entryPoint,
 			AddressSetView body, Function thunkedFunction, SourceType source)
 			throws InvalidInputException, OverlappingFunctionException {
 
-		lock.acquire();
-		try {
+		try (Closeable c = lock.write()) {
 			if (entryPoint == null || !entryPoint.isMemoryAddress()) {
 				throw new IllegalArgumentException("Function entryPoint must be a memory address");
 			}
 			if (body == null || !body.contains(entryPoint)) {
 				throw new IllegalArgumentException("Function body must contain the entrypoint");
 			}
-			if (codeMgr.getDefinedDataAt(entryPoint) != null &&
-				!MemoryBlock.isExternalBlockAddress(entryPoint, program)) {
+			if (body.getNumAddresses() > Integer.MAX_VALUE) {
+				throw new IllegalArgumentException(
+					"Function body size must be <= 0x7fffffff byte addresses");
+			}
+			if (codeMgr.getDefinedDataAt(entryPoint) != null) {
 				throw new IllegalArgumentException(
 					"Function entryPoint may not be created on defined data");
 			}
-			
+			checkSingleAddressSpaceOnly(body);
 			if (namespaceMgr.overlapsNamespace(body) != null) {
 				throw new OverlappingFunctionException(entryPoint);
 			}
 
-			if (name == null || name.length() == 0 ||
+			if (StringUtils.isBlank(name) ||
 				SymbolUtilities.isReservedDynamicLabelName(name, program.getAddressFactory())) {
 				source = SourceType.DEFAULT;
 				name = "";
@@ -386,30 +275,32 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 				}
 			}
 
-			Symbol symbol = symbolMgr.createFunctionSymbol(entryPoint, name, nameSpace, source,
-				((thunkedFunction != null) ? thunkedFunction.getEntryPoint().toString() : null));
-
-			long returnDataTypeId = program.getDataTypeManager().getResolvedID(DataType.DEFAULT);
-
 			try {
+				Symbol symbol =
+					symbolMgr.createMemoryFunctionSymbol(entryPoint, name, nameSpace, source);
+
+				long returnDataTypeId =
+					program.getDataTypeManager().getResolvedID(DataType.DEFAULT);
+
 				if (refFunc != null) {
 
 					String oldName = symbol.getName();
 					thunkAdapter.createThunkRecord(symbol.getID(), refFunc.getID());
 
 					// Default thunk function name changes dynamically as a result of becoming a thunk
-					program.symbolChanged(symbol, ChangeManager.DOCR_SYMBOL_RENAMED, entryPoint,
-						symbol, oldName, symbol.getName());
+					program.symbolChanged(symbol, ProgramEvent.SYMBOL_RENAMED, entryPoint, symbol,
+						oldName, symbol.getName());
 				}
 
-				Record rec = adapter.createFunctionRecord(symbol.getID(), returnDataTypeId);
+				DBRecord rec = adapter.createFunctionRecord(symbol.getID(), returnDataTypeId);
 
-				FunctionDB funcDB = new FunctionDB(this, cache, addrMap, rec);
-				namespaceMgr.setBody(funcDB, body);
+				FunctionDB function = new FunctionDB(this, addrMap, rec);
+				cache.add(function);
+				namespaceMgr.setBody(function, body);
 
-				program.setObjChanged(ChangeManager.DOCR_FUNCTION_ADDED, entryPoint, funcDB, null,
+				program.setObjChanged(ProgramEvent.FUNCTION_ADDED, entryPoint, function, null,
 					null);
-				return funcDB;
+				return function;
 			}
 			catch (IOException e) {
 				dbError(e);
@@ -418,9 +309,6 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 				throw new OverlappingFunctionException(entryPoint, e);
 			}
 			return null;
-		}
-		finally {
-			lock.release();
 		}
 	}
 
@@ -463,14 +351,11 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 
 				// Default thunk function name changes dynamically as a result of becoming a thunk
 				if (s.getSource() == SourceType.DEFAULT) {
-					program.symbolChanged(s, ChangeManager.DOCR_SYMBOL_RENAMED,
-						function.getEntryPoint(), s, oldName, s.getName());
+					program.symbolChanged(s, ProgramEvent.SYMBOL_RENAMED, function.getEntryPoint(),
+						s, oldName, s.getName());
 				}
 			}
-
-			program.setObjChanged(ChangeManager.DOCR_FUNCTION_CHANGED,
-				ChangeManager.FUNCTION_CHANGED_THUNK, function.getEntryPoint(), function, null,
-				null);
+			program.setChanged(new FunctionChangeRecord(function, THUNK_CHANGED));
 		}
 		catch (IOException e) {
 			dbError(e);
@@ -500,23 +385,17 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 	}
 
 	public void functionNamespaceChanged(long key) {
-		lock.acquire();
-		try {
-			FunctionDB func = cache.get(key);
-			if (func != null) {
-				func.checkIsValid();
-				func.createClassStructIfNeeded();
-				func.updateParametersAndReturn();
-			}
+		FunctionDB func = cache.getIfValid(key);
+		if (func == null) {
+			return;
 		}
-		finally {
-			lock.release();
+		try (Closeable c = lock.write()) {
+			func.createClassStructIfNeeded();
+			func.updateParametersAndReturn();
 		}
 	}
 
 	public boolean doRemoveFunction(long key) {
-		lock.acquire();
-
 		try {
 
 			FunctionDB function = (FunctionDB) getFunction(key);
@@ -532,7 +411,7 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 				// TODO: How should thunks which refer to deleted function be handled?
 				//       What about case where use is "re-creating" referenced function?
 				// Delete thunks for now...
-				Record rec = thunks.next();
+				DBRecord rec = thunks.next();
 				Symbol s = symbolMgr.getSymbol(rec.getKey());
 				if (s != null) {
 					s.delete();
@@ -552,22 +431,18 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 
 			// Remove all tag mappings associated with this function
 			for (FunctionTag tag : function.getTags()) {
-				tag.delete();
+				function.removeTag(tag.getName());
 			}
 
 			long functionID = function.getID();
 			adapter.removeFunctionRecord(functionID);
 			cache.delete(functionID);
 
-			program.setObjChanged(ChangeManager.DOCR_FUNCTION_REMOVED, entryPoint, function, body,
-				null);
+			program.setObjChanged(ProgramEvent.FUNCTION_REMOVED, entryPoint, function, body, null);
 			return true;
 		}
 		catch (IOException e) {
 			dbError(e);
-		}
-		finally {
-			lock.release();
 		}
 		return false;
 	}
@@ -580,26 +455,11 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 	 */
 	@Override
 	public Function getFunction(long key) {
-		lock.acquire();
-		try {
+		FunctionDB function = cache.getCachedInstance(key);
+		if (function != null) {
 			lastFuncID = key;
-			FunctionDB func = cache.get(key);
-			if (func == null) {
-				try {
-					Record rec = adapter.getFunctionRecord(key);
-					if (rec != null) {
-						func = new FunctionDB(this, cache, addrMap, rec);
-					}
-				}
-				catch (IOException e) {
-					dbError(e);
-				}
-			}
-			return func;
 		}
-		finally {
-			lock.release();
-		}
+		return function;
 	}
 
 	@Override
@@ -618,23 +478,17 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 
 	@Override
 	public Function getFunctionAt(Address entryPoint) {
-		lock.acquire();
-		try {
-			if (lastFuncID != -1) {
-				FunctionDB function = cache.get(lastFuncID);
-				if (function != null && function.getEntryPoint().equals(entryPoint)) {
-					return function;
-				}
-			}
+		FunctionDB function = cache.getIfValid(lastFuncID);
+		if (function != null && function.getEntryPoint().equals(entryPoint)) {
+			return function;
+		}
+		try (Closeable c = lock.read()) {
 			Symbol symbol = program.getSymbolTable().getPrimarySymbol(entryPoint);
 			if (symbol != null && symbol.getSymbolType() == SymbolType.FUNCTION) {
 				return getFunction(symbol.getID());
 			}
+			return null;
 		}
-		finally {
-			lock.release();
-		}
-		return null;
 	}
 
 	@Override
@@ -643,15 +497,12 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 		if (addr.isExternalAddress()) {
 			return getFunctionAt(addr);
 		}
+		FunctionDB function = cache.getIfValid(lastFuncID);
+		if (function != null && function.getBody().contains(addr)) {
+			return function;
+		}
 
-		lock.acquire();
-		try {
-			if (lastFuncID != -1) {
-				FunctionDB func = cache.get(lastFuncID);
-				if (func != null && func.getBody().contains(addr)) {
-					return func;
-				}
-			}
+		try (Closeable c = lock.read()) {
 			Namespace scope = namespaceMgr.getNamespaceContaining(addr);
 			Symbol symbol = scope.getSymbol();
 			while (symbol != null && symbol.getSymbolType() != SymbolType.FUNCTION) {
@@ -662,9 +513,6 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 			}
 			return getFunction(symbol.getID());
 		}
-		finally {
-			lock.release();
-		}
 	}
 
 	@Override
@@ -673,8 +521,8 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 	}
 
 	@Override
-	public FunctionIterator getFunctions(Address start, boolean foward) {
-		return new FunctionIteratorDB(start, foward);
+	public FunctionIterator getFunctions(Address start, boolean forward) {
+		return new FunctionIteratorDB(start, forward);
 	}
 
 	@Override
@@ -695,8 +543,8 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 	}
 
 	@Override
-	public FunctionIterator getFunctionsNoStubs(Address start, boolean foward) {
-		return new FunctionFilteredIterator(new FunctionIteratorDB(start, foward));
+	public FunctionIterator getFunctionsNoStubs(Address start, boolean forward) {
+		return new FunctionFilteredIterator(new FunctionIteratorDB(start, forward));
 	}
 
 	@Override
@@ -717,9 +565,9 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 		return getFunctionContaining(addr) != null;
 	}
 
-	/////////////////////////////////////////////////////////////////////////////////////
+	//--------------------------------------------------------------------------------------------
 	//    ManagerDB methods
-	////////////////////////////////////////////////////////////////////////////////////
+	//--------------------------------------------------------------------------------------------
 
 	@Override
 	public void moveAddressRange(Address fromAddr, Address toAddr, long length, TaskMonitor monitor)
@@ -730,18 +578,14 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 	@Override
 	public void deleteAddressRange(Address startAddr, Address endAddr, TaskMonitor monitor)
 			throws CancelledException {
-		lock.acquire();
-		try {
+		try (Closeable c = lock.write()) {
 			// Remove functions which overlap deleted address range
 			Iterator<Function> iter = getFunctionsOverlapping(new AddressSet(startAddr, endAddr));
 			while (iter.hasNext()) {
-				monitor.checkCanceled();
+				monitor.checkCancelled();
 				FunctionDB func = (FunctionDB) iter.next();
 				removeFunction(func.getEntryPoint());
 			}
-		}
-		finally {
-			lock.release();
 		}
 	}
 
@@ -750,16 +594,17 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 		this.program = program;
 		namespaceMgr = program.getNamespaceManager();
 		codeMgr = program.getCodeManager();
-		symbolMgr = (SymbolManager) program.getSymbolTable();
+		dtMgr = program.getDataTypeManager();
+		symbolMgr = program.getSymbolTable();
 		globalNamespace = program.getGlobalNamespace();
 		functionTagManager.setProgram(program);
 	}
 
 	@Override
-	public void programReady(int openMode, int currentRevision, TaskMonitor monitor)
+	public void programReady(OpenMode openMode, int currentRevision, TaskMonitor monitor)
 			throws IOException, CancelledException {
 
-		if (openMode == DBConstants.UPGRADE) {
+		if (openMode == OpenMode.UPGRADE) {
 			upgradeAllDotDotDots(monitor);
 		}
 	}
@@ -812,7 +657,7 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 
 		FunctionIterator functions = getFunctions(false);
 		while (functions.hasNext()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 
 			// Establish signature source
 			FunctionDB func = (FunctionDB) functions.next();
@@ -892,13 +737,13 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 			throws CancelledException, IOException {
 		FunctionIterator functions = getFunctions(false);
 		while (functions.hasNext()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			FunctionDB func = (FunctionDB) functions.next();
 			removeExplicitThisParameters(func);
 		}
 		functions = getExternalFunctions();
 		while (functions.hasNext()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			FunctionDB func = (FunctionDB) functions.next();
 			removeExplicitThisParameters(func);
 		}
@@ -928,25 +773,16 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 
 	@Override
 	public void invalidateCache(boolean all) {
-		lock.acquire();
-		try {
-			callFixupMap = null;
+		try (Closeable c = lock.write()) {
+			functionTagManager.invalidateCache();
 			lastFuncID = -1;
 			cache.invalidate();
-			callingConventionIDToNameMap.clear();
-			callingConventionNameToIDMap.clear();
-		}
-		finally {
-			lock.release();
 		}
 	}
 
 	StringPropertyMap getCallFixupMap(boolean create) {
-		if (callFixupMap != null) {
-			return callFixupMap;
-		}
 		PropertyMapManager usrPropertyManager = program.getUsrPropertyManager();
-		callFixupMap = usrPropertyManager.getStringPropertyMap(CALLFIXUP_MAP);
+		StringPropertyMap callFixupMap = usrPropertyManager.getStringPropertyMap(CALLFIXUP_MAP);
 		if (callFixupMap == null && create) {
 			try {
 				callFixupMap = usrPropertyManager.createStringPropertyMap(CALLFIXUP_MAP);
@@ -962,17 +798,15 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 		return callFixupMap;
 	}
 
-	void functionChanged(FunctionDB func, int subEventType) {
-		program.setObjChanged(ChangeManager.DOCR_FUNCTION_CHANGED, subEventType,
-			func.getEntryPoint(), func, null, null);
+	void functionChanged(FunctionDB func, FunctionChangeType changeType) {
+		program.setChanged(new FunctionChangeRecord(func, changeType));
 
 		List<Long> thunkFunctionIds = getThunkFunctionIds(func.getKey());
 		if (thunkFunctionIds != null) {
 			for (long key : thunkFunctionIds) {
 				Function thunk = getFunction(key);
 				if (thunk != null) {
-					program.setObjChanged(ChangeManager.DOCR_FUNCTION_CHANGED, subEventType,
-						thunk.getEntryPoint(), thunk, null, null);
+					program.setChanged(new FunctionChangeRecord(thunk, changeType));
 				}
 			}
 		}
@@ -996,14 +830,15 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 		 */
 		FunctionIteratorDB(boolean external, boolean forward) {
 			if (external) {
-				it = program.getSymbolTable().getSymbols(
-					new AddressSet(AddressSpace.EXTERNAL_SPACE.getMinAddress(),
-						AddressSpace.EXTERNAL_SPACE.getMaxAddress()),
-					SymbolType.FUNCTION, forward);
+				it = program.getSymbolTable()
+						.getSymbols(
+							new AddressSet(AddressSpace.EXTERNAL_SPACE.getMinAddress(),
+								AddressSpace.EXTERNAL_SPACE.getMaxAddress()),
+							SymbolType.FUNCTION, forward);
 			}
 			else {
-				it = program.getSymbolTable().getSymbols(program.getMemory(), SymbolType.FUNCTION,
-					forward);
+				it = program.getSymbolTable()
+						.getSymbols(program.getMemory(), SymbolType.FUNCTION, forward);
 			}
 		}
 
@@ -1034,9 +869,8 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 		}
 
 		/**
-		 * Construct a function iterator over all functions residing in memory starting from the specified
-		 * entry point address.
-		 * @param start starting address for iteration
+		 * Construct a function iterator over all functions residing in specified address set.
+		 * @param addrSet address set over which to iterate
 		 * @param forward if true iterate forward from start, otherwise iterate in reverse
 		 */
 		FunctionIteratorDB(AddressSetView addrSet, boolean forward) {
@@ -1093,9 +927,6 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 		return list.iterator();
 	}
 
-	/**
-	 * Set the new body for the function.
-	 */
 	void setFunctionBody(FunctionDB function, AddressSetView newBody)
 			throws OverlappingFunctionException {
 
@@ -1110,6 +941,7 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 			throw new IllegalArgumentException(
 				"Function body size must be <= 0x7fffffff byte addresses");
 		}
+		checkSingleAddressSpaceOnly(newBody);
 		AddressSetView oldBody = function.getBody();
 
 		try {
@@ -1125,7 +957,7 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 // TODO: DON'T THINK THIS SHOULD BE DONE ANYMORE!
 //			function.setStackPurgeSize(Function.UNKNOWN_STACK_DEPTH_CHANGE);
 
-		program.setObjChanged(ChangeManager.DOCR_FUNCTION_BODY_CHANGED, function.getEntryPoint(),
+		program.setObjChanged(ProgramEvent.FUNCTION_BODY_CHANGED, function.getEntryPoint(),
 			function, null, null);
 	}
 
@@ -1144,8 +976,7 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 				list.add(symbol);
 			}
 		}
-		for (int i = 0; i < list.size(); i++) {
-			Symbol symbol = list.get(i);
+		for (Symbol symbol : list) {
 			symbol.delete();
 		}
 	}
@@ -1198,7 +1029,7 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 		}
 		AddressIterator iter = decompilerPropertyMap.getPropertyIterator();
 		while (iter.hasNext()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			upgradeDotDotDotToVarArgs(iter.next(), decompilerPropertyMap);
 		}
 
@@ -1226,8 +1057,7 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 
 		// TODO: Add caching !!!
 
-		lock.acquire();
-		try {
+		try (Closeable c = lock.read()) {
 			Function func = getFunctionContaining(instrAddr);
 			if (func == null) {
 				return null;
@@ -1312,30 +1142,25 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 			}
 			return bestVar;
 		}
-		finally {
-			lock.release();
-		}
 	}
 
-	public void replaceDataTypes(long oldDataTypeID, long newDataTypeID) {
-		lock.acquire();
-		try {
+	public void replaceDataTypes(Map<Long, Long> dataTypeReplacementMap) {
+		try (Closeable c = lock.write()) {
 			RecordIterator it = adapter.iterateFunctionRecords();
 			while (it.hasNext()) {
-				Record rec = it.next();
+				DBRecord rec = it.next();
 
 				if (thunkAdapter.getThunkRecord(rec.getKey()) != null) {
 					continue; // skip thunks
 				}
 
-				if (rec.getLongValue(FunctionAdapter.RETURN_DATA_TYPE_ID_COL) == oldDataTypeID) {
-					rec.setLongValue(FunctionAdapter.RETURN_DATA_TYPE_ID_COL, newDataTypeID);
+				long id = rec.getLongValue(FunctionAdapter.RETURN_DATA_TYPE_ID_COL);
+				Long replacementId = dataTypeReplacementMap.get(id);
+				if (replacementId != null) {
+					rec.setLongValue(FunctionAdapter.RETURN_DATA_TYPE_ID_COL, replacementId);
 					adapter.updateFunctionRecord(rec);
-					FunctionDB functionDB = cache.get(rec);
-					if (functionDB == null) {
-						functionDB = new FunctionDB(this, cache, addrMap, rec);
-					}
-					functionChanged(functionDB, ChangeManager.FUNCTION_CHANGED_RETURN);
+					FunctionDB functionDB = cache.getCachedInstance(rec);
+					functionChanged(functionDB, RETURN_TYPE_CHANGED);
 				}
 			}
 		}
@@ -1344,51 +1169,39 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 		}
 		finally {
 			cache.invalidate();
-			lock.release();
 		}
 	}
 
 	public boolean isThunk(long key) {
-		lock.acquire();
-		try {
-			FunctionDB function = cache.get(key);
-			if (function != null) {
-				return function.isThunk();
-			}
-			try {
-				return thunkAdapter.getThunkRecord(key) != null;
-			}
-			catch (IOException e) {
-				dbError(e);
-			}
-			return false;
+		FunctionDB function = cache.getCachedInstance(key);
+		if (function != null) {
+			return function.isThunk();
 		}
-		finally {
-			lock.release();
+
+		try (Closeable c = lock.read()) {
+			return thunkAdapter.getThunkRecord(key) != null;
+		}
+		catch (IOException e) {
+			dbError(e);
+			return false;
 		}
 	}
 
 	public long getThunkedFunctionId(long functionId) {
-		lock.acquire();
-		try {
-			FunctionDB function = cache.get(functionId);
-			if (function != null) {
-				Function thunkedFunction = function.getThunkedFunction(false);
-				return thunkedFunction != null ? thunkedFunction.getID() : -1;
-			}
-			try {
-				Record rec = thunkAdapter.getThunkRecord(functionId);
-				return rec != null ? rec.getLongValue(ThunkFunctionAdapter.LINKED_FUNCTION_ID_COL)
-						: -1;
-			}
-			catch (IOException e) {
-				dbError(e);
-			}
-			return -1;
+		FunctionDB function = cache.getCachedInstance(functionId);
+		if (function != null) {
+			Function thunkedFunction = function.getThunkedFunction(false);
+			return thunkedFunction != null ? thunkedFunction.getID() : -1;
 		}
-		finally {
-			lock.release();
+
+		try (Closeable c = lock.read()) {
+			DBRecord rec = thunkAdapter.getThunkRecord(functionId);
+			return rec != null ? rec.getLongValue(ThunkFunctionAdapter.LINKED_FUNCTION_ID_COL) : -1;
 		}
+		catch (IOException e) {
+			dbError(e);
+		}
+		return -1;
 	}
 
 	/**
@@ -1397,12 +1210,11 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 	 * @return list of thunk function IDs or null
 	 */
 	public List<Long> getThunkFunctionIds(long referencedFunctionId) {
-		lock.acquire();
 		List<Long> list = null;
-		try {
+		try (Closeable c = lock.read()) {
 			RecordIterator records = thunkAdapter.iterateThunkRecords(referencedFunctionId);
 			while (records.hasNext()) {
-				Record rec = records.next();
+				DBRecord rec = records.next();
 				if (list == null) {
 					list = new ArrayList<>(1);
 				}
@@ -1412,14 +1224,11 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 		catch (IOException e) {
 			dbError(e);
 		}
-		finally {
-			lock.release();
-		}
 		return list;
 	}
 
 	FunctionDB getThunkedFunction(FunctionDB function) {
-		Record rec = null;
+		DBRecord rec = null;
 		try {
 			rec = thunkAdapter.getThunkRecord(function.getKey());
 			if (rec != null) {
@@ -1444,13 +1253,12 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 			throws CancelledException {
 		monitor.initialize(adapter.getRecordCount());
 		int cnt = 0;
-		lock.acquire();
-		try {
+		try (Closeable c = lock.write()) {
 			RecordIterator recIter = adapter.iterateFunctionRecords();
 			while (recIter.hasNext()) {
-				monitor.checkCanceled();
+				monitor.checkCancelled();
 
-				Record rec = recIter.next();
+				DBRecord rec = recIter.next();
 				// NOTE: addrMap has already been switched-over to new language and its address spaces
 				String serialization = rec.getString(FunctionAdapter.RETURN_STORAGE_COL);
 
@@ -1473,11 +1281,30 @@ public class FunctionManagerDB implements ManagerDB, FunctionManager {
 		}
 		finally {
 			invalidateCache(true);
-			lock.release();
 		}
 	}
 
+	@Override
 	public FunctionTagManager getFunctionTagManager() {
 		return functionTagManager;
+	}
+
+	private class FunctionFactory implements DbFactory<FunctionDB> {
+		@Override
+		public FunctionDB instantiate(long key) {
+			try {
+				DBRecord record = adapter.getFunctionRecord(key);
+				return record == null ? null : instantiate(record);
+			}
+			catch (IOException e) {
+				dbError(e);
+				return null;
+			}
+		}
+
+		@Override
+		public FunctionDB instantiate(DBRecord record) {
+			return new FunctionDB(FunctionManagerDB.this, addrMap, record);
+		}
 	}
 }

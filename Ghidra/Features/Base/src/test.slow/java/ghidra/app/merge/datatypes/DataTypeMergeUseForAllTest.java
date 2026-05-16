@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,7 +22,6 @@ import org.junit.Test;
 import ghidra.program.database.ProgramDB;
 import ghidra.program.database.ProgramModifierListener;
 import ghidra.program.model.data.*;
-import ghidra.util.task.TaskMonitorAdapter;
 
 /**
  * Tests for merging data types.
@@ -74,14 +73,10 @@ public class DataTypeMergeUseForAllTest extends AbstractDataTypeMergeTest {
 	public void setupTestDataTypeDeletedChangedUseForAll() throws Exception {
 
 		mtf.initialize("notepad", new ProgramModifierListener() {
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyLatest(ghidra.program.database.ProgramDB)
-			 */
+
 			@Override
 			public void modifyLatest(ProgramDB program) {
-				boolean commit = false;
 				DataTypeManager dtm = program.getDataTypeManager();
-				int transactionID = program.startTransaction("test");
 				Structure intStruct =
 					(Structure) dtm.getDataType(new CategoryPath("/Category1/Category2/Category3"),
 						"IntStruct");
@@ -91,27 +86,16 @@ public class DataTypeMergeUseForAllTest extends AbstractDataTypeMergeTest {
 					(Structure) dtm.getDataType(new CategoryPath("/Category1/Category2/Category4"),
 						"CharStruct");
 
-				try {
-					intStruct.add(new ByteDataType());// Change data type.
-					dtm.remove(coolUnion, TaskMonitorAdapter.DUMMY_MONITOR);// Remove the data type.
-					charStruct.add(new FloatDataType());
-					commit = true;
-				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
+				intStruct.add(new ByteDataType());// Change data type.
+				dtm.remove(coolUnion);// Remove the data type.
+				charStruct.add(new FloatDataType());
 			}
 
-			/* (non-Javadoc)
-			 * @see ghidra.framework.data.ProgramModifierListener#modifyPrivate(ghidra.program.database.ProgramDB)
-			 */
 			@Override
 			public void modifyPrivate(ProgramDB program) {
-				boolean commit = false;
 				DataTypeManager dtm = program.getDataTypeManager();
 				// move /Category1/Category2/Category5 to
 				// /Category1/Category2/Category3
-				int transactionID = program.startTransaction("test");
 				Structure intStruct =
 					(Structure) dtm.getDataType(new CategoryPath("/Category1/Category2/Category3"),
 						"IntStruct");
@@ -121,15 +105,9 @@ public class DataTypeMergeUseForAllTest extends AbstractDataTypeMergeTest {
 					(Structure) dtm.getDataType(new CategoryPath("/Category1/Category2/Category4"),
 						"CharStruct");
 
-				try {
-					dtm.remove(intStruct, TaskMonitorAdapter.DUMMY_MONITOR);// Remove the data type.
-					coolUnion.delete(2);
-					charStruct.add(new CharDataType());
-					commit = true;
-				}
-				finally {
-					program.endTransaction(transactionID, commit);
-				}
+				dtm.remove(intStruct);// Remove the data type.
+				coolUnion.delete(2);
+				charStruct.add(new CharDataType());
 			}
 		});
 	}

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,28 +19,27 @@ import ghidra.docking.settings.*;
 import ghidra.program.model.mem.MemBuffer;
 import ghidra.program.model.mem.MemoryAccessException;
 import ghidra.util.StringFormat;
+import ghidra.util.charset.CharsetInfoManager;
 import ghidra.util.classfinder.ClassTranslator;
 
 /**
- * Provides a definition of an primitive char in a program.
- * The size and signed-ness of this type is determined by the data
- * organization of the associated data type manager.
+ * Provides a definition of an primitive char in a program. The size and signed-ness of this type is
+ * determined by the data organization of the associated data type manager.
  */
 public class CharDataType extends AbstractIntegerDataType implements DataTypeWithCharset {
-	private final static long serialVersionUID = 1;
 
 	static {
 		ClassTranslator.put("ghidra.program.model.data.AsciiDataType",
 			CharDataType.class.getName());
 	}
 
-	private static SettingsDefinition[] CHAR_SETTINGS_DEFS =
-		{ FormatSettingsDefinition.DEF_CHAR, PADDING, ENDIAN, MNEMONIC,
-			CharsetSettingsDefinition.CHARSET, RenderUnicodeSettingsDefinition.RENDER };
+	private static SettingsDefinition[] CHAR_SETTINGS_DEFS = { FormatSettingsDefinition.DEF_CHAR,
+		PADDING, ENDIAN, MNEMONIC, CharsetSettingsDefinition.CHARSET,
+		RenderUnicodeSettingsDefinition.RENDER, TranslationSettingsDefinition.TRANSLATION };
 
 	private static SettingsDefinition[] WIDE_UTF_CHAR_SETTINGS_DEFS =
 		{ FormatSettingsDefinition.DEF_CHAR, PADDING, ENDIAN, MNEMONIC,
-			RenderUnicodeSettingsDefinition.RENDER };
+			RenderUnicodeSettingsDefinition.RENDER, TranslationSettingsDefinition.TRANSLATION };
 
 	public static final CharDataType dataType = new CharDataType();
 
@@ -55,12 +54,13 @@ public class CharDataType extends AbstractIntegerDataType implements DataTypeWit
 		this("char", dtm);
 	}
 
-	protected CharDataType(String name, boolean signed, DataTypeManager dtm) {
-		super(name, signed, dtm);
+	protected CharDataType(String name, DataTypeManager dtm) {
+		super(name, dtm);
 	}
 
-	private CharDataType(String name, DataTypeManager dtm) {
-		super(name, isSignedChar(dtm), dtm);
+	@Override
+	public boolean isSigned() {
+		return getDataOrganization().isSignedChar();
 	}
 
 	@Override
@@ -77,16 +77,9 @@ public class CharDataType extends AbstractIntegerDataType implements DataTypeWit
 		return getLength() != 1;
 	}
 
-	private static boolean isSignedChar(DataTypeManager dtm) {
-		DataOrganization dataOrganization =
-			dtm != null ? dtm.getDataOrganization() : DataOrganizationImpl.getDefaultOrganization();
-		return dataOrganization.isSignedChar();
-	}
-
 	/**
-	 * Returns the C style data-type declaration
-	 * for this data-type.  Null is returned if
-	 * no appropriate declaration exists.
+	 * Returns the C style data-type declaration for this data-type. Null is returned if no
+	 * appropriate declaration exists.
 	 */
 	@Override
 	public String getCDeclaration() {
@@ -99,7 +92,7 @@ public class CharDataType extends AbstractIntegerDataType implements DataTypeWit
 	}
 
 	@Override
-	public boolean isDynamicallySized() {
+	public boolean hasLanguageDependantLength() {
 		return true;
 	}
 
@@ -130,6 +123,23 @@ public class CharDataType extends AbstractIntegerDataType implements DataTypeWit
 		catch (MemoryAccessException e) {
 			return null;
 		}
+	}
+
+	@Override
+	public boolean isEncodable() {
+		return true;
+	}
+
+	@Override
+	public byte[] encodeValue(Object value, MemBuffer buf, Settings settings, int length)
+			throws DataTypeEncodeException {
+		return encodeCharacterValue(value, buf, settings);
+	}
+
+	@Override
+	public byte[] encodeRepresentation(String repr, MemBuffer buf, Settings settings, int length)
+			throws DataTypeEncodeException {
+		return encodeCharacterRepresentation(repr, buf, settings);
 	}
 
 	@Override
@@ -191,9 +201,9 @@ public class CharDataType extends AbstractIntegerDataType implements DataTypeWit
 				return CharsetSettingsDefinition.CHARSET.getCharset(settings,
 					StringDataInstance.DEFAULT_CHARSET_NAME);
 			case 2:
-				return CharsetInfo.UTF16;
+				return CharsetInfoManager.UTF16;
 			case 4:
-				return CharsetInfo.UTF32;
+				return CharsetInfoManager.UTF32;
 			default:
 				return StringDataInstance.DEFAULT_CHARSET_NAME;
 		}

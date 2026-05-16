@@ -17,11 +17,14 @@ package ghidra.app.util.html;
 
 import java.awt.Color;
 
+import org.apache.commons.lang3.StringUtils;
+
 import ghidra.app.util.ToolTipUtils;
 import ghidra.app.util.html.diff.DataTypeDiff;
 import ghidra.app.util.html.diff.DataTypeDiffBuilder;
 import ghidra.program.model.data.*;
 import ghidra.util.HTMLUtilities;
+import ghidra.util.StringUtilities;
 
 public class ArrayDataTypeHTMLRepresentation extends HTMLDataTypeRepresentation {
 
@@ -30,13 +33,19 @@ public class ArrayDataTypeHTMLRepresentation extends HTMLDataTypeRepresentation 
 	private ValidatableLine footerContent;
 	private Array array;
 
+	private String truncatedHtmlData;
+
 	public ArrayDataTypeHTMLRepresentation(Array array) {
 
 		this.array = array;
 		this.headerContent = buildHeaderContent();
-		this.bodyHtml = buildBodyHTML();
+		this.bodyHtml = buildBodyHTML(false);
 		this.footerContent = buildFooterContent();
-		originalHTMLData = buildHTMLText(headerContent, bodyHtml, footerContent);
+
+		originalHTMLData = buildHTMLText(headerContent, bodyHtml, footerContent, false);
+
+		String trimmedBodyHtml = buildBodyHTML(true);
+		truncatedHtmlData = buildHTMLText(headerContent, trimmedBodyHtml, footerContent, true);
 	}
 
 	private ArrayDataTypeHTMLRepresentation(Array array, ValidatableLine headerContent,
@@ -45,7 +54,11 @@ public class ArrayDataTypeHTMLRepresentation extends HTMLDataTypeRepresentation 
 		this.headerContent = headerContent;
 		this.bodyHtml = bodyHtml;
 		this.footerContent = footerContent;
-		originalHTMLData = buildHTMLText(headerContent, bodyHtml, footerContent);
+
+		originalHTMLData = buildHTMLText(headerContent, bodyHtml, footerContent, false);
+
+		String trimmedBodyHtml = buildBodyHTML(true);
+		truncatedHtmlData = buildHTMLText(headerContent, trimmedBodyHtml, footerContent, true);
 	}
 
 	private DataType getBaseDataType() {
@@ -57,75 +70,93 @@ public class ArrayDataTypeHTMLRepresentation extends HTMLDataTypeRepresentation 
 		return baseDataType;
 	}
 
-	private String buildBodyHTML() {
-		StringBuffer buffy = new StringBuffer();
+	private String buildBodyHTML(boolean trim) {
+		StringBuilder buffy = new StringBuilder();
 
 		DataType baseDataType = getBaseDataType();
-		buffy.append("Array Base Data Type: ").append(BR);
-		buffy.append(INDENT_OPEN);
 
 		if (baseDataType instanceof BuiltInDataType) {
-			String simpleName = baseDataType.getClass().getSimpleName();
-			buffy.append(simpleName);
-			addDataTypeLength(baseDataType, buffy);
+			String simpleName = baseDataType.getDisplayName();
+			buffy.append(TT_OPEN).append(simpleName).append(TT_CLOSE);
+			buffy.append(BR).append(INDENT_OPEN);
+
+			String description = baseDataType.getDescription();
+			if (!StringUtils.isBlank(description)) {
+				String encodedDescription =
+					HTMLUtilities.friendlyEncodeHTML(description);
+				buffy.append(encodedDescription).append(BR);
+			}
+			addDataTypeLengthAndAlignment(baseDataType, buffy);
+			buffy.append(INDENT_CLOSE);
 		}
 		else {
-
 			HTMLDataTypeRepresentation representation =
 				ToolTipUtils.getHTMLRepresentation(baseDataType);
-			String baseHTML = representation.getHTMLContentString();
+
+			String baseHTML = representation.getFullHTMLContentString();
+			if (trim) {
+				baseHTML = representation.getHTMLContentString();
+			}
 
 			buffy.append(baseHTML);
 
 			if (baseHTML.indexOf(LENGTH_PREFIX) < 0) {
-				addDataTypeLength(baseDataType, buffy);
+				addDataTypeLengthAndAlignment(baseDataType, buffy);
 			}
 		}
-
-		buffy.append(INDENT_CLOSE);
 
 		return buffy.toString();
 	}
 
 	private ValidatableLine buildHeaderContent() {
-		StringBuffer buffy = new StringBuffer();
-		buffy.append(FORWARD_SLASH).append(FORWARD_SLASH).append(HTML_SPACE);
-
-		String description = "Array of ";
-		DataType baseDataType = array;
-		while (baseDataType instanceof Array) {
-			Array baseArray = (Array) baseDataType;
-			description += baseArray.getNumElements() + " elements of ";
-			baseDataType = baseArray.getDataType();
-		}
-		description += HTMLUtilities.friendlyEncodeHTML(baseDataType.getName());
-		buffy.append(description);
+		StringBuilder buffy = new StringBuilder();
+		buffy.append(HTMLUtilities.friendlyEncodeHTML(array.getName()));
 		return new TextLine(buffy.toString());
 	}
 
 	private ValidatableLine buildFooterContent() {
-		return new TextLine("Size: " + array.getLength());
+		int len = array.getLength();
+		if (array.isZeroLength()) {
+			return new TextLine(LENGTH_PREFIX + "0 (reported length is " + len + ")");
+		}
+		return new TextLine(LENGTH_PREFIX + len);
 	}
 
-	private String buildHTMLText(ValidatableLine header, String body, ValidatableLine footer) {
+	private String buildHTMLText(ValidatableLine header, String body, ValidatableLine info,
+			boolean trim) {
 
-		StringBuffer buffy = new StringBuffer();
+		StringBuilder buffy = new StringBuilder();
 
 		TextLine headerLine = (TextLine) header;
 		String headerText = header.getText();
+		if (trim) {
+			headerText = StringUtilities.trimMiddle(headerText, ToolTipUtils.LINE_LENGTH);
+		}
 		headerText = wrapStringInColor(headerText, headerLine.getTextColor());
 		buffy.append(headerText);
 
-		buffy.append(BR).append(BR);
+		buffy.append(INDENT_OPEN);
+		TextLine infoLine = (TextLine) info; // TODO: Should include Alignment as well as Length (using footer prevents this)
+		String infoText = info.getText();
+		infoText = wrapStringInColor(infoText, infoLine.getTextColor());
+		buffy.append(infoText);
+
+		buffy.append(BR).append(BR).append(INDENT_CLOSE);
 		buffy.append(body);
 
-		// footer
-		buffy.append(BR);
-		TextLine footerLine = (TextLine) footer;
-		String footerText = footer.getText();
-		footerText = wrapStringInColor(footerText, footerLine.getTextColor());
-		buffy.append(footerText);
 		return buffy.toString();
+	}
+
+	// overridden to return truncated text by default
+	@Override
+	public String getHTMLString() {
+		return HTML_OPEN + truncatedHtmlData + HTML_CLOSE;
+	}
+
+	// overridden to return truncated text by default
+	@Override
+	public String getHTMLContentString() {
+		return truncatedHtmlData;
 	}
 
 	@Override

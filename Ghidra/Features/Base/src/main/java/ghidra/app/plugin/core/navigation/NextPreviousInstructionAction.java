@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,21 +15,27 @@
  */
 package ghidra.app.plugin.core.navigation;
 
-import ghidra.framework.plugintool.PluginTool;
-import ghidra.program.model.address.Address;
-import ghidra.program.model.listing.*;
-import ghidra.util.exception.CancelledException;
-import ghidra.util.task.TaskMonitor;
-
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 
+import javax.help.UnsupportedOperationException;
 import javax.swing.Icon;
 import javax.swing.KeyStroke;
 
-import resources.ResourceManager;
+import docking.DockingUtils;
+import generic.theme.GIcon;
+import ghidra.app.context.NavigatableActionContext;
+import ghidra.framework.plugintool.PluginTool;
+import ghidra.program.model.address.Address;
+import ghidra.program.model.listing.*;
+import ghidra.program.util.AddressFieldLocation;
+import ghidra.program.util.ProgramLocation;
+import ghidra.util.exception.CancelledException;
+import ghidra.util.task.TaskMonitor;
 
 public class NextPreviousInstructionAction extends AbstractNextPreviousAction {
+
+	private static final Icon ICON = new GIcon("icon.plugin.navigation.instruction");
 
 	public NextPreviousInstructionAction(PluginTool tool, String owner, String subGroup) {
 		super(tool, "Next Instruction", owner, subGroup);
@@ -38,12 +43,12 @@ public class NextPreviousInstructionAction extends AbstractNextPreviousAction {
 
 	@Override
 	protected Icon getIcon() {
-		return ResourceManager.loadImage("images/I.gif");
+		return ICON;
 	}
 
 	@Override
 	protected KeyStroke getKeyStroke() {
-		return KeyStroke.getKeyStroke(KeyEvent.VK_I, InputEvent.CTRL_DOWN_MASK |
+		return KeyStroke.getKeyStroke(KeyEvent.VK_I, DockingUtils.CONTROL_KEY_MODIFIER_MASK |
 			InputEvent.ALT_DOWN_MASK);
 	}
 
@@ -52,36 +57,108 @@ public class NextPreviousInstructionAction extends AbstractNextPreviousAction {
 		return "Instruction";
 	}
 
-	/**
-	 * Find the beginning of the next instruction range
-	 * @throws CancelledException 
-	 */
 	@Override
-	protected Address getNextAddress(TaskMonitor monitor, Program program, Address address)
+	protected Address getNextAddress(TaskMonitor monitor, NavigatableActionContext context)
 			throws CancelledException {
 
+		Program program = context.getProgram();
+		Address address = context.getAddress();
+		if (isInverted) {
+			return getNextNonInstructionAddress(monitor, program, address);
+		}
+
+		// check for known special cases
+		if (useCurrentInstruction(context)) {
+			return address;
+		}
+
 		if (isInstructionAt(program, address)) {
-			// on an instruction, we have to find a non-instruction before finding the next instruction
+			// on an instruction, find a non-instruction before finding the next instruction
 			address = getAddressOfNextPreviousNonInstruction(monitor, program, address, true);
 		}
 
 		// we know address is not an instruction at this point
-
 		return getAddressOfNextInstructionAfter(program, address);
+	}
+
+	private boolean useCurrentInstruction(NavigatableActionContext context) {
+		// Jumping to the next instruction below the current instruction is not useful.  When on an
+		// instruction, find the next non-instruction and then look for the next instruction after
+		// that.  We do not want to do this when there is an instruction at an address, but it is
+		// not close to the cursor, such as when on a function signature.  In that case, jump to the
+		// instruction at that same address.  In the case when the cursor is on the function
+		// signature, this will allow the user to quickly jump to the entry address field.
+		// 
+		// Each time this action is executed, it places the cursor on the address field.  Use that
+		// as a signal that we should go to the next instruction.  This allows the example outlined
+		// above to work, with only minor intrusion to the user's workflow.
+		ProgramLocation location = context.getLocation();
+		return !(location instanceof AddressFieldLocation);
+	}
+
+	@Override
+	protected Address getPreviousAddress(TaskMonitor monitor, NavigatableActionContext context)
+			throws CancelledException {
+
+		Program program = context.getProgram();
+		Address address = context.getAddress();
+		if (isInverted) {
+			return getPreviousNonInstructionAddress(monitor, program, address);
+		}
+
+		if (isInstructionAt(program, address)) {
+			// on an instruction, find a non-instruction before finding the previous instruction
+			address = getAddressOfNextPreviousNonInstruction(monitor, program, address, false);
+		}
+
+		// we know address is not at an instruction at this point
+		return getAddressOfPreviousInstructionBefore(program, address);
+	}
+
+	@Override
+	protected Address getNextAddress(TaskMonitor monitor, Program program, Address address)
+			throws CancelledException {
+		// use getNextAddress(NavigatableActionContext, TaskMonitor) instead
+		throw new UnsupportedOperationException();
 	}
 
 	@Override
 	protected Address getPreviousAddress(TaskMonitor monitor, Program program, Address address)
 			throws CancelledException {
+		// use getPreviousAddress(NavigatableActionContext, TaskMonitor) instead
+		throw new UnsupportedOperationException();
+	}
 
-		if (isInstructionAt(program, address)) {
-			// on an instruction, we have to find a non-instruction before finding the previous instruction
-			address = getAddressOfNextPreviousNonInstruction(monitor, program, address, false);
+	private Address getNextNonInstructionAddress(TaskMonitor monitor, Program program,
+			Address address) throws CancelledException {
+
+		//
+		// Assumptions:
+		// -if on an instruction, find the next data or undefined
+		// -if not on an instruction, find the next instruction, then find the next data or 
+		//  undefined after that (this mimics the non-inverted case)
+		//
+		if (!isInstructionAt(program, address)) {
+			address = getAddressOfNextInstructionAfter(program, address);
 		}
 
-		// we know address is not at an instruction at this point
+		return getAddressOfNextPreviousNonInstruction(monitor, program, address, true);
+	}
 
-		return getAddressOfPreviousInstructionBefore(program, address);
+	private Address getPreviousNonInstructionAddress(TaskMonitor monitor, Program program,
+			Address address) throws CancelledException {
+
+		//
+		// Assumptions:
+		// -if on an instruction, find the previous data or undefined
+		// -if not on an instruction, find the previous instruction, then find the previous data or 
+		//  undefined before that (this mimics the non-inverted case)
+		//
+		if (!isInstructionAt(program, address)) {
+			address = getAddressOfPreviousInstructionBefore(program, address);
+		}
+
+		return getAddressOfNextPreviousNonInstruction(monitor, program, address, false);
 	}
 
 	private boolean isInstructionAt(Program program, Address address) {
@@ -116,9 +193,13 @@ public class NextPreviousInstructionAction extends AbstractNextPreviousAction {
 	private Address getAddressOfNextPreviousNonInstruction(TaskMonitor monitor, Program program,
 			Address address, boolean forward) throws CancelledException {
 
+		if (address == null) {
+			return null;
+		}
+
 		CodeUnitIterator codeUnits = program.getListing().getCodeUnits(address, forward);
 		while (codeUnits.hasNext()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			CodeUnit codeUnit = codeUnits.next();
 			if (codeUnit instanceof Data) {
 				return codeUnit.getAddress();

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -27,7 +27,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import javax.swing.*;
 import javax.swing.table.TableModel;
@@ -38,11 +37,11 @@ import javax.swing.undo.UndoableEdit;
 import org.junit.*;
 
 import docking.ActionContext;
+import docking.DefaultActionContext;
 import docking.action.DockingActionIf;
 import docking.widgets.OptionDialog;
 import docking.widgets.filter.FilterTextField;
-import docking.widgets.table.GDynamicColumnTableModel;
-import docking.widgets.table.RowObjectTableModel;
+import docking.widgets.table.*;
 import docking.widgets.tree.GTree;
 import docking.widgets.tree.GTreeNode;
 import generic.jar.ResourceFile;
@@ -64,11 +63,14 @@ import ghidra.util.exception.CancelledException;
 import ghidra.util.table.GhidraTableFilterPanel;
 import ghidra.util.task.*;
 import util.CollectionUtils;
+import utilities.util.FileUtilities;
 
 public abstract class AbstractGhidraScriptMgrPluginTest
 		extends AbstractGhidraHeadedIntegrationTest {
-	protected static final int MAX_TIME = 4000;
-	protected static final int SCRIPT_TIMEOUT_SECS = 5;
+	// timeout for scripts run by invoking RunScriptTask directly
+	protected static final int TASK_RUN_SCRIPT_TIMEOUT_SECS = 5;
+	// timeout for scripts run indirectly through the GUI
+	protected static final int GUI_RUN_SCRIPT_TIMEOUT_MSECS = 6 * DEFAULT_WAIT_TIMEOUT;
 	protected TestEnv env;
 	protected CodeBrowserPlugin browser;
 	protected GhidraScriptMgrPlugin plugin;
@@ -76,7 +78,7 @@ public abstract class AbstractGhidraScriptMgrPluginTest
 	protected ConsoleService console;
 
 	protected Program program;
-	protected DraggableScriptTable scriptTable;
+	protected GTable scriptTable;
 	protected JTextPane consoleTextPane;
 	protected GhidraScriptEditorComponentProvider editor;
 	protected JTextArea editorTextArea;
@@ -120,11 +122,10 @@ public abstract class AbstractGhidraScriptMgrPluginTest
 		ConsoleComponentProvider consoleProvider =
 			waitForComponentProvider(ConsoleComponentProvider.class);
 		consoleTextPane =
-			(JTextPane) findComponentByName(consoleProvider.getComponent(), "CONSOLE");
+			(JTextPane) findComponentByName(consoleProvider.getComponent(), "Console Text Pane");
 		assertNotNull(consoleTextPane);
 
-		scriptTable =
-			(DraggableScriptTable) findComponentByName(provider.getComponent(), "SCRIPT_TABLE");
+		scriptTable = (GTable) findComponentByName(provider.getComponent(), "Scripts Table");
 		assertNotNull(scriptTable);
 
 		clearConsole();
@@ -170,32 +171,18 @@ public abstract class AbstractGhidraScriptMgrPluginTest
 			deleteFile(testScriptFile);
 			testScriptFile = null;
 		}
-		wipeUserScripts();
+		deleteUserScripts();
 
 		env.dispose();
 	}
 
-	protected static void wipe(ResourceFile path) throws IOException {
-		wipe(Paths.get(path.getAbsolutePath()));
+	protected static void delete(Path path) {
+		FileUtilities.deleteDir(path);
 	}
 
-	protected static void wipe(Path path) throws IOException {
-		if (Files.exists(path)) {
-			try (Stream<Path> walk = Files.walk(path)) {
-				for (Path p : (Iterable<Path>) walk.sorted(Comparator.reverseOrder())::iterator) {
-					Files.deleteIfExists(p);
-				}
-			}
-		}
-	}
-
-	protected void wipeUserScripts() throws IOException {
-		Path userScriptDir = java.nio.file.Paths.get(GhidraScriptUtil.USER_SCRIPTS_DIR);
-		try (Stream<Path> pathStream = Files.list(userScriptDir)) {
-			for (Path p : (Iterable<Path>) pathStream::iterator) {
-				wipe(p);
-			}
-		}
+	protected void deleteUserScripts() throws IOException {
+		Path userScriptDir = Paths.get(GhidraScriptUtil.USER_SCRIPTS_DIR);
+		FileUtilities.forEachFile(userScriptDir, script -> delete(script));
 	}
 
 //==================================================================================================
@@ -223,11 +210,8 @@ public abstract class AbstractGhidraScriptMgrPluginTest
 	}
 
 	protected void selectCategory(String category) {
-
-		GTree categoryTree = (GTree) findComponentByName(provider.getComponent(), "CATEGORY_TREE");
+		GTree categoryTree = provider.getTree();
 		waitForTree(categoryTree);
-		JTree jTree = (JTree) invokeInstanceMethod("getJTree", categoryTree);
-		assertNotNull(jTree);
 		GTreeNode child = categoryTree.getModelRoot().getChild(category);
 		categoryTree.setSelectedNode(child);
 		waitForTree(categoryTree);
@@ -318,7 +302,7 @@ public abstract class AbstractGhidraScriptMgrPluginTest
 
 		DockingActionIf runLastAction = getRunLastScriptAction();
 		final AtomicReference<Boolean> ref = new AtomicReference<>();
-		runSwing(() -> ref.set(runLastAction.isEnabledForContext(new ActionContext())));
+		runSwing(() -> ref.set(runLastAction.isEnabledForContext(new DefaultActionContext())));
 		assertEquals("Run Last Action not enabled as expected", enabled, ref.get());
 	}
 
@@ -539,6 +523,18 @@ public abstract class AbstractGhidraScriptMgrPluginTest
 		return new ResourceFile(tempFile);
 	}
 
+	protected ResourceFile createTempScriptFileWithLines(String... lines) throws IOException {
+		ResourceFile newScript = createTempScriptFile();
+
+		PrintWriter writer = new PrintWriter(newScript.getOutputStream());
+		for (String line : lines) {
+			writer.println(line);
+		}
+		writer.close();
+
+		return newScript;
+	}
+
 	protected String changeEditorContents() {
 		assertNotNull("Editor not opened and initialized", editorTextArea);
 		assertNotNull("Editor not opened and initialized", buffer);
@@ -607,12 +603,6 @@ public abstract class AbstractGhidraScriptMgrPluginTest
 		waitForSwing();
 	}
 
-	protected void performGlobalRunLastScriptAction() {
-		// note: this action used to be different from the 'run last script'; currently they are
-		// 		 the same
-		pressRunLastScriptButton();
-	}
-
 	protected KeyBindingInputDialog pressKeyBindingAction() {
 		DockingActionIf keyBindingAction = getAction(plugin, "Key Binding");
 		performAction(keyBindingAction, false);
@@ -638,10 +628,17 @@ public abstract class AbstractGhidraScriptMgrPluginTest
 		waitForSwing();
 	}
 
-	protected String runScript(String scriptName) throws Exception {
+	/**
+	 * Run the currently selected script by pressing the run button and return its output.
+	 * 
+	 * @param taskName name for the task listener
+	 * @return script output written to the console
+	 * @throws Exception on failure, e.g. timeout
+	 */
+	protected String runSelectedScript(String taskName) throws Exception {
 		clearConsole();
 
-		TaskListenerFlag taskFlag = new TaskListenerFlag(scriptName);
+		TaskListenerFlag taskFlag = new TaskListenerFlag(taskName);
 		TaskUtilities.addTrackedTaskListener(taskFlag);
 
 		pressRunButton();
@@ -652,23 +649,18 @@ public abstract class AbstractGhidraScriptMgrPluginTest
 		return output;
 	}
 
-	protected String runLastScript(String scriptName) throws Exception {
-		TaskListenerFlag taskFlag = new TaskListenerFlag(scriptName);
+	/**
+	 * Run the last script by pressing the last script button and return output.
+	 * 
+	 * @param taskName name for the task listener
+	 * @return script output written to the console
+	 * @throws Exception on failure, e.g. timeout
+	 */
+	protected String runLastScript(String taskName) throws Exception {
+		TaskListenerFlag taskFlag = new TaskListenerFlag(taskName);
 		TaskUtilities.addTrackedTaskListener(taskFlag);
 
 		pressRunLastScriptButton();
-		waitForTaskEnd(taskFlag);
-
-		String output = getConsoleText();
-		clearConsole();
-		return output;
-	}
-
-	protected String runGlobalLastScriptAction(String scriptName) throws Exception {
-		TaskListenerFlag taskFlag = new TaskListenerFlag(scriptName);
-		TaskUtilities.addTrackedTaskListener(taskFlag);
-
-		performGlobalRunLastScriptAction();
 		waitForTaskEnd(taskFlag);
 
 		String output = getConsoleText();
@@ -983,9 +975,9 @@ public abstract class AbstractGhidraScriptMgrPluginTest
 
 	}
 
-	protected void cleanupOldTestFiles() throws IOException {
+	protected void cleanupOldTestFiles() {
 		// remove the compiled bundles directory so that any scripts we use will be recompiled
-		wipe(GhidraSourceBundle.getCompiledBundlesDir());
+		delete(GhidraSourceBundle.getCompiledBundlesDir());
 
 		String myTestName = super.testName.getMethodName();
 
@@ -1021,9 +1013,7 @@ public abstract class AbstractGhidraScriptMgrPluginTest
 	protected String getConsoleText() {
 		// let the update manager have a chance to run
 		waitForSwing();
-		final String[] container = new String[1];
-		runSwing(() -> container[0] = consoleTextPane.getText());
-		return container[0];
+		return runSwing(() -> consoleTextPane.getText());
 	}
 
 	protected void chooseJavaProvider() throws InterruptedException, InvocationTargetException {
@@ -1044,15 +1034,9 @@ public abstract class AbstractGhidraScriptMgrPluginTest
 	protected void waitForTaskEnd(TaskListenerFlag flag) {
 		waitForSwing();
 
-		int waitCount = 0;
-		while (!flag.ended && waitCount < 401) {
-			try {
-				Thread.sleep(DEFAULT_WAIT_DELAY);
-			}
-			catch (InterruptedException e) {
-				// don't care; try again
-			}
-			waitCount++;
+		int totalTime = 0;
+		while (!flag.ended && totalTime <= GUI_RUN_SCRIPT_TIMEOUT_MSECS) {
+			totalTime += sleep(DEFAULT_WAIT_DELAY);
 		}
 
 		TaskUtilities.removeTrackedTaskListener(flag);
@@ -1060,6 +1044,7 @@ public abstract class AbstractGhidraScriptMgrPluginTest
 		if (!flag.ended) {
 			Assert.fail("Task took too long to complete: " + flag);
 		}
+		Msg.debug(this, flag.taskName + " task ended in " + totalTime + " ms");
 	}
 
 	protected int getSelectedRow() {
@@ -1102,7 +1087,8 @@ public abstract class AbstractGhidraScriptMgrPluginTest
 		waitForSwing();
 		DockingActionIf saveAction = getAction(plugin, "Save Script");
 
-		boolean isEnabled = saveAction.isEnabledForContext(editor.getActionContext(null));
+		ActionContext context = createActionContext(editor);
+		boolean isEnabled = saveAction.isEnabledForContext(context);
 		if (!isEnabled) {
 			// the action is enabled when the provider detects changes; it is disabled for read-only
 
@@ -1151,7 +1137,8 @@ public abstract class AbstractGhidraScriptMgrPluginTest
 	protected void assertSaveButtonDisabled() {
 		waitForSwing();
 		DockingActionIf saveAction = getAction(plugin, "Save Script");
-		assertFalse(saveAction.isEnabledForContext(editor.getActionContext(null)));
+		ActionContext context = createActionContext(editor);
+		assertFalse(saveAction.isEnabledForContext(context));
 
 		assertEditorHasNoChanges();
 	}
@@ -1178,11 +1165,11 @@ public abstract class AbstractGhidraScriptMgrPluginTest
 		pressButtonByText(window, "Cancel");
 	}
 
-	protected TestChangeProgramScript startCancellableScript() throws Exception {
+	protected TestChangeProgramScript startCancellableScriptTask() throws Exception {
 		TestChangeProgramScript script = new TestChangeProgramScript();
 		ResourceFile fakeFile = new ResourceFile(createTempFile(CANCELLABLE_SCRIPT_NAME, "java"));
 		script.setSourceFile(fakeFile);
-		runScript(script);
+		startRunScriptTask(script);
 
 		boolean success = script.waitForStart();
 		assertTrue("Test script did not get started!", success);
@@ -1215,7 +1202,35 @@ public abstract class AbstractGhidraScriptMgrPluginTest
 		assertTrue("Timed-out waiting for cancelled script to complete", success);
 	}
 
-	protected void runScript(GhidraScript script) throws Exception {
+	protected void runScript(ResourceFile scriptFile) throws Exception {
+
+		GhidraScriptProvider scriptProvider = GhidraScriptUtil.getProvider(scriptFile);
+		GhidraScript script =
+			scriptProvider.getScriptInstance(scriptFile, new PrintWriter(System.err));
+
+		Task task = new RunScriptTask(script, plugin.getCurrentState(), console);
+		task.addTaskListener(provider.getTaskListener());
+
+		CountDownLatch latch = new CountDownLatch(1);
+		task.addTaskListener(new TaskListener() {
+
+			@Override
+			public void taskCompleted(Task t) {
+				latch.countDown();
+			}
+
+			@Override
+			public void taskCancelled(Task t) {
+				latch.countDown();
+			}
+		});
+
+		TaskLauncher.launch(task);
+
+		latch.await(TASK_RUN_SCRIPT_TIMEOUT_SECS, TimeUnit.SECONDS);
+	}
+
+	protected void startRunScriptTask(GhidraScript script) throws Exception {
 		Task task = new RunScriptTask(script, plugin.getCurrentState(), console);
 		task.addTaskListener(provider.getTaskListener());
 		new TaskLauncher(task, plugin.getTool().getToolFrame());
@@ -1226,10 +1241,10 @@ public abstract class AbstractGhidraScriptMgrPluginTest
 		GhidraScript script =
 			scriptProvider.getScriptInstance(scriptFile, new PrintWriter(System.err));
 
-		return runScriptAndGetOutput(script);
+		return runScriptTaskAndGetOutput(script);
 	}
 
-	protected String runScriptAndGetOutput(GhidraScript script) throws Exception {
+	protected String runScriptTaskAndGetOutput(GhidraScript script) throws Exception {
 		SpyConsole spyConsole = installSpyConsole();
 
 		Task task = new RunScriptTask(script, plugin.getCurrentState(), spyConsole);
@@ -1251,7 +1266,7 @@ public abstract class AbstractGhidraScriptMgrPluginTest
 
 		TaskLauncher.launch(task);
 
-		latch.await(SCRIPT_TIMEOUT_SECS, TimeUnit.SECONDS);
+		latch.await(TASK_RUN_SCRIPT_TIMEOUT_SECS, TimeUnit.SECONDS);
 
 		String output = spyConsole.getApiOutput();
 		spyConsole.clear();
@@ -1559,12 +1574,12 @@ public abstract class AbstractGhidraScriptMgrPluginTest
 
 		@Override
 		public void taskAdded(Task task) {
-			Msg.debug(this, "taskAdded(): " + task.getTaskTitle());
+			Msg.trace(this, "taskAdded(): " + task.getTaskTitle());
 		}
 
 		@Override
 		public void taskRemoved(Task task) {
-			Msg.debug(this, "taskRemoved(): " + task.getTaskTitle());
+			Msg.trace(this, "taskRemoved(): " + task.getTaskTitle());
 			if (taskName.equals(task.getTaskTitle())) {
 				ended = true;
 			}
@@ -1594,7 +1609,7 @@ public abstract class AbstractGhidraScriptMgrPluginTest
 
 			try {
 				while (total < DEFAULT_WAIT_TIMEOUT) {
-					monitor.checkCanceled();
+					monitor.checkCancelled();
 					total += sleep(DEFAULT_WAIT_DELAY);
 
 					if (testOver) {
@@ -1617,25 +1632,23 @@ public abstract class AbstractGhidraScriptMgrPluginTest
 		}
 
 		boolean waitForStart() throws Exception {
-			return startedLatch.await(SCRIPT_TIMEOUT_SECS, TimeUnit.SECONDS);
+			return startedLatch.await(TASK_RUN_SCRIPT_TIMEOUT_SECS, TimeUnit.SECONDS);
 		}
 
 		boolean waitForFinish() throws Exception {
-			return doneLatch.await(SCRIPT_TIMEOUT_SECS, TimeUnit.SECONDS);
+			return doneLatch.await(TASK_RUN_SCRIPT_TIMEOUT_SECS, TimeUnit.SECONDS);
 		}
 	}
 
 	protected class SpyConsole extends ConsoleComponentProvider {
-		protected StringBuffer apiBuffer;
 
 		protected StringWriter outBuffer = new StringWriter();
 		protected StringWriter errBuffer = new StringWriter();
-		protected PrintWriter out = new PrintWriter(outBuffer);
-		protected PrintWriter err = new PrintWriter(errBuffer);
+		protected PrintWriter out = new PrintWriter(outBuffer, true);
+		protected PrintWriter err = new PrintWriter(errBuffer, true);
 
 		SpyConsole() {
 			super(plugin.getTool(), "Spy Console");
-			this.apiBuffer = new StringBuffer();
 		}
 
 		@Override
@@ -1649,25 +1662,24 @@ public abstract class AbstractGhidraScriptMgrPluginTest
 		}
 
 		void clear() {
-			apiBuffer = new StringBuffer();
 			outBuffer = new StringWriter();
 			errBuffer = new StringWriter();
 		}
 
 		@Override
 		public void println(String msg) {
-			apiBuffer.append(msg).append('\n');
-			Msg.debug(this, "Spy Script Console - println(): " + msg);
+			out.println(msg);
+			Msg.trace(this, "Spy Script Console - println(): " + msg);
 		}
 
 		@Override
 		public void addMessage(String originator, String msg) {
-			apiBuffer.append(msg).append('\n');
-			Msg.debug(this, "Spy Script Console - addMessage(): " + msg);
+			out.println(msg);
+			Msg.trace(this, "Spy Script Console - addMessage(): " + msg);
 		}
 
 		String getApiOutput() {
-			return apiBuffer.toString();
+			return outBuffer.toString();
 		}
 	}
 

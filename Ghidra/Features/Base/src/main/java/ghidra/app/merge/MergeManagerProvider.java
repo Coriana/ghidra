@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,13 +19,13 @@ import java.awt.*;
 import java.awt.event.MouseEvent;
 
 import javax.swing.*;
+import javax.swing.border.Border;
 
-import docking.ActionContext;
-import docking.WindowPosition;
-import docking.options.editor.ButtonPanelFactory;
+import docking.*;
 import docking.util.image.ToolIconURL;
 import docking.widgets.OptionDialog;
 import docking.widgets.label.*;
+import generic.theme.GIcon;
 import ghidra.app.context.ListingActionContext;
 import ghidra.app.merge.tool.ListingMergePanel;
 import ghidra.app.nav.Navigatable;
@@ -36,12 +36,11 @@ import ghidra.framework.plugintool.ComponentProviderAdapter;
 import ghidra.program.util.ProgramLocation;
 import ghidra.util.HelpLocation;
 import ghidra.util.layout.VerticalLayout;
-import resources.ResourceManager;
 
 /**
  * Component that displays merge components as needed.
- * 
- * 
+ *
+ *
  */
 class MergeManagerProvider extends ComponentProviderAdapter {
 
@@ -59,7 +58,7 @@ class MergeManagerProvider extends ComponentProviderAdapter {
 	private JButton cancelButton;
 	private boolean wasCanceled;
 
-	private ImageIcon MERGE_ICON = ResourceManager.loadImage("images/Merge.png");
+	private Icon MERGE_ICON = new GIcon("icon.plugin.merge");
 	private JPanel mainPanel;
 
 	public MergeManagerProvider(MergeManagerPlugin plugin, String title) {
@@ -86,30 +85,24 @@ class MergeManagerProvider extends ComponentProviderAdapter {
 		MergeManager mergeManager = plugin.getMergeManager();
 		if (event != null && event.getSource() instanceof FieldHeaderComp) {
 			FieldHeaderComp comp = (FieldHeaderComp) event.getSource();
-			FieldHeaderLocation fieldHeaderLocation = comp.getFieldHeaderLocation(event.getPoint());
-			return createContext(fieldHeaderLocation);
-
+			FieldHeaderLocation fhLoc = comp.getFieldHeaderLocation(event.getPoint());
+			return new DefaultActionContext(this).setContextObject(fhLoc);
 		}
-		if (mergeManager instanceof ProgramMultiUserMergeManager) {
-			ProgramMultiUserMergeManager programMergeManager =
-				(ProgramMultiUserMergeManager) mergeManager;
-			Navigatable navigatable = programMergeManager.navigatable;
-			if (currentComponent instanceof ListingMergePanel) {
+
+		if (mergeManager instanceof ProgramMultiUserMergeManager programMerger) {
+			Navigatable navigatable = programMerger.navigatable;
+			if (currentComponent instanceof ListingMergePanel listingMergePanel) {
 				// Set the program location within the context so it is from the listing panel
 				// that is being clicked. Actions should use the location to know which of the
 				// 4 programs or listings is in the current context.
-				ListingMergePanel listingMergePanel = (ListingMergePanel) currentComponent;
 				Object actionContext = listingMergePanel.getActionContext(event);
-				if (actionContext instanceof ProgramLocation) {
-					ListingActionContext listingActionContext = new ListingActionContext(this,
-						navigatable, (ProgramLocation) actionContext);
-					return listingActionContext;
+				if (actionContext instanceof ProgramLocation loc) {
+					return new ListingActionContext(this, navigatable, loc);
 				}
 			}
-			ProgramLocation programLocation = navigatable.getLocation();
-			ListingActionContext listingActionContext =
-				new ListingActionContext(this, navigatable, programLocation);
-			return listingActionContext;
+
+			ProgramLocation location = navigatable.getLocation();
+			return new ListingActionContext(this, navigatable, location);
 		}
 		return null;
 	}
@@ -238,8 +231,19 @@ class MergeManagerProvider extends ComponentProviderAdapter {
 		cancelButton = new JButton("Cancel");
 		cancelButton.addActionListener(e -> cancelCallback(false));
 
-		JPanel panel = ButtonPanelFactory.createButtonPanel(
-			new JButton[] { applyButton, cancelButton }, ButtonPanelFactory.X_AXIS);
+		JPanel panel = new JPanel();
+		JPanel subPanel = new JPanel();
+		panel.add(subPanel);
+
+		subPanel.setLayout(new GridLayout(1, 0, 10, 0));
+
+		int top = 8;
+		int side = 20;
+		Border inside = BorderFactory.createEmptyBorder(top, side, top, side);
+		subPanel.setBorder(inside);
+
+		subPanel.add(applyButton);
+		subPanel.add(cancelButton);
 
 		return panel;
 	}

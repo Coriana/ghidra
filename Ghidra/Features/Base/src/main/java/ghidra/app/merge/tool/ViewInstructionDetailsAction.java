@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,6 +15,19 @@
  */
 package ghidra.app.merge.tool;
 
+import java.awt.Dimension;
+import java.awt.Insets;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
+
+import javax.swing.*;
+
+import docking.DialogComponentProvider;
+import docking.DockingUtils;
+import docking.action.KeyBindingData;
+import docking.action.MenuData;
+import docking.widgets.fieldpanel.FieldPanel;
+import generic.theme.Gui;
 import ghidra.app.context.ListingActionContext;
 import ghidra.app.context.ListingContextAction;
 import ghidra.app.merge.listing.CodeUnitDetails;
@@ -22,17 +35,6 @@ import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.*;
 import ghidra.program.util.ProgramLocation;
 import ghidra.util.HelpLocation;
-
-import java.awt.*;
-import java.awt.event.InputEvent;
-import java.awt.event.KeyEvent;
-
-import javax.swing.*;
-
-import docking.DialogComponentProvider;
-import docking.action.KeyBindingData;
-import docking.action.MenuData;
-import docking.widgets.fieldpanel.FieldPanel;
 
 public class ViewInstructionDetailsAction extends ListingContextAction {
 
@@ -44,11 +46,11 @@ public class ViewInstructionDetailsAction extends ListingContextAction {
 		this.listingMergePanelPlugin = listingMergePanelPlugin;
 		setPopupMenuData(new MenuData(new String[] { "View Instruction Details..." }, null,
 			"ViewInstructionDetails"));
-		setKeyBindingData(new KeyBindingData(KeyEvent.VK_R, InputEvent.CTRL_DOWN_MASK |
+		setKeyBindingData(new KeyBindingData(KeyEvent.VK_R, DockingUtils.CONTROL_KEY_MODIFIER_MASK |
 			InputEvent.SHIFT_DOWN_MASK));
 		setEnabled(true);
-		setDescription("Display a dialog indicating details, such as references, for the "
-			+ "instruction at the current cursor location.");
+		setDescription("Display a dialog indicating details, such as references, for the " +
+			"instruction at the current cursor location.");
 		setHelpLocation(HELP_LOCATION);
 	}
 
@@ -87,13 +89,11 @@ public class ViewInstructionDetailsAction extends ListingContextAction {
 	}
 
 	private JScrollPane createDetailsPane(String details) {
-		Font font = new Font("Monospaced", Font.PLAIN, 12);
-
 		JTextArea textArea = new JTextArea();
+		Gui.registerFont(textArea, "font.monospaced");
 		textArea.setLineWrap(false);
 		textArea.setEditable(false);
 		textArea.setMargin(new Insets(5, 5, 5, 5));
-		textArea.setFont(font);
 		textArea.setOpaque(true);
 		textArea.setCaretPosition(0);
 		textArea.setText(details);
@@ -102,8 +102,10 @@ public class ViewInstructionDetailsAction extends ListingContextAction {
 		JViewport vp = scrolledDetails.getViewport();
 		vp.add(textArea);
 
-		scrolledDetails.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-		scrolledDetails.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
+		scrolledDetails
+				.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+		scrolledDetails
+				.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
 		return scrolledDetails;
 	}
 

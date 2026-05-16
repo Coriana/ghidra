@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,7 +21,6 @@ import ghidra.docking.settings.Settings;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressOverflowException;
 import ghidra.program.model.mem.*;
-import ghidra.util.Conv;
 import ghidra.util.Msg;
 
 /**
@@ -86,7 +85,7 @@ public abstract class IndexedDynamicDataType extends DynamicDataType {
 		}
 
 		for (int i = 0; i < keys.length; i++) {
-			table.put(new Long(keys[i]), new Integer(i));
+			table.put(Long.valueOf(keys[i]), Integer.valueOf(i));
 		}
 		if (mask == 0) {
 			mask = 0xFFFFFFFF;
@@ -129,7 +128,7 @@ public abstract class IndexedDynamicDataType extends DynamicDataType {
 		}
 
 		for (int i = 0; i < structs.length; i++) {
-			table.put(new Long(i), new Integer(i));
+			table.put(Long.valueOf(i), Integer.valueOf(i));
 		}
 	}
 
@@ -145,10 +144,10 @@ public abstract class IndexedDynamicDataType extends DynamicDataType {
 		long index = getIndex(memory, start.add(indexOffset)) & mask;
 		Integer structIndex = null;
 		if (keys.length == 1) {
-			structIndex = (index == keys[0]) ? new Integer(0) : new Integer(1);
+			structIndex = (index == keys[0]) ? Integer.valueOf(0) : Integer.valueOf(1);
 		}
 		else {
-			structIndex = table.get(new Long(index));
+			structIndex = table.get(Long.valueOf(index));
 		}
 
 		if (structIndex == null) {
@@ -169,7 +168,7 @@ public abstract class IndexedDynamicDataType extends DynamicDataType {
 			comps = new DataTypeComponent[2];
 		}
 		MemoryBufferImpl newBuf = new MemoryBufferImpl(memory, buf.getAddress());
-		DataTypeInstance dti = DataTypeInstance.getDataTypeInstance(header, newBuf);
+		DataTypeInstance dti = DataTypeInstance.getDataTypeInstance(header, newBuf, false);
 		if (dti == null) {
 			Msg.error(this, "ERROR: problem with data at " + newBuf.getAddress());
 			return null;
@@ -183,7 +182,7 @@ public abstract class IndexedDynamicDataType extends DynamicDataType {
 				int offset = countSize;
 				newBuf = new MemoryBufferImpl(memory, buf.getAddress());
 				newBuf.advance(countSize);
-				dti = DataTypeInstance.getDataTypeInstance(data, newBuf);
+				dti = DataTypeInstance.getDataTypeInstance(data, newBuf, false);
 				if (dti == null) {
 					Msg.error(this, "ERROR: problem with data at " + newBuf.getAddress());
 					return null;
@@ -239,13 +238,13 @@ public abstract class IndexedDynamicDataType extends DynamicDataType {
 		try {
 			switch (indexSize) {
 				case 1:
-					test = Conv.byteToLong(memory.getByte(loc));
+					test = Byte.toUnsignedLong(memory.getByte(loc));
 					break;
 				case 2:
-					test = Conv.shortToLong(memory.getShort(loc));
+					test = Short.toUnsignedLong(memory.getShort(loc));
 					break;
 				case 4:
-					test = Conv.intToLong(memory.getInt(loc));
+					test = Integer.toUnsignedLong(memory.getInt(loc));
 					break;
 				case 8:
 					test = memory.getLong(loc);

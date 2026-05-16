@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -37,15 +37,17 @@ public class AVR8_6_GCC_O3_EmulatorTest extends ProcessorEmulatorTestAdapter {
 		return "AVR8_6_GCC_O3";
 	}
 
-	protected void initializeState(EmulatorTestRunner testRunner, Program program) throws Exception {
+	@Override
+	protected void initializeState(EmulatorTestRunner testRunner, Program program)
+			throws Exception {
+		super.initializeState(testRunner, program);
 		// These eliminate "uninitialized register" errors. Not strictly needed, but helps find actual problems.
 		testRunner.setRegister("SP", 0x0);
 		testRunner.setRegister("R1", 0x0);
 		testRunner.setRegister("Y", 0x0);
-		testRunner.setRegister("W", 0x0);		
-		testRunner.setRegister("SREG", 0x0);
+		testRunner.setRegister("R25R24", 0x0);
 	}
-	
+
 	@Override
 	protected void setAnalysisOptions(Options analysisOptions) {
 		super.setAnalysisOptions(analysisOptions);
@@ -54,6 +56,7 @@ public class AVR8_6_GCC_O3_EmulatorTest extends ProcessorEmulatorTestAdapter {
 	}
 
 	public static Test suite() {
-		return ProcessorEmulatorTestAdapter.buildEmulatorTestSuite(AVR8_6_GCC_O3_EmulatorTest.class);
+		return ProcessorEmulatorTestAdapter.buildEmulatorTestSuite(
+			AVR8_6_GCC_O3_EmulatorTest.class);
 	}
 }
